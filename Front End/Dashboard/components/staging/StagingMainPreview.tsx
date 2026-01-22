@@ -8,6 +8,86 @@ import "../ui/cpu-architecture.css";
 import { createPreviewURL, initBundler } from "~/lib/preview";
 import { testStore } from "../../lib/test-store";
 
+// Visual cursor overlay for Computer Use testing
+const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = ({ iframeRef }) => {
+  const cursorPosition = useStore(testStore.cursorPosition);
+  const isClicking = useStore(testStore.isClicking);
+  const currentThought = useStore(testStore.currentThought);
+  
+  if (!cursorPosition || !iframeRef.current) return null;
+  
+  // Get iframe dimensions to convert normalized coords (0-1000) to pixels
+  const rect = iframeRef.current.getBoundingClientRect();
+  const x = (cursorPosition.x / 1000) * rect.width;
+  const y = (cursorPosition.y / 1000) * rect.height;
+  
+  return (
+    <div 
+      className="absolute pointer-events-none z-50 will-change-transform"
+      style={{
+        left: x,
+        top: y,
+        // No translation needed for top-left tip alignment
+        transition: 'left 0.4s cubic-bezier(0.16, 1, 0.3, 1), top 0.4s cubic-bezier(0.16, 1, 0.3, 1)', 
+      }}
+    >
+      {/* Click Ripple Effect - Centered on tip */}
+      <div 
+        className={`absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-400/40 pointer-events-none transition-all duration-500 ease-out ${
+          isClicking ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+        }`}
+        style={{
+          width: 48,
+          height: 48,
+          background: 'radial-gradient(circle, rgba(96, 165, 250, 0.15) 0%, transparent 70%)',
+          boxShadow: '0 0 20px rgba(96, 165, 250, 0.3)',
+        }}
+      />
+      
+      {/* Main Cursor Image */}
+      <div 
+        className="relative"
+        style={{
+          transform: isClicking ? 'scale(0.9) rotate(-5deg)' : 'scale(1) rotate(0deg)',
+          transition: 'transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}
+      >
+        <img 
+          src="/cursor.cur" 
+          alt="Cursor"
+          width={32}
+          height={32}
+          style={{ 
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))',
+            // Default cursors usually point to top-left, so no extra transform needed usually
+          }}
+        />
+      </div>
+
+      {/* Thought Signature Bubble */}
+      {currentThought && (
+        <div 
+          className="absolute left-4 top-8 px-3 py-1.5 bg-[#1e1e1e] text-white text-[12px] font-medium rounded-full shadow-xl whitespace-nowrap border border-white/10 flex items-center gap-1.5 z-50 pointer-events-auto"
+          style={{
+            animation: 'fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            transformOrigin: 'top left',
+          }}
+        >
+          {/* Animated Thinking Dot */}
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          {currentThought}
+        </div>
+      )}
+      <style>{`
+        @keyframes fadeInScale {
+          from { opacity: 0; transform: scale(0.9) translateY(-4px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+};
+
 interface MainPreviewProps {
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
@@ -245,24 +325,28 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             >
               {/* Preview iframe */}
               {previewUrl && hasUserCode && (
-                <iframe
-                  src={previewUrl}
-                  className="w-full h-full border-0"
-                  title="Preview"
-                  sandbox="allow-scripts allow-same-origin"
-                  ref={(el) => {
-                    // @ts-ignore - Store locally and in testStore
-                    iframeRef.current = el;
-                    testStore.setIframeRef(el);
-                  }}
-                  style={{ 
-                    pointerEvents: isResizing ? "none" : "auto",
-                    opacity: isRefreshing ? 0 : 1,
-                    transform: isRefreshing ? 'scale(0.995)' : 'scale(1)',
-                    filter: isRefreshing ? 'blur(4px)' : 'blur(0px)',
-                    transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                  }}
-                />
+                <>
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-full border-0"
+                    title="Preview"
+                    sandbox="allow-scripts allow-same-origin"
+                    ref={(el) => {
+                      // @ts-ignore - Store locally and in testStore
+                      iframeRef.current = el;
+                      testStore.setIframeRef(el);
+                    }}
+                    style={{ 
+                      pointerEvents: isResizing ? "none" : "auto",
+                      opacity: isRefreshing ? 0 : 1,
+                      transform: isRefreshing ? 'scale(0.995)' : 'scale(1)',
+                      filter: isRefreshing ? 'blur(4px)' : 'blur(0px)',
+                      transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  />
+                  {/* Visual Cursor Overlay for Computer Use Testing */}
+                  <TestCursor iframeRef={iframeRef} />
+                </>
               )}
 
               {/* Premium Loading Bar */}

@@ -41,6 +41,15 @@ class TestStore {
   // Current action being executed (for UI indicator)
   currentAction = atom<string | null>(null);
   
+  // Cursor position for visual feedback (normalized 0-1000, will be converted in UI)
+  cursorPosition = atom<{ x: number; y: number } | null>(null);
+  
+  // Whether cursor is currently clicking (for click animation)
+  isClicking = atom<boolean>(false);
+  
+  // Current thought/status message for the cursor label
+  currentThought = atom<string | null>(null);
+  
   // Test messages (displayed in sidebar)
   testMessages = atom<TestMessage[]>([]);
   
@@ -93,6 +102,39 @@ class TestStore {
   }
   
   /**
+   * Move cursor to position (normalized 0-1000)
+   */
+  moveCursor(x: number, y: number) {
+    this.cursorPosition.set({ x, y });
+  }
+  
+  /**
+   * Trigger click animation
+   */
+  triggerClick() {
+    this.isClicking.set(true);
+    // Reset after animation duration
+    setTimeout(() => {
+      this.isClicking.set(false);
+    }, 300);
+  }
+  
+  /**
+   * Hide cursor
+   */
+  hideCursor() {
+    this.cursorPosition.set(null);
+    this.isClicking.set(false);
+  }
+  
+  /**
+   * Set current thought/status for cursor label
+   */
+  setThought(thought: string | null) {
+    this.currentThought.set(thought);
+  }
+  
+  /**
    * Update status
    */
   setStatus(status: TestStatus) {
@@ -142,6 +184,7 @@ class TestStore {
     this.conversationHistory.set([]);
     this.lastResult.set(null);
     this.currentAction.set(null);
+    this.currentThought.set(null);
     this.testMessages.set([]);
   }
 }

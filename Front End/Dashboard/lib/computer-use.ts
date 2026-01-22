@@ -3,6 +3,7 @@
 // Uses the new @google/genai SDK
 
 import { GoogleGenAI, Part, Content, FunctionCall } from '@google/genai';
+import { testStore } from './test-store';
 
 // ============================================================================
 // Types
@@ -176,11 +177,37 @@ async function executeAction(
     
     console.log(`[ComputerUse] Executing action: ${name}`, args);
     
+    // Update cursor thought for the action
+    let actionThought = '';
+    if (name === 'click_at') actionThought = 'Clicking...';
+    else if (name === 'type_text_at') actionThought = 'Typing...';
+    else if (name === 'hover_at') actionThought = 'Hovering...';
+    else if (name === 'scroll_at') actionThought = 'Scrolling...';
+    else if (name === 'navigate') actionThought = 'Navigating...';
+    else if (name === 'go_back') actionThought = 'Going back...';
+    else if (name === 'go_forward') actionThought = 'Going forward...';
+    
+    if (actionThought) {
+       testStore.setThought(actionThought);
+    }
+    
     switch (name) {
       case 'click_at': {
         const x = denormalizeX(args.x as number, dimensions.width);
         const y = denormalizeY(args.y as number, dimensions.height);
         console.log(`[ComputerUse] Clicking at (${x}, ${y})`);
+        
+        // Move visual cursor to position (using normalized coords for the UI)
+        testStore.moveCursor(args.x as number, args.y as number);
+        
+        // Wait for cursor to animate to position
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Trigger click animation
+        testStore.triggerClick();
+        
+        // Wait for click animation
+        await new Promise(resolve => setTimeout(resolve, 150));
         
         const element = iframeDocument.elementFromPoint(x, y);
         if (element) {
@@ -210,6 +237,12 @@ async function executeAction(
         const clearFirst = args.clear_before_typing as boolean;
         
         console.log(`[ComputerUse] Typing "${text}" at (${x}, ${y})`);
+        
+        // Move visual cursor to position
+        testStore.moveCursor(args.x as number, args.y as number);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        testStore.triggerClick(); // Click to focus
+        await new Promise(resolve => setTimeout(resolve, 150));
         
         const element = iframeDocument.elementFromPoint(x, y) as HTMLInputElement | HTMLTextAreaElement;
         if (element && ('value' in element || element.isContentEditable)) {
@@ -251,6 +284,10 @@ async function executeAction(
         const y = denormalizeY(args.y as number, dimensions.height);
         
         console.log(`[ComputerUse] Hovering at (${x}, ${y})`);
+        
+        // Move visual cursor to position
+        testStore.moveCursor(args.x as number, args.y as number);
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         const element = iframeDocument.elementFromPoint(x, y);
         if (element) {
@@ -401,22 +438,20 @@ function extractFunctionCalls(response: any): ComputerUseAction[] {
 }
 
 /**
- * Extract text from the model response
+ * Extract text from the model response (excluding thoughts)
  */
 function extractText(response: any): string {
   try {
-    // Try the simple text property first (new SDK)
-    if (response.text) {
-      return response.text;
-    }
-    
-    // Fall back to parsing candidates
     const candidates = response.candidates || [];
     const textParts: string[] = [];
     
     for (const candidate of candidates) {
       const parts = candidate.content?.parts || [];
       for (const part of parts) {
+        // Skip parts that are strictly thoughts
+        // @ts-ignore
+        if (part.thought === true) continue;
+        
         if (part.text) {
           textParts.push(part.text);
         }
@@ -427,6 +462,31 @@ function extractText(response: any): string {
   } catch (e) {
     console.warn('[ComputerUse] Failed to extract text:', e);
     return '';
+  }
+}
+
+/**
+ * Extract thought from the model response
+ */
+function extractThought(response: any): string | null {
+  try {
+    const candidates = response.candidates || [];
+    const thoughtParts: string[] = [];
+    
+    for (const candidate of candidates) {
+      const parts = candidate.content?.parts || [];
+      for (const part of parts) {
+        // Check for native thought property
+        // @ts-ignore
+        if (part.thought === true && part.text) {
+          thoughtParts.push(part.text);
+        }
+      }
+    }
+    
+    return thoughtParts.length > 0 ? thoughtParts.join(' ') : null;
+  } catch (e) {
+    return null;
   }
 }
 
@@ -453,6 +513,7 @@ export async function runComputerUseTest(
   
   try {
     onUpdate({ type: 'thinking', message: 'Initializing Computer Use agent...' });
+    testStore.setThought('Initializing...');
     
     const client = getClient(apiKey);
     
@@ -465,6 +526,7 @@ export async function runComputerUseTest(
     
     // Step 1: Capture initial screenshot
     onUpdate({ type: 'screenshot', message: 'Capturing initial screenshot...' });
+    testStore.setThought('Capturing screen...');
     const initialScreenshot = await captureIframeScreenshot(iframe);
     console.log('[ComputerUse] Initial screenshot captured, length:', initialScreenshot.length);
     
@@ -507,6 +569,10 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         contents: contents,
         config: {
           systemInstruction: COMPUTER_USE_SYSTEM_PROMPT,
+          // @ts-ignore - Native Thinking/Thought Signature config
+          thinkingConfig: {
+            includeThoughts: true,
+          },
           tools: [{
             // @ts-ignore - Computer Use tool configuration
             computerUse: {
@@ -519,17 +585,39 @@ Please analyze the screenshot and perform the necessary actions to test this fea
       
       console.log('[ComputerUse] Response received');
       
-      // Extract text and function calls
+      // Extract text, thoughts, and function calls
       const textResponse = extractText(response);
+      const thoughtResponse = extractThought(response);
       const functionCalls = extractFunctionCalls(response);
       
+      console.log('[ComputerUse] Thought:', thoughtResponse?.substring(0, 50));
       console.log('[ComputerUse] Text:', textResponse?.substring(0, 100));
       console.log('[ComputerUse] Function calls:', functionCalls.length);
       
-      // Stream any text to the UI
-      if (textResponse) {
-        onUpdate({ type: 'text', message: textResponse });
-        finalText = textResponse;
+      // Update Thought Signature (Floating Bubble)
+      if (thoughtResponse) {
+        // Update the visual cursor bubble
+        testStore.setThought(thoughtResponse);
+        
+        // Also log to sidebar for history
+        const displayThought = thoughtResponse.length > 80 
+          ? thoughtResponse.substring(0, 80) + '...' 
+          : thoughtResponse;
+        onUpdate({ type: 'thinking', message: displayThought });
+      }
+      
+      // Process model response text
+      if (textResponse && textResponse.trim().length > 0) {
+        // If no function calls are present, this is likely the final answer or a direct response
+        if (functionCalls.length === 0) {
+          onUpdate({ type: 'text', message: textResponse });
+          finalText = textResponse;
+        } else {
+          // If there are function calls, the text is usually commentary.
+          // We can optionally show this, or just let the actions speak.
+          console.log('[ComputerUse] Commentary:', textResponse);
+        }
+
       }
       
       // Add model response to conversation history
@@ -593,6 +681,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
       
       // Capture new screenshot after actions
       onUpdate({ type: 'screenshot', message: 'Capturing new state...' });
+      testStore.setThought('Capturing screen...');
       const newScreenshot = await captureIframeScreenshot(iframe);
       
       // Get the current URL from iframe (or use a placeholder for preview)
@@ -645,6 +734,9 @@ Please analyze the screenshot and perform the necessary actions to test this fea
                    finalText.toLowerCase().includes('works correctly') ||
                    finalText.toLowerCase().includes('feature works');
     
+    // Hide cursor when done
+    testStore.hideCursor();
+    
     onUpdate({ type: 'complete', message: passed ? 'Test passed!' : 'Test failed' });
     
     return {
@@ -655,6 +747,10 @@ Please analyze the screenshot and perform the necessary actions to test this fea
     
   } catch (error: any) {
     console.error('[ComputerUse] Agent loop error:', error);
+    
+    // Hide cursor on error too
+    testStore.hideCursor();
+    
     onUpdate({ type: 'error', message: error.message });
     
     return {

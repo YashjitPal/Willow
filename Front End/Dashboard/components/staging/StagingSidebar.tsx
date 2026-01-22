@@ -852,9 +852,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               break;
             case 'complete':
               testStore.setStatus('complete');
+              testStore.setThought(null);
               break;
             case 'error':
               currentContent = `❌ Error: ${update.message}`;
+              testStore.setThought('Error!');
               break;
           }
           
