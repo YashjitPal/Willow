@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Willow Clone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+            },
+            colors: {
+              sidebar: "#0f0f0f",
+              sidebarHover: "#1f1f1f",
+              inputBg: "#27272a",
+              "color-1": "hsl(var(--color-1))",
+              "color-2": "hsl(var(--color-2))",
+              "color-3": "hsl(var(--color-3))",
+              "color-4": "hsl(var(--color-4))",
+              "color-5": "hsl(var(--color-5))",
+            },
+            animation: {
+              rainbow: "rainbow var(--speed, 2s) infinite linear",
+              fadeIn: "fadeIn 150ms ease-out",
+              dropdownOpen: "dropdownOpen 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+              dropdownClose: "dropdownClose 150ms ease-out forwards",
+              dropdownOpenUp: "dropdownOpenUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+              dropdownCloseUp: "dropdownCloseUp 150ms ease-out forwards",
+              shimmer: "shimmer linear infinite",
+              textFadeIn: "textFadeIn 800ms ease-out forwards",
+              "shimmer-slide": "shimmer-slide var(--speed) ease-in-out infinite alternate",
+              "spin-around": "spin-around calc(var(--speed) * 2) infinite linear",
+            },
+            keyframes: {
+              rainbow: {
+                "0%": { "background-position": "0%" },
+                "100%": { "background-position": "200%" },
+              },
+              fadeIn: {
+                "0%": { opacity: "0" },
+                "100%": { opacity: "1" },
+              },
+              dropdownOpen: {
+                "0%": { opacity: "0", "clip-path": "inset(0 0 100% 0)" },
+                "100%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+              },
+              dropdownClose: {
+                "0%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+                "100%": { opacity: "0", "clip-path": "inset(0 0 100% 0)" },
+              },
+              dropdownOpenUp: {
+                "0%": { opacity: "0", "clip-path": "inset(100% 0 0 0)" },
+                "100%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+              },
+              dropdownCloseUp: {
+                "0%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+                "100%": { opacity: "0", "clip-path": "inset(100% 0 0 0)" },
+              },
+              shimmer: {
+                "0%": { "background-position": "100% 0" },
+                "100%": { "background-position": "-100% 0" },
+              },
+              textFadeIn: {
+                "0%": { 
+                  opacity: "0"
+                },
+                "100%": { 
+                  opacity: "1"
+                },
+              },
+              "spin-around": {
+                "0%": {
+                  transform: "translateZ(0) rotate(0)",
+                },
+                "15%, 35%": {
+                  transform: "translateZ(0) rotate(90deg)",
+                },
+                "65%, 85%": {
+                  transform: "translateZ(0) rotate(270deg)",
+                },
+                "100%": {
+                  transform: "translateZ(0) rotate(360deg)",
+                },
+              },
+              "shimmer-slide": {
+                to: {
+                  transform: "translate(calc(100cqw - 100%), 0)",
+                },
+              },
+            },
+            backgroundImage: {
+              'gradient-radial': 'radial-gradient(ellipse at center, var(--tw-gradient-stops))',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        --color-1: 0 100% 63%;
+        --color-2: 270 100% 63%;
+        --color-3: 210 100% 63%;
+        --color-4: 195 100% 63%;
+        --color-5: 90 100% 63%;
+
+        /* shadcn CSS variables for dark theme */
+        --background: 0 0% 5%;
+        --foreground: 0 0% 100%;
+        --card: 0 0% 8%;
+        --card-foreground: 0 0% 100%;
+        --popover: 0 0% 8%;
+        --popover-foreground: 0 0% 100%;
+        --primary: 262 83% 58%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 0 0% 15%;
+        --secondary-foreground: 0 0% 100%;
+        --muted: 0 0% 15%;
+        --muted-foreground: 0 0% 60%;
+        --accent: 0 0% 15%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 0 0% 20%;
+        --input: 0 0% 20%;
+        --ring: 262 83% 58%;
+        --radius: 0.5rem;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #030303;
+        color: white;
+        overflow: hidden;
+      }
+
+      /* Universal Minimal Modern Scrollbar */
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 20px;
+      }
+
+      /* Custom scrollbar that shows on hover */
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: transparent;
+      }
+      .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      /* Smooth background transition container */
+      .bg-layer {
+        position: absolute;
+        inset: 0;
+        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

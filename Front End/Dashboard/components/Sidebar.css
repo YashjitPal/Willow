@@ -1,0 +1,30 @@
+
+.menu-fade-in {
+  animation: menuFadeIn 0.15s ease-out forwards;
+}
+
+.menu-fade-out {
+  animation: menuFadeOut 0.15s ease-in forwards;
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes menuFadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}

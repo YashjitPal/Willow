@@ -1,0 +1,130 @@
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Hover Scrollbar */
+.hover-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent; /* Thumb Track */
+  transition: scrollbar-color 0.3s;
+  scroll-behavior: smooth;
+}
+
+.hover-scrollbar:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hover-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 9999px;
+  transition: background-color 0.3s;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.settings-fade-in {
+  animation: settingsFadeIn 0.15s ease-out forwards;
+}
+
+.settings-fade-out {
+  animation: settingsFadeOut 0.15s ease-in forwards;
+}
+
+@keyframes settingsFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes settingsFadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.backdrop-fade-in {
+  animation: backdropFadeIn 0.15s ease-out forwards;
+}
+
+.backdrop-fade-out {
+  animation: backdropFadeOut 0.15s ease-in forwards;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes backdropFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Color picker slide-in animation */
+.animate-slide-in-right {
+  animation: slideInRight 0.2s ease-out forwards;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Color picker slide-out animation */
+.animate-slide-out-left {
+  animation: slideOutLeft 0.15s ease-in forwards;
+}
+
+@keyframes slideOutLeft {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
