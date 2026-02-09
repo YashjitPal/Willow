@@ -154,14 +154,9 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
 
   const [activeTab, setActiveTab] = useState('preview');
   
-  // Handle test mode switching
-  useEffect(() => {
-    if (activeTab === 'test') {
-      testStore.enterTestMode();
-    } else {
-      testStore.exitTestMode();
-    }
-  }, [activeTab]);
+  // Note: Test mode is no longer tied to activeTab
+  // testStore.enterTestMode() is called when test starts in StagingSidebar.startTestGeneration()
+  // testStore.exitTestMode() is called when test completes
   
   // Calculate effective layout based on chat mode
   const containerStyle = isChatMode 
@@ -256,19 +251,20 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
         className={`w-0 relative z-50 group flex-shrink-0 transition-opacity duration-300 ${isChatMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         onMouseDown={startResizing}
       >
-         <div 
-           className={`absolute w-[1.5px] left-0 rounded-full transition-all duration-300 ease-in-out 
-             bg-gradient-to-b from-transparent via-[#3b82f6] to-transparent
-             ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
-           `}
-            style={{ 
-              top: '56px', 
-              bottom: '16px', 
-              transform: isSidebarCollapsed ? 'translateX(15.25px)' : 'translateX(-0.75px)',
-              maskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)',
-              WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)'
-            }}
-         />
+          <div 
+            className={`absolute w-[2px] left-0 rounded-full ${isDragging ? '' : 'transition-all duration-300 ease-in-out'} 
+              bg-gradient-to-b from-transparent via-[#3b82f6] to-transparent
+              ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+            `}
+             style={{ 
+               top: '56px', 
+               bottom: '16px', 
+               transform: isSidebarCollapsed ? 'translate3d(15px, 0, 0)' : 'translate3d(-1px, 0, 0)',
+               willChange: 'transform',
+               maskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)',
+               WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)'
+             }}
+          />
          
          <div 
             className={`absolute top-14 bottom-4 -left-1 bg-transparent cursor-[ew-resize] hover:bg-transparent ${isSidebarCollapsed ? '-right-4' : '-right-1'}`} 
@@ -277,7 +273,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
 
       {/* Main Preview - Slides in from right */}
       <div 
-        className={`flex-1 min-w-0 transition-all duration-500 ease-out
+        className={`flex-1 min-w-0 ${isDragging ? '' : 'transition-all duration-500 ease-out'}
           ${isChatMode ? 'opacity-0 translate-x-[100px] pointer-events-none' : 'opacity-100 translate-x-0'}`}
       >
         <MainPreview 

@@ -32,10 +32,8 @@ interface TopBarProps {
 export const ALL_TOOLS = [
   { id: 'preview', label: 'Preview', icon: Globe },
   { id: 'code', label: 'Code', icon: Code2 },
-  { id: 'test', label: 'Test', icon: FlaskConical },
   { id: 'design', label: 'Design', icon: Palette },
   { id: 'cloud', label: 'Cloud', icon: Cloud },
-  { id: 'prototype', label: 'Prototype', icon: Beaker },
 ];
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {

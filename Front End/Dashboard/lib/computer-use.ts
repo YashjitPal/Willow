@@ -4,15 +4,19 @@
 
 import { GoogleGenAI, Part, Content, FunctionCall } from '@google/genai';
 import { testStore } from './test-store';
+import { COMPUTER_USE_MODEL, TEST_INTRO_MODEL } from '@models';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface TestUpdate {
-  type: 'thinking' | 'action' | 'screenshot' | 'text' | 'complete' | 'error';
+  type: 'thinking' | 'action' | 'screenshot' | 'text' | 'complete' | 'error' | 'plan';
   message: string;
   actionName?: string;
+  thought?: string;
+  actionType?: string;
+  thoughtSignature?: string;
 }
 
 export interface TestResult {
@@ -34,27 +38,96 @@ export interface ComputerUseAction {
 // Constants
 // ============================================================================
 
-export const COMPUTER_USE_MODEL = 'gemini-2.5-computer-use-preview-10-2025';
+// Re-export for convenience (model name is defined in /defaultmodel.ts)
+export { COMPUTER_USE_MODEL };
 
 // Recommended screen dimensions for Computer Use
 const SCREEN_WIDTH = 1440;
 const SCREEN_HEIGHT = 900;
 
 // Maximum turns in agent loop to prevent infinite loops
-const MAX_AGENT_TURNS = 10;
+const MAX_AGENT_TURNS = 25;
 
 // System prompt for testing context
-const COMPUTER_USE_SYSTEM_PROMPT = `You are a QA tester for a web application preview. The user will ask you to test specific features or behaviors.
+const COMPUTER_USE_SYSTEM_PROMPT = `You are a QA tester for a web app. Test what the user asks, then give a clean summary.
 
-When testing:
-1. Look at the screenshot provided and analyze the current state of the UI
-2. Perform the requested tests using the available actions (click_at, type_text_at, scroll_at, etc.)
-3. After performing actions, analyze the new state to verify if the feature works
-4. Report your findings clearly with:
-   - ✅ YES - if the feature works as expected, explain what you observed
-   - ❌ NO - if something is wrong, explain what failed and what you expected
+TESTING RULES:
+- Do ONE action per turn, wait for screenshot, then do next action
+- Complete the entire test before giving your summary
+- If you can't see something, scroll to find it
+- Don't repeat the same action - test once and move on
 
-Be concise but thorough. Describe what you see and what actions you take.`;
+WHEN DONE, GIVE A CLEAN SUMMARY:
+ONLY provide the summary in the specified format. Do NOT include any other text, commentary, reasoning, or conversation before or after these sections. Your final answer should be simple and easy to read using this EXACT format:
+
+**Result:** YES or NO
+
+**What I tested:**
+- [First thing you tested]
+- [Second thing you tested]
+
+**What happened:**
+- [Result of first test]
+- [Result of second test]
+
+**Conclusion:** [One sentence summary]
+
+EXAMPLE OF GOOD OUTPUT:
+**Result:** YES
+
+**What I tested:**
+- Adding two numbers (2 + 3)
+- The clear button
+
+**What happened:**
+- Clicked 2, +, 3, = and got 5 (correct!)
+- Clicked clear and it reset to 0
+
+**Conclusion:** The calculator works perfectly.
+
+BAD OUTPUT (don't do this):
+- Including ANY text before the "**Result:**" line (Do not write anything outside these three segments)
+- Including ANY text after the conclusion
+- Long paragraphs with technical explanations
+- Mathematical verification steps
+- Internal reasoning like "let me verify..."
+- Just saying "Test completed"
+
+
+YOU SHOULD STRICTLY NOT WRITE ANYTHING BEFORE "RESULT" AND AFTER "CONCLUSION".
+
+
+Keep it simple, clean, and strictly limited to the sections above!`;
+
+
+// System prompt for generating the intro paragraph (before testing starts)
+const TEST_INTRO_SYSTEM_PROMPT = `You are a QA tester. The user will ask you to test something. 
+
+Your job is to write ONE short paragraph (2-3 sentences max) explaining what you will test.
+
+Example:
+User: "test the calculator"
+You: "I'll test the calculator by entering some numbers and operations. I'll try addition and see if the result is correct."
+
+Keep it brief and conversational. Don't use bullet points or formatting - just a simple paragraph.`;
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function getActionType(name: string, args: any): string {
+  if (name === 'computer' || name === 'computerUse') {
+    const action = args?.action;
+    if (action === 'key' || action === 'type') return 'Type';
+    if (action === 'mouse_click') return 'Click';
+    if (action === 'scroll') return 'Scroll';
+    if (action === 'mouse_move') return 'Move'; // Often implicit
+    if (action === 'screenshot') return 'Analysis';
+    if (args?.coordinate) return 'Move';
+    return 'Action';
+  }
+  return 'Process';
+}
 
 // ============================================================================
 // Client Management
@@ -93,13 +166,27 @@ function denormalizeY(y: number, screenHeight: number): number {
 // Screenshot Capture
 // ============================================================================
 
+export interface ScreenshotResult {
+  data: string;  // Base64 PNG data
+  actualWidth: number;  // Original iframe width
+  actualHeight: number;  // Original iframe height
+  normalizedWidth: number;  // Standard width sent to model (1440)
+  normalizedHeight: number;  // Standard height sent to model (900)
+}
+
 /**
- * Capture a screenshot of an iframe using html2canvas
- * Returns base64 PNG data (without the data:image/png;base64, prefix)
+ * Capture a screenshot of an iframe and normalize it to standard resolution.
+ * 
+ * The Computer Use model works best at specific resolutions. We:
+ * 1. Capture the iframe at its actual size
+ * 2. Scale it to 1440x900 (the standard size)
+ * 3. Return scaling factors so coordinates can be converted back
+ * 
+ * This ensures the model always sees the same resolution regardless of actual iframe size.
  */
 export async function captureIframeScreenshot(
   iframe: HTMLIFrameElement
-): Promise<string> {
+): Promise<ScreenshotResult> {
   return new Promise((resolve, reject) => {
     try {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -109,28 +196,65 @@ export async function captureIframeScreenshot(
       }
       
       const rect = iframe.getBoundingClientRect();
+      const actualWidth = rect.width;
+      const actualHeight = rect.height;
+      
+      // Get current scroll position
+      const scrollX = iframeDoc.documentElement?.scrollLeft || iframeDoc.body?.scrollLeft || 0;
+      const scrollY = iframeDoc.documentElement?.scrollTop || iframeDoc.body?.scrollTop || 0;
+      
+      console.log(`[ComputerUse] === SCREENSHOT ===`);
+      console.log(`[ComputerUse] Actual iframe size: ${actualWidth}x${actualHeight}`);
+      console.log(`[ComputerUse] Will normalize to: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
       
       import('html2canvas').then(({ default: html2canvas }) => {
-        html2canvas(iframeDoc.body, {
-          width: rect.width,
-          height: rect.height,
-          windowWidth: rect.width,
-          windowHeight: rect.height,
+        html2canvas(iframeDoc.documentElement, {
+          width: actualWidth,
+          height: actualHeight,
+          windowWidth: actualWidth,
+          windowHeight: actualHeight,
+          x: scrollX,
+          y: scrollY,
           backgroundColor: '#1c1c1c',
           useCORS: true,
           allowTaint: true,
-        }).then(canvas => {
-          const dataUrl = canvas.toDataURL('image/png');
-          // Remove the data:image/png;base64, prefix
+          scale: 1,
+          logging: false,
+        }).then(originalCanvas => {
+          // Create a new canvas at the normalized size (1440x900)
+          const normalizedCanvas = document.createElement('canvas');
+          normalizedCanvas.width = SCREEN_WIDTH;
+          normalizedCanvas.height = SCREEN_HEIGHT;
+          const ctx = normalizedCanvas.getContext('2d');
+          
+          if (ctx) {
+            // Scale the original capture to fit the normalized canvas
+            ctx.drawImage(
+              originalCanvas, 
+              0, 0, originalCanvas.width, originalCanvas.height,  // Source
+              0, 0, SCREEN_WIDTH, SCREEN_HEIGHT  // Destination (scaled)
+            );
+          }
+          
+          const dataUrl = normalizedCanvas.toDataURL('image/png');
           const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-          resolve(base64Data);
+          
+          console.log(`[ComputerUse] Normalized screenshot size: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
+          console.log(`[ComputerUse] Scale factors: X=${(actualWidth/SCREEN_WIDTH).toFixed(3)}, Y=${(actualHeight/SCREEN_HEIGHT).toFixed(3)}`);
+          
+          resolve({
+            data: base64Data,
+            actualWidth,
+            actualHeight,
+            normalizedWidth: SCREEN_WIDTH,
+            normalizedHeight: SCREEN_HEIGHT,
+          });
         }).catch(reject);
       }).catch(err => {
         console.warn('[ComputerUse] html2canvas not available, using fallback');
-        // Fallback: create a simple placeholder
         const canvas = document.createElement('canvas');
-        canvas.width = rect.width || 800;
-        canvas.height = rect.height || 600;
+        canvas.width = SCREEN_WIDTH;
+        canvas.height = SCREEN_HEIGHT;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = '#1c1c1c';
@@ -142,7 +266,13 @@ export async function captureIframeScreenshot(
         }
         const dataUrl = canvas.toDataURL('image/png');
         const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-        resolve(base64Data);
+        resolve({
+          data: base64Data,
+          actualWidth: rect.width || SCREEN_WIDTH,
+          actualHeight: rect.height || SCREEN_HEIGHT,
+          normalizedWidth: SCREEN_WIDTH,
+          normalizedHeight: SCREEN_HEIGHT,
+        });
       });
     } catch (error) {
       reject(error);
@@ -156,11 +286,15 @@ export async function captureIframeScreenshot(
 
 /**
  * Execute an action on the iframe
+ * @param action - The action to execute
+ * @param iframe - The iframe element
+ * @param screenshotDimensions - The dimensions of the screenshot the model analyzed (CRITICAL for coordinate mapping)
  * Returns true if action was executed successfully
  */
 async function executeAction(
   action: ComputerUseAction,
-  iframe: HTMLIFrameElement
+  iframe: HTMLIFrameElement,
+  screenshotDimensions: { width: number; height: number }
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const iframeWindow = iframe.contentWindow;
@@ -170,8 +304,9 @@ async function executeAction(
       return { success: false, error: 'Cannot access iframe content' };
     }
     
-    const rect = iframe.getBoundingClientRect();
-    const dimensions = { width: rect.width, height: rect.height };
+    // CRITICAL: Use the ACTUAL dimensions for clicking, not the normalized ones
+    // The model sees 1440x900, but we need to click on the actual iframe size
+    const actualDimensions = screenshotDimensions;
     
     const { name, args } = action;
     
@@ -193,12 +328,45 @@ async function executeAction(
     
     switch (name) {
       case 'click_at': {
-        const x = denormalizeX(args.x as number, dimensions.width);
-        const y = denormalizeY(args.y as number, dimensions.height);
-        console.log(`[ComputerUse] Clicking at (${x}, ${y})`);
+        const rawX = args.x as number;
+        const rawY = args.y as number;
         
-        // Move visual cursor to position (using normalized coords for the UI)
-        testStore.moveCursor(args.x as number, args.y as number);
+        // Model sees 1440x900 normalized screenshot
+        // Convert model coordinates to actual iframe coordinates
+        // Formula: actualCoord = (modelCoord / normalizedSize) * actualSize
+        const scaleX = actualDimensions.width / SCREEN_WIDTH;
+        const scaleY = actualDimensions.height / SCREEN_HEIGHT;
+        
+        let x: number, y: number;
+        
+        if (rawX <= 1000 && rawY <= 1000) {
+          // Normalized coordinates (0-1000) - convert to actual pixels
+          // First to 1440x900 space, then scale to actual
+          const normalized1440X = (rawX / 1000) * SCREEN_WIDTH;
+          const normalized1440Y = (rawY / 1000) * SCREEN_HEIGHT;
+          x = Math.round(normalized1440X * scaleX);
+          y = Math.round(normalized1440Y * scaleY);
+          console.log(`[ComputerUse] Normalized (0-1000) -> 1440x900 -> actual`);
+        } else {
+          // Model returned pixel coords in 1440x900 space - scale to actual
+          x = Math.round(rawX * scaleX);
+          y = Math.round(rawY * scaleY);
+          console.log(`[ComputerUse] Pixel (1440x900) -> actual`);
+        }
+        
+        // Debug logging
+        console.log(`[ComputerUse] === CLICK DEBUG ===`);
+        console.log(`[ComputerUse] Model coords: (${rawX}, ${rawY})`);
+        console.log(`[ComputerUse] Normalized size: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
+        console.log(`[ComputerUse] Actual iframe size: ${actualDimensions.width}x${actualDimensions.height}`);
+        console.log(`[ComputerUse] Scale factors: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`);
+        console.log(`[ComputerUse] Final click coords: (${x}, ${y})`);
+        
+        // Move visual cursor to position
+        // Visual cursor uses normalized coords (0-1000), convert actual click coords to normalized
+        const visualX = (x / actualDimensions.width) * 1000;
+        const visualY = (y / actualDimensions.height) * 1000;
+        testStore.moveCursor(visualX, visualY);
         
         // Wait for cursor to animate to position
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -210,6 +378,8 @@ async function executeAction(
         await new Promise(resolve => setTimeout(resolve, 150));
         
         const element = iframeDocument.elementFromPoint(x, y);
+        console.log(`[ComputerUse] Element at (${x}, ${y}):`, element?.tagName, element?.className, element?.textContent?.substring(0, 50));
+        
         if (element) {
           // Dispatch proper mouse events for better compatibility
           const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y });
@@ -490,6 +660,43 @@ function extractThought(response: any): string | null {
   }
 }
 
+/**
+ * Extract thought signature (opaque token) from the model response.
+ * 
+ * Per official docs (https://ai.google.dev/gemini-api/docs/thought-signatures):
+ * - thoughtSignature is a SIBLING field to functionCall in a Part object
+ *   Example: { "functionCall": {...}, "thoughtSignature": "<Signature>" }
+ * - For Gemini 2.5: Signature is on the FIRST part (regardless of type), optional to return
+ * - For Gemini 3: Signature is on the first functionCall part, MANDATORY to return
+ */
+function extractThoughtSignature(response: any): string | null {
+  try {
+    const candidates = response.candidates || [];
+    for (const candidate of candidates) {
+      const parts = candidate.content?.parts || [];
+      
+      // For Gemini 2.5, signature is on the FIRST part
+      // For Gemini 3, signature is on the first functionCall part
+      for (const part of parts) {
+        // thoughtSignature is a sibling field to functionCall in the part
+        // @ts-ignore
+        if (part.thoughtSignature) {
+          console.log('[ComputerUse] Found thoughtSignature (camelCase) on part');
+          return part.thoughtSignature;
+        }
+        // @ts-ignore - REST API might use snake_case
+        if (part.thought_signature) {
+          console.log('[ComputerUse] Found thought_signature (snake_case) on part');
+          return part.thought_signature;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[ComputerUse] Error extracting thought signature:', e);
+  }
+  return null;
+}
+
 // ============================================================================
 // Main Agent Loop
 // ============================================================================
@@ -507,35 +714,77 @@ export async function runComputerUseTest(
   apiKey: string,
   userPrompt: string,
   iframe: HTMLIFrameElement,
-  onUpdate: (update: TestUpdate) => void
+  onUpdate: (update: TestUpdate) => void,
+  shouldCancel?: () => boolean, // Optional cancellation checker
+  abortSignal?: AbortSignal // Optional AbortSignal for immediate cancellation
 ): Promise<TestResult> {
   const actionsPerformed: string[] = [];
   
   try {
-    onUpdate({ type: 'thinking', message: 'Initializing Computer Use agent...' });
-    testStore.setThought('Initializing...');
-    
     const client = getClient(apiKey);
     
-    // Get iframe dimensions for coordinate mapping
-    const rect = iframe.getBoundingClientRect();
-    const screenWidth = rect.width || SCREEN_WIDTH;
-    const screenHeight = rect.height || SCREEN_HEIGHT;
+    // ========================================
+    // PHASE 1: INTRO (before testing starts)
+    // ========================================
+    onUpdate({ type: 'thinking', message: 'Preparing...' });
+    testStore.setThought('Preparing...');
     
-    console.log(`[ComputerUse] Screen dimensions: ${screenWidth}x${screenHeight}`);
+    // Generate a short intro paragraph (no computer use tools)
+    const introResponse = await client.models.generateContent({
+      model: TEST_INTRO_MODEL, // Defined in /defaultmodel.ts
+      contents: [{ role: 'user', parts: [{ text: `Test request: ${userPrompt}` }] }],
+      config: {
+        systemInstruction: TEST_INTRO_SYSTEM_PROMPT,
+      },
+    });
     
-    // Step 1: Capture initial screenshot
+    // Extract the intro text
+    const introText = introResponse.candidates?.[0]?.content?.parts?.[0]?.text || 
+      `I'll test: ${userPrompt}`;
+    
+    console.log('[ComputerUse] Intro generated:', introText);
+    
+    // Send the intro to the UI (this appears BEFORE indicators)
+    onUpdate({ type: 'plan', message: introText });
+    
+    // Small delay to let the intro render before starting testing
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Check for cancellation after intro
+    if (shouldCancel && shouldCancel()) {
+      console.log('[ComputerUse] Test cancelled after intro');
+      testStore.hideCursor();
+      return {
+        passed: false,
+        explanation: 'Test was cancelled by user.',
+        actions: actionsPerformed,
+      };
+    }
+    
+    // ========================================
+    // PHASE 2: TESTING (with computer use)
+    // ========================================
+    
+    // Show cursor and start testing
+    testStore.showCursor();
+    testStore.setThought('Starting test...');
+    
+    onUpdate({ type: 'thinking', message: 'Starting test...' });
+    
+    // Capture initial screenshot (normalized to 1440x900)
     onUpdate({ type: 'screenshot', message: 'Capturing initial screenshot...' });
     testStore.setThought('Capturing screen...');
-    const initialScreenshot = await captureIframeScreenshot(iframe);
-    console.log('[ComputerUse] Initial screenshot captured, length:', initialScreenshot.length);
+    const initialScreenshotResult = await captureIframeScreenshot(iframe);
+    console.log('[ComputerUse] Initial screenshot captured');
+    console.log(`[ComputerUse] Actual: ${initialScreenshotResult.actualWidth}x${initialScreenshotResult.actualHeight}`);
+    console.log(`[ComputerUse] Normalized: ${initialScreenshotResult.normalizedWidth}x${initialScreenshotResult.normalizedHeight}`);
     
-    // Step 2: Build initial content
+    // Build initial content for testing
     const fullPrompt = `Test request: ${userPrompt}
 
 Please analyze the screenshot and perform the necessary actions to test this feature. When done, provide your conclusion with either:
-- ✅ YES - the feature works correctly
-- ❌ NO - the feature has issues (explain what's wrong)`;
+- YES - the feature works correctly
+- NO - the feature has issues (explain what's wrong)`;
 
     // Build conversation history
     const contents: Content[] = [
@@ -546,7 +795,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
           {
             inlineData: {
               mimeType: 'image/png',
-              data: initialScreenshot,
+              data: initialScreenshotResult.data,  // Normalized 1440x900 screenshot
             }
           } as Part,
         ],
@@ -557,7 +806,26 @@ Please analyze the screenshot and perform the necessary actions to test this fea
     let turn = 0;
     let finalText = '';
     
+    // Track dimensions for coordinate conversion
+    // Model sees normalized (1440x900), but we click on actual iframe dimensions
+    let currentActualDimensions = { 
+      width: initialScreenshotResult.actualWidth, 
+      height: initialScreenshotResult.actualHeight 
+    };
+    
     while (turn < MAX_AGENT_TURNS) {
+      // Check for cancellation at start of each turn
+      if (shouldCancel && shouldCancel()) {
+        console.log('[ComputerUse] Test cancelled by user');
+        testStore.hideCursor();
+        onUpdate({ type: 'text', message: '*Test cancelled by user.*' });
+        return {
+          passed: false,
+          explanation: 'Test was cancelled by user.',
+          actions: actionsPerformed,
+        };
+      }
+      
       turn++;
       console.log(`[ComputerUse] === Turn ${turn} ===`);
       
@@ -572,6 +840,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
           // @ts-ignore - Native Thinking/Thought Signature config
           thinkingConfig: {
             includeThoughts: true,
+            thinkingBudget: 2048, // Token budget for thinking
           },
           tools: [{
             // @ts-ignore - Computer Use tool configuration
@@ -580,6 +849,8 @@ Please analyze the screenshot and perform the necessary actions to test this fea
               excludedPredefinedFunctions: ['drag_and_drop'],
             }
           }],
+          // @ts-ignore - AbortSignal for request cancellation
+          signal: abortSignal,
         },
       });
       
@@ -588,8 +859,10 @@ Please analyze the screenshot and perform the necessary actions to test this fea
       // Extract text, thoughts, and function calls
       const textResponse = extractText(response);
       const thoughtResponse = extractThought(response);
+      const thoughtSignature = extractThoughtSignature(response);
       const functionCalls = extractFunctionCalls(response);
       
+      console.log('[ComputerUse] Thought Signature:', thoughtSignature ? 'Present' : 'None');
       console.log('[ComputerUse] Thought:', thoughtResponse?.substring(0, 50));
       console.log('[ComputerUse] Text:', textResponse?.substring(0, 100));
       console.log('[ComputerUse] Function calls:', functionCalls.length);
@@ -603,43 +876,46 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         const displayThought = thoughtResponse.length > 80 
           ? thoughtResponse.substring(0, 80) + '...' 
           : thoughtResponse;
-        onUpdate({ type: 'thinking', message: displayThought });
+        
+        // Pass thoughtSignature if available
+        onUpdate({ 
+          type: 'thinking', 
+          message: displayThought, 
+          thought: thoughtResponse,
+          thoughtSignature: thoughtSignature || undefined
+        });
       }
       
       // Process model response text
       if (textResponse && textResponse.trim().length > 0) {
-        // If no function calls are present, this is likely the final answer or a direct response
+        // Always send text to the UI so the user can see the AI's commentary/intro
+        onUpdate({ type: 'text', message: textResponse });
+        
+        // If no function calls are present, this is the final answer
         if (functionCalls.length === 0) {
-          onUpdate({ type: 'text', message: textResponse });
           finalText = textResponse;
         } else {
-          // If there are function calls, the text is usually commentary.
-          // We can optionally show this, or just let the actions speak.
           console.log('[ComputerUse] Commentary:', textResponse);
         }
 
       }
       
-      // Add model response to conversation history
-      const modelContent: Content = {
-        role: 'model',
-        parts: [],
-      };
+      // ============================================================
+      // CRITICAL: Preserve the ENTIRE model response in history
+      // This includes thought_signature which is REQUIRED for the
+      // model to maintain reasoning context across turns.
+      // DO NOT manually reconstruct - use the raw response content.
+      // ============================================================
+      const modelContent = response.candidates?.[0]?.content;
       
-      if (textResponse) {
-        modelContent.parts.push({ text: textResponse });
+      if (modelContent) {
+        // Push the COMPLETE model response with all parts intact
+        // This preserves thought_signature attached to functionCall parts
+        contents.push(modelContent as Content);
+        console.log('[ComputerUse] Added model response to history with', modelContent.parts?.length || 0, 'parts');
+      } else {
+        console.warn('[ComputerUse] No model content to add to history');
       }
-      
-      for (const fc of functionCalls) {
-        modelContent.parts.push({
-          functionCall: {
-            name: fc.name,
-            args: fc.args,
-          }
-        } as Part);
-      }
-      
-      contents.push(modelContent);
       
       // If no function calls, task is complete
       if (functionCalls.length === 0) {
@@ -647,29 +923,56 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         break;
       }
       
-      // Execute each function call
-      
-      for (const action of functionCalls) {
+      // IMPORTANT: Only process the FIRST action per turn
+      // This enforces one-action-at-a-time behavior for proper visual feedback
+      if (functionCalls.length > 0) {
+        const action = functionCalls[0]; // Only take the first action
+        
+        if (functionCalls.length > 1) {
+          console.log(`[ComputerUse] Model returned ${functionCalls.length} actions, processing only the first one`);
+        }
+        
         // Check for safety decision requiring confirmation
         if (action.safetyDecision?.decision === 'require_confirmation') {
           console.log('[ComputerUse] Safety confirmation required:', action.safetyDecision.explanation);
           onUpdate({ 
             type: 'action', 
             message: `⚠️ Safety check: ${action.safetyDecision.explanation}`,
-            actionName: action.name 
+            actionName: action.name,
+            actionType: 'Safety',
+            thought: thoughtResponse || undefined
           });
-          // For now, auto-confirm (in production, you'd prompt the user)
         }
         
+        const actionType = getActionType(action.name, action.args);
+        
+        // Build a SIMPLE action description for the UI
+        let actionDescription = `${actionType}`;
+        
+        // Add specific details based on action type
+        const args = action.args || {};
+        if (actionType === 'Clicking' && args.coordinate) {
+          actionDescription = `Clicking at (${args.coordinate[0]}, ${args.coordinate[1]})`;
+        } else if (actionType === 'Typing' && args.text) {
+          const text = String(args.text).substring(0, 30);
+          actionDescription = `Typing "${text}${String(args.text).length > 30 ? '...' : ''}"`;
+        } else if (actionType === 'Scrolling') {
+          const dir = args.direction || (args.coordinate ? 'to position' : '');
+          actionDescription = `Scrolling ${dir}`;
+        }
+          
         onUpdate({ 
           type: 'action', 
-          message: `Executing: ${action.name}`,
-          actionName: action.name 
+          message: actionDescription,
+          actionName: action.name,
+          actionType: actionType,
+          thought: thoughtResponse || undefined,
+          thoughtSignature: thoughtSignature || undefined
         });
         
         actionsPerformed.push(action.name);
         
-        const result = await executeAction(action, iframe);
+        const result = await executeAction(action, iframe, currentActualDimensions);
         
         if (!result.success) {
           console.warn(`[ComputerUse] Action ${action.name} failed:`, result.error);
@@ -677,12 +980,32 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         
         // Wait for UI to settle after action
         await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check for cancellation after action
+        if (shouldCancel && shouldCancel()) {
+          console.log('[ComputerUse] Test cancelled during action execution');
+          testStore.hideCursor();
+          onUpdate({ type: 'text', message: '*Test cancelled by user.*' });
+          return {
+            passed: false,
+            explanation: 'Test was cancelled by user.',
+            actionsPerformed,
+          };
+        }
       }
       
       // Capture new screenshot after actions
       onUpdate({ type: 'screenshot', message: 'Capturing new state...' });
       testStore.setThought('Capturing screen...');
-      const newScreenshot = await captureIframeScreenshot(iframe);
+      
+      const newScreenshotResult = await captureIframeScreenshot(iframe);
+      
+      // Update actual dimensions for next coordinate conversion
+      currentActualDimensions = { 
+        width: newScreenshotResult.actualWidth, 
+        height: newScreenshotResult.actualHeight 
+      };
+      console.log(`[ComputerUse] New screenshot - Actual: ${currentActualDimensions.width}x${currentActualDimensions.height}`);
       
       // Get the current URL from iframe (or use a placeholder for preview)
       let currentUrl = 'about:srcdoc'; // Default for iframe content
@@ -695,11 +1018,11 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         console.log('[ComputerUse] Could not get iframe URL, using default');
       }
       
-      // Build function responses with URL (required by Computer Use API)
-      // The API requires: url in response, and screenshot as inline_data
+      // Build function response for the SINGLE action we executed
       const functionResponseParts: Part[] = [];
       
-      for (const action of functionCalls) {
+      if (functionCalls.length > 0) {
+        const action = functionCalls[0]; // Same action we executed
         functionResponseParts.push({
           functionResponse: {
             name: action.name,
@@ -719,7 +1042,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
           {
             inlineData: {
               mimeType: 'image/png',
-              data: newScreenshot,
+              data: newScreenshotResult.data,  // Normalized 1440x900 screenshot
             }
           } as Part,
         ],

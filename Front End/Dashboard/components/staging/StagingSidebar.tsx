@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ChevronDown, 
+  ChevronRight,
+  MousePointer2,
   Clock, 
   PanelLeftClose, 
   Lightbulb, 
@@ -45,6 +47,125 @@ import { BOLT_SYSTEM_PROMPT } from '../../lib/sandpack/system-prompt';
 import { testStore } from '../../lib/test-store';
 import { TestingIndicator, TestResultIndicator } from './TestingIndicator';
 
+// Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
+// Shows: "Performing <action>" with shimmer animation while active, dropdown for action history
+const CollapsibleTestIndicator: React.FC<{ 
+  actions: string[];  // List of actions performed (e.g., ["Analysis", "Click", "Type"])
+  currentAction: string;
+  isGenerating?: boolean;
+  isStreaming?: boolean;
+}> = ({ actions, currentAction, isGenerating = false, isStreaming = false }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [displayedAction, setDisplayedAction] = useState(currentAction);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Animate action name changes during streaming
+  useEffect(() => {
+    if (currentAction !== displayedAction) {
+      if (isStreaming) {
+        setIsTransitioning(true);
+        const timer = setTimeout(() => {
+          setDisplayedAction(currentAction);
+          setIsTransitioning(false);
+        }, 150);
+        return () => clearTimeout(timer);
+      } else {
+        setDisplayedAction(currentAction);
+      }
+    }
+  }, [currentAction, displayedAction, isStreaming]);
+  
+  // Status text: "Performing" while active, "Performed" when done
+  const statusText = isGenerating ? 'Performing' : 'Performed';
+  
+  // Shimmer only when actively streaming AND generating
+  const shouldShimmer = isStreaming && isGenerating;
+  
+  // Render status text with shimmer (exactly like CollapsibleFileIndicator)
+  const renderStatusText = () => {
+    const shimmerClass = shouldShimmer ? "animate-shimmer bg-clip-text text-transparent bg-[length:200%_100%]" : "";
+    const shimmerStyle = shouldShimmer ? { backgroundImage: 'linear-gradient(90deg, #81888f 0%, #ffffff 50%, #81888f 100%)', animationDuration: '1.5s' } : {};
+    
+    return (
+      <span className="text-[15.15px] inline-flex items-center gap-1">
+        <span className={shimmerClass} style={shimmerStyle}>
+          {statusText}
+        </span>
+        <span className="relative inline-block">
+          <span 
+            className="font-mono bg-white/5 px-1.5 py-0.5 rounded inline-block transition-opacity duration-300 ease-out"
+            style={{ opacity: isTransitioning ? 0 : 1 }}
+          >
+            <span 
+              className={shouldShimmer ? shimmerClass : ""}
+              style={shouldShimmer ? shimmerStyle : { color: '#81888f' }}
+            >
+              {displayedAction}
+            </span>
+          </span>
+        </span>
+      </span>
+    );
+  };
+  
+  // Single action - show directly (no dropdown)
+  if (actions.length <= 1) {
+    return (
+      <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
+        <FlaskConical size={18} />
+        {renderStatusText()}
+      </div>
+    );
+  }
+  
+  // Multiple actions - show with dropdown
+  return (
+    <div className="space-y-0">
+      {/* Header row with chevron pushed to far right */}
+      <div className="flex items-center justify-between" style={{ color: '#81888f' }}>
+        <div className="flex items-center gap-2.5">
+          <FlaskConical size={18} />
+          {renderStatusText()}
+        </div>
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1.5 hover:bg-white/10 rounded transition-colors"
+        >
+          <ChevronDown 
+            size={16} 
+            className={`transition-transform duration-300 ease-out ${isExpanded ? 'rotate-180' : ''}`} 
+          />
+        </button>
+      </div>
+      
+      {/* Expanded actions list with smooth animation */}
+      <div 
+        className={`overflow-hidden transition-all duration-300 ease-out ${
+          isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className="pt-4 space-y-4">
+          {actions.slice(0, -1).map((action, i) => (
+            <div 
+              key={i} 
+              className="flex items-center gap-2.5 transition-all duration-200"
+              style={{ 
+                color: '#81888f',
+                opacity: isExpanded ? 1 : 0,
+                transform: isExpanded ? 'translateY(0)' : 'translateY(-8px)',
+                transitionDelay: `${i * 30}ms`
+              }}
+            >
+              <FlaskConical size={18} />
+              <span className="text-[15.15px]">Performed <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded" style={{ color: '#81888f' }}>{action}</span></span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const GeminiLogo = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
   <svg 
     width={size} 
@@ -71,6 +192,27 @@ const AnnotateIcon = ({ size = 16, className = "" }: { size?: number, className?
   >
     <path d="M4 12c0-4 4-7 8-7s8 3 8 7-4 7-8 7-8-3-8-7Z" className="opacity-40" strokeWidth="1.5" />
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+);
+
+const VisualEditsIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg" 
+    className={className}
+  >
+    <path d="M3 9V6C3 4.344 4.344 3 6 3H9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M15 3H18C20.1 3 21 3.9 21 6V9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M3 15V18C3 20.1 3.9 21 6 21H9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M11.25 11.25L15.75 22.5Q17.25 17.25 22.5 15.75L11.25 11.25Z" 
+          stroke="currentColor" strokeWidth="2.1" fill="none"
+          strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
 
@@ -258,6 +400,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const isTestMode = useStore(testStore.isTestMode);
   const testStatus = useStore(testStore.status);
   
+  // Selected tool state (independent from tabs)
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  
   // Debug: Log test mode changes
   useEffect(() => {
     console.log('[Sidebar] isTestMode changed to:', isTestMode);
@@ -330,13 +475,34 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [isCurrentlyThinking, setIsCurrentlyThinking] = useState(false);
   const { apiKeys, loading: userDataLoading } = useUserData();
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
-
+  
   // Pre-warm SDK clients as soon as API keys are available
   useEffect(() => {
     if (apiKeys.gemini?.[0]) prewarmClient('gemini', apiKeys.gemini[0]);
     if (apiKeys.openai?.[0]) prewarmClient('openai', apiKeys.openai[0]);
     if (apiKeys.anthropic?.[0]) prewarmClient('anthropic', apiKeys.anthropic[0]);
   }, [apiKeys]);
+
+  // Inject animation CSS once on mount to prevent animation restarts on re-render
+  useEffect(() => {
+    const styleId = 'char-reveal-animation-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes reveal {
+          0% { opacity: 0; transform: translateY(10px) scale(0.95); filter: blur(10px); }
+          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .char-reveal {
+          display: inline-block;
+          animation: reveal 0.4s cubic-bezier(0.2, 0.65, 0.3, 0.9) forwards;
+          opacity: 0;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }, []);
 
   // Helper to process bold text
   // Process inline formatting: bold (**text**) and inline code (`code`)
@@ -396,27 +562,143 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   // Keep processBold as alias for backward compatibility
   const processBold = processInlineFormatting;
 
-  // Helper to render plain text with formatting
-  // isStreaming: when true, applies fade animation; when false, no animation (prevents flash)
-  const renderTextContent = (text: string, isStreaming: boolean = false) => {
+  // Track which content has been animated and their assigned delays
+  const animatedContentRef = useRef<Map<string, string>>(new Map());
+  
+  // Track message IDs that have fully completed generation (should never re-animate)
+  const completedMessagesRef = useRef<Set<string>>(new Set());
+  
+  // Track message IDs whose intro text has been shown (to prevent re-animation when indicator appears)
+  const introShownRef = useRef<Set<string>>(new Set());
+
+  // Helper to render plain text with word-by-word staggered animation
+  // isAnimating: true for streaming content that should animate
+  // For completed messages (in completedMessagesRef), always render without animation
+  const renderTextContent = (text: string, isAnimating: boolean = false, contentKey?: string) => {
     if (!text) return null;
     
-    const animClass = isStreaming ? ' animate-textFadeIn' : '';
+    // Extract messageId from contentKey (format: "messageId-suffix-...")
+    const messageId = contentKey?.split('-')[0];
+    const isCompletedMessage = messageId && completedMessagesRef.current.has(messageId);
     
-    const lines = text.split('\n');
+    const blockLines = text.split('\n').filter(line => line.trim());
+    let globalWordCounter = 0;
+
+    // Wrap words - animate new content, skip already-animated content
+    // For completed messages, always render plain (no animation)
+    // For test mode conclusions (not marked complete), animate genuinely new content
+    const wrapWords = (nodes: React.ReactNode[], baseKey: string) => {
+      return nodes.map((node, nodeIdx) => {
+        if (typeof node === 'string') {
+          const words = node.split(/(\s+)/);
+          return words.map((word, wordIdx) => {
+            if (!word) return null;
+            
+            // Completed messages NEVER animate - render plain immediately
+            if (isCompletedMessage) {
+              return (
+                <span key={wordIdx} className="inline-block whitespace-pre-wrap">
+                  {word}
+                </span>
+              );
+            }
+            
+            const wordKey = `${baseKey}-n${nodeIdx}-w${wordIdx}`;
+            const existingEntry = animatedContentRef.current.get(wordKey);
+            
+            // Already fully animated - render as plain visible text
+            if (existingEntry === 'done') {
+              return (
+                <span key={wordIdx} className="inline-block whitespace-pre-wrap">
+                  {word}
+                </span>
+              );
+            }
+            
+            // Currently animating - keep animation with saved delay
+            if (existingEntry) {
+              return (
+                <span key={wordIdx} className="inline-block whitespace-pre-wrap char-reveal" style={{ animationDelay: existingEntry }}>
+                  {word}
+                </span>
+              );
+            }
+            
+            // NEW word - animate if we have a contentKey (streaming or test mode)
+            if (contentKey) {
+              const delay = `${globalWordCounter * 50}ms`;
+              animatedContentRef.current.set(wordKey, delay);
+              globalWordCounter++;
+              
+              // Mark as done after animation completes
+              const totalDelay = globalWordCounter * 50 + 400;
+              setTimeout(() => {
+                animatedContentRef.current.set(wordKey, 'done');
+              }, totalDelay);
+              
+              return (
+                <span key={wordIdx} className="inline-block whitespace-pre-wrap char-reveal" style={{ animationDelay: delay }}>
+                  {word}
+                </span>
+              );
+            }
+            
+            // No contentKey - render plain
+            return (
+              <span key={wordIdx} className="inline-block whitespace-pre-wrap">
+                {word}
+              </span>
+            );
+          });
+        }
+
+        // Non-string nodes (formatted content)
+        // Completed messages NEVER animate
+        if (isCompletedMessage) {
+          return <span key={nodeIdx} className="inline-block">{node}</span>;
+        }
+        
+        const itemKey = `${baseKey}-n${nodeIdx}`;
+        const existingEntry = animatedContentRef.current.get(itemKey);
+        
+        if (existingEntry === 'done') {
+          return <span key={nodeIdx} className="inline-block">{node}</span>;
+        }
+        
+        if (existingEntry) {
+          return <span key={nodeIdx} className="inline-block char-reveal" style={{ animationDelay: existingEntry }}>{node}</span>;
+        }
+        
+        if (contentKey) {
+          const delay = `${globalWordCounter * 50}ms`;
+          animatedContentRef.current.set(itemKey, delay);
+          globalWordCounter++;
+          
+          const totalDelay = globalWordCounter * 50 + 400;
+          setTimeout(() => {
+            animatedContentRef.current.set(itemKey, 'done');
+          }, totalDelay);
+          
+          return <span key={nodeIdx} className="inline-block char-reveal" style={{ animationDelay: delay }}>{node}</span>;
+        }
+        
+        return <span key={nodeIdx} className="inline-block">{node}</span>;
+      });
+    };
+    
     return (
       <>
-        {lines.map((line, idx) => {
+        {blockLines.map((line, idx) => {
           const trimmedLine = line.trim();
           if (!trimmedLine) return null;
+          
+          const lineBaseKey = contentKey ? `${contentKey}-l${idx}` : `raw-${idx}`;
 
-          // Handle Headers
           if (trimmedLine.startsWith('#')) {
             const headerMatch = trimmedLine.match(/^(#{1,6})\s+(.*)$/);
             if (headerMatch) {
               const level = headerMatch[1].length;
               const headerText = headerMatch[2];
-              
               const baseHeaderClasses = {
                 1: "text-[22px] font-bold text-white mt-6 mb-2",
                 2: "text-[19px] font-bold text-white mt-5 mb-1",
@@ -425,32 +707,29 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 5: "text-[15px] font-bold text-white mt-3",
                 6: "text-[15px] font-bold text-white mt-3",
               }[level as 1|2|3|4|5|6];
-
               return (
-                <div key={idx} className={baseHeaderClasses + animClass}>
-                  {processBold(headerText)}
+                <div key={idx} className={baseHeaderClasses}>
+                  {wrapWords(processBold(headerText), lineBaseKey)}
                 </div>
               );
             }
           }
 
-          // Handle Bullet Points
-          if (trimmedLine.startsWith('*') || trimmedLine.startsWith('-')) {
+          if ((trimmedLine.startsWith('*') && !trimmedLine.startsWith('**')) || trimmedLine.startsWith('-')) {
             const bulletContent = trimmedLine.replace(/^[\*\-]\s*/, '');
             return (
-              <div key={idx} className={`flex gap-3 pl-4 items-start${animClass}`}>
+              <div key={idx} className="flex gap-3 pl-4 items-start">
                 <div className="w-1.5 h-1.5 rounded-full bg-zinc-600 mt-[9px] shrink-0" />
                 <div className="text-gray-400 text-[15px] leading-relaxed">
-                  {processBold(bulletContent)}
+                  {wrapWords(processBold(bulletContent), lineBaseKey)}
                 </div>
               </div>
             );
           }
 
-          // Normal Paragraph
           return (
-            <p key={idx} className={`text-gray-300 text-[15px] leading-[1.65]${animClass}`}>
-              {processBold(line)}
+            <p key={idx} className="text-gray-300 text-[15px] leading-[1.65]">
+              {wrapWords(processBold(line), lineBaseKey)}
             </p>
           );
         })}
@@ -460,7 +739,61 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   // Helper to render conversational AI content with file indicators
   // isStreaming: when true, applies fade animation to text
-  const renderFormattedContent = (content: string, isStreaming: boolean = false) => {
+  // messageId: unique message identifier for tracking animated content
+  const renderFormattedContent = (content: string, isStreaming: boolean = false, messageId?: string) => {
+    // Check for <test-indicator> block (format: <test-indicator>{"actions":["A","B"],"current":"B"}</test-indicator>)
+    if (content.includes('<test-indicator>')) {
+      const match = content.match(/<test-indicator>([^<]+)<\/test-indicator>/);
+      let actions: string[] = ['Analysis'];
+      let currentAction = 'Analysis';
+      
+      try {
+        if (match && match[1]) {
+          const data = JSON.parse(match[1]);
+          actions = data.actions || ['Analysis'];
+          currentAction = data.current || actions[actions.length - 1] || 'Analysis';
+        }
+      } catch (e) {
+        console.error('Failed to parse test indicator', e);
+      }
+      
+      // Get text before and after the tag
+      const parts = content.split(/<test-indicator>[^<]+<\/test-indicator>/);
+      const beforeText = parts[0] || '';
+      const afterText = parts[1] || '';
+      
+      // Create unique keys for each text section
+      // If intro was already shown before (plain text phase), don't animate it again
+      const introAlreadyShown = messageId ? introShownRef.current.has(messageId) : false;
+      const introKey = (messageId && !introAlreadyShown) ? `${messageId}-intro` : undefined;
+      const conclusionKey = messageId ? `${messageId}-conclusion` : undefined;
+      
+      // Mark intro as shown for future renders (content now has indicator)
+      if (messageId && beforeText.trim()) {
+        introShownRef.current.add(messageId);
+      }
+      
+      return (
+        <div className="space-y-4">
+          {/* Intro text - skip animation if already shown before indicator appeared */}
+          {beforeText.trim() && renderTextContent(beforeText.trim(), isStreaming, introKey)}
+          
+          {/* Test Action Indicator (matches file indicator exactly) */}
+          <CollapsibleTestIndicator 
+            actions={actions} 
+            currentAction={currentAction} 
+            isGenerating={isStreaming}  // Use message's own state, not global
+            isStreaming={isStreaming}
+          />
+          
+          {/* Conclusion text (if any) */}
+          {afterText.trim() && renderTextContent(afterText.trim(), isStreaming, conclusionKey)}
+        </div>
+      );
+    }
+
+    
+
     if (!content) return null;
     
     try {
@@ -469,9 +802,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       console.log('[Render] Segments parsed:', segments.length, 'segments, types:', segments.map(s => s.type).join(', '));
       
       // If no segments found (plain text response), render normally
+      // Use "-intro" key to match the key used when test-indicator is present
+      // This prevents double animation when content transitions from plain text to having a test indicator
       if (!segments || segments.length === 0) {
         console.log('[Render] No segments, rendering as plain text');
-        return <div className="space-y-4">{renderTextContent(content, isStreaming)}</div>;
+        const textKey = messageId ? `${messageId}-intro` : undefined;
+        // Mark intro as shown so it won't re-animate when test-indicator appears later
+        if (messageId) {
+          introShownRef.current.add(messageId);
+        }
+        return <div className="space-y-4">{renderTextContent(content, isStreaming, textKey)}</div>;
       }
       
     // Group consecutive file indicators together
@@ -498,9 +838,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       <div className="space-y-4">
         {groupedSegments.map((segment, idx) => {
           if (segment.type === 'text') {
+            const textKey = messageId ? `${messageId}-text-${idx}` : undefined;
             return (
               <div key={idx} className="space-y-2">
-                {renderTextContent(segment.content, isStreaming)}
+                {renderTextContent(segment.content, isStreaming, textKey)}
               </div>
             );
           }
@@ -532,9 +873,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             const isRunning = isCurrentlyGenerating && isLastSegment;
             const shimmerClass = isRunning ? "animate-shimmer bg-clip-text text-transparent bg-[length:200%_100%]" : "";
             const shimmerStyle = isRunning ? { backgroundImage: 'linear-gradient(90deg, #81888f 0%, #ffffff 50%, #81888f 100%)', animationDuration: '1.5s' } : { color: '#81888f' };
-            const animClass = isStreaming ? ' animate-textFadeIn' : '';
             return (
-              <div key={idx} className={`flex items-center gap-2.5${animClass}`} style={{ color: '#81888f' }}>
+              <div key={idx} className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
                 <Terminal size={18} />
                 <span className={`text-[15.15px] ${shimmerClass}`} style={shimmerStyle}>
                   {isRunning ? 'Running' : 'Ran'}{' '}
@@ -550,9 +890,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             const isStarting = isCurrentlyGenerating && isLastSegment;
             const shimmerClass = isStarting ? "animate-shimmer bg-clip-text text-transparent bg-[length:200%_100%]" : "";
             const shimmerStyle = isStarting ? { backgroundImage: 'linear-gradient(90deg, #81888f 0%, #ffffff 50%, #81888f 100%)', animationDuration: '1.5s' } : { color: '#81888f' };
-            const animClass = isStreaming ? ' animate-textFadeIn' : '';
             return (
-              <div key={idx} className={`flex items-center gap-2.5${animClass}`} style={{ color: '#81888f' }}>
+              <div key={idx} className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
                 <Terminal size={18} />
                 <span className={`text-[15.15px] ${shimmerClass}`} style={shimmerStyle}>
                   {isStarting ? 'Starting' : 'Started'}{' '}
@@ -624,10 +963,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
     setMessages(prev => [...prev, userMessage]);
     setPromptValue('');
+
+    // Set generating/thinking status immediately to stabilize layout (dynamic padding)
+    setIsCurrentlyGenerating(true);
+    setIsCurrentlyThinking(true);
+    setCurrentThinkingTime(0);
+    thinkingTimeRef.current = 0;
+    setCurrentStreamingResponse('');
+
+    if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+    thinkingTimerRef.current = setInterval(() => {
+      thinkingTimeRef.current += 1;
+      setCurrentThinkingTime(thinkingTimeRef.current);
+    }, 1000);
     
-    // Route based on activeTab (use prop directly for reliability)
-    // activeTab === 'test' means test mode is active
-    if (activeTab === 'test') {
+    // Route based on selectedToolId or isTestMode
+    if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
       await startTestGeneration(text);
     } else {
@@ -637,11 +988,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           content: m.content
       }));
       
-      await startAiGeneration(text, history, false);
+      await startAiGeneration(text, history, true); // uiAlreadyStarted = true
     }
   };
 
   const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean) => {
+    // Clear previously animated content tracking to allow fresh animations
+    animatedContentRef.current.clear();
+
     if (!uiAlreadyStarted) {
       setIsCurrentlyGenerating(true);
       setIsCurrentlyThinking(true);
@@ -725,6 +1079,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         timestamp: Date.now()
       };
 
+      // Transfer animation state from 'streaming' keys to the new message ID
+      // This prevents re-animation when the final message renders
+      const newMessageId = assistantMessage.id;
+      const keysToTransfer: [string, string][] = [];
+      animatedContentRef.current.forEach((value, key) => {
+        if (key.startsWith('streaming-')) {
+          const newKey = key.replace('streaming-', `${newMessageId}-`);
+          keysToTransfer.push([newKey, 'done']); // Mark as done so it won't re-animate
+        }
+      });
+      keysToTransfer.forEach(([key, value]) => {
+        animatedContentRef.current.set(key, value);
+      });
+      // Clear streaming keys
+      const streamingKeys = Array.from(animatedContentRef.current.keys()).filter(k => k.startsWith('streaming-'));
+      streamingKeys.forEach(k => animatedContentRef.current.delete(k));
+      
+      // Mark this message as completed - it should NEVER re-animate
+      completedMessagesRef.current.add(newMessageId);
+
       setMessages(prev => [...prev, assistantMessage]);
       setCurrentStreamingResponse('');
       setCurrentThinkingTime(0);
@@ -751,6 +1125,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
         content: `Error: ${error.message || 'Failed to get response.'}`,
+        thinkingTime: thinkingTimeRef.current,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -762,7 +1137,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   // === TEST MODE FUNCTIONS ===
   const startTestGeneration = async (testPrompt: string) => {
-    // Get iframe from testStore
+    // Clear previously animated content tracking to allow fresh animations
+    animatedContentRef.current.clear();
+
+    console.log('Starting Test Mode generation with:', testPrompt);
     const iframe = testStore.getIframeRef();
     if (!iframe) {
       // Add error message - no preview available
@@ -778,43 +1156,47 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
     // Create the assistant message immediately with a unique ID
     const messageId = Math.random().toString(36).substring(7);
+    
+    // Track plan text (shown first, before indicators)
+    let planText = '';
+    
+    // Track whether testing has started (after plan is complete)
+    let testingStarted = false;
+    
+    // Track actions for the indicator (starts empty, populated when testing begins)
+    const actionsLog: string[] = [];
+    let currentAction = '';
+    
+    // Helper to build the indicator JSON (only shown after testing starts)
+    const buildIndicator = () => {
+      if (!testingStarted || actionsLog.length === 0) return '';
+      return `<test-indicator>${JSON.stringify({ actions: actionsLog, current: currentAction })}</test-indicator>`;
+    };
+    
+    // Initial message is empty - plan text will be added
     const initialMessage: ChatMessage = {
       id: messageId,
       role: 'assistant',
-      content: '🧪 Starting Computer Use test agent...',
-      timestamp: Date.now()
+      content: '',  // Will be populated by plan
+      timestamp: Date.now(),
+      isGenerating: true  // Mark as generating to hide action buttons
     };
+    
+    // Smoothly add the assistant message without waiting (states already handled in handleSendMessage)
     setMessages(prev => [...prev, initialMessage]);
 
     // Start test state
+    testStore.enterTestMode();
     testStore.startTest();
-    setIsCurrentlyGenerating(true);
-    setIsCurrentlyThinking(true);
-    setCurrentThinkingTime(0);
-    thinkingTimeRef.current = 0;
-    setCurrentStreamingResponse('');
-
-    if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-    thinkingTimerRef.current = setInterval(() => {
-      thinkingTimeRef.current += 0.1;
-      setCurrentThinkingTime(thinkingTimeRef.current);
-    }, 100);
 
     try {
-      // Get API key from useUserData
       if (!apiKeys?.gemini?.[0]) {
         throw new Error('Gemini API Key missing. Please add it in Settings -> Models & API.');
       }
       const apiKey = apiKeys.gemini[0];
 
-      // Update status to testing
       testStore.setStatus('testing');
-      
       console.log('[Test] Starting Computer Use agent loop...');
-      
-      // Track current message content
-      let currentContent = '';
-      const actionsLog: string[] = [];
       
       // Run the Computer Use agent loop
       const result = await runComputerUseTest(
@@ -824,72 +1206,107 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         (update: TestUpdate) => {
           console.log('[Test] Update:', update.type, update.message);
           
-          // Stop thinking animation on first real update
-          if (update.type !== 'thinking' && thinkingTimerRef.current) {
-            clearInterval(thinkingTimerRef.current);
-            setIsCurrentlyThinking(false);
-          }
+          // NOTE: Don't stop thinking animation here - keep it running until test is complete
           
-          // Build up the message content based on update type
+          // Update action based on update type
           switch (update.type) {
+            case 'plan':
+              // Intro text received - show it WITHOUT indicator
+              planText = update.message;
+              // Keep thinking animation running!
+              break;
+              
             case 'thinking':
-              currentContent = `🧠 ${update.message}`;
+              // Only update indicator if testing has started
+              if (testingStarted) {
+                if (currentAction !== 'Analysis') {
+                  currentAction = 'Analysis';
+                  if (actionsLog[actionsLog.length - 1] !== 'Analysis') {
+                    actionsLog.push('Analysis');
+                  }
+                }
+              }
               break;
+              
             case 'screenshot':
+              // Screenshot means testing has started
+              if (!testingStarted) {
+                testingStarted = true;
+                currentAction = 'Analysis';
+                actionsLog.push('Analysis');
+                
+                // Mark all intro text as 'done' to prevent re-animation when indicator appears
+                // The DOM structure changes when indicator is added, which could cause React to remount elements
+                const introPrefix = `${messageId}-intro-`;
+                animatedContentRef.current.forEach((value, key) => {
+                  if (key.startsWith(introPrefix) && value !== 'done') {
+                    animatedContentRef.current.set(key, 'done');
+                  }
+                });
+              }
               testStore.setStatus('capturing');
-              currentContent = `📸 ${update.message}`;
+              currentAction = 'Capture';
+              if (actionsLog[actionsLog.length - 1] !== 'Capture') {
+                actionsLog.push('Capture');
+              }
               break;
+              
             case 'action':
+              // If this is the first action, mark intro text as 'done' to prevent re-animation
+              if (!testingStarted) {
+                const introPrefix = `${messageId}-intro-`;
+                animatedContentRef.current.forEach((value, key) => {
+                  if (key.startsWith(introPrefix) && value !== 'done') {
+                    animatedContentRef.current.set(key, 'done');
+                  }
+                });
+              }
+              testingStarted = true;
               testStore.setStatus('executing-action');
               testStore.setCurrentAction(update.actionName || update.message);
-              actionsLog.push(update.actionName || 'action');
-              currentContent = `👆 ${update.message}`;
+              currentAction = update.actionType || 'Action';
+              actionsLog.push(currentAction);
               break;
-            case 'text':
-              // This is the model's actual response text
-              testStore.setStatus('testing');
-              currentContent = update.message;
-              break;
+              
             case 'complete':
               testStore.setStatus('complete');
               testStore.setThought(null);
               break;
+              
             case 'error':
-              currentContent = `❌ Error: ${update.message}`;
+              currentAction = 'Error';
+              actionsLog.push('Error');
               testStore.setThought('Error!');
+              break;
+              
+            case 'text':
+              // AI commentary during testing - ignore for now
               break;
           }
           
-          // Update the message in real-time
+          // Update message: Plan text + indicator (if testing started)
+          const updatedContent = planText + (testingStarted ? '\n\n' + buildIndicator() : '');
+          
           setMessages(prev => prev.map(msg => 
             msg.id === messageId 
-              ? { ...msg, content: currentContent, thinkingTime: thinkingTimeRef.current }
+              ? { ...msg, content: updatedContent, thinkingTime: thinkingTimeRef.current, isGenerating: true }
               : msg
           ));
-          setCurrentStreamingResponse(currentContent);
-        }
+        },
+        () => testStore.isCancelled.get(),
+        testStore.getAbortSignal()
       );
 
       console.log('[Test] Agent loop complete:', result);
 
-      // Build final message with actions summary
-      let finalContent = result.explanation || 'Test completed.';
+      // Build final message: Intro + Indicator (persists!) + Conclusion
+      // Just use the AI's natural explanation (it already states pass/fail)
       
-      // Add actions summary if any were performed
-      if (result.actionsPerformed.length > 0) {
-        finalContent += `\n\n📋 **Actions performed:** ${result.actionsPerformed.join(' → ')}`;
-      }
-      
-      // Add clear result indicator
-      if (result.passed) {
-        if (!finalContent.includes('✅')) {
-          finalContent = `✅ **YES** - ${finalContent}`;
-        }
-      } else {
-        if (!finalContent.includes('❌')) {
-          finalContent = `❌ **NO** - ${finalContent}`;
-        }
-      }
+      // Strip emojis from the model's explanation to keep it clean
+      const cleanExplanation = (result.explanation || 'Test completed.')
+        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
+
+      const conclusionText = '\n\n' + cleanExplanation.trim();
 
       // Set result in store
       testStore.setResult({
@@ -898,25 +1315,52 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         suggestion: result.passed ? undefined : 'Review the test output for details.',
       });
 
-      // Final message update
+      // Final message: Plan + Indicator (stays visible!) + Conclusion
+      const finalContent = planText + '\n\n' + buildIndicator() + conclusionText;
+      
+      // Update message with isGenerating: false to show action buttons
       setMessages(prev => prev.map(msg => 
         msg.id === messageId 
-          ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current }
+          ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current, isGenerating: false }
           : msg
       ));
       
+      // Mark test message as completed after conclusion animation finishes
+      // This prevents re-animation if user sends new prompts
+      setTimeout(() => {
+        completedMessagesRef.current.add(messageId);
+      }, 2500); // Allow ~2.5s for conclusion animation to complete
+      
       setCurrentStreamingResponse('');
       setIsCurrentlyGenerating(false);
+      
+      // Stop thinking animation now that test is complete
+      if (thinkingTimerRef.current) {
+        clearInterval(thinkingTimerRef.current);
+      }
+      setIsCurrentlyThinking(false);
+      
       testStore.setStatus('complete');
       testStore.setCurrentAction(null);
+      testStore.exitTestMode();
       
     } catch (error: any) {
       console.error('[Test] Error:', error);
       
-      // Update the message with error state
+      // Check if this was an abort/cancellation
+      const wasCancelled = error.name === 'AbortError' || testStore.isCancelled.get();
+      
+      // Update the message with error state (same pattern as successful completion)
       setMessages(prev => prev.map(msg => 
         msg.id === messageId 
-          ? { ...msg, content: `❌ Test Error: ${error.message || 'Failed to run test.'}` }
+          ? { 
+              ...msg, 
+              content: wasCancelled 
+                ? '*Test cancelled by user.*' 
+                : `❌ Test Error: ${error.message || 'Failed to run test.'}`,
+              thinkingTime: thinkingTimeRef.current,
+              isGenerating: false
+            }
           : msg
       ));
 
@@ -925,36 +1369,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       testStore.setStatus('idle');
       testStore.setCurrentAction(null);
+      testStore.exitTestMode(); // Disable test mode on error too
     }
   };
 
-  // Modified handleSendMessage to route to test or code based on mode
-  const handleSendMessageWithMode = async (text: string) => {
-    if (!text.trim()) return;
-
-    const userMessage: ChatMessage = {
-      id: Math.random().toString(36).substring(7),
-      role: 'user',
-      content: text,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setPromptValue('');
-
-    if (isTestMode) {
-      // In test mode, run the test
-      await startTestGeneration(text);
-    } else {
-      // Normal code generation
-      const history: AiChatMessage[] = messages.map(m => ({
-        role: m.role,
-        content: m.content
-      }));
-      
-      await startAiGeneration(text, history, false);
-    }
-  };
 
   useEffect(() => {
     return () => {
@@ -969,10 +1387,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   useEffect(() => {
     if (chatScrollRef.current) {
         const container = chatScrollRef.current;
-        const lastMessage = messages[messages.length - 1];
+        const userMessages = messages.filter(m => m.role === 'user');
+        const lastUserMessage = userMessages[userMessages.length - 1];
 
-        if (lastMessage && lastMessage.role === 'user' && lastMessage.id !== lastPromptId.current) {
-            lastPromptId.current = lastMessage.id;
+        if (lastUserMessage && lastUserMessage.id !== lastPromptId.current) {
+            lastPromptId.current = lastUserMessage.id;
             isScrollingToTop.current = true;
             
             // CRITICAL: Temporarily force overflow to auto so scroll can work
@@ -980,7 +1399,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             
             // Use requestAnimationFrame instead of setTimeout for immediate start
             requestAnimationFrame(() => {
-                const msgEl = messageRefs.current[lastMessage.id];
+                const msgEl = messageRefs.current[lastUserMessage.id];
                 
                 if (msgEl && container) {
                     // Capture initial state for smooth animation
@@ -1170,7 +1589,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [shouldRenderToolsMenu, setShouldRenderToolsMenu] = useState(false);
   const [isClosingToolsMenu, setIsClosingToolsMenu] = useState(false);
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  // selectedToolId is declared at top of component (near line 260)
   const toolsMenuRef = useRef<HTMLDivElement>(null);
 
   // Models Menu State
@@ -1224,7 +1643,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     { id: 'image', label: 'Image', icon: ImageIcon },
     { id: 'design', label: 'Design', icon: Palette },
     { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
-    { id: 'prototype', label: 'Proto', icon: Beaker },
+    { id: 'prototype', label: 'Visual Edits', icon: VisualEditsIcon },
     { id: 'test', label: 'Test', icon: FlaskConical }
   ];
 
@@ -1234,19 +1653,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     console.log('[Sidebar] handleToolSelect called with:', toolId);
     setSelectedToolId(toolId);
     setIsToolsMenuOpen(false);
-    // Update tab state for tools that need special handling
+    // Note: Tools are now independent from tabs - no onTabChange calls
+    // Design and Prototype still change tabs since they have dedicated panels
     if (toolId === 'design') onTabChange('design');
-    if (toolId === 'prototype') onTabChange('prototype');
-    if (toolId === 'test') {
-      console.log('[Sidebar] Calling onTabChange("test")');
-      onTabChange('test');
-    }
+    if (toolId === 'prototype') onTabChange('design');
+    // Test tool: test mode activates when AI starts analyzing (not on tool select)
+    // So we don't call enterTestMode() here
   };
 
   const handleToolReset = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // If test is actively running, cancel it properly
+    if (testStore.isTestMode.get()) {
+      testStore.cancelTest(); // This sets isCancelled flag and exits test mode
+    }
     setSelectedToolId(null);
-    onTabChange('preview');
+    // Don't change tabs - tools are independent from tabs
   };
 
   useEffect(() => {
@@ -1273,8 +1695,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isModelsMenuOpen]);
 
-  const activeTool = ALL_TOOLS.find(t => t.id === activeTab);
-  const showContextHeader = activeTool && activeTool.id !== 'preview';
+  // Display tool for the context header - strictly keeps the last non-preview tool to prevent "Preview" text during close animation
+  const headerTool = React.useMemo(() => {
+    const tool = ALL_TOOLS.find(t => t.id === activeTab);
+    return tool && tool.id !== 'preview' ? tool : null;
+  }, [activeTab]);
+
+  // Use a ref to persist the tool info even when headerTool becomes null (during closing)
+  const lastHeaderToolRef = useRef(headerTool);
+  useEffect(() => {
+    if (headerTool) {
+      lastHeaderToolRef.current = headerTool;
+    }
+  }, [headerTool]);
+
+  const showContextHeader = !!headerTool;
+  const displayTool = headerTool || lastHeaderToolRef.current;
 
 
   const handleTabsScroll = () => {
@@ -1354,7 +1790,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           ${!dynamicBottomPadding && (showContextHeader ? 'pb-[290px]' : 'pb-[210px]')}
           ${isChatMode 
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
-            : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
+            : activeTab === 'design'
+              ? 'pl-[8px] pr-[2px] mr-[8.5px] pt-1 scroll-pt-1' // Reduced padding for Design settings
+              : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
           }`}
         style={{ 
           transition: 'padding-bottom 300ms cubic-bezier(0.4, 0, 0.2, 1)',
@@ -1362,6 +1800,43 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         }}
       >
         <div className={isChatMode ? 'max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
+          {activeTab === 'design' && !isChatMode ? (
+            <div className="space-y-4 pt-2 px-1">
+               <div className="text-[17px] font-semibold text-white mb-6">Design</div>
+               
+               {/* Themes Card */}
+               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer border border-transparent hover:border-white/20 transition-all duration-200">
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <Palette size={26} strokeWidth={1.5} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Themes</div>
+                           <div className="text-[14px] text-gray-400 font-medium">Browse and apply themes to your project</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+
+               {/* Visual Edits Card */}
+                <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer border border-transparent hover:border-white/20 transition-all duration-200">
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <VisualEditsIcon size={26} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Visual edits</div>
+                           <div className="text-[14px] text-gray-400 font-medium">Select elements to edit and style visually</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+            </div>
+          ) : (
           <div className="space-y-12">
             {/* Render Static Placeholder for "Ship" mode */}
             {!isChatMode && messages.length === 0 && (
@@ -1446,62 +1921,76 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {msg.thinkingTime !== undefined && (
+                    {/* Thinking indicator - show shimmer while generating, static when done */}
+                    {msg.isGenerating ? (
                       <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
                         <Lightbulb size={18} />
-                        <span className="text-[15.15px] font-medium">Thought for {msg.thinkingTime}s</span>
+                        <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
+                          Thinking
+                        </TextShimmer>
                       </div>
-                    )}
+                    ) : msg.thinkingTime !== undefined ? (
+                      <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
+                        <Lightbulb size={18} />
+                        <span className="text-[15.15px] font-medium">
+                          Thought for {Math.round(msg.thinkingTime)}s
+                        </span>
+                      </div>
+                    ) : null}
 
                     <div className="text-gray-300 text-[15px] leading-[1.65]">
-                      {renderFormattedContent(msg.content)}
+                      {renderFormattedContent(msg.content, msg.isGenerating, msg.id)}
                     </div>
 
-                    <div className="flex items-center gap-3 pt-4 border-t border-white/5 flex-wrap shrink-0">
-                      <div className="flex items-center gap-1 shrink-0">
+                    {/* Action buttons - only show when message is fully generated */}
+                    {!msg.isGenerating && (
+                      <div className="flex items-center gap-3 pt-4 border-t border-white/5 flex-wrap shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button 
+                            onClick={() => setMessageReactions(prev => ({ ...prev, [msg.id]: prev[msg.id] === 'like' ? null : 'like' }))}
+                            className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions[msg.id] === 'like' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                          >
+                            <ThumbsUp size={14} fill={messageReactions[msg.id] === 'like' ? 'currentColor' : 'none'} />
+                          </button>
+                          <button 
+                            onClick={() => setMessageReactions(prev => ({ ...prev, [msg.id]: prev[msg.id] === 'dislike' ? null : 'dislike' }))}
+                            className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions[msg.id] === 'dislike' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                          >
+                            <ThumbsDown size={14} fill={messageReactions[msg.id] === 'dislike' ? 'currentColor' : 'none'} />
+                          </button>
+                        </div>
                         <button 
-                          onClick={() => setMessageReactions(prev => ({ ...prev, [msg.id]: prev[msg.id] === 'like' ? null : 'like' }))}
-                          className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions[msg.id] === 'like' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                          onClick={() => navigator.clipboard.writeText(stripCodeAndIndicators(msg.content))}
+                          className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
                         >
-                          <ThumbsUp size={14} fill={messageReactions[msg.id] === 'like' ? 'currentColor' : 'none'} />
-                        </button>
-                        <button 
-                          onClick={() => setMessageReactions(prev => ({ ...prev, [msg.id]: prev[msg.id] === 'dislike' ? null : 'dislike' }))}
-                          className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions[msg.id] === 'dislike' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                        >
-                          <ThumbsDown size={14} fill={messageReactions[msg.id] === 'dislike' ? 'currentColor' : 'none'} />
+                          <Copy size={14} />
                         </button>
                       </div>
-                      <button 
-                        onClick={() => navigator.clipboard.writeText(stripCodeAndIndicators(msg.content))}
-                        className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
-                      >
-                        <Copy size={14} />
-                      </button>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
             ))}
 
-            {/* Current Streaming / Thinking UI */}
-            {isCurrentlyGenerating && (
+            {/* Current Streaming / Thinking UI - Only for NORMAL messages (not test mode) */}
+            {isCurrentlyGenerating && !testStore.isTestMode.get() && (
               <div ref={streamingContentRef} className="space-y-4 animate-in fade-in duration-300">
                 <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
                   <Lightbulb size={18} />
                   <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
-                    {isCurrentlyThinking ? `Thinking` : `Thought for ${currentThinkingTime}s`}
+                    {isCurrentlyThinking ? `Thinking` : `Thought for ${Math.round(currentThinkingTime)}s`}
                   </TextShimmer>
                 </div>
 
                 {currentStreamingResponse && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
-                    {renderFormattedContent(currentStreamingResponse, true)}
+                    {renderFormattedContent(currentStreamingResponse, true, 'streaming')}
                   </div>
                 )}
               </div>
             )}
           </div>
+          )}
         </div>
     </div>
 
@@ -1509,20 +1998,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       <div className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
         <div className="h-4 w-full bg-gradient-to-t from-[#1c1c1c] via-[#1c1c1c]/90 to-transparent" />
         <div className="bg-[#1c1c1c] pointer-events-auto">
-          <div className="relative">
-            <div 
-              ref={tabsScrollRef}
-              onScroll={handleTabsScroll}
-              className="flex gap-2 overflow-x-auto no-scrollbar px-[14px] scroll-smooth"
-            >
-               {['Add preset patterns', 'Add audio effects', 'Add MIDI support', 'Customize synth', 'Add more'].map((text, i) => (
-                 <button key={i} className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium border border-transparent">
-                    {text}
-                 </button>
-               ))}
+          <div 
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${activeTab !== 'design' ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+          >
+            <div className="overflow-hidden">
+              <div className={`relative transition-all duration-300 ease-in-out ${activeTab !== 'design' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                <div 
+                  ref={tabsScrollRef}
+                  onScroll={handleTabsScroll}
+                  className="flex gap-2 overflow-x-auto no-scrollbar px-[14px] scroll-smooth"
+                >
+                   {['Add preset patterns', 'Add audio effects', 'Add MIDI support', 'Customize synth', 'Add more'].map((text, i) => (
+                     <button key={i} className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium border border-transparent">
+                        {text}
+                     </button>
+                   ))}
+                </div>
+                <div className={`absolute top-0 right-0 w-12 h-full bg-gradient-to-l from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showRightGradient ? 'opacity-100' : 'opacity-0'}`} />
+                <div className={`absolute top-0 left-0 w-12 h-full bg-gradient-to-r from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showLeftGradient ? 'opacity-100' : 'opacity-0'}`} />
+              </div>
             </div>
-            <div className={`absolute top-0 right-0 w-12 h-full bg-gradient-to-l from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showRightGradient ? 'opacity-100' : 'opacity-0'}`} />
-            <div className={`absolute top-0 left-0 w-12 h-full bg-gradient-to-r from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showLeftGradient ? 'opacity-100' : 'opacity-0'}`} />
           </div>
 
           <div className="px-[14px] pb-4 pt-4">
@@ -1531,11 +2026,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${showContextHeader ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
                >
                  <div className="overflow-hidden">
-                   <div className={`flex flex-col gap-3 pb-2 transition-opacity duration-300 ${showContextHeader ? 'opacity-100' : 'opacity-0'}`}>
-                     {activeTool && (
+                    <div className={`flex flex-col gap-3 pb-2 transition-opacity duration-300 ${showContextHeader ? 'opacity-100' : 'opacity-0'}`}>
+                     {displayTool && (
                        <>
                          <button 
-                           onClick={() => onTabChange('preview')}
+                           onClick={() => {
+                              onTabChange('preview');
+                              setSelectedToolId(null);
+                            }}
                            className="flex items-center gap-2 text-[#a1a1aa] hover:text-white transition-colors text-sm font-medium self-start ml-1"
                          >
                            <ArrowLeft size={14} />
@@ -1543,8 +2041,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                          </button>
                          
                          <div className="flex items-center gap-2 bg-[#3f3f46]/50 rounded-xl px-4 py-3 text-white">
-                           <activeTool.icon size={18} />
-                           <span className="font-medium">{activeTool.label}</span>
+                           <displayTool.icon size={18} />
+                           <span className="font-medium">{displayTool.label}</span>
                          </div>
                        </>
                      )}

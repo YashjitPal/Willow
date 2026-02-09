@@ -15,6 +15,13 @@ export default defineConfig(({ mode }) => {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'credentialless',
       },
+      // Allow imports from parent directory (for defaultmodel.ts in Willow Code root)
+      fs: {
+        allow: [
+          path.resolve(__dirname, "."),           // Dashboard folder
+          path.resolve(__dirname, "../.."),       // Willow Code root
+        ],
+      },
     },
     plugins: [react()],
     define: {
@@ -26,6 +33,8 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "."),
         "~": path.resolve(__dirname, "."),
         "path": "path-browserify",
+        // Alias for the root defaultmodel file
+        "@models": path.resolve(__dirname, "../../defaultmodel"),
       },
     },
     optimizeDeps: {

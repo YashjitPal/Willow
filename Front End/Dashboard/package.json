@@ -27,6 +27,7 @@
     "html2canvas": "^1.4.1",
     "js-cookie": "^3.0.5",
     "jszip": "^3.10.1",
+    "lottie-web": "^5.13.0",
     "lucide-react": "^0.562.0",
     "nanostores": "^0.10.3",
     "openai": "^6.15.0",

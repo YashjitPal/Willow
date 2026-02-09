@@ -53,6 +53,12 @@ class TestStore {
   // Test messages (displayed in sidebar)
   testMessages = atom<TestMessage[]>([]);
   
+  // Cancellation flag - checked by test loop to stop execution
+  isCancelled = atom<boolean>(false);
+  
+  // AbortController for immediate request cancellation
+  private _abortController: AbortController | null = null;
+  
   // Reference to the preview iframe (set by MainPreview, used by Sidebar)
   private _iframeRef: HTMLIFrameElement | null = null;
   
@@ -65,11 +71,19 @@ class TestStore {
   }
   
   /**
+   * Get the current AbortSignal for API calls
+   */
+  getAbortSignal(): AbortSignal | undefined {
+    return this._abortController?.signal;
+  }
+  
+  /**
    * Enter test mode
    */
   enterTestMode() {
     console.log('[TestStore] Entering test mode');
     this.isTestMode.set(true);
+    this.isCancelled.set(false); // Reset cancellation flag
     this.status.set('idle');
     this.conversationHistory.set([]);
     this.lastResult.set(null);
@@ -84,14 +98,40 @@ class TestStore {
     this.isTestMode.set(false);
     this.status.set('idle');
     this.currentAction.set(null);
+    this.cursorPosition.set(null);
+    this.currentThought.set(null);
   }
   
   /**
    * Start a new test
    */
   startTest() {
+    // Create new AbortController for this test
+    this._abortController = new AbortController();
+    this.isCancelled.set(false); // Ensure not cancelled at start
     this.status.set('testing');
     this.lastResult.set(null);
+  }
+  
+  /**
+   * Cancel an in-progress test - IMMEDIATELY aborts the request
+   */
+  cancelTest() {
+    console.log('[TestStore] Cancelling test immediately');
+    this.isCancelled.set(true);
+    
+    // Abort any pending API request immediately
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+    
+    // Immediately hide visual elements
+    this.cursorPosition.set(null);
+    this.currentThought.set(null);
+    this.currentAction.set(null);
+    
+    this.exitTestMode();
   }
   
   /**
@@ -99,6 +139,14 @@ class TestStore {
    */
   setCurrentAction(action: string | null) {
     this.currentAction.set(action);
+  }
+  
+  /**
+   * Show cursor at center of screen (call when test starts)
+   */
+  showCursor() {
+    // Show at center of screen (500, 500 in normalized coords)
+    this.cursorPosition.set({ x: 500, y: 500 });
   }
   
   /**
