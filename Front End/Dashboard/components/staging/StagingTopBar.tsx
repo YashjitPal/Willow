@@ -14,10 +14,13 @@ import {
   Pin,
   Beaker,
   FlaskConical,
-  Settings
+  Settings,
+  MousePointer2
 } from 'lucide-react';
 import { useRef, useEffect } from 'react';
+import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
+import { isVisualEditMode, enterVisualEdit, exitVisualEdit } from '../../lib/visual-editor';
 
 interface TopBarProps {
   isSidebarCollapsed: boolean;
@@ -37,6 +40,7 @@ export const ALL_TOOLS = [
 ];
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {
+  const isVisualEdit = useStore(isVisualEditMode);
   const [pinnedIds, setPinnedIds] = useState(['preview', 'code', 'design']);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [shouldRenderMenu, setShouldRenderMenu] = useState(false);
@@ -47,14 +51,17 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
 
   const handleTabChange = (id: string) => {
     if (id === activeTab) return;
-    
+
     // If the tool we're leaving isn't pinned, it should animate out
     if (!pinnedIds.includes(activeTab)) {
       setLeavingId(activeTab);
       setTimeout(() => setLeavingId(null), 300);
     }
-    
-    onTabChange(id);
+
+    // Use requestAnimationFrame to prevent layout thrashing from iframe
+    requestAnimationFrame(() => {
+      onTabChange(id);
+    });
   };
 
   useEffect(() => {
@@ -100,11 +107,11 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
   const menuTools = ALL_TOOLS;
 
   return (
-    <div className={`h-14 flex items-center justify-between w-full flex-shrink-0 bg-[#1c1c1c] pr-4 transition-all duration-300 ease-in-out relative ${isSidebarCollapsed ? 'pl-4' : 'pl-0'}`}>
+    <div className={`h-14 flex items-center justify-between w-full flex-shrink-0 bg-[#1c1c1c] pr-4 transition-[padding] duration-300 ease-in-out relative ${isSidebarCollapsed ? 'pl-4' : 'pl-0'}`}>
       {/* Left Group */}
       <div className="flex items-center gap-4">
         {isSidebarCollapsed && (
-          <div className="flex items-center gap-1.5 text-gray-400 mr-2 transition-all duration-300 animate-in fade-in slide-in-from-left-4">
+          <div className="flex items-center gap-1.5 text-gray-400 mr-2 transition-opacity duration-300 animate-in fade-in slide-in-from-left-4">
             <button className="p-1.5 hover:text-white transition-colors">
               <Clock size={16} />
             </button>
@@ -124,7 +131,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
             <button
               key={item.id}
               onClick={() => handleTabChange(item.id)}
-              style={{ 
+              style={{
                 width: isLeaving ? '0px' : (isActive ? '112px' : '40px'),
                 opacity: isLeaving ? 0 : 1,
                 borderWidth: isLeaving ? 0 : '1px',
@@ -132,21 +139,21 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
                 margin: isLeaving ? 0 : undefined,
               }}
               className={`
-                group flex items-center justify-center h-10 rounded-full text-sm font-medium transition-[width,opacity,background-color,border-color,color] duration-300 ease-in-out border overflow-hidden
-                ${isActive 
-                  ? 'bg-[#18181b] border-[#27272a] text-white shadow-sm' 
-                  : 'bg-transparent border-transparent text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30'
+                group flex items-center justify-center h-10 rounded-full text-sm font-medium transition-[width,opacity,background-color,color] duration-300 ease-in-out overflow-hidden
+                ${isActive
+                  ? 'bg-[#18181b] border border-[#27272a] text-white shadow-sm'
+                  : 'bg-transparent border border-[#1c1c1c] text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30'
                 }
               `}
             >
-              <div className={`flex items-center justify-center transition-all duration-300 ${isLeaving ? 'scale-50 opacity-0' : 'scale-100 opacity-100'}`}>
-                <item.icon 
-                  size={16} 
-                  className={`transition-colors duration-300 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'}`} 
+              <div className={`flex items-center justify-center transition-[transform,opacity] duration-300 ${isLeaving ? 'scale-50 opacity-0' : 'scale-100 opacity-100'}`}>
+                <item.icon
+                  size={16}
+                  className={`transition-colors duration-300 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}
                 />
-                
-                <div 
-                  className={`overflow-hidden transition-all duration-300 ease-in-out flex items-center ${isActive ? 'max-w-[80px] opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0'}`}
+
+                <div
+                  className={`overflow-hidden transition-[max-width,opacity,margin] duration-300 ease-in-out flex items-center ${isActive ? 'max-w-[80px] opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0'}`}
                 >
                   <span className="whitespace-nowrap">
                     {item.id === 'prototype' ? 'Proto' : item.label}
@@ -163,7 +170,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
             ref={buttonRef}
             onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
             className={`
-              flex items-center justify-center w-10 h-10 rounded-full text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30 transition-all duration-200 border border-transparent
+              flex items-center justify-center w-10 h-10 rounded-full text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30 transition-colors duration-200 border border-[#1c1c1c]
               ${isAddMenuOpen ? 'bg-[#27272a]/30 text-white' : ''}
             `}
           >
@@ -186,14 +193,14 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
                       setIsAddMenuOpen(false);
                     }}
                   >
-                    <div className="group flex items-center justify-between w-full p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-[#20293a] hover:border-[#3b82f6]/50 transition-all duration-200 border border-transparent">
+                    <div className="group flex items-center justify-between w-full p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-[#20293a] hover:border-[#3b82f6]/50 transition-colors duration-200 border border-[#1c1c1c]">
                       <div className="flex items-center gap-2.5">
                         <item.icon size={16} className="text-gray-400 group-hover:text-[#3b82f6] transition-colors" />
                         <span className="text-sm font-medium">{item.label}</span>
                       </div>
-                      <div 
+                      <div
                         onClick={(e) => togglePin(item.id, e)}
-                        className={`p-1 rounded-md transition-all duration-200 ${isPinned ? 'opacity-100 bg-[#3b82f6]/20' : 'opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-gray-700'}`}
+                        className={`p-1 rounded-md transition-[opacity,background-color] duration-200 ${isPinned ? 'opacity-100 bg-[#3b82f6]/20' : 'opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-gray-700'}`}
                       >
                         <Pin size={13} className={`rotate-45 transition-colors ${isPinned ? 'text-[#3b82f6] fill-[#3b82f6]' : 'text-gray-500'}`} />
                       </div>
@@ -240,27 +247,74 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
 
       {/* Right Group */}
       <div className="flex items-center gap-3">
-        <button 
-          onClick={onSettingsClick}
-          className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-all duration-200"
-        >
-          <Settings size={20} />
-        </button>
-        <button className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-all duration-200">
-          <Github size={20} />
-        </button>
-        
-        {/* Shimmer Publish Button */}
-        <ShimmerButton 
-          className="h-10 text-sm"
-          shimmerColor="#ffffff"
-          background="rgba(28, 28, 28, 1)"
-        >
-          <span className="text-white font-medium">Publish</span>
-        </ShimmerButton>
+        {isVisualEdit ? (
+          <button
+            onClick={() => {
+              exitVisualEdit();
+              onTabChange('preview');
+            }}
+            className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-all duration-200"
+          >
+            Close
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={onSettingsClick}
+              className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-[background-color] duration-200"
+            >
+              <Settings size={20} />
+            </button>
+            <button className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-[background-color] duration-200">
+              <Github size={20} />
+            </button>
+            
+            {/* Shimmer Publish Button */}
+            <ShimmerButton 
+              className="h-10 text-sm"
+              shimmerColor="#ffffff"
+              background="rgba(28, 28, 28, 1)"
+            >
+              <span className="text-white font-medium">Publish</span>
+            </ShimmerButton>
+          </>
+        )}
       </div>
     </div>
   );
 };
 
+// Visual Edit Button Component - Toggle visual editing mode
+const VisualEditButton: React.FC = () => {
+  const isActive = useStore(isVisualEditMode);
+
+  const handleClick = () => {
+    if (isActive) {
+      exitVisualEdit();
+    } else {
+      enterVisualEdit();
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`
+        flex items-center gap-2 h-10 px-4 rounded-full text-sm font-medium transition-all duration-200 border ml-2
+        ${isActive 
+          ? 'bg-[#3b82f6]/20 border-[#3b82f6]/50 text-[#3b82f6]' 
+          : 'bg-transparent border-[#27272a] text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30 hover:border-[#3b3b3b]'
+        }
+      `}
+    >
+      <MousePointer2 size={15} className={isActive ? 'text-[#3b82f6]' : ''} />
+      <span>Visual Edit</span>
+      {isActive && (
+        <div className="w-1.5 h-1.5 rounded-full bg-[#3b82f6] animate-pulse" />
+      )}
+    </button>
+  );
+};
+
 export default TopBar;
+

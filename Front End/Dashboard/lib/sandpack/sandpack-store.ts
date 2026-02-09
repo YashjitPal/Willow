@@ -192,6 +192,21 @@ class SandpackStore {
   }
 
   /**
+   * Full reset - clears all state for a fresh session
+   * Call this when starting a new project/session
+   */
+  reset(): void {
+    console.log('[Store] Full reset - clearing all session state');
+    this.#pendingFileEdits.clear();
+    this.files.set({});
+    this.activeFile.set('/src/App.tsx');
+    this.currentEditingFile.set(null);
+    this.previewReady.set(false);
+    this.hasUserCode.set(false);
+    this.isGenerating.set(false);
+  }
+
+  /**
    * Get file content from the files store (for code panel)
    */
   getFileContent(path: string): string | undefined {

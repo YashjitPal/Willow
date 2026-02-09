@@ -1,6 +1,6 @@
 
 import React, { useState, Suspense } from 'react';
-import { Routes, Route, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { Routes, Route, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { Sidebar, ViewType } from './components/Sidebar';
 import { HeroSection } from './components/HeroSection';
 import { BottomPanel } from './components/BottomPanel';
@@ -10,12 +10,14 @@ import { SearchModal } from './components/SearchModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ProjectsPage } from './components/ProjectsPage';
 import { RainbowButton } from './components/ui/rainbow-button';
-// Lazy-load StagingView to prevent WebContainer boot on login page
-const StagingView = React.lazy(() => import('./components/staging/StagingView'));
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
+import { UserDataProvider } from './context/UserDataContext';
+
+// Lazy-load StagingView to prevent WebContainer boot on login page
+const StagingView = React.lazy(() => import('./components/staging/StagingView'));
 
 // Dynamic background renderer based on context
 const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
@@ -118,14 +120,41 @@ const DashboardLayout: React.FC<{
 const ProjectIframe: React.FC = () => {
     const [searchParams] = useSearchParams();
     const prompt = searchParams.get('prompt') || '';
-    
+
     return (
-        <iframe 
+        <iframe
             src={`http://localhost:3001/?prompt=${encodeURIComponent(prompt)}`}
             className="w-full h-full border-none"
             title="Project Content"
         />
     );
+};
+
+// Check for page refresh - used to redirect from staging to dashboard on refresh
+const getNavigationType = (): string => {
+  const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+  return navEntries[0]?.type || 'navigate';
+};
+
+// Wrapper component that handles refresh redirect BEFORE StagingView loads
+// This prevents the visual glitch caused by StagingView rendering then redirecting
+const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Check synchronously if this is a refresh that should redirect
+  const shouldRedirect = React.useMemo(() => {
+    const isRouterNav = sessionStorage.getItem('staging-nav');
+    if (isRouterNav) {
+      sessionStorage.removeItem('staging-nav');
+      return false;
+    }
+    return getNavigationType() === 'reload';
+  }, []);
+
+  // If refreshing while on staging, redirect to dashboard immediately
+  if (shouldRedirect) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
 };
 
 const App: React.FC = () => {
@@ -176,6 +205,8 @@ const App: React.FC = () => {
       navigate('/login');
       return;
     }
+    // Mark that we're navigating to staging via React Router (not a page refresh)
+    sessionStorage.setItem('staging-nav', 'true');
     const encodedPrompt = encodeURIComponent(prompt);
     navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`);
   };
@@ -210,8 +241,9 @@ const App: React.FC = () => {
 
   return (
     <BackgroundProvider>
-      <Routes>
-        <Route path="/" element={
+      <UserDataProvider>
+        <Routes>
+          <Route path="/" element={
           <>
             <SettingsModal 
               isOpen={isSettingsOpen} 
@@ -254,27 +286,30 @@ const App: React.FC = () => {
         } />
         
         <Route path="/project1" element={
-          <div className="h-screen w-screen overflow-hidden">
-            <SettingsModal 
-              isOpen={isSettingsOpen} 
-              onClose={() => setIsSettingsOpen(false)} 
-              modelConfig={modelConfig}
-              setModelConfig={setModelConfig}
-            />
-            <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
-              <StagingView 
-                onSettingsClick={() => setIsSettingsOpen(true)} 
+          <StagingRouteGuard>
+            <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
+              <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
                 modelConfig={modelConfig}
                 setModelConfig={setModelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
               />
-            </Suspense>
-          </div>
+              <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
+                <StagingView
+                  onSettingsClick={() => setIsSettingsOpen(true)}
+                  modelConfig={modelConfig}
+                  setModelConfig={setModelConfig}
+                  selectedModelId={selectedModelId}
+                  setSelectedModelId={setSelectedModelId}
+                />
+              </Suspense>
+            </div>
+          </StagingRouteGuard>
         } />
 
         <Route path="/login" element={<LoginPage />} />
-      </Routes>
+        </Routes>
+      </UserDataProvider>
     </BackgroundProvider>
   );
 };

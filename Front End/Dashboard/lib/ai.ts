@@ -2,9 +2,17 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 
+export interface Attachment {
+  type: 'image' | 'text' | 'file';
+  mimeType: string;
+  data: string; // base64 for image, text content for text
+  name?: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Attachment[];
 }
 
 export interface AiOptions {
@@ -108,13 +116,52 @@ export const streamChat = async (
     });
 
     const chat = geminiModel.startChat({
-      history: messages.slice(0, -1).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }],
-      })),
+      history: messages.slice(0, -1).map(m => {
+        const parts: any[] = [{ text: m.content }];
+        if (m.attachments) {
+          m.attachments.forEach(att => {
+            if (att.type === 'image') {
+              parts.push({
+                inlineData: {
+                  mimeType: att.mimeType,
+                  data: att.data
+                }
+              });
+            } else {
+               // Append text/code files to content
+               const label = att.name || att.mimeType;
+               parts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+            }
+          });
+        }
+        return {
+          role: m.role === 'user' ? 'user' : 'model',
+          parts,
+        };
+      }),
     });
 
-    const result = await chat.sendMessageStream(messages[messages.length - 1].content);
+    const lastMessage = messages[messages.length - 1];
+    const parts: any[] = [{ text: lastMessage.content }];
+    
+    if (lastMessage.attachments) {
+      lastMessage.attachments.forEach(att => {
+        if (att.type === 'image') {
+          parts.push({
+            inlineData: {
+              mimeType: att.mimeType,
+              data: att.data
+            }
+          });
+        } else {
+           // For text files, just append to the prompt
+           const label = att.name || att.mimeType;
+           parts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+        }
+      });
+    }
+
+    const result = await chat.sendMessageStream(parts);
 
     for await (const chunk of result.stream) {
       const chunkText = chunk.text();
@@ -130,12 +177,32 @@ export const streamChat = async (
         3: "high"
     };
 
+    const formattedMessages = messages.map(m => {
+        if (!m.attachments || m.attachments.length === 0) {
+            return { role: m.role, content: m.content };
+        }
+
+        const contentParts: any[] = [{ type: "text", text: m.content }];
+        m.attachments.forEach(att => {
+            if (att.type === 'image') {
+                contentParts.push({
+                    type: "image_url",
+                    image_url: {
+                        url: `data:${att.mimeType};base64,${att.data}`
+                    }
+                });
+            } else {
+                const label = att.name || att.mimeType;
+                contentParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+            }
+        });
+        return { role: m.role, content: contentParts };
+    });
+
     const stream = await openai.chat.completions.create({
       model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
+      // @ts-ignore
+      messages: formattedMessages,
       // @ts-ignore - reasoning_effort is used for o1 series
       reasoning_effort: options.thinkingLevel ? reasoningEffortMap[options.thinkingLevel] : "low",
       stream: true,
@@ -148,13 +215,34 @@ export const streamChat = async (
   } else if (provider === 'anthropic') {
     const anthropic = getAnthropicClient(apiKey);
 
+    const formattedMessages = messages.map(m => {
+        if (!m.attachments || m.attachments.length === 0) {
+             return { role: m.role, content: m.content };
+        }
+        
+        const contentParts: any[] = [{ type: "text", text: m.content }];
+        m.attachments.forEach(att => {
+            if (att.type === 'image') {
+                contentParts.push({
+                    type: "image",
+                    source: {
+                        type: "base64",
+                        media_type: att.mimeType as any,
+                        data: att.data
+                    }
+                });
+            } else {
+                 contentParts[0].text += `\n\n[Attachment: ${att.mimeType}]\n${att.data}`;
+            }
+        });
+        return { role: m.role, content: contentParts };
+    });
+
     const stream = await anthropic.messages.create({
       model,
       max_tokens: 4096,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
+      // @ts-ignore
+      messages: formattedMessages,
       stream: true,
     });
 

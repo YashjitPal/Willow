@@ -25,6 +25,12 @@ export interface TestResult {
   actionsPerformed: string[];
 }
 
+// Conversation message for context
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ComputerUseAction {
   name: string;
   args: Record<string, unknown>;
@@ -57,8 +63,16 @@ TESTING RULES:
 - If you can't see something, scroll to find it
 - Don't repeat the same action - test once and move on
 
+IMPORTANT - TYPING IN TEXT FIELDS:
+- Before typing, check if the input field is already focused (has blinking cursor or highlighted border)
+- If NOT focused: click_at on the input field first → wait for screenshot → then type_text_at
+- If ALREADY focused (you just clicked it): skip the click, just use type_text_at directly
+- Do NOT click on an input that is already selected/focused - this wastes a turn
+- To REPLACE existing text (delete and type new), use clear_before_typing: true in your type_text_at action
+- To APPEND to existing text, use clear_before_typing: false (default)
+
 WHEN DONE, GIVE A CLEAN SUMMARY:
-ONLY provide the summary in the specified format. Do NOT include any other text, commentary, reasoning, or conversation before or after these sections. Your final answer should be simple and easy to read using this EXACT format:
+ONLY provide the summary in the specified format. Do NOT include any other text, commentary, reasoning, or conversation before or after these sections. Your final answer should be simple and easy to read using this EXACT format (note the space after each colon):
 
 **Result:** YES or NO
 
@@ -71,6 +85,10 @@ ONLY provide the summary in the specified format. Do NOT include any other text,
 - [Result of second test]
 
 **Conclusion:** [One sentence summary]
+
+IMPORTANT FORMATTING:
+- Always include a SPACE after the colon (e.g., "**Result:** YES" not "**Result:**YES")
+- Keep each section on its own line with a blank line between sections
 
 EXAMPLE OF GOOD OUTPUT:
 **Result:** YES
@@ -86,7 +104,8 @@ EXAMPLE OF GOOD OUTPUT:
 **Conclusion:** The calculator works perfectly.
 
 BAD OUTPUT (don't do this):
-- Including ANY text before the "**Result:**" line (Do not write anything outside these three segments)
+- "**Result:**YES" (missing space after colon)
+- Including ANY text before the "**Result:**" line
 - Including ANY text after the conclusion
 - Long paragraphs with technical explanations
 - Mathematical verification steps
@@ -172,21 +191,26 @@ export interface ScreenshotResult {
   actualHeight: number;  // Original iframe height
   normalizedWidth: number;  // Standard width sent to model (1440)
   normalizedHeight: number;  // Standard height sent to model (900)
+  isFallback?: boolean;  // True if this is a fallback screenshot (content didn't load)
 }
 
 /**
  * Capture a screenshot of an iframe and normalize it to standard resolution.
- * 
+ *
  * The Computer Use model works best at specific resolutions. We:
  * 1. Capture the iframe at its actual size
  * 2. Scale it to 1440x900 (the standard size)
  * 3. Return scaling factors so coordinates can be converted back
- * 
+ *
  * This ensures the model always sees the same resolution regardless of actual iframe size.
  */
 export async function captureIframeScreenshot(
-  iframe: HTMLIFrameElement
+  iframe: HTMLIFrameElement,
+  retryCount: number = 0
 ): Promise<ScreenshotResult> {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 500; // ms
+
   return new Promise((resolve, reject) => {
     try {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -194,64 +218,29 @@ export async function captureIframeScreenshot(
         reject(new Error('Cannot access iframe document'));
         return;
       }
-      
+
       const rect = iframe.getBoundingClientRect();
-      const actualWidth = rect.width;
-      const actualHeight = rect.height;
-      
+      let actualWidth = rect.width;
+      let actualHeight = rect.height;
+
+      // Validate dimensions - if invalid, use fallback dimensions
+      // This prevents NaN/Infinity errors in gradient calculations
+      if (!actualWidth || !actualHeight || !isFinite(actualWidth) || !isFinite(actualHeight) || actualWidth < 1 || actualHeight < 1) {
+        console.warn(`[ComputerUse] Invalid iframe dimensions: ${actualWidth}x${actualHeight}, using defaults`);
+        actualWidth = SCREEN_WIDTH;
+        actualHeight = SCREEN_HEIGHT;
+      }
+
       // Get current scroll position
       const scrollX = iframeDoc.documentElement?.scrollLeft || iframeDoc.body?.scrollLeft || 0;
       const scrollY = iframeDoc.documentElement?.scrollTop || iframeDoc.body?.scrollTop || 0;
-      
-      console.log(`[ComputerUse] === SCREENSHOT ===`);
+
+      console.log(`[ComputerUse] === SCREENSHOT (attempt ${retryCount + 1}/${MAX_RETRIES + 1}) ===`);
       console.log(`[ComputerUse] Actual iframe size: ${actualWidth}x${actualHeight}`);
       console.log(`[ComputerUse] Will normalize to: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
-      
-      import('html2canvas').then(({ default: html2canvas }) => {
-        html2canvas(iframeDoc.documentElement, {
-          width: actualWidth,
-          height: actualHeight,
-          windowWidth: actualWidth,
-          windowHeight: actualHeight,
-          x: scrollX,
-          y: scrollY,
-          backgroundColor: '#1c1c1c',
-          useCORS: true,
-          allowTaint: true,
-          scale: 1,
-          logging: false,
-        }).then(originalCanvas => {
-          // Create a new canvas at the normalized size (1440x900)
-          const normalizedCanvas = document.createElement('canvas');
-          normalizedCanvas.width = SCREEN_WIDTH;
-          normalizedCanvas.height = SCREEN_HEIGHT;
-          const ctx = normalizedCanvas.getContext('2d');
-          
-          if (ctx) {
-            // Scale the original capture to fit the normalized canvas
-            ctx.drawImage(
-              originalCanvas, 
-              0, 0, originalCanvas.width, originalCanvas.height,  // Source
-              0, 0, SCREEN_WIDTH, SCREEN_HEIGHT  // Destination (scaled)
-            );
-          }
-          
-          const dataUrl = normalizedCanvas.toDataURL('image/png');
-          const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-          
-          console.log(`[ComputerUse] Normalized screenshot size: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
-          console.log(`[ComputerUse] Scale factors: X=${(actualWidth/SCREEN_WIDTH).toFixed(3)}, Y=${(actualHeight/SCREEN_HEIGHT).toFixed(3)}`);
-          
-          resolve({
-            data: base64Data,
-            actualWidth,
-            actualHeight,
-            normalizedWidth: SCREEN_WIDTH,
-            normalizedHeight: SCREEN_HEIGHT,
-          });
-        }).catch(reject);
-      }).catch(err => {
-        console.warn('[ComputerUse] html2canvas not available, using fallback');
+
+      // Helper to create fallback screenshot
+      const createFallbackScreenshot = (width: number, height: number): ScreenshotResult => {
         const canvas = document.createElement('canvas');
         canvas.width = SCREEN_WIDTH;
         canvas.height = SCREEN_HEIGHT;
@@ -266,13 +255,113 @@ export async function captureIframeScreenshot(
         }
         const dataUrl = canvas.toDataURL('image/png');
         const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-        resolve({
+        return {
           data: base64Data,
-          actualWidth: rect.width || SCREEN_WIDTH,
-          actualHeight: rect.height || SCREEN_HEIGHT,
+          actualWidth: width || SCREEN_WIDTH,
+          actualHeight: height || SCREEN_HEIGHT,
           normalizedWidth: SCREEN_WIDTH,
           normalizedHeight: SCREEN_HEIGHT,
+          isFallback: true, // Mark as fallback for retry logic
+        };
+      };
+
+      import('html2canvas').then(({ default: html2canvas }) => {
+        html2canvas(iframeDoc.documentElement, {
+          width: actualWidth,
+          height: actualHeight,
+          windowWidth: actualWidth,
+          windowHeight: actualHeight,
+          x: scrollX,
+          y: scrollY,
+          backgroundColor: '#1c1c1c',
+          useCORS: true,
+          allowTaint: true,
+          scale: 1,
+          logging: false,
+        }).then(originalCanvas => {
+          // Check if the canvas has meaningful content (not just a solid color)
+          const ctx = originalCanvas.getContext('2d');
+          let hasContent = true;
+
+          if (ctx) {
+            // Sample pixels from different areas to check for actual content
+            const samples = [
+              ctx.getImageData(Math.floor(originalCanvas.width / 4), Math.floor(originalCanvas.height / 4), 1, 1),
+              ctx.getImageData(Math.floor(originalCanvas.width / 2), Math.floor(originalCanvas.height / 2), 1, 1),
+              ctx.getImageData(Math.floor(3 * originalCanvas.width / 4), Math.floor(3 * originalCanvas.height / 4), 1, 1),
+            ];
+
+            // Check if all samples are the same color (likely empty/solid background)
+            const firstPixel = samples[0].data;
+            const allSame = samples.every(sample =>
+              sample.data[0] === firstPixel[0] &&
+              sample.data[1] === firstPixel[1] &&
+              sample.data[2] === firstPixel[2]
+            );
+
+            // If all samples are the same AND it's a dark color (background), content may not be loaded
+            if (allSame && firstPixel[0] < 50 && firstPixel[1] < 50 && firstPixel[2] < 50) {
+              hasContent = false;
+              console.warn('[ComputerUse] Screenshot appears to be empty (solid dark background)');
+            }
+          }
+
+          // If no content detected and we haven't exceeded retries, try again
+          if (!hasContent && retryCount < MAX_RETRIES) {
+            console.log(`[ComputerUse] Retrying screenshot in ${RETRY_DELAY}ms...`);
+            setTimeout(() => {
+              captureIframeScreenshot(iframe, retryCount + 1).then(resolve).catch(reject);
+            }, RETRY_DELAY);
+            return;
+          }
+
+          // Create a new canvas at the normalized size (1440x900)
+          const normalizedCanvas = document.createElement('canvas');
+          normalizedCanvas.width = SCREEN_WIDTH;
+          normalizedCanvas.height = SCREEN_HEIGHT;
+          const normalizedCtx = normalizedCanvas.getContext('2d');
+
+          if (normalizedCtx) {
+            // Scale the original capture to fit the normalized canvas
+            normalizedCtx.drawImage(
+              originalCanvas,
+              0, 0, originalCanvas.width, originalCanvas.height,  // Source
+              0, 0, SCREEN_WIDTH, SCREEN_HEIGHT  // Destination (scaled)
+            );
+          }
+
+          const dataUrl = normalizedCanvas.toDataURL('image/png');
+          const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+
+          console.log(`[ComputerUse] Normalized screenshot size: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
+          console.log(`[ComputerUse] Scale factors: X=${(actualWidth/SCREEN_WIDTH).toFixed(3)}, Y=${(actualHeight/SCREEN_HEIGHT).toFixed(3)}`);
+
+          resolve({
+            data: base64Data,
+            actualWidth,
+            actualHeight,
+            normalizedWidth: SCREEN_WIDTH,
+            normalizedHeight: SCREEN_HEIGHT,
+          });
+        }).catch(err => {
+          // Handle html2canvas errors (including gradient errors)
+          // This catches "Failed to execute 'addColorStop' on 'CanvasGradient': The provided double value is non-finite"
+          console.warn('[ComputerUse] html2canvas rendering failed:', err.message);
+
+          // Retry on error if we haven't exceeded retries
+          if (retryCount < MAX_RETRIES) {
+            console.log(`[ComputerUse] Retrying screenshot in ${RETRY_DELAY}ms after error...`);
+            setTimeout(() => {
+              captureIframeScreenshot(iframe, retryCount + 1).then(resolve).catch(reject);
+            }, RETRY_DELAY);
+          } else {
+            console.warn('[ComputerUse] Max retries exceeded, using fallback');
+            resolve(createFallbackScreenshot(actualWidth, actualHeight));
+          }
         });
+      }).catch(err => {
+        console.warn('[ComputerUse] html2canvas not available, using fallback:', err.message);
+        resolve(createFallbackScreenshot(actualWidth, actualHeight));
       });
     } catch (error) {
       reject(error);
@@ -393,6 +482,19 @@ async function executeAction(
           // Also try direct click for button elements
           if (element instanceof HTMLElement) {
             element.click();
+            // Focus input elements explicitly so they can receive text
+            if (element instanceof HTMLInputElement ||
+                element instanceof HTMLTextAreaElement) {
+              element.focus();
+              // Trigger focus event to show blinking cursor
+              element.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+              // Move caret to end of existing text
+              const len = element.value.length;
+              element.setSelectionRange(len, len);
+            } else if (element.isContentEditable) {
+              element.focus();
+              element.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+            }
           }
           return { success: true };
         }
@@ -400,8 +502,8 @@ async function executeAction(
       }
       
       case 'type_text_at': {
-        const x = denormalizeX(args.x as number, dimensions.width);
-        const y = denormalizeY(args.y as number, dimensions.height);
+        const x = denormalizeX(args.x as number, actualDimensions.width);
+        const y = denormalizeY(args.y as number, actualDimensions.height);
         const text = args.text as string;
         const pressEnter = args.press_enter as boolean;
         const clearFirst = args.clear_before_typing as boolean;
@@ -450,8 +552,8 @@ async function executeAction(
       }
       
       case 'hover_at': {
-        const x = denormalizeX(args.x as number, dimensions.width);
-        const y = denormalizeY(args.y as number, dimensions.height);
+        const x = denormalizeX(args.x as number, actualDimensions.width);
+        const y = denormalizeY(args.y as number, actualDimensions.height);
         
         console.log(`[ComputerUse] Hovering at (${x}, ${y})`);
         
@@ -469,8 +571,8 @@ async function executeAction(
       }
       
       case 'scroll_at': {
-        const x = denormalizeX(args.x as number, dimensions.width);
-        const y = denormalizeY(args.y as number, dimensions.height);
+        const x = denormalizeX(args.x as number, actualDimensions.width);
+        const y = denormalizeY(args.y as number, actualDimensions.height);
         const direction = args.direction as string;
         const magnitude = (args.magnitude as number) || 200;
         
@@ -715,6 +817,7 @@ export async function runComputerUseTest(
   userPrompt: string,
   iframe: HTMLIFrameElement,
   onUpdate: (update: TestUpdate) => void,
+  conversationHistory: ConversationMessage[] = [], // Full conversation for context
   shouldCancel?: () => boolean, // Optional cancellation checker
   abortSignal?: AbortSignal // Optional AbortSignal for immediate cancellation
 ): Promise<TestResult> {
@@ -728,13 +831,23 @@ export async function runComputerUseTest(
     // ========================================
     onUpdate({ type: 'thinking', message: 'Preparing...' });
     testStore.setThought('Preparing...');
-    
+
+    // Build conversation context summary for the model
+    let conversationContext = '';
+    if (conversationHistory.length > 0) {
+      // Include recent conversation for context (limit to avoid token overflow)
+      const recentHistory = conversationHistory.slice(-10); // Last 10 messages
+      conversationContext = '\n\nPrevious conversation for context:\n' +
+        recentHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`).join('\n');
+    }
+
     // Generate a short intro paragraph (no computer use tools)
     const introResponse = await client.models.generateContent({
       model: TEST_INTRO_MODEL, // Defined in /defaultmodel.ts
-      contents: [{ role: 'user', parts: [{ text: `Test request: ${userPrompt}` }] }],
+      contents: [{ role: 'user', parts: [{ text: `Test request: ${userPrompt}${conversationContext}` }] }],
       config: {
         systemInstruction: TEST_INTRO_SYSTEM_PROMPT,
+        abortSignal: abortSignal, // Allow cancellation during intro
       },
     });
     
@@ -764,13 +877,57 @@ export async function runComputerUseTest(
     // ========================================
     // PHASE 2: TESTING (with computer use)
     // ========================================
-    
+
     // Show cursor and start testing
     testStore.showCursor();
     testStore.setThought('Starting test...');
-    
+
     onUpdate({ type: 'thinking', message: 'Starting test...' });
-    
+
+    // Wait for iframe content to be ready before capturing screenshot
+    // This prevents the "black screen" issue when content hasn't loaded yet
+    onUpdate({ type: 'screenshot', message: 'Waiting for content to load...' });
+    testStore.setThought('Waiting for content...');
+
+    const maxWaitTime = 5000; // 5 seconds max wait
+    const checkInterval = 200; // Check every 200ms
+    let waited = 0;
+
+    while (waited < maxWaitTime) {
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc) {
+          // Check if iframe has meaningful content (not just empty body)
+          const body = iframeDoc.body;
+          const hasContent = body && (
+            body.children.length > 0 ||
+            (body.textContent && body.textContent.trim().length > 0)
+          );
+
+          // Also check if document is fully loaded
+          const isReady = iframeDoc.readyState === 'complete';
+
+          if (hasContent && isReady) {
+            console.log(`[ComputerUse] Iframe content ready after ${waited}ms`);
+            break;
+          }
+        }
+      } catch (e) {
+        // Cross-origin access error - iframe might be loading
+        console.log('[ComputerUse] Waiting for iframe access...');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      waited += checkInterval;
+    }
+
+    if (waited >= maxWaitTime) {
+      console.warn('[ComputerUse] Iframe content may not be fully loaded after max wait time');
+    }
+
+    // Additional small delay to let any final rendering complete
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     // Capture initial screenshot (normalized to 1440x900)
     onUpdate({ type: 'screenshot', message: 'Capturing initial screenshot...' });
     testStore.setThought('Capturing screen...');
@@ -781,7 +938,7 @@ export async function runComputerUseTest(
     
     // Build initial content for testing
     const fullPrompt = `Test request: ${userPrompt}
-
+${conversationContext ? `\n${conversationContext}\n` : ''}
 Please analyze the screenshot and perform the necessary actions to test this feature. When done, provide your conclusion with either:
 - YES - the feature works correctly
 - NO - the feature has issues (explain what's wrong)`;
@@ -849,8 +1006,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
               excludedPredefinedFunctions: ['drag_and_drop'],
             }
           }],
-          // @ts-ignore - AbortSignal for request cancellation
-          signal: abortSignal,
+          abortSignal: abortSignal, // Allow immediate cancellation
         },
       });
       
@@ -1070,12 +1226,26 @@ Please analyze the screenshot and perform the necessary actions to test this fea
     
   } catch (error: any) {
     console.error('[ComputerUse] Agent loop error:', error);
-    
+
     // Hide cursor on error too
     testStore.hideCursor();
-    
+
+    // Check if this was a user-initiated cancellation
+    const wasCancelled = error.name === 'AbortError' ||
+                         error.message?.includes('aborted') ||
+                         shouldCancel?.();
+
+    if (wasCancelled) {
+      onUpdate({ type: 'complete', message: 'Test stopped by user' });
+      return {
+        passed: false,
+        explanation: '*AI testing stopped by the user.*',
+        actionsPerformed,
+      };
+    }
+
     onUpdate({ type: 'error', message: error.message });
-    
+
     return {
       passed: false,
       explanation: `Error during testing: ${error.message}`,

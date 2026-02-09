@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild-wasm';
+import { injectSourceLocations as injectSourceLocationsToCode } from './babel-source-plugin';
 
 let esbuildInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -75,7 +76,7 @@ function findFile(files: Record<string, string>, basePath: string): string | nul
   return null;
 }
 
-const createVirtualFsPlugin = (files: Record<string, string>) => ({
+const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocations: boolean = false) => ({
   name: 'virtual-fs',
   setup(build: esbuild.PluginBuild) {
     const fileKeys = Object.keys(files);
@@ -162,6 +163,9 @@ const createVirtualFsPlugin = (files: Record<string, string>) => ({
           import React from 'react';
           import ReactDOM from 'react-dom';
           
+          // Cache the React root for reuse across hot updates
+          window.__reactRoot = null;
+          
           window.__renderApp = function() {
             console.log('[Preview] Rendering App...', typeof App, App);
             
@@ -184,15 +188,21 @@ const createVirtualFsPlugin = (files: Record<string, string>) => ({
             }
             
             try {
-              const root = ReactDOM.createRoot(document.getElementById('root'));
+              // Reuse existing root if available, otherwise create new one
+              // This prevents full remount on hot updates, preserving scroll and avoiding animation replay
+              if (!window.__reactRoot) {
+                window.__reactRoot = ReactDOM.createRoot(document.getElementById('root'));
+              }
               const wrapped = React.createElement(window.ErrorBoundary || React.Fragment, null, 
                 React.createElement(AppComponent)
               );
-              root.render(wrapped);
+              window.__reactRoot.render(wrapped);
               console.log('[Preview] App rendered successfully');
             } catch (e) {
               console.error('[Preview] Render error:', e);
               document.getElementById('root').innerHTML = '<div class="error-display">' + e.stack + '</div>';
+              // Clear cached root on error so next render creates fresh one
+              window.__reactRoot = null;
             }
           };
         `,
@@ -206,7 +216,7 @@ const createVirtualFsPlugin = (files: Record<string, string>) => ({
       if (content === undefined) {
         throw new Error(`File not found: ${args.path}`);
       }
-      
+
       // CSS files - inject as style tag
       if (args.path.endsWith('.css')) {
         return {
@@ -218,23 +228,46 @@ const createVirtualFsPlugin = (files: Record<string, string>) => ({
           loader: 'js',
         };
       }
-      
+
+      // ✨ NEW: Apply Babel source location injection for TSX/JSX files
+      if (injectSourceLocations && (args.path.endsWith('.tsx') || args.path.endsWith('.jsx'))) {
+        try {
+          // Normalize file name (remove leading slash for display)
+          const fileName = args.path.startsWith('/') ? args.path.substring(1) : args.path;
+
+          // Inject source locations
+          const augmentedCode = injectSourceLocationsToCode(content, fileName);
+
+          return {
+            contents: augmentedCode,
+            loader: 'tsx'
+          };
+        } catch (error) {
+          // Fallback to original content if Babel fails
+          console.error('[Bundler] Babel transform failed for', args.path, ':', error);
+          return { contents: content, loader: 'tsx' };
+        }
+      }
+
       return { contents: content, loader: 'tsx' };
     });
   },
 });
 
-export async function bundleFiles(files: Record<string, string>): Promise<string> {
+export async function bundleFiles(
+  files: Record<string, string>,
+  options: { injectSourceLocations?: boolean } = {}
+): Promise<string> {
   await initBundler();
-  
+
   console.log('[Bundler] Building with files:', Object.keys(files));
-  
+
   try {
     const result = await esbuild.build({
       entryPoints: ['__entry__'],
       bundle: true,
       write: false,
-      plugins: [createVirtualFsPlugin(files)],
+      plugins: [createVirtualFsPlugin(files, options.injectSourceLocations ?? false)],
       define: { 'process.env.NODE_ENV': '"production"' },
       jsx: 'transform',
       jsxFactory: 'React.createElement',
@@ -252,18 +285,99 @@ export async function bundleFiles(files: Record<string, string>): Promise<string
   }
 }
 
-export function generatePreviewHTML(scriptCode: string): string {
+// Default shadcn/ui CSS variables for the preview
+// These provide baseline theme colors that can be read by the visual editor
+const DEFAULT_THEME_CSS = `
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --sidebar: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 240 5.9% 90%;
+    --sidebar-ring: 240 5.9% 10%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --sidebar: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+`;
+
+export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string): string {
+  // Merge custom theme CSS with defaults (custom takes precedence via CSS cascade)
+  const themeCSS = customThemeCSS
+    ? `${DEFAULT_THEME_CSS}\n/* Custom theme overrides */\n${customThemeCSS}`
+    : DEFAULT_THEME_CSS;
+
   return `<!DOCTYPE html>
-<html>
+<html class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
-  <style>
+  <style data-template>
+    /* Theme CSS Variables */
+    ${themeCSS}
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { min-height: 100vh; background: transparent; color: white; font-family: system-ui, -apple-system, sans-serif; }
+    body { min-height: 100vh; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: system-ui, -apple-system, sans-serif; }
     #root { min-height: 100vh; }
     
     /* Beautiful Error UI */
@@ -338,6 +452,11 @@ export function generatePreviewHTML(scriptCode: string): string {
   <script>
     // Error display function
     function showError(type, message) {
+      // Notify parent window that there's an error (for visual editor to exit)
+      try {
+        window.parent.postMessage({ type: 'PREVIEW_ERROR', errorType: type, message: message }, '*');
+      } catch (e) {}
+
       document.getElementById('root').innerHTML = \`
         <div class="error-container">
           <div class="error-card">
@@ -395,7 +514,88 @@ export function generatePreviewHTML(scriptCode: string): string {
       showError('Runtime Error', msg);
       return true;
     };
-    
+
+    // ✨ HOT UPDATE LISTENER - Allows instant preview updates without iframe reload
+    // Used by visual editing to apply changes without page refresh
+    window.__hotUpdateReady = false;
+    window.__applyHotUpdate = function(newScriptCode) {
+      console.log('[Preview] Applying hot update...');
+      try {
+        // Capture scroll position BEFORE any DOM changes
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
+
+        // Remove dynamically injected styles (from CSS imports in the bundle)
+        // Keep the template style (marked with data-template attribute)
+        document.querySelectorAll('head style:not([data-template])').forEach(s => s.remove());
+
+        // Remove old bundle script if exists
+        const oldScript = document.getElementById('__bundle_script');
+        if (oldScript) oldScript.remove();
+
+        // Create and inject new script
+        // NOTE: We do NOT clear root.innerHTML - React will take over naturally
+        // This prevents the page from collapsing to zero height and resetting scroll
+        const script = document.createElement('script');
+        script.id = '__bundle_script';
+        script.textContent = newScriptCode;
+        document.body.appendChild(script);
+
+        // Re-render the app
+        if (window.__renderApp) {
+          window.__renderApp();
+          console.log('[Preview] Hot update applied successfully');
+
+          // Restore scroll position with multiple attempts
+          // React rendering is async, so we need to wait for content to be tall enough
+          const restoreScroll = (attempt) => {
+            if (attempt > 10) {
+              console.log('[Preview] Scroll restore: gave up after 10 attempts');
+              return;
+            }
+
+            // Check if document is tall enough to scroll to the target position
+            const maxScrollY = document.documentElement.scrollHeight - window.innerHeight;
+            if (scrollY <= maxScrollY || attempt > 5) {
+              window.scrollTo(scrollX, scrollY);
+              // Verify scroll was applied
+              if (Math.abs(window.scrollY - scrollY) < 5 || scrollY <= maxScrollY) {
+                console.log('[Preview] Scroll restored to:', scrollX, scrollY);
+                return;
+              }
+            }
+
+            // Content not ready yet, try again
+            requestAnimationFrame(() => restoreScroll(attempt + 1));
+          };
+
+          requestAnimationFrame(() => restoreScroll(0));
+
+          // Notify parent that hot update is complete
+          window.parent.postMessage({ type: 'HOT_UPDATE_COMPLETE' }, '*');
+          return true;
+        } else {
+          showError('Hot Update Error', '__renderApp function not defined after update');
+          return false;
+        }
+      } catch (err) {
+        console.error('[Preview] Hot update error:', err);
+        showError('Hot Update Error', err.message || String(err));
+        window.parent.postMessage({ type: 'HOT_UPDATE_ERROR', message: err.message }, '*');
+        return false;
+      }
+    };
+
+    // Listen for hot update messages from parent
+    window.addEventListener('message', function(event) {
+      if (event.data?.type === 'HOT_UPDATE') {
+        console.log('[Preview] Received hot update message');
+        window.__applyHotUpdate(event.data.scriptCode);
+      }
+    });
+
+    window.__hotUpdateReady = true;
+
     try {
       ${scriptCode}
       if (window.__renderApp) {
@@ -412,10 +612,55 @@ export function generatePreviewHTML(scriptCode: string): string {
 </html>`;
 }
 
-export async function createPreviewURL(files: Record<string, string>): Promise<string> {
+// Extract CSS variable definitions from project CSS files
+function extractThemeCSSFromFiles(files: Record<string, string>): string | undefined {
+  // Look for common CSS files that might contain theme variables
+  const cssFilePatterns = [
+    '/globals.css',
+    '/index.css',
+    '/styles.css',
+    '/app.css',
+    '/src/globals.css',
+    '/src/index.css',
+    '/src/styles.css',
+    '/src/app.css',
+  ];
+
+  const cssContents: string[] = [];
+
+  // Check for known CSS files
+  for (const pattern of cssFilePatterns) {
+    if (files[pattern]) {
+      cssContents.push(files[pattern]);
+    }
+  }
+
+  // Also find any other CSS files that might have :root or .dark selectors
+  for (const [path, content] of Object.entries(files)) {
+    if (path.endsWith('.css') && !cssFilePatterns.includes(path)) {
+      // Only include if it has CSS variable definitions
+      if (content.includes('--') && (content.includes(':root') || content.includes('.dark'))) {
+        cssContents.push(content);
+      }
+    }
+  }
+
+  if (cssContents.length === 0) {
+    return undefined;
+  }
+
+  return cssContents.join('\n\n');
+}
+
+export async function createPreviewURL(
+  files: Record<string, string>,
+  options: { injectSourceLocations?: boolean } = {}
+): Promise<string> {
   try {
-    const code = await bundleFiles(files);
-    const html = generatePreviewHTML(code);
+    const code = await bundleFiles(files, options);
+    // Extract custom theme CSS from project files
+    const customThemeCSS = extractThemeCSSFromFiles(files);
+    const html = generatePreviewHTML(code, customThemeCSS);
     const blob = new Blob([html], { type: 'text/html' });
     return URL.createObjectURL(blob);
   } catch (err: any) {
@@ -486,3 +731,21 @@ export async function createPreviewURL(files: Record<string, string>): Promise<s
 }
 
 export const transpile = async () => { throw new Error('Deprecated'); };
+
+/**
+ * ✨ HOT UPDATE: Bundle files and return just the script code for hot updating
+ * This allows the preview to update without a full iframe reload
+ */
+export async function bundleForHotUpdate(
+  files: Record<string, string>,
+  options: { injectSourceLocations?: boolean } = {}
+): Promise<string> {
+  try {
+    const scriptCode = await bundleFiles(files, options);
+    console.log('[Bundler] Hot update bundle ready, size:', scriptCode.length);
+    return scriptCode;
+  } catch (err: any) {
+    console.error('[Bundler] Hot update bundle failed:', err);
+    throw err;
+  }
+}

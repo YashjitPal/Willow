@@ -1,2 +1,2 @@
 // Preview library exports
-export { initBundler, transpile, bundleFiles, generatePreviewHTML, createPreviewURL } from './bundler';
+export { initBundler, transpile, bundleFiles, generatePreviewHTML, createPreviewURL, bundleForHotUpdate } from './bundler';

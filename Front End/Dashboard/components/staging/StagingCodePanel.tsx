@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
-import { 
-  Search, 
-  Files, 
-  ChevronRight, 
-  FileCode, 
-  FileJson, 
-  FileType, 
+import {
+  Search,
+  Files,
+  ChevronRight,
+  FileCode,
+  FileJson,
+  FileType,
   X,
   RotateCw,
   Copy,
@@ -17,6 +17,7 @@ import {
   FolderOpen
 } from 'lucide-react';
 import { workbenchStore } from '~/lib/sandpack';
+import { codeNavigationRequest } from '../../lib/visual-editor';
 
 interface FileNode {
   id: string;
@@ -82,12 +83,73 @@ function buildFileTree(filesMap: Record<string, any>): FileNode[] {
 const StagingCodePanel: React.FC = () => {
   // Use bolt.diy files store
   const filesMap = useStore(workbenchStore.files);
-  
+
   const [activeSideTab, setActiveSideTab] = useState<'files' | 'search'>('files');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+  const [highlightedLines, setHighlightedLines] = useState<{ start: number; end: number } | null>(null);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const codeContainerRef = useRef<HTMLDivElement>(null);
+  const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Listen for code navigation requests from visual editor
+  useEffect(() => {
+    const unsubscribe = codeNavigationRequest.subscribe((request) => {
+      if (!request) return;
+
+      console.log('[CodePanel] Navigation request:', request);
+
+      // Find the file path in the store
+      // The fileName might be just "App.tsx" or "/App.tsx"
+      const targetFileName = request.filePath;
+      let foundPath: string | null = null;
+
+      for (const path of Object.keys(filesMap)) {
+        // Check if path ends with the target file name
+        if (path.endsWith(targetFileName) || path.endsWith('/' + targetFileName)) {
+          foundPath = path;
+          break;
+        }
+      }
+
+      if (!foundPath) {
+        console.warn('[CodePanel] File not found:', targetFileName);
+        return;
+      }
+
+      // Open the file in a new tab if not already open
+      const existingTab = openTabs.find(t => t.path === foundPath);
+      if (!existingTab) {
+        const fileName = foundPath.split('/').pop() || foundPath;
+        setOpenTabs(prev => [...prev, { path: foundPath!, name: fileName }]);
+      }
+      setActiveFilePath(foundPath);
+
+      // Set highlighted line range
+      const startLine = request.line;
+      const endLine = request.endLine || request.line;
+      setHighlightedLines({ start: startLine, end: endLine });
+
+      // Scroll to the start line after a short delay to allow render
+      setTimeout(() => {
+        const lineElement = lineRefs.current.get(startLine);
+        if (lineElement && codeContainerRef.current) {
+          lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+
+      // Clear the navigation request
+      codeNavigationRequest.set(null);
+
+      // Clear highlight after 5 seconds (longer for ranges)
+      setTimeout(() => {
+        setHighlightedLines(null);
+      }, 5000);
+    });
+
+    return unsubscribe;
+  }, [filesMap, openTabs]);
 
   // Auto-scroll tabs to show latest tab when new one is added
   useEffect(() => {
@@ -213,16 +275,37 @@ const StagingCodePanel: React.FC = () => {
   };
 
   const renderHighlightedCode = (code: string) => {
-    return code.split('\n').map((line, i) => (
-      <div key={i} className="flex hover:bg-[#2a2d35]/30 py-1">
-         <span className="w-14 text-right pr-6 text-white text-[13px] select-none opacity-40 flex-shrink-0 font-mono">
-           {i + 1}
-         </span>
-         <span className="font-mono text-[13px] text-white whitespace-pre tab-4">
-           {line}
-         </span>
-      </div>
-    ));
+    return code.split('\n').map((line, i) => {
+      const lineNumber = i + 1;
+      const isHighlighted = highlightedLines !== null &&
+        lineNumber >= highlightedLines.start &&
+        lineNumber <= highlightedLines.end;
+      const isFirstHighlighted = highlightedLines !== null && lineNumber === highlightedLines.start;
+      const isLastHighlighted = highlightedLines !== null && lineNumber === highlightedLines.end;
+
+      return (
+        <div
+          key={i}
+          ref={(el) => {
+            if (el) lineRefs.current.set(lineNumber, el);
+          }}
+          className={`flex py-1 transition-colors duration-300 ${
+            isHighlighted
+              ? `bg-blue-500/15 border-l-2 border-blue-500 ${isFirstHighlighted ? 'rounded-t-md' : ''} ${isLastHighlighted ? 'rounded-b-md' : ''}`
+              : 'hover:bg-[#2a2d35]/30'
+          }`}
+        >
+          <span className={`w-14 text-right pr-6 text-[13px] select-none flex-shrink-0 font-mono ${
+            isHighlighted ? 'text-blue-400' : 'text-white opacity-40'
+          }`}>
+            {lineNumber}
+          </span>
+          <span className="font-mono text-[13px] text-white whitespace-pre tab-4">
+            {line}
+          </span>
+        </div>
+      );
+    });
   };
 
   const hasFiles = Object.keys(filesMap).length > 0;
@@ -335,7 +418,10 @@ const StagingCodePanel: React.FC = () => {
         )}
 
         {/* Code Content */}
-        <div className={`flex-1 overflow-auto custom-scrollbar ${activeFileContent ? 'py-3 bg-[#141414] rounded-tl-lg' : 'flex items-center justify-center bg-transparent'}`}>
+        <div
+          ref={codeContainerRef}
+          className={`flex-1 overflow-auto custom-scrollbar ${activeFileContent ? 'py-3 bg-[#141414] rounded-tl-lg' : 'flex items-center justify-center bg-transparent'}`}
+        >
           {activeFileContent ? (
             <div key={activeFilePath} className="animate-fadeIn w-full">
               {renderHighlightedCode(activeFileContent)}

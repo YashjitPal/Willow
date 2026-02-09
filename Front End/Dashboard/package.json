@@ -35,9 +35,16 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.11.0",
-    "tailwind-merge": "^3.4.0"
+    "recast": "^0.23.11",
+    "tailwind-merge": "^3.4.0",
+    "ts-morph": "^27.0.2"
   },
   "devDependencies": {
+    "@babel/core": "^7.28.6",
+    "@babel/generator": "^7.28.6",
+    "@babel/parser": "^7.28.6",
+    "@babel/traverse": "^7.28.6",
+    "@babel/types": "^7.28.6",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

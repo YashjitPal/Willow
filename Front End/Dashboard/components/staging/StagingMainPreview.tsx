@@ -1,13 +1,16 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
 import { X } from "lucide-react";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
+import ScanningOverlay from "./ScanningOverlay";
+import VisualEditingOverlay from "./VisualEditingOverlay";
 import { sandpackStore } from "~/lib/sandpack";
 import { CpuArchitecture } from "../ui/cpu-architecture";
 import "../ui/cpu-architecture.css";
-import { createPreviewURL, initBundler } from "~/lib/preview";
+import { createPreviewURL, initBundler, bundleForHotUpdate } from "~/lib/preview";
 import { testStore } from "../../lib/test-store";
+import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
 
 // Import cursor image from cursor folder
 import cursorImage from "../../../cursor/arrow.cur";
@@ -97,21 +100,35 @@ const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = 
         willChange: 'transform, opacity, left, top',
       }}
     >
-      {/* Click Ripple Effect - Centered on cursor tip */}
-      <div 
-        className={`absolute rounded-full border border-blue-400/40 pointer-events-none transition-all duration-500 ease-out ${
-          isClicking ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
-        }`}
-        style={{
-          width: 48,
-          height: 48,
-          // Center the 48px ripple on the cursor tip (0,0)
-          top: -24,
-          left: -24,
-          background: 'radial-gradient(circle, rgba(96, 165, 250, 0.15) 0%, transparent 70%)',
-          boxShadow: '0 0 20px rgba(96, 165, 250, 0.3)',
-        }}
-      />
+      {/* Click Ripple Effect - Elegant expanding rings */}
+      {isClicking && (
+        <>
+          {/* Inner ring - faster, smaller */}
+          <div
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              width: 6,
+              height: 6,
+              top: -3,
+              left: -3,
+              border: '1.5px solid rgba(255, 255, 255, 0.8)',
+              animation: 'rippleExpand 0.5s cubic-bezier(0.2, 0.6, 0.3, 1) forwards',
+            }}
+          />
+          {/* Outer ring - slower, larger */}
+          <div
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              width: 6,
+              height: 6,
+              top: -3,
+              left: -3,
+              border: '1px solid rgba(255, 255, 255, 0.4)',
+              animation: 'rippleExpand 0.6s cubic-bezier(0.2, 0.6, 0.3, 1) 0.05s forwards',
+            }}
+          />
+        </>
+      )}
       
       {/* Main Cursor Image with Floating Animation */}
       <div 
@@ -168,10 +185,21 @@ const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = 
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-4px); }
         }
-        
+
         @keyframes thoughtFloat {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-3px); }
+        }
+
+        @keyframes rippleExpand {
+          0% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(8);
+            opacity: 0;
+          }
         }
       `}</style>
     </div>
@@ -250,40 +278,42 @@ const TestStatusIndicator: React.FC<{ isActive: boolean }> = ({ isActive }) => {
   if (!shouldRender) return null;
   
   return (
-    <div 
-      className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2.5 pl-2.5 pr-2.5 py-2 bg-[#18181b]/80 backdrop-blur-md rounded-xl shadow-xl border border-white/5 text-gray-200 z-[35] pointer-events-auto cursor-default select-none"
+    <div
+      className="absolute bottom-8 inset-x-0 flex justify-center z-[35] pointer-events-none"
       style={{
         opacity: isVisible ? 1 : 0,
-        transform: isVisible ? 'translate(-50%, 0)' : 'translate(-50%, 20px)',
+        transform: isVisible ? 'translateY(0)' : 'translateY(20px)',
         transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
     >
-      {/* SVG Cursor Icon in blue - negative margins to not affect container height */}
-      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 flex-shrink-0 -mt-[15px] -mb-[11px]">
-        <g transform="rotate(-45, 100, 100)">
-          <path d="M100 95 L125 145 Q 100 130 75 145 Z" 
-                fill="#3B82F6" 
-                stroke="#3B82F6" 
-                strokeWidth="12" 
-                strokeLinejoin="round" 
-                strokeLinecap="round"/>
-          <g stroke="#3B82F6" strokeWidth="3" strokeLinecap="round">
-            <line x1="82" y1="87" x2="65" y2="70" />
-            <line x1="94" y1="80" x2="88" y2="55" />
-            <line x1="106" y1="80" x2="112" y2="55" />
-            <line x1="118" y1="87" x2="135" y2="70" />
+      <div className="flex items-center gap-2.5 pl-2.5 pr-2.5 py-2 bg-[#18181b]/80 backdrop-blur-md rounded-xl shadow-xl border border-white/5 text-gray-200 pointer-events-auto cursor-default select-none">
+        {/* SVG Cursor Icon in blue - negative margins to not affect container height */}
+        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 flex-shrink-0 -mt-[15px] -mb-[11px] -ml-[12px]">
+          <g transform="rotate(-45, 100, 100)">
+            <path d="M100 95 L125 145 Q 100 130 75 145 Z"
+                  fill="#3B82F6"
+                  stroke="#3B82F6"
+                  strokeWidth="12"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"/>
+            <g stroke="#3B82F6" strokeWidth="3" strokeLinecap="round">
+              <line x1="82" y1="87" x2="65" y2="70" />
+              <line x1="94" y1="80" x2="88" y2="55" />
+              <line x1="106" y1="80" x2="112" y2="55" />
+              <line x1="118" y1="87" x2="135" y2="70" />
+            </g>
           </g>
-        </g>
-      </svg>
-      <span className="text-[13px] font-medium tracking-wide">AI Testing in progress...</span>
-      <div className="w-[1px] h-3.5 bg-white/10" />
-      <button 
-        onClick={handleStop}
-        className="w-[26px] h-[26px] rounded-lg bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30 transition-colors flex items-center justify-center flex-shrink-0 -my-1"
-        title="Stop Testing"
-      >
-        <div className="w-[10px] h-[10px] bg-current rounded-[2px]" />
-      </button>
+        </svg>
+        <span className="text-[13px] font-medium tracking-wide">AI Testing in progress...</span>
+        <div className="w-[1px] h-3.5 bg-white/10" />
+        <button
+          onClick={handleStop}
+          className="w-[26px] h-[26px] rounded-lg bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30 transition-colors flex items-center justify-center flex-shrink-0 -my-1"
+          title="Stop Testing"
+        >
+          <div className="w-[10px] h-[10px] bg-current rounded-[2px]" />
+        </button>
+      </div>
     </div>
   );
 };
@@ -295,6 +325,8 @@ interface MainPreviewProps {
   onTabChange: (id: string) => void;
   onSettingsClick?: () => void;
   isResizing?: boolean;
+  selectedModelId: string;
+  modelConfig: any;
 }
 
 const MainPreview: React.FC<MainPreviewProps> = ({
@@ -304,15 +336,22 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   onTabChange,
   onSettingsClick,
   isResizing,
+  selectedModelId,
+  modelConfig,
 }) => {
   // States
   const [generationStatus, setGenerationStatus] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isVisualEditReloading, setIsVisualEditReloading] = useState(false); // Brief overlay during visual edit reload
   const [bundlerReady, setBundlerReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const previousUrlRef = useRef<string | null>(null);
+  // ✨ Tracks the latest blob URL for "Open Externally" after hot updates
+  // Hot updates don't change previewUrl (to avoid iframe reload), so this ref
+  // holds the up-to-date blob URL for external opens
+  const latestExternalUrlRef = useRef<string | null>(null);
 
   // Use sandpack store - subscribe to file changes
   const filesMap = useStore(sandpackStore.files);
@@ -320,6 +359,25 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const currentEditingFile = useStore(sandpackStore.currentEditingFile);
   const isGenerating = useStore(sandpackStore.isGenerating);
   const isTestMode = useStore(testStore.isTestMode);
+  
+  // Visual editor state
+  const isVisualEdit = useStore(isVisualEditMode);
+  const isScanningProject = useStore(isScanning);
+  const isDoingVisualEdit = useStore(isVisualEditing);
+  const refreshRequest = useStore(previewRefreshRequest);
+  const wasVisualEditModeRef = useRef(false);
+  const lastBuildHadSourceLocationsRef = useRef(false); // Track if we already have source locations
+
+  // Listen for code navigation requests and switch to code tab
+  useEffect(() => {
+    const unsubscribe = codeNavigationRequest.subscribe((request) => {
+      if (request) {
+        console.log('[MainPreview] Code navigation requested, switching to code tab');
+        onTabChange('code');
+      }
+    });
+    return unsubscribe;
+  }, [onTabChange]);
 
   // Initialize esbuild bundler on mount
   useEffect(() => {
@@ -333,6 +391,22 @@ const MainPreview: React.FC<MainPreviewProps> = ({
       });
   }, []);
 
+  // Listen for preview errors and exit visual edit mode when they occur
+  useEffect(() => {
+    const handlePreviewError = (event: MessageEvent) => {
+      if (event.data?.type === 'PREVIEW_ERROR') {
+        console.log('[MainPreview] Preview error detected, exiting visual edit mode');
+        // Exit visual edit mode when there's a build/runtime error
+        if (isVisualEdit) {
+          exitVisualEdit();
+        }
+      }
+    };
+
+    window.addEventListener('message', handlePreviewError);
+    return () => window.removeEventListener('message', handlePreviewError);
+  }, [isVisualEdit]);
+
   // Convert files to the format bundler expects
   const getFilesForBundler = useCallback(() => {
     const files: Record<string, string> = {};
@@ -342,6 +416,46 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     console.log('[MainPreview] Files in store:', Object.keys(files));
     return files;
   }, [filesMap]);
+
+  // ✨ CRITICAL: Rebuild preview with source locations when entering visual edit mode
+  // Skip rebuild if we already have source locations from a previous build
+  useEffect(() => {
+    const justEnteredVisualEdit = isVisualEdit && !wasVisualEditModeRef.current;
+    wasVisualEditModeRef.current = isVisualEdit;
+
+    if (justEnteredVisualEdit && bundlerReady && hasUserCode) {
+      // Check if we already have source locations in the current preview
+      if (lastBuildHadSourceLocationsRef.current) {
+        console.log('[MainPreview] Entering visual edit mode - source locations already present, skipping rebuild');
+        return;
+      }
+
+      console.log('[MainPreview] Entering visual edit mode - rebuilding with source locations');
+
+      const files = getFilesForBundler();
+      const appFileKey = Object.keys(files).find(key =>
+        key.includes('App.tsx') || key.includes('App.js') || key.includes('App.jsx')
+      );
+
+      if (appFileKey) {
+        (async () => {
+          try {
+            // Rebuild with source location injection enabled
+            const url = await createPreviewURL(files, { injectSourceLocations: true });
+            if (previousUrlRef.current) {
+              URL.revokeObjectURL(previousUrlRef.current);
+            }
+            previousUrlRef.current = url;
+            lastBuildHadSourceLocationsRef.current = true;
+            setPreviewUrl(url);
+            console.log('[MainPreview] Preview rebuilt with source locations');
+          } catch (error) {
+            console.error('[MainPreview] Failed to rebuild with source locations:', error);
+          }
+        })();
+      }
+    }
+  }, [isVisualEdit, bundlerReady, hasUserCode, getFilesForBundler]);
 
   // Track previous isGenerating state to detect completion
   const wasGeneratingRef = useRef(false);
@@ -388,14 +502,17 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
     const buildPreview = async () => {
       try {
-        const url = await createPreviewURL(files);
-        
+        // ✨ NEW: Enable source location injection when in visual edit mode
+        const isVisualEdit = isVisualEditMode.get();
+        const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+
         // Revoke previous URL
         if (previousUrlRef.current) {
           URL.revokeObjectURL(previousUrlRef.current);
         }
         previousUrlRef.current = url;
-        
+        lastBuildHadSourceLocationsRef.current = isVisualEdit;
+
         setPreviewUrl(url);
         setIsPreviewLoading(false);
         isFirstBuild.current = false;
@@ -426,10 +543,170 @@ const MainPreview: React.FC<MainPreviewProps> = ({
       if (previousUrlRef.current) {
         URL.revokeObjectURL(previousUrlRef.current);
       }
+      if (latestExternalUrlRef.current) {
+        URL.revokeObjectURL(latestExternalUrlRef.current);
+      }
     };
   }, []);
 
-  // Determine what to show in preview
+  // When previewUrl changes (full reload), clear the external URL ref
+  // This ensures "Open Externally" uses the fresh previewUrl, not a stale hot-update URL
+  useEffect(() => {
+    if (previewUrl && latestExternalUrlRef.current) {
+      URL.revokeObjectURL(latestExternalUrlRef.current);
+      latestExternalUrlRef.current = null;
+    }
+  }, [previewUrl]);
+
+  // Track visual edit completion for seamless preview refresh
+  const wasDoingVisualEditRef = useRef(false);
+  const savedScrollPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const lastFilesHashRef = useRef<string>('');
+
+  // ✨ CRITICAL: Save scroll position SYNCHRONOUSLY when files change in visual edit mode
+  // This runs before async effects, ensuring scroll is captured before any rebuild
+  useLayoutEffect(() => {
+    if (!isVisualEdit || !iframeRef.current?.contentWindow) return;
+
+    // Create a simple hash of file keys + content lengths to detect changes
+    const filesHash = Object.entries(filesMap).map(([k, v]) => `${k}:${(v as { content: string }).content.length}`).sort().join(',');
+    if (filesHash === lastFilesHashRef.current) return;
+    lastFilesHashRef.current = filesHash;
+
+    // Save current scroll position immediately (synchronously)
+    // Always save, even if at (0, 0), so we can restore to top if needed
+    if (!savedScrollPositionRef.current) {
+      savedScrollPositionRef.current = {
+        x: iframeRef.current.contentWindow.scrollX || 0,
+        y: iframeRef.current.contentWindow.scrollY || 0,
+      };
+      console.log('[MainPreview] Pre-saved scroll position (layout):', savedScrollPositionRef.current);
+    }
+  }, [filesMap, isVisualEdit]);
+
+  useEffect(() => {
+    // Detect when visual edit just completed
+    const justFinishedVisualEdit = wasDoingVisualEditRef.current && !isDoingVisualEdit;
+    wasDoingVisualEditRef.current = isDoingVisualEdit;
+
+    if (justFinishedVisualEdit && bundlerReady && hasUserCode) {
+      const files = getFilesForBundler();
+      const appFileKey = Object.keys(files).find(key =>
+        key.includes('App.tsx') || key.includes('App.js') || key.includes('App.jsx')
+      );
+
+      if (appFileKey) {
+        (async () => {
+          try {
+            // ✨ HOT UPDATE: Bundle and send via postMessage instead of changing blob URL
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true });
+
+            if (iframeRef.current?.contentWindow) {
+              // Send the new code to the iframe - it will re-render in place
+              iframeRef.current.contentWindow.postMessage({
+                type: 'HOT_UPDATE',
+                scriptCode,
+              }, '*');
+
+              console.log('[MainPreview] Visual edit hot update sent');
+
+              // Re-inject inspector after a brief moment for the DOM to settle
+              setTimeout(() => {
+                if (isVisualEdit as boolean) {
+                  immediateInspectorReinit();
+                }
+              }, 50);
+
+              // ✨ Generate new blob URL in background for "Open Externally" feature
+              // This doesn't change the iframe src (no reload), just updates the URL for external opens
+              const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true });
+              if (latestExternalUrlRef.current) {
+                URL.revokeObjectURL(latestExternalUrlRef.current);
+              }
+              latestExternalUrlRef.current = newExternalUrl;
+              console.log('[MainPreview] External URL updated for "Open in new tab"');
+            } else {
+              // Fallback: if iframe not accessible, do a full reload
+              console.warn('[MainPreview] iframe not accessible, falling back to full reload');
+              const url = await createPreviewURL(files, { injectSourceLocations: true });
+              if (previousUrlRef.current) {
+                URL.revokeObjectURL(previousUrlRef.current);
+              }
+              previousUrlRef.current = url;
+              lastBuildHadSourceLocationsRef.current = true;
+              setPreviewUrl(url);
+            }
+          } catch (error) {
+            console.error('[MainPreview] Visual edit update failed:', error);
+          }
+        })();
+      }
+    }
+  }, [isDoingVisualEdit, bundlerReady, hasUserCode, getFilesForBundler]);
+
+  // Listen for manual refresh requests (e.g., after undo)
+  const lastRefreshRequestRef = useRef(0);
+  useEffect(() => {
+    // Skip if no refresh requested or same as last handled
+    if (refreshRequest === 0 || refreshRequest === lastRefreshRequestRef.current) return;
+    lastRefreshRequestRef.current = refreshRequest;
+
+    if (!bundlerReady || !hasUserCode) return;
+
+    console.log('[MainPreview] Refresh requested (undo), using hot update');
+
+    const files = getFilesForBundler();
+    const appFileKey = Object.keys(files).find(key =>
+      key.includes('App.tsx') || key.includes('App.js') || key.includes('App.jsx')
+    );
+
+    if (appFileKey) {
+      (async () => {
+        try {
+          const isVisualEditActive = isVisualEditMode.get();
+
+          // ✨ HOT UPDATE for undo: send via postMessage if possible
+          if (isVisualEditActive && iframeRef.current?.contentWindow) {
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true });
+            iframeRef.current.contentWindow.postMessage({
+              type: 'HOT_UPDATE',
+              scriptCode,
+            }, '*');
+
+            console.log('[MainPreview] Undo hot update sent');
+
+            // Re-inject inspector after DOM settles
+            setTimeout(() => {
+              if (isVisualEditMode.get()) {
+                immediateInspectorReinit();
+              }
+            }, 50);
+
+            // ✨ Generate new blob URL in background for "Open Externally" feature
+            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true });
+            if (latestExternalUrlRef.current) {
+              URL.revokeObjectURL(latestExternalUrlRef.current);
+            }
+            latestExternalUrlRef.current = newExternalUrl;
+            console.log('[MainPreview] External URL updated after undo');
+          } else {
+            // Not in visual edit mode or no iframe access - full reload
+            const url = await createPreviewURL(files, { injectSourceLocations: isVisualEditActive });
+            if (previousUrlRef.current) {
+              URL.revokeObjectURL(previousUrlRef.current);
+            }
+            previousUrlRef.current = url;
+            lastBuildHadSourceLocationsRef.current = isVisualEditActive;
+            setPreviewUrl(url);
+            console.log('[MainPreview] Preview refreshed after undo (full reload)');
+          }
+        } catch (error) {
+          console.error('[MainPreview] Refresh after undo failed:', error);
+        }
+      })();
+    }
+  }, [refreshRequest, bundlerReady, hasUserCode, getFilesForBundler]);
+
   const showFullLoading = (isGenerating && !hasUserCode) || (!bundlerReady && hasUserCode);
   // Loading bar only shows during actual rebuild (not during AI generation)
   const showLoadingBar = hasUserCode && isPreviewLoading && !isGenerating;
@@ -452,13 +729,15 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     await new Promise(resolve => setTimeout(resolve, 150));
     
     try {
-      const url = await createPreviewURL(files);
-      
+      // ✨ NEW: Enable source location injection when in visual edit mode
+      const isVisualEdit = isVisualEditMode.get();
+      const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+
       if (previousUrlRef.current) {
         URL.revokeObjectURL(previousUrlRef.current);
       }
       previousUrlRef.current = url;
-      
+
       setPreviewUrl(url);
       
       // Small delay to let iframe start loading, then fade in
@@ -474,9 +753,11 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   }, [bundlerReady, hasUserCode, getFilesForBundler]);
 
   // Handle opening preview in new tab
+  // Uses latestExternalUrlRef if available (updated after hot updates), otherwise falls back to previewUrl
   const handleOpenInNewTab = useCallback(() => {
-    if (previewUrl) {
-      window.open(previewUrl, '_blank');
+    const urlToOpen = latestExternalUrlRef.current || previewUrl;
+    if (urlToOpen) {
+      window.open(urlToOpen, '_blank');
     }
   }, [previewUrl]);
 
@@ -497,12 +778,12 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
       {/* Content Area */}
       <div
-        className={`flex-1 flex flex-col min-h-0 pr-4 pb-4 pt-0 ${isResizing ? '' : 'transition-all duration-300 ease-in-out'} ${isSidebarCollapsed ? "pl-4" : "pl-0"}`}
+        className={`flex-1 flex flex-col min-h-0 pr-4 pb-4 pt-0 ${isResizing ? '' : 'transition-[padding] duration-300 ease-in-out'} ${isSidebarCollapsed ? "pl-4" : "pl-0"}`}
       >
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-h-0 gap-3">
           {/* Main Panel Area */}
-          <div className={`relative flex-1 min-h-0 ${isResizing ? '' : 'transition-all duration-300'}`}>
+          <div className="relative flex-1 min-h-0">
             {/* Code Panel */}
             <div
               className={`absolute inset-0 transition-opacity duration-150 flex flex-col overflow-hidden ${
@@ -533,18 +814,142 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                     title="Preview"
                     sandbox="allow-scripts allow-same-origin"
                     ref={(el) => {
-                      // @ts-ignore - Store locally and in testStore
+                      // @ts-ignore - Store locally and in stores
                       iframeRef.current = el;
                       testStore.setIframeRef(el);
+                      visualEditorStore.setIframeRef(el);
                     }}
-                    style={{ 
-                      pointerEvents: (isResizing || isTestMode) ? "none" : "auto",
+                    onLoad={() => {
+                      // ✨ Inject persistent theme color listener
+                      // This allows ColorPicker to request colors even without Visual Edit mode
+                      try {
+                        const doc = iframeRef.current?.contentDocument;
+                        if (doc && !doc.querySelector('#theme-listener-script')) {
+                          const script = doc.createElement('script');
+                          script.id = 'theme-listener-script';
+                          script.textContent = `
+                            (function() {
+                              if (window.__themeColorListenerInjected) return;
+                              window.__themeColorListenerInjected = true;
+                              
+                              function readColors() {
+                                const semanticColors = [
+                                  'primary', 'primary-foreground', 'secondary', 'secondary-foreground',
+                                  'destructive', 'destructive-foreground', 'muted', 'muted-foreground',
+                                  'accent', 'accent-foreground', 'popover', 'popover-foreground',
+                                  'card', 'card-foreground', 'warning', 'warning-foreground',
+                                  'success', 'success-foreground', 'sidebar', 'sidebar-foreground',
+                                  'sidebar-primary', 'sidebar-primary-foreground', 'sidebar-accent',
+                                  'sidebar-accent-foreground', 'sidebar-border', 'sidebar-ring',
+                                  'border', 'input', 'ring', 'background', 'foreground'
+                                ];
+                                
+                                const colors = {};
+                                
+                                // Find the best element to read from (deepest active container)
+                                const candidates = [
+                                  document.getElementById('root'),
+                                  document.getElementById('app'),
+                                  document.querySelector('main'),
+                                  document.body,
+                                  document.documentElement
+                                ];
+                                
+                                // Use the first candidate that exists
+                                const target = candidates.find(c => c);
+                                
+                                if (!target) return colors;
+                                
+                                const style = getComputedStyle(target);
+                                console.log('[ThemeListener] Reading colors from:', target.tagName, target.id, target.className);
+
+                                for (const name of semanticColors) {
+                                  const value = style.getPropertyValue('--' + name).trim();
+                                  if (value) {
+                                    colors[name] = value;
+                                  }
+                                }
+                                return colors;
+                              }
+
+                              window.addEventListener('message', (e) => {
+                                if (e.data?.type === 'GET_THEME_COLORS') {
+                                  try {
+                                    const colors = readColors();
+                                    console.log('[ThemeListener] Read ' + Object.keys(colors).length + ' colors');
+                                    window.parent.postMessage({ type: 'THEME_COLORS_RESPONSE', colors }, '*');
+                                  } catch (err) {
+                                    console.error('[ThemeListener] Error reading colors:', err);
+                                  }
+                                }
+                              });
+                              
+                              // Also automatically send initially after a short delay (for auto-sync)
+                              setTimeout(() => {
+                                 const colors = readColors();
+                                 if (Object.keys(colors).length > 0) {
+                                   try {
+                                      window.parent.postMessage({ type: 'THEME_COLORS_RESPONSE', colors }, '*');
+                                   } catch(e) {}
+                                 }
+                              }, 1000);
+                            })();
+                          `;
+                          
+                          // Ensure head exists, fallback to body
+                          const target = doc.head || doc.body;
+                          if (target) {
+                             target.appendChild(script);
+                             console.log('[MainPreview] Injected theme color listener');
+                          } else {
+                             console.error('[MainPreview] Could not find head or body to inject script');
+                          }
+                        }
+                      } catch (e) {
+                        console.error('[MainPreview] Failed to inject theme listener:', e);
+                      }
+
+                      // Restore scroll position after visual edit rebuild
+                      if (savedScrollPositionRef.current && iframeRef.current?.contentWindow) {
+                        const { x, y } = savedScrollPositionRef.current;
+                        console.log('[MainPreview] Restoring scroll position:', x, y);
+                        // Small delay to ensure content is rendered
+                        setTimeout(() => {
+                          iframeRef.current?.contentWindow?.scrollTo(x, y);
+                          // Clear the reload overlay after scroll is restored
+                          setIsVisualEditReloading(false);
+                        }, 10);
+                        savedScrollPositionRef.current = null;
+                      } else {
+                        // No scroll to restore, just clear the overlay
+                        setIsVisualEditReloading(false);
+                      }
+
+                      // ✨ Re-inject inspector script if in visual edit mode
+                      // This ensures tools like "Select Parent" work after an Undo/Reload
+                      if (isVisualEdit as boolean) {
+                          // USE IMMEDIATE REINIT: fast, silent, no delays
+                          immediateInspectorReinit();
+                      }
+                    }}
+                    style={{
+                      pointerEvents: (isResizing || isTestMode || isVisualEdit) ? "none" : "auto",
                       opacity: isRefreshing ? 0 : 1,
                       transform: isRefreshing ? 'scale(0.995)' : 'scale(1)',
                       filter: isRefreshing ? 'blur(4px)' : 'blur(0px)',
                       transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   />
+
+                  {/* Visual Edit Reload Overlay - Masks the brief flash during iframe reload */}
+                  <div
+                    className="absolute inset-0 z-[40] pointer-events-none transition-opacity duration-75 ease-out"
+                    style={{
+                      backgroundColor: '#1c1c1c',
+                      opacity: isVisualEditReloading ? 0.95 : 0,
+                    }}
+                  />
+
                   {/* Visual Cursor Overlay for Computer Use Testing */}
                   <TestCursor iframeRef={iframeRef} />
 
@@ -553,6 +958,16 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                   
                   {/* Floating Status Indicator */}
                   <TestStatusIndicator isActive={isTestMode} />
+                  
+                  {/* Visual Editing Overlays */}
+                  {isVisualEdit && (
+                    <VisualEditingOverlay
+                      iframeRef={iframeRef}
+                      selectedModelId={selectedModelId}
+                      modelConfig={modelConfig}
+                      isReloading={isVisualEditReloading || isRefreshing}
+                    />
+                  )}
                   
                   {/* Resize Overlay - Prevents iframe from capturing mouse events and causing lag during drag */}
                   {isResizing && (

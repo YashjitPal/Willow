@@ -1,5 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { 
   ChevronDown, 
@@ -31,21 +32,40 @@ import {
   Terminal,
   Loader2,
   Square,
-  Play
+  Play,
+  CornerUpLeft,
+  ArrowUpFromLine,
+  AlignVerticalSpaceAround,
+  AlignHorizontalSpaceAround,
+  Scan,
+  Type,
+  Maximize2,
+
+  CodeXml,
+  CornerLeftUp
 } from 'lucide-react';
+import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges } from '../../lib/visual-editor';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '../ui/text-shimmer';
+import { MessageLoading } from '../ui/message-loading';
 import logoG from '../../src/assets/logog.png';
 import { ALL_TOOLS } from './StagingTopBar';
 import '../SettingsModal.css';
-import { useUserData } from '../../hooks/useUserData';
+import { useUserDataContext } from '../../context/UserDataContext';
 import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '../../lib/ai';
-import { runComputerUseTest, type TestUpdate } from '../../lib/computer-use';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { PROJECT_NAME_MODEL } from '@models';
+import { runComputerUseTest, type TestUpdate, type ConversationMessage } from '../../lib/computer-use';
 import { sandpackStore } from '../../lib/sandpack/sandpack-store';
 import { workbenchStore, parseAIResponse, parseResponseForDisplay, type ChatSegment } from '../../lib/sandpack';
 import { BOLT_SYSTEM_PROMPT } from '../../lib/sandpack/system-prompt';
 import { testStore } from '../../lib/test-store';
 import { TestingIndicator, TestResultIndicator } from './TestingIndicator';
+import { ColorPickerMenu } from './ColorPickerMenu';
+import { VisualEditorSelectMenu } from './VisualEditorSelectMenu';
+import { UnsavedChangesBar } from './UnsavedChangesBar';
+import { UnsavedChangesModal } from './UnsavedChangesModal';
+
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
 // Shows: "Performing <action>" with shimmer animation while active, dropdown for action history
@@ -216,6 +236,98 @@ const VisualEditsIcon = ({ size = 16, className = "" }: { size?: number, classNa
   </svg>
 );
 
+const MarginLeftIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="6" height="10" x="9" y="7" rx="2" />
+    <path d="M4 21V3" />
+  </svg>
+);
+
+const MarginRightIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="6" height="10" x="9" y="7" rx="2" />
+    <path d="M20 21V3" />
+  </svg>
+);
+
+const MarginTopIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="10" height="6" x="7" y="9" rx="2" />
+    <path d="M3 4H21" />
+  </svg>
+);
+
+const MarginBottomIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="10" height="6" x="7" y="9" rx="2" />
+    <path d="M3 20H21" />
+  </svg>
+);
+
+const PaddingHorizontalIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M9 8v8" />
+    <path d="M15 8v8" />
+  </svg>
+);
+
+const PaddingVerticalIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M8 9h8" />
+    <path d="M8 15h8" />
+  </svg>
+);
+
+const PaddingLeftIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M9 8v8" />
+  </svg>
+);
+
+const PaddingRightIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M15 8v8" />
+  </svg>
+);
+
+const PaddingTopIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M8 9h8" />
+  </svg>
+);
+
+const PaddingBottomIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="18" height="18" x="3" y="3" rx="5" ry="5" />
+    <path d="M8 15h8" />
+  </svg>
+);
+
 // Collapsible File Indicator Component
 const CollapsibleFileIndicator: React.FC<{ 
   files: any[], 
@@ -378,20 +490,1021 @@ interface SidebarProps {
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
+  isResizing?: boolean;
+  projectName?: string;
+  isGeneratingName?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
+const VisualEditLoader = () => (
+  <div className="flex flex-col items-center justify-center">
+    <div className="relative w-5 h-5 flex items-center justify-center mb-6">
+      <div className="absolute w-full h-full rounded-full border-2 border-white opacity-0 animate-ripple ring-wait" />
+      <div className="absolute w-full h-full rounded-full border-2 border-white opacity-0 animate-ripple" />
+    </div>
+    <div className="text-center space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-150">
+      <h3 className="text-white font-medium text-lg">Starting live preview...</h3>
+      <p className="text-[#81888f] text-sm">Hang on while we get everything set up</p>
+    </div>
+    <style>{`
+      @keyframes ripple {
+        0% {
+          transform: scale(0);
+          opacity: 1;
+          border-width: 5px;
+        }
+        100% {
+          transform: scale(1.5);
+          opacity: 0;
+          border-width: 0px;
+        }
+      }
+      .animate-ripple {
+        animation: ripple 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+      }
+      .ring-wait {
+        animation-delay: -1s;
+      }
+    `}</style>
+  </div>
+);
+
+// Warning shown for elements with dynamic/inline styles (Centered UI)
+const DynamicStylingWarning = () => (
+  <div className="relative flex flex-col items-center">
+    <div className="mb-6">
+       <CodeXml size={20} className="text-white" strokeWidth={1.5} />
+    </div>
+    
+    <h2 className="text-lg font-semibold text-white mb-2">Element with dynamic styling</h2>
+    
+    <p className="text-[#81888f] leading-relaxed mb-0 max-w-[280px] text-center">
+      This element has dynamic styling that can't be edited directly. Ask Lovable AI to modify it, or reset to static classes.
+    </p>
+    
+    <div className="absolute top-full pt-4">
+      <button className="px-4 py-2 bg-[#27272a] hover:bg-[#3f3f46] text-white rounded-md text-[13px] font-medium transition-colors">
+        Reset styling
+      </button>
+    </div>
+  </div>
+);
+
+
+
+const OPACITY_OPTIONS = Array.from({ length: 11 }, (_, i) => `${(10 - i) * 10}%`); // 100% down to 0%
+const BORDER_RADIUS_OPTIONS = ['None', 'Small', 'Default', 'Medium', 'Large', 'Extra Large', '2XL', '3XL', 'Full'];
+const SHADOW_OPTIONS = ['None', 'Small', 'Default', 'Medium', 'Large', 'Extra Large', '2XL', 'Inner shadow'];
+const FONT_SIZE_OPTIONS = ['Extra Small', 'Small', 'Base', 'Large', 'Extra Large', '2XL', '3XL', '4XL', '5XL'];
+const FONT_WEIGHT_OPTIONS = ['Thin', 'Extra Light', 'Light', 'Normal', 'Medium', 'Semibold', 'Bold', 'Extra Bold', 'Black'];
+const TEXT_ALIGN_OPTIONS = ['Left', 'Center', 'Right', 'Justify'];
+const BORDER_WIDTH_OPTIONS = ['None', '1px', '2px', '4px', '8px'];
+const BORDER_STYLE_OPTIONS = ['Solid', 'Dashed', 'Dotted', 'Double', 'None'];
+
+const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isCompact?: boolean }) => {
+  const isReady = useStore(inspectorReady);
+  const scanning = useStore(isScanning);
+  const files = useStore(sandpackStore.files);
+  const selection = useStore(selectedElement);
+  const selectedEls = useStore(selectedElements);
+  const isEditing = useStore(isVisualEditing); // Track visual edit state
+  const editQueue = useStore(visualEditQueue); // Track visual edit queue
+  const hasUndo = useStore(canUndo); // Track undo history availability
+  const [expandMargin, setExpandMargin] = useState(false);
+  const [expandPadding, setExpandPadding] = useState(false);
+  const [activeColorMenu, setActiveColorMenu] = useState<'text' | 'bg' | 'border' | null>(null);
+  const [activeEffectMenu, setActiveEffectMenu] = useState<'opacity' | 'radius' | 'shadow' | null>(null);
+  const [activeTypographyMenu, setActiveTypographyMenu] = useState<'fontSize' | 'fontWeight' | 'textAlign' | null>(null);
+  const [activeBorderMenu, setActiveBorderMenu] = useState<'borderWidth' | 'borderStyle' | null>(null);
+  const textInheritRef = useRef<HTMLDivElement>(null);
+  const bgInheritRef = useRef<HTMLDivElement>(null);
+  const borderColorRef = useRef<HTMLDivElement>(null);
+  const opacityRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
+  const borderRadiusRef = useRef<HTMLDivElement>(null);
+  const fontSizeRef = useRef<HTMLDivElement>(null);
+  const fontWeightRef = useRef<HTMLDivElement>(null);
+  const textAlignRef = useRef<HTMLDivElement>(null);
+  const borderWidthRef = useRef<HTMLDivElement>(null);
+  const borderStyleRef = useRef<HTMLDivElement>(null);
+
+  // Spacing input values - derived from selection's computed/class styles
+  const [marginX, setMarginX] = useState('0');
+  const [marginY, setMarginY] = useState('0');
+  const [marginTop, setMarginTop] = useState('0');
+  const [marginRight, setMarginRight] = useState('0');
+  const [marginBottom, setMarginBottom] = useState('0');
+  const [marginLeft, setMarginLeft] = useState('0');
+  const [paddingX, setPaddingX] = useState('0');
+  const [paddingY, setPaddingY] = useState('0');
+  const [paddingTop, setPaddingTop] = useState('0');
+  const [paddingRight, setPaddingRight] = useState('0');
+  const [paddingBottom, setPaddingBottom] = useState('0');
+  const [paddingLeft, setPaddingLeft] = useState('0');
+
+  // Current style values for display
+  const [currentStyles, setCurrentStyles] = useState<Record<string, string>>({});
+
+  // Helper to check if a string contains only emojis (and whitespace)
+  // Emojis include: emoticons, symbols, dingbats, and extended pictographics
+  const isEmojiOnly = (text: string): boolean => {
+    // Remove all emoji characters and whitespace, check if anything remains
+    // This regex matches most common emoji ranges including:
+    // - Emoticons (1F600-1F64F)
+    // - Misc Symbols & Pictographs (1F300-1F5FF)
+    // - Transport & Map Symbols (1F680-1F6FF)
+    // - Supplemental Symbols (1F900-1F9FF)
+    // - Symbols & Pictographs Extended-A (1FA00-1FAFF)
+    // - Regional Indicators (1F1E0-1F1FF)
+    // - Various common symbols (2600-26FF, 2700-27BF)
+    // - Variation selectors and ZWJ sequences
+    const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E0}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
+    const withoutEmojis = text.replace(emojiRegex, '').trim();
+    return withoutEmojis.length === 0 && text.trim().length > 0;
+  };
+
+  // Determine if the selected element has text content (for showing/hiding text-related options)
+  // Excludes emoji-only content since emojis don't benefit from text styling
+  // TODO: To properly check for DIRECT text nodes only (not descendant text), we need to add
+  // a `hasDirectText` property to SelectedElement computed in the iframe
+  const NON_TEXT_TAGS = ['img', 'svg', 'hr', 'br', 'video', 'audio', 'iframe', 'canvas'];
+  const hasText = selection && (
+    !NON_TEXT_TAGS.includes(selection.tagName) &&
+    selection.textContent.trim().length > 0 &&
+    !isEmojiOnly(selection.textContent)
+  );
+
+  // Elements that don't meaningfully support box styling (void elements)
+  const VOID_ELEMENTS = ['br', 'hr', 'wbr', 'col', 'embed', 'source', 'track'];
+  // Inline text elements where border/effects don't make visual sense
+  const INLINE_TEXT_ELEMENTS = ['span', 'a', 'strong', 'em', 'b', 'i', 'u', 's', 'small', 'mark', 'sub', 'sup', 'code', 'kbd', 'samp', 'var', 'cite', 'q', 'abbr', 'time', 'dfn', 'label'];
+
+  // Check if element supports box model styling
+  const hasBoxModel = selection && !VOID_ELEMENTS.includes(selection.tagName);
+
+  // Check if the element can have border/effects
+  // Hide for void elements AND inline text elements (they don't benefit visually)
+  const isInlineText = selection && INLINE_TEXT_ELEMENTS.includes(selection.tagName);
+  const canHaveBorder = hasBoxModel && !isInlineText;
+  const canHaveEffects = hasBoxModel && !isInlineText;
+
+  // Update current styles when selection changes
+  useEffect(() => {
+    if (selection) {
+      const styles = getCurrentStyles(selection);
+      setCurrentStyles(styles);
+
+      // Update spacing inputs from current classes
+      setMarginX(styles.marginX || '0');
+      setMarginY(styles.marginY || '0');
+      setMarginTop(styles.marginTop || '0');
+      setMarginRight(styles.marginRight || '0');
+      setMarginBottom(styles.marginBottom || '0');
+      setMarginLeft(styles.marginLeft || '0');
+      setPaddingX(styles.paddingX || '0');
+      setPaddingY(styles.paddingY || '0');
+      setPaddingTop(styles.paddingTop || '0');
+      setPaddingRight(styles.paddingRight || '0');
+      setPaddingBottom(styles.paddingBottom || '0');
+      setPaddingLeft(styles.paddingLeft || '0');
+    }
+  }, [selection]);
+
+  // Text-related style types that should be applied to the text source element
+  const TEXT_STYLE_TYPES = ['textColor', 'fontSize', 'fontWeight', 'fontFamily', 'textAlign', 'lineHeight', 'letterSpacing'];
+
+  // Helper to apply a style change
+  const handleStyleChange = async (type: string, value: string) => {
+    if (!selection) {
+      return;
+    }
+
+    // For text-related styles, use textSourceElement if available
+    const isTextStyle = TEXT_STYLE_TYPES.includes(type);
+    const targetElement = isTextStyle && selection.textSourceElement
+      ? {
+          ...selection,
+          uid: selection.textSourceElement.uid,
+          tagName: selection.textSourceElement.tagName,
+          classNames: selection.textSourceElement.classNames,
+          sourceLocation: selection.textSourceElement.sourceLocation
+        }
+      : selection;
+
+    if (!targetElement.sourceLocation) {
+      return;
+    }
+    try {
+      const result = await applyDirectStyle(targetElement, { type: type as any, value });
+      if (result.success) {
+        // IMMEDIATELY update the state with the value we just set
+        // Don't wait for file re-read - we already know the value
+        const updates: Record<string, string> = { [type]: value };
+
+        // Also update computed color preview for color types
+        if (type === 'textColor') {
+          const cssColor = tailwindColorToCss(value);
+          if (cssColor) {
+            updates._computedColor = cssColor;
+          }
+        } else if (type === 'bgColor') {
+          const cssColor = tailwindColorToCss(value);
+          if (cssColor) {
+            updates._computedBgColor = cssColor;
+          }
+        } else if (type === 'borderColor') {
+          const cssColor = tailwindColorToCss(value);
+          if (cssColor) {
+            updates._computedBorderColor = cssColor;
+          }
+        }
+
+        setCurrentStyles(prev => ({
+          ...prev,
+          ...updates
+        }));
+
+        // Also update spacing inputs immediately if applicable
+        switch (type) {
+          case 'marginX': setMarginX(value); break;
+          case 'marginY': setMarginY(value); break;
+          case 'marginTop': setMarginTop(value); break;
+          case 'marginRight': setMarginRight(value); break;
+          case 'marginBottom': setMarginBottom(value); break;
+          case 'marginLeft': setMarginLeft(value); break;
+          case 'paddingX': setPaddingX(value); break;
+          case 'paddingY': setPaddingY(value); break;
+          case 'paddingTop': setPaddingTop(value); break;
+          case 'paddingRight': setPaddingRight(value); break;
+          case 'paddingBottom': setPaddingBottom(value); break;
+          case 'paddingLeft': setPaddingLeft(value); break;
+        }
+      }
+    } catch (error) {
+      // Style application failed silently
+    }
+  };
+
+  // Ordered Tailwind spacing keys for stepping
+  const SPACING_STEPS = ['0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '5', '6', '7', '8', '9', '10', '11', '12', '14', '16', '20', '24'];
+
+  // Convert Tailwind spacing key to display value (px)
+  const spacingToDisplay = (key: string): string => {
+    if (!key || key === '0') return '0';
+    const px = TAILWIND_SPACING[key];
+    return px || key;
+  };
+
+  // Step spacing up/down through Tailwind values
+  const stepSpacing = (type: string, currentValue: string, direction: 1 | -1, setter: (v: string) => void) => {
+    const currentIndex = SPACING_STEPS.indexOf(currentValue);
+    let newIndex: number;
+    if (currentIndex === -1) {
+      // Not a known value - find nearest
+      newIndex = direction > 0 ? 1 : 0;
+    } else {
+      newIndex = Math.max(0, Math.min(SPACING_STEPS.length - 1, currentIndex + direction));
+    }
+    const newValue = SPACING_STEPS[newIndex];
+    setter(newValue);
+    handleStyleChange(type, newValue);
+  };
+
+
+  // Debounced spacing change handler for manual text input
+
+  // Debounced spacing change handler for manual text input
+  const spacingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const handleSpacingChange = (type: string, value: string, setter: (v: string) => void) => {
+    setter(value);
+
+    // Debounce the actual style application
+    if (spacingTimeoutRef.current) {
+      clearTimeout(spacingTimeoutRef.current);
+    }
+    spacingTimeoutRef.current = setTimeout(() => {
+      handleStyleChange(type, value);
+    }, 100);
+  };
+
+  // Track if user has ever selected something in this visual edit session
+  // This persists even after selection is cleared (when prompt is submitted)
+  const [hasEverSelected, setHasEverSelected] = useState(false);
+
+  // Update hasEverSelected when selection changes
+  useEffect(() => {
+    if (selection) {
+      setHasEverSelected(true);
+    }
+  }, [selection]);
+
+  const handleBack = () => {
+     onBack();
+  };
+
+  // Check if there's an actual app in the codebase (files beyond just initial empty state)
+  const hasApp = Object.keys(files).length > 0;
+
+  // Show loading during scan or init
+  const showLoading = scanning || !isReady || !hasApp;
+
+  // Handle undo button click
+  const handleUndo = () => {
+    undoLastVisualEdit();
+  };
+
+  // Handle select parent button click
+  const handleSelectParent = () => {
+    selectParentElement();
+  };
+
+  // Show buttons if user has ever selected something (not just current selection)
+  const showButtons = hasEverSelected;
+
+  return (
+    // Add top padding of 40px to account for the persistent Design Header
+    // Use z-30 to sit above header background but below header text
+    <div className="flex flex-col bg-[#1c1c1c] absolute inset-x-0 bottom-0 top-14 z-30 pt-[40px] animate-in fade-in zoom-in-95 duration-200">
+      
+      {showLoading ? (
+         <div className="flex-1 flex flex-col items-center justify-center -mt-72">
+            <VisualEditLoader />
+         </div>
+      ) : isEditing ? (
+             <div className="flex-1 flex flex-col relative select-none">
+                 {/* New Ripple Indicator - Positioned absolutely at top, independent of content center */}
+                 {/* Positioned at top-14px to sit closer to header text, with z-40 to float above opaque header background */}
+                 <div className="absolute top-[14px] inset-x-0 flex justify-center z-40">
+                 <div className="flex items-center gap-3 px-4 py-2 bg-[#27272a]/50 rounded-full backdrop-blur-sm">
+                    <div className="relative w-4 h-4 flex items-center justify-center">
+                        <div className="absolute w-full h-full rounded-full border-[1.5px] border-white opacity-0 animate-ripple ring-wait" />
+                        <div className="absolute w-full h-full rounded-full border-[1.5px] border-white opacity-0 animate-ripple" />
+                    </div>
+                    <span className="text-sm text-gray-200 font-medium tracking-wide">AI is working...</span>
+                 </div>
+             </div>
+
+             {/* Centered Content - Matches "Visual edits" empty state exact position (-mt-72) */}
+             <div className="flex-1 flex flex-col items-center justify-center -mt-72">
+                 <div className="mb-6 relative">
+                     <VisualEditsIcon size={20} className="text-white" />
+                 </div>
+                 <h2 className="text-white text-xl font-medium mb-3">Agent is working</h2>
+                 <p className="text-[#81888f] max-w-[280px] leading-relaxed text-center text-sm">
+                     You can still select elements and queue visual edit requests using the floating panel in the preview
+                 </p>
+             </div>
+             
+             {/* Ensure ripple styles are available specifically for this view if not global */}
+             <style>{`
+              @keyframes ripple {
+                0% { transform: scale(0); opacity: 1; border-width: 1.5px; }
+                100% { transform: scale(1.5); opacity: 0; border-width: 0px; }
+              }
+              .animate-ripple { animation: ripple 2s cubic-bezier(0, 0.2, 0.8, 1) infinite; }
+              .ring-wait { animation-delay: -1s; }
+             `}</style>
+         </div>
+      ) : selection ? (
+        selection.hasDynamicStyles ? (
+            <div className="flex-1 flex flex-col items-center justify-center -mt-72 select-none">
+                <DynamicStylingWarning />
+            </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto min-h-0 no-scrollbar pb-64">
+             <div className="p-6 space-y-8">
+                
+                {/* Colors Section */}
+                <div className="space-y-3">
+                   <h3 className="text-white font-medium text-[15px]">Colors</h3>
+                   <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                      {hasText && (
+                      <div className="space-y-1.5 relative">
+                         <label className="text-[13px] text-gray-400">Text color</label>
+                         <div
+                           tabIndex={0}
+                           ref={textInheritRef}
+                           onClick={() => setActiveColorMenu(activeColorMenu === 'text' ? null : 'text')}
+                           className={`flex items-center gap-2 p-2 bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors ${activeColorMenu === 'text' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                         >
+                             <div
+                               className="w-5 h-5 rounded-full border border-white/10 relative overflow-hidden flex-shrink-0"
+                               style={{
+                                 backgroundColor: currentStyles.textColor ? currentStyles._computedColor || '#ffffff' : 'transparent',
+                                 backgroundImage: !currentStyles.textColor
+                                   ? 'linear-gradient(45deg, #808080 25%, transparent 25%), linear-gradient(-45deg, #808080 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #808080 75%), linear-gradient(-45deg, transparent 75%, #808080 75%)'
+                                   : 'none',
+                                 backgroundSize: '8px 8px',
+                                 backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px'
+                               }}
+                             />
+                             <span className="text-white text-[13px] truncate">{formatColorForDisplay(currentStyles.textColor)}</span>
+                         </div>
+                         <ColorPickerMenu
+                            isOpen={activeColorMenu === 'text'}
+                            onClose={() => setActiveColorMenu(null)}
+                            triggerRef={textInheritRef}
+                            currentColor={currentStyles._computedColor}
+                            onSelect={(color) => {
+                                handleStyleChange('textColor', color);
+                                setActiveColorMenu(null);
+                            }}
+                         />
+                      </div>
+                      )}
+                      <div className="space-y-1.5 relative">
+                         <label className="text-[13px] text-gray-400">Background color</label>
+                         <div
+                           tabIndex={0}
+                           ref={bgInheritRef}
+                           onClick={() => setActiveColorMenu(activeColorMenu === 'bg' ? null : 'bg')}
+                           className={`flex items-center gap-2 p-2 bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors ${activeColorMenu === 'bg' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                         >
+                             <div
+                               className="w-5 h-5 rounded-full border border-white/10 relative overflow-hidden flex-shrink-0"
+                               style={{
+                                 backgroundColor: (!currentStyles.bgColor || isTransparent(currentStyles._computedBgColor)) ? 'transparent' : currentStyles._computedBgColor,
+                                 backgroundImage: (!currentStyles.bgColor || isTransparent(currentStyles._computedBgColor))
+                                   ? 'linear-gradient(45deg, #808080 25%, transparent 25%), linear-gradient(-45deg, #808080 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #808080 75%), linear-gradient(-45deg, transparent 75%, #808080 75%)'
+                                   : 'none',
+                                 backgroundSize: '8px 8px',
+                                 backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px'
+                               }}
+                             />
+                             <span className="text-white text-[13px] truncate">
+                               {currentStyles.bgColor === 'transparent'
+                                 ? 'Transparent'
+                                 : formatColorForDisplay(currentStyles.bgColor)}
+                             </span>
+                         </div>
+                         <ColorPickerMenu
+                            isOpen={activeColorMenu === 'bg'}
+                            onClose={() => setActiveColorMenu(null)}
+                            triggerRef={bgInheritRef}
+                            currentColor={currentStyles._computedBgColor}
+                            onSelect={(color) => {
+                                handleStyleChange('bgColor', color);
+                                setActiveColorMenu(null);
+                            }}
+                         />
+                      </div>
+                   </div>
+
+                </div>
+
+                {/* Spacing Section */}
+                <div className="space-y-3">
+                   <h3 className="text-white font-medium text-[15px]">Spacing</h3>
+                   <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                      {/* Margin */}
+                      <div className="space-y-1.5">
+                         <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-[13px] text-gray-400">Margin</label>
+                         </div>
+                         <div className="space-y-2">
+                             <div className="grid grid-cols-[1fr_1fr_32px] gap-3">
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing(expandMargin ? 'marginLeft' : 'marginX', expandMargin ? marginLeft : marginX, 1, expandMargin ? setMarginLeft : setMarginX)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        {expandMargin ? <MarginLeftIcon size={14} /> : <AlignHorizontalSpaceAround size={14} />}
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(expandMargin ? marginLeft : marginX)}
+                                       onChange={(e) => handleSpacingChange(expandMargin ? 'marginLeft' : 'marginX', e.target.value, expandMargin ? setMarginLeft : setMarginX)}
+                                       onBlur={() => handleStyleChange(expandMargin ? 'marginLeft' : 'marginX', expandMargin ? marginLeft : marginX)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing(expandMargin ? 'marginTop' : 'marginY', expandMargin ? marginTop : marginY, 1, expandMargin ? setMarginTop : setMarginY)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        {expandMargin ? <MarginTopIcon size={14} /> : <AlignVerticalSpaceAround size={14} />}
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(expandMargin ? marginTop : marginY)}
+                                       onChange={(e) => handleSpacingChange(expandMargin ? 'marginTop' : 'marginY', e.target.value, expandMargin ? setMarginTop : setMarginY)}
+                                       onBlur={() => handleStyleChange(expandMargin ? 'marginTop' : 'marginY', expandMargin ? marginTop : marginY)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <button
+                                    onClick={() => setExpandMargin(!expandMargin)}
+                                    className={`w-8 h-8 flex items-center justify-center transition-colors rounded-md ${expandMargin ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                                 >
+                                    <Maximize2 size={14} />
+                                 </button>
+                             </div>
+
+                             {/* Expanded Margin Inputs */}
+                             <div className={`overflow-hidden transition-all duration-300 ease-out grid grid-cols-[1fr_1fr_32px] gap-3 ${expandMargin ? 'max-h-[40px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing('marginRight', marginRight, 1, setMarginRight)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        <MarginRightIcon size={14} />
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(marginRight)}
+                                       onChange={(e) => handleSpacingChange('marginRight', e.target.value, setMarginRight)}
+                                       onBlur={() => handleStyleChange('marginRight', marginRight)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing('marginBottom', marginBottom, 1, setMarginBottom)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        <MarginBottomIcon size={14} />
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(marginBottom)}
+                                       onChange={(e) => handleSpacingChange('marginBottom', e.target.value, setMarginBottom)}
+                                       onBlur={() => handleStyleChange('marginBottom', marginBottom)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div /> {/* Spacer to align with button above */}
+                             </div>
+                         </div>
+                      </div>
+
+                      {/* Padding */}
+                      <div className="space-y-1.5">
+                         <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-[13px] text-gray-400">Padding</label>
+                         </div>
+                         <div className="space-y-2">
+                             <div className="grid grid-cols-[1fr_1fr_32px] gap-3">
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing(expandPadding ? 'paddingLeft' : 'paddingX', expandPadding ? paddingLeft : paddingX, 1, expandPadding ? setPaddingLeft : setPaddingX)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        {expandPadding ? <PaddingLeftIcon size={14} /> : <PaddingHorizontalIcon size={14} />}
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(expandPadding ? paddingLeft : paddingX)}
+                                       onChange={(e) => handleSpacingChange(expandPadding ? 'paddingLeft' : 'paddingX', e.target.value, expandPadding ? setPaddingLeft : setPaddingX)}
+                                       onBlur={() => handleStyleChange(expandPadding ? 'paddingLeft' : 'paddingX', expandPadding ? paddingLeft : paddingX)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing(expandPadding ? 'paddingTop' : 'paddingY', expandPadding ? paddingTop : paddingY, 1, expandPadding ? setPaddingTop : setPaddingY)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        {expandPadding ? <PaddingTopIcon size={14} /> : <PaddingVerticalIcon size={14} />}
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(expandPadding ? paddingTop : paddingY)}
+                                       onChange={(e) => handleSpacingChange(expandPadding ? 'paddingTop' : 'paddingY', e.target.value, expandPadding ? setPaddingTop : setPaddingY)}
+                                       onBlur={() => handleStyleChange(expandPadding ? 'paddingTop' : 'paddingY', expandPadding ? paddingTop : paddingY)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <button
+                                    onClick={() => setExpandPadding(!expandPadding)}
+                                    className={`w-8 h-8 flex items-center justify-center transition-colors rounded-md ${expandPadding ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                                 >
+                                    <Maximize2 size={14} />
+                                 </button>
+                             </div>
+
+                             {/* Expanded Padding Inputs */}
+                             <div className={`overflow-hidden transition-all duration-300 ease-out grid grid-cols-[1fr_1fr_32px] gap-3 ${expandPadding ? 'max-h-[40px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing('paddingRight', paddingRight, 1, setPaddingRight)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        <PaddingRightIcon size={14} />
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(paddingRight)}
+                                       onChange={(e) => handleSpacingChange('paddingRight', e.target.value, setPaddingRight)}
+                                       onBlur={() => handleStyleChange('paddingRight', paddingRight)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div className="flex items-center bg-[#27272a] rounded-lg border border-transparent overflow-hidden group focus-within:border-white/20 transition-colors">
+                                     <button 
+                                        onClick={() => stepSpacing('paddingBottom', paddingBottom, 1, setPaddingBottom)}
+                                        className="pl-1.5 pr-0.5 text-gray-500 hover:text-white h-8 flex items-center justify-center transition-colors outline-none cursor-pointer"
+                                     >
+                                        <PaddingBottomIcon size={14} />
+                                     </button>
+                                     <input
+                                       type="text"
+                                       value={spacingToDisplay(paddingBottom)}
+                                       onChange={(e) => handleSpacingChange('paddingBottom', e.target.value, setPaddingBottom)}
+                                       onBlur={() => handleStyleChange('paddingBottom', paddingBottom)}
+                                       className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
+                                     />
+                                 </div>
+                                 <div /> {/* Spacer */}
+                             </div>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+
+                {/* Typography Section - only shown for elements with text */}
+                {hasText && (
+                <div className="space-y-3">
+                   <h3 className="text-white font-medium text-[15px]">Typography</h3>
+                   <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <label className="text-[13px] text-gray-400">Font size</label>
+                           <div
+                                tabIndex={0}
+                                ref={fontSizeRef}
+                                onClick={() => setActiveTypographyMenu(activeTypographyMenu === 'fontSize' ? null : 'fontSize')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeTypographyMenu === 'fontSize' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px]">{currentStyles.fontSize || 'Select size'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                           <VisualEditorSelectMenu
+                                isOpen={activeTypographyMenu === 'fontSize'}
+                                onClose={() => setActiveTypographyMenu(null)}
+                                triggerRef={fontSizeRef}
+                                options={FONT_SIZE_OPTIONS}
+                                selected={currentStyles.fontSize}
+                                onSelect={(val) => {
+                                    handleStyleChange('fontSize', val);
+                                    setActiveTypographyMenu(null);
+                                }}
+                                label="Select font size"
+                                width={160}
+                           />
+                       </div>
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <label className="text-[13px] text-gray-400">Font weight</label>
+                           <div
+                                tabIndex={0}
+                                ref={fontWeightRef}
+                                onClick={() => setActiveTypographyMenu(activeTypographyMenu === 'fontWeight' ? null : 'fontWeight')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeTypographyMenu === 'fontWeight' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px]">{currentStyles.fontWeight || 'Select weight'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                           <VisualEditorSelectMenu
+                                isOpen={activeTypographyMenu === 'fontWeight'}
+                                onClose={() => setActiveTypographyMenu(null)}
+                                triggerRef={fontWeightRef}
+                                options={FONT_WEIGHT_OPTIONS}
+                                selected={currentStyles.fontWeight}
+                                onSelect={(val) => {
+                                    handleStyleChange('fontWeight', val);
+                                    setActiveTypographyMenu(null);
+                                }}
+                                label="Select font weight"
+                                width={160}
+                           />
+                       </div>
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <label className="text-[13px] text-gray-400">Text align</label>
+                           <div
+                                tabIndex={0}
+                                ref={textAlignRef}
+                                onClick={() => setActiveTypographyMenu(activeTypographyMenu === 'textAlign' ? null : 'textAlign')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeTypographyMenu === 'textAlign' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px]">{currentStyles.textAlign || 'Select align'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                           <VisualEditorSelectMenu
+                                isOpen={activeTypographyMenu === 'textAlign'}
+                                onClose={() => setActiveTypographyMenu(null)}
+                                triggerRef={textAlignRef}
+                                options={TEXT_ALIGN_OPTIONS}
+                                selected={currentStyles.textAlign}
+                                onSelect={(val) => {
+                                    handleStyleChange('textAlign', val);
+                                    setActiveTypographyMenu(null);
+                                }}
+                                label="Select alignment"
+                                width={160}
+                           />
+                       </div>
+                   </div>
+                </div>
+                )}
+
+                {/* Border Section - hidden for void elements */}
+                {canHaveBorder && (
+                <div className="space-y-3">
+                   <h3 className="text-white font-medium text-[15px]">Border</h3>
+                   <div className="space-y-3">
+                       <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                           <div className="space-y-1.5 min-w-[140px] flex-1">
+                               <label className="text-[13px] text-gray-400">Border width</label>
+                               <div
+                                 tabIndex={0}
+                                 ref={borderWidthRef}
+                                 onClick={() => setActiveBorderMenu(activeBorderMenu === 'borderWidth' ? null : 'borderWidth')}
+                                 className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeBorderMenu === 'borderWidth' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                               >
+                                   <span className="text-gray-300 text-[13px] whitespace-nowrap">{currentStyles.borderWidth || 'Select width'}</span>
+                                   <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                               </div>
+                               <VisualEditorSelectMenu
+                                    isOpen={activeBorderMenu === 'borderWidth'}
+                                    onClose={() => setActiveBorderMenu(null)}
+                                    triggerRef={borderWidthRef}
+                                    options={BORDER_WIDTH_OPTIONS}
+                                    selected={currentStyles.borderWidth}
+                                    onSelect={(val) => {
+                                        handleStyleChange('borderWidth', val);
+                                        setActiveBorderMenu(null);
+                                    }}
+                                    label="Select border width"
+                                    width={160}
+                               />
+                           </div>
+                           <div className="space-y-1.5 min-w-[140px] flex-1">
+                               <label className="text-[13px] text-gray-400">Border color</label>
+                               <div
+                                 tabIndex={0}
+                                 ref={borderColorRef}
+                                 onClick={() => setActiveColorMenu(activeColorMenu === 'border' ? null : 'border')}
+                                 className={`flex items-center gap-2 p-2 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors ${activeColorMenu === 'border' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                               >
+                                   <div
+                                     className="w-5 h-5 rounded-full border border-white/10 relative overflow-hidden flex-shrink-0"
+                                     style={{
+                                       backgroundColor: currentStyles.borderColor ? (tailwindColorToCss(currentStyles.borderColor) || 'transparent') : 'transparent',
+                                       backgroundImage: !currentStyles.borderColor
+                                         ? 'linear-gradient(45deg, #808080 25%, transparent 25%), linear-gradient(-45deg, #808080 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #808080 75%), linear-gradient(-45deg, transparent 75%, #808080 75%)'
+                                         : 'none',
+                                       backgroundSize: '8px 8px',
+                                       backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px'
+                                     }}
+                                   />
+                                   <span className="text-white text-[13px] truncate">{formatColorForDisplay(currentStyles.borderColor)}</span>
+                               </div>
+                               <ColorPickerMenu
+                                  isOpen={activeColorMenu === 'border'}
+                                  onClose={() => setActiveColorMenu(null)}
+                                  triggerRef={borderColorRef}
+                                  currentColor={undefined}
+                                  onSelect={(color) => {
+                                      handleStyleChange('borderColor', color);
+                                      setActiveColorMenu(null);
+                                  }}
+                               />
+                           </div>
+                       </div>
+
+                       <div className="flex flex-wrap gap-4">
+                           <div className="space-y-1.5 w-full">
+                               <label className="text-[13px] text-gray-400">Border style</label>
+                               <div
+                                 tabIndex={0}
+                                 ref={borderStyleRef}
+                                 onClick={() => setActiveBorderMenu(activeBorderMenu === 'borderStyle' ? null : 'borderStyle')}
+                                 className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeBorderMenu === 'borderStyle' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                               >
+                                   <span className="text-gray-300 text-[13px] whitespace-nowrap">{currentStyles.borderStyle || 'Select style'}</span>
+                                   <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                               </div>
+                               <VisualEditorSelectMenu
+                                    isOpen={activeBorderMenu === 'borderStyle'}
+                                    onClose={() => setActiveBorderMenu(null)}
+                                    triggerRef={borderStyleRef}
+                                    options={BORDER_STYLE_OPTIONS}
+                                    selected={currentStyles.borderStyle}
+                                    onSelect={(val) => {
+                                        handleStyleChange('borderStyle', val);
+                                        setActiveBorderMenu(null);
+                                    }}
+                                    label="Select border style"
+                                    width={160}
+                               />
+                           </div>
+                       </div>
+                   </div>
+                </div>
+                )}
+
+                   {/* Effects Section - hidden for void elements */}
+                {canHaveEffects && (
+                <div className="space-y-3">
+                   <h3 className="text-white font-medium text-[15px]">Effects</h3>
+                   <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <div className="flex items-center gap-1">
+                               <label className="text-[13px] text-gray-400">Border radius</label>
+                           </div>
+                           <div
+                                tabIndex={0}
+                                ref={borderRadiusRef}
+                                onClick={() => setActiveEffectMenu(activeEffectMenu === 'radius' ? null : 'radius')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeEffectMenu === 'radius' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px]">{currentStyles.borderRadius || 'Select radius'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                           <VisualEditorSelectMenu
+                                isOpen={activeEffectMenu === 'radius'}
+                                onClose={() => setActiveEffectMenu(null)}
+                                triggerRef={borderRadiusRef}
+                                options={BORDER_RADIUS_OPTIONS}
+                                selected={currentStyles.borderRadius}
+                                onSelect={(val) => {
+                                    handleStyleChange('borderRadius', val);
+                                    setActiveEffectMenu(null);
+                                }}
+                                label="Select border radius"
+                                width={160}
+                           />
+                       </div>
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <label className="text-[13px] text-gray-400">Shadow</label>
+                           <div
+                                tabIndex={0}
+                                ref={shadowRef}
+                                onClick={() => setActiveEffectMenu(activeEffectMenu === 'shadow' ? null : 'shadow')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeEffectMenu === 'shadow' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px]">{currentStyles.shadow || 'Select shadow'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                           <VisualEditorSelectMenu
+                                isOpen={activeEffectMenu === 'shadow'}
+                                onClose={() => setActiveEffectMenu(null)}
+                                triggerRef={shadowRef}
+                                options={SHADOW_OPTIONS}
+                                selected={currentStyles.shadow}
+                                onSelect={(val) => {
+                                    handleStyleChange('shadow', val);
+                                    setActiveEffectMenu(null);
+                                }}
+                                label="Select shadow"
+                                width={160}
+                           />
+                       </div>
+                       <div className="space-y-1.5 min-w-[140px] flex-1">
+                           <label className="text-[13px] text-gray-400">Opacity</label>
+                           <div
+                                tabIndex={0}
+                                ref={opacityRef}
+                                onClick={() => setActiveEffectMenu(activeEffectMenu === 'opacity' ? null : 'opacity')}
+                                className={`flex items-center justify-between px-3 h-[38px] bg-[#27272a] rounded-lg border cursor-pointer outline-none transition-colors group ${activeEffectMenu === 'opacity' ? 'border-blue-500/50' : 'border-transparent focus:border-white/20'}`}
+                           >
+                               <span className="text-gray-300 text-[13px] whitespace-nowrap">{currentStyles.opacity || 'Select opacity'}</span>
+                               <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+                           </div>
+                            <VisualEditorSelectMenu
+                                isOpen={activeEffectMenu === 'opacity'}
+                                onClose={() => setActiveEffectMenu(null)}
+                                triggerRef={opacityRef}
+                                options={OPACITY_OPTIONS}
+                                selected={currentStyles.opacity}
+                                onSelect={(val) => {
+                                    handleStyleChange('opacity', val);
+                                    setActiveEffectMenu(null);
+                                }}
+                                label="Select opacity"
+                                width={160}
+                           />
+                       </div>
+                   </div>
+                </div>
+                )}
+
+
+             </div>
+          </div>
+        )
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center -mt-72 select-none">
+           <div className="mb-6 relative">
+              <VisualEditsIcon size={20} className="text-white" />
+           </div>
+           <h2 className="text-xl font-semibold text-white mb-2">Visual edits</h2>
+           <p className="text-[#81888f] mb-8">Select an element to edit it</p>
+           
+           <p className="text-[#52525b] text-sm">
+             Hold <span className="bg-[#27272a] px-1.5 py-0.5 rounded text-gray-400 font-mono border border-white/5 mx-1">Ctrl</span> to select multiple elements
+           </p>
+         </div>
+       )}
+
+       {/* Footer - shown when element is selected */}
+       {selection && (
+         <div className="absolute bottom-0 left-0 right-0 bg-[#1c1c1c] border-t border-white/5 p-4 space-y-3">
+            <button onClick={onBack} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm">
+               <CornerUpLeft size={14} />
+               Back to Chat
+            </button>
+            
+            <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-[#27272a] rounded-xl px-3 h-[36px] py-0 border border-white/5">
+                  <Palette size={14} className="text-gray-400" />
+                  <span className="text-white text-sm font-medium">Design</span>
+                  <div className="flex items-center justify-center gap-1.5 px-2 h-[21px] bg-[#1e40af] text-white rounded-full text-[11px] font-medium font-mono leading-none select-none flex-shrink-0">
+                     <Scan size={12} className="stroke-dashed opacity-90 text-white" />
+                     <span className="translate-y-[0.5px]">{selection.tagName.toLowerCase()}</span>
+                  </div>
+               </div>
+            </div>
+
+            <div className="w-full bg-[#27272a] rounded-xl border border-white/5 p-3">
+               <input 
+                  type="text" 
+                  placeholder="Ask Lovable to modify the selected element..." 
+                  className="w-full bg-transparent text-gray-300 placeholder-gray-500 text-sm outline-none"
+               />
+            </div>
+         </div>
+       )}
+    </div>
+  );
+};
+
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName }) => {
   const navigate = useNavigate();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
+  const [sidebarView, setSidebarView] = useState<'chat' | 'visual-edit'>('chat');
+  const hasUnsaved = useStore(hasUnsavedChanges);
+  const [showExitModal, setShowExitModal] = useState(false);
+
+  const handleExitVisualEdit = (action?: () => void) => {
+    if (hasUnsaved) {
+      setShowExitModal(true);
+    } else {
+      setSidebarView('chat');
+      exitVisualEdit();
+      action?.();
+    }
+  };
   const [promptValue, setPromptValue] = useState('');
+
+  // Visual edit queue subscription
+  const editQueue = useStore(visualEditQueue);
+
+  // Deferred activeTab state - updates one frame after activeTab changes
+  // This staggers the suggestions grid animation to avoid layout thrashing
+  const [deferredActiveTab, setDeferredActiveTab] = useState(activeTab);
+  useEffect(() => {
+    if (activeTab !== deferredActiveTab) {
+      requestAnimationFrame(() => {
+        setDeferredActiveTab(activeTab);
+      });
+    }
+  }, [activeTab, deferredActiveTab]);
+
+  // Automatically exit visual edit view when navigating away from design tab
+  // Use requestAnimationFrame to defer state change and avoid interrupting CSS animations
+  useEffect(() => {
+    if (activeTab !== 'design' && sidebarView === 'visual-edit') {
+      requestAnimationFrame(() => {
+        setSidebarView('chat');
+        exitVisualEdit();
+      });
+    }
+  }, [activeTab, sidebarView]);
+
+  // Robust Visual Edit Exit: Ensure we exit mode whenever sidebar view changes OR on unmount
+  useEffect(() => {
+    // If we are NOT in visual edit view, force exit mode
+    // This catches cases like switching tools, clicking "Design" text, etc.
+    if (sidebarView !== 'visual-edit') {
+       if (isVisualEditMode.get()) {
+         exitVisualEdit();
+       }
+    }
+  }, [sidebarView]);
+
+  // Cleanup on unmount to ensure mode doesn't persist if component destroyed
+  useEffect(() => {
+    return () => {
+       if (isVisualEditMode.get()) {
+         exitVisualEdit();
+       }
+    };
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const streamingContentRef = useRef<HTMLDivElement>(null);
-  const [dynamicBottomPadding, setDynamicBottomPadding] = useState<number | null>(null);
-  const [canScrollDuringGeneration, setCanScrollDuringGeneration] = useState(false);
   const [showLeftGradient, setShowLeftGradient] = useState(false);
   const [messageReactions, setMessageReactions] = useState<{ [key: string]: 'like' | 'dislike' | null }>({});
   const [fileListExpanded, setFileListExpanded] = useState(false); // Lifted state for file list expansion
@@ -399,6 +1512,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   // Test mode state
   const isTestMode = useStore(testStore.isTestMode);
   const testStatus = useStore(testStore.status);
+  const $hoveredElement = useStore(hoveredElement);
+  const $selectedElement = useStore(selectedElement);
+  const selectedEls = useStore(selectedElements);
   
   // Selected tool state (independent from tabs)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
@@ -415,7 +1531,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     url?: string;
     name: string;
     extension?: string;
+    file?: File;
   }
+
+  // Visual Editor State
+  const selection = useStore(selectedElement);
+  const hasUndo = useStore(canUndo);
+  const atRoot = useStore(isAtRootLevel);
+
+  // Enable select parent when there's a selection and we're not at root
+  const canSelectParent = !!selection && !atRoot;
+  
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -429,7 +1555,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           type: isImage ? 'image' : 'file',
           url: isImage ? URL.createObjectURL(file) : undefined,
           name: file.name,
-          extension: file.name.split('.').pop() || 'FILE'
+          extension: file.name.split('.').pop() || 'FILE',
+          file
         };
       });
       setAttachments(prev => [...prev, ...newAttachments]);
@@ -465,16 +1592,99 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     thinkingTime?: number;
     isGenerating?: boolean;
     isThinking?: boolean;
+
     timestamp: number;
+    attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
   }
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentStreamingResponse, setCurrentStreamingResponse] = useState('');
   const [currentThinkingTime, setCurrentThinkingTime] = useState(0);
   const thinkingTimeRef = useRef(0); // Ref to capture accurate final thinking time
+  const thinkingStartTimeRef = useRef<number | null>(null); // Timestamp when thinking started
   const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(false);
   const [isCurrentlyThinking, setIsCurrentlyThinking] = useState(false);
-  const { apiKeys, loading: userDataLoading } = useUserData();
+  const isCurrentlyThinkingRef = useRef(false); // Ref to avoid stale closure in streaming callback
+  const { apiKeys, loading: userDataLoading } = useUserDataContext();
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Prompt Suggestions State
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false); // Start hidden
+  const suggestionsGeneratedRef = useRef(false);
+  const prevGeneratingRef = useRef(false);
+  const initialLoadCompleteRef = useRef(false); // Track if first generation from dashboard is done
+
+  // Generate prompt suggestions based on conversation
+  const generateSuggestions = useCallback(async () => {
+    if (!apiKeys.gemini?.[0]) return;
+
+    try {
+      const genAI = new GoogleGenerativeAI(apiKeys.gemini[0]);
+      const model = genAI.getGenerativeModel({ model: PROJECT_NAME_MODEL });
+
+      // Build context from recent messages
+      const recentMessages = messages.slice(-4).map(m =>
+        `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.substring(0, 200)}`
+      ).join('\n');
+
+      const result = await model.generateContent(
+        `Based on this conversation about building an app, suggest 5 short follow-up prompts (2-4 words each) the user might want to ask next. Return ONLY the suggestions, one per line. No numbers, no bullets, no question marks.\n\nConversation:\n${recentMessages}`
+      );
+
+      const text = result.response.text().trim();
+      const newSuggestions = text.split('\n')
+        .map(s => s.trim().replace(/\?+$/, '')) // Remove trailing question marks
+        .filter(s => s.length > 0 && s.length <= 30)
+        .slice(0, 5);
+
+      if (newSuggestions.length > 0) {
+        setSuggestions(newSuggestions);
+      }
+    } catch (error) {
+      console.error('[Sidebar] Failed to generate suggestions:', error);
+    }
+  }, [apiKeys.gemini, messages]);
+
+  // Handle suggestion generation when AI completes
+  useEffect(() => {
+    // Detect transition from generating → not generating
+    if (prevGeneratingRef.current && !isCurrentlyGenerating) {
+      // AI just finished generating
+      // Mark initial load as complete (first generation done)
+      const wasInitialLoad = !initialLoadCompleteRef.current;
+      initialLoadCompleteRef.current = true;
+
+      // Generate new suggestions then show
+      generateSuggestions().then(() => {
+        // Reset scroll position to leftmost before showing
+        if (tabsScrollRef.current) {
+          tabsScrollRef.current.scrollLeft = 0;
+        }
+        // Small delay to let suggestions update, then slide up
+        setTimeout(() => setSuggestionsVisible(true), 50);
+      });
+    } else if (!prevGeneratingRef.current && isCurrentlyGenerating) {
+      // AI just started generating - hide suggestions only if initial load is complete
+      // (don't hide on initial load since they're already hidden)
+      if (initialLoadCompleteRef.current) {
+        setSuggestionsVisible(false);
+      }
+    }
+    prevGeneratingRef.current = isCurrentlyGenerating;
+  }, [isCurrentlyGenerating, generateSuggestions]);
+
+  // Generate initial suggestions when first message is sent
+  useEffect(() => {
+    if (messages.length >= 2 && !suggestionsGeneratedRef.current) {
+      suggestionsGeneratedRef.current = true;
+      generateSuggestions();
+    }
+  }, [messages, generateSuggestions]);
+
+  // Keep thinking ref in sync with state
+  useEffect(() => {
+    isCurrentlyThinkingRef.current = isCurrentlyThinking;
+  }, [isCurrentlyThinking]);
   
   // Pre-warm SDK clients as soon as API keys are available
   useEffect(() => {
@@ -912,12 +2122,21 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
   };
 
-  // Handle Initial Prompt Display & UI Status
+  // Handle Initial Prompt Display & UI Status (both chat mode and staging mode)
   const initialPromptDisplayed = useRef(false);
   useEffect(() => {
-    if (prompt && !initialPromptDisplayed.current && isChatMode) {
+    if (prompt && !initialPromptDisplayed.current) {
       initialPromptDisplayed.current = true;
-      
+
+      // Reset stores for fresh session (in case user navigated back and returned)
+      sandpackStore.reset();
+      testStore.reset();
+
+      // Clear animation tracking refs
+      animatedContentRef.current.clear();
+      completedMessagesRef.current.clear();
+      introShownRef.current.clear();
+
       // Show user message immediately
       const userMessage: ChatMessage = {
         id: 'initial-prompt',
@@ -930,8 +2149,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       // Set generating/thinking status immediately
       setIsCurrentlyGenerating(true);
       setIsCurrentlyThinking(true);
+      isCurrentlyThinkingRef.current = true; // Set ref directly to avoid timing issues
       setCurrentThinkingTime(0);
       thinkingTimeRef.current = 0;
+      thinkingStartTimeRef.current = Date.now(); // Track when thinking started
 
       // Start timer immediately
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
@@ -940,43 +2161,117 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         setCurrentThinkingTime(thinkingTimeRef.current);
       }, 1000);
     }
-  }, [prompt, isChatMode]);
+  }, [prompt]);
 
   // Handle Initial AI Generation - Fire immediately since keys are loaded synchronously
   const initialAiTriggered = useRef(false);
   useEffect(() => {
-    if (prompt && !initialAiTriggered.current && isChatMode && messages.length > 0) {
+    if (prompt && !initialAiTriggered.current && messages.length > 0) {
       initialAiTriggered.current = true;
-      startAiGeneration(prompt, [], true); // true = UI already started
+      startAiGeneration(prompt, [], true, []); // true = UI already started
     }
-  }, [prompt, isChatMode, messages]);
+  }, [prompt, messages]);
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          // Remove data:image/png;base64, prefix
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        } else {
+          reject(new Error('Failed to read file'));
+        }
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const readFileText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsText(file);
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to read file'));
+        }
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
 
   const handleSendMessage = async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() && attachments.length === 0) return;
+
+    // Process attachments
+    const processedAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [];
+    
+    for (const att of attachments) {
+        if (!att.file) continue;
+        
+        try {
+            if (att.type === 'image') {
+                const base64 = await fileToBase64(att.file);
+                processedAttachments.push({
+                    type: 'image',
+                    mimeType: att.file.type,
+                    data: base64,
+                    name: att.name
+                });
+            } else {
+                // For text files
+                const content = await readFileText(att.file);
+                 processedAttachments.push({
+                    type: 'text',
+                    mimeType: att.file.type || 'text/plain',
+                    data: content,
+                    name: att.name
+                });
+            }
+        } catch (e) {
+            console.error('Failed to process file:', att.name, e);
+        }
+    }
 
     const userMessage: ChatMessage = {
       id: Math.random().toString(36).substring(7),
       role: 'user',
       content: text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      attachments: processedAttachments
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setPromptValue('');
+    // Batch ALL state updates in flushSync to prevent multiple re-renders
+    // that would interfere with the scroll animation
+    flushSync(() => {
+      setMessages(prev => [...prev, userMessage]);
+      setPromptValue('');
+      setAttachments([]); // Clear attachments
+      setRemovingIds(new Set());
+      setIsCurrentlyGenerating(true);
+      setIsCurrentlyThinking(true);
+      setCurrentThinkingTime(0);
+      setCurrentStreamingResponse('');
+    });
 
-    // Set generating/thinking status immediately to stabilize layout (dynamic padding)
-    setIsCurrentlyGenerating(true);
-    setIsCurrentlyThinking(true);
-    setCurrentThinkingTime(0);
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Set refs directly (these don't cause re-renders)
+    isCurrentlyThinkingRef.current = true;
     thinkingTimeRef.current = 0;
-    setCurrentStreamingResponse('');
+    thinkingStartTimeRef.current = Date.now();
 
     if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
     thinkingTimerRef.current = setInterval(() => {
       thinkingTimeRef.current += 1;
       setCurrentThinkingTime(thinkingTimeRef.current);
     }, 1000);
-    
+
     // Route based on selectedToolId or isTestMode
     if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
@@ -986,13 +2281,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const history: AiChatMessage[] = messages.map(m => ({
           role: m.role,
           content: m.content
+          // Don't pass attachments in history yet as AiChatMessage might mismatch? 
+          // Actually we should mapping attachments too if we want memory.
+          // For now, let's keep history simple or update it.
       }));
-      
-      await startAiGeneration(text, history, true); // uiAlreadyStarted = true
+      // Pass processedAttachments for the NEW message
+      await startAiGeneration(text, history, true, processedAttachments); 
     }
   };
 
-  const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean) => {
+  const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = []) => {
     // Clear previously animated content tracking to allow fresh animations
     animatedContentRef.current.clear();
 
@@ -1044,7 +2342,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         role: 'user',
         content: `<system>${BOLT_SYSTEM_PROMPT}</system>\n\nRemember: Always respond with <boltArtifact> tags containing <boltAction> tags for files and commands.`
       };
-      const fullHistory = [systemMessage, ...history, { role: 'user' as const, content: text }];
+      
+      // Update history to match new AiChatMessage structure if needed, but for now just casting/passing
+      // effectively, we want to construct the FINAL history that streamChat uses.
+      
+      const fullHistory = [
+          systemMessage, 
+          ...history, 
+          { 
+              role: 'user' as const, 
+              content: text,
+              attachments: currentAttachments 
+          }
+      ];
 
       let responseText = '';
       
@@ -1056,13 +2366,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         fullHistory,
         { provider, model: modelId, apiKey, thinkingLevel: selected?.thinkingLevel || 0 },
         (token) => {
-          if (isCurrentlyThinking) {
+          // Use ref to avoid stale closure - state may not be updated yet
+          if (isCurrentlyThinkingRef.current) {
+            // Calculate actual elapsed time from start timestamp (more accurate than interval)
+            const elapsedMs = thinkingStartTimeRef.current ? Date.now() - thinkingStartTimeRef.current : 0;
+            const elapsedSeconds = Math.ceil(elapsedMs / 1000); // Round up to nearest second
+            thinkingTimeRef.current = elapsedSeconds;
+            setCurrentThinkingTime(elapsedSeconds);
+
+            // Update ref and state
+            isCurrentlyThinkingRef.current = false;
             setIsCurrentlyThinking(false);
             if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
           }
           responseText += token;
           setCurrentStreamingResponse(responseText);
-          
+
           // Parse streaming content - this triggers file creation in realtime
           messageParser.parse(token);
         },
@@ -1287,12 +2606,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           // Update message: Plan text + indicator (if testing started)
           const updatedContent = planText + (testingStarted ? '\n\n' + buildIndicator() : '');
           
-          setMessages(prev => prev.map(msg => 
-            msg.id === messageId 
+          setMessages(prev => prev.map(msg =>
+            msg.id === messageId
               ? { ...msg, content: updatedContent, thinkingTime: thinkingTimeRef.current, isGenerating: true }
               : msg
           ));
         },
+        // Pass conversation history for context (exclude the current message being built)
+        messages.map(msg => ({ role: msg.role, content: msg.content })) as ConversationMessage[],
         () => testStore.isCancelled.get(),
         testStore.getAbortSignal()
       );
@@ -1380,11 +2701,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     };
   }, []);
 
-  // Scroll logic
+  // Scroll logic - useLayoutEffect runs BEFORE browser paint, eliminating flash
   const lastPromptId = useRef<string | null>(null);
   const isScrollingToTop = useRef(false);
 
-  useEffect(() => {
+  React.useLayoutEffect(() => {
     if (chatScrollRef.current) {
         const container = chatScrollRef.current;
         const userMessages = messages.filter(m => m.role === 'user');
@@ -1393,53 +2714,68 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         if (lastUserMessage && lastUserMessage.id !== lastPromptId.current) {
             lastPromptId.current = lastUserMessage.id;
             isScrollingToTop.current = true;
-            
+
             // CRITICAL: Temporarily force overflow to auto so scroll can work
             container.style.overflow = 'auto';
-            
-            // Use requestAnimationFrame instead of setTimeout for immediate start
+
+            // Wait one frame for DOM to fully settle after state changes
+            // (streaming div, suggestions collapse, etc.)
             requestAnimationFrame(() => {
                 const msgEl = messageRefs.current[lastUserMessage.id];
-                
+
                 if (msgEl && container) {
-                    // Capture initial state for smooth animation
+                    // Capture initial state AFTER DOM has settled
                     const containerRect = container.getBoundingClientRect();
                     const msgRect = msgEl.getBoundingClientRect();
                     const targetVisualOffset = isChatMode ? 76 : 20;
                     const initialOffset = msgRect.top - containerRect.top;
                     const totalScrollNeeded = initialOffset - targetVisualOffset;
+
+                    // Calculate the FINAL target position first (this never changes)
                     const startScrollTop = container.scrollTop;
                     const targetScrollTop = startScrollTop + totalScrollNeeded;
-                    
-                    const startTime = Date.now();
-                    const duration = 400;
-                    
-                    // Ease-out cubic function for smooth deceleration
+
+                    // INSTANT JUMP: Skip 85% of the journey immediately
+                    const instantJumpRatio = 0.85;
+                    const instantScrollAmount = totalScrollNeeded * instantJumpRatio;
+                    container.scrollTop = startScrollTop + instantScrollAmount;
+
+                    // Capture position after jump for animation start
+                    const animationStartScrollTop = container.scrollTop;
+
+                    // Calculate remaining distance to the FINAL target
+                    const remainingScroll = targetScrollTop - animationStartScrollTop;
+
+                    const startTime = performance.now();
+                    const duration = 200; // Shorter since we jump most of the way
+
+                    // Ease-out cubic for smooth deceleration
                     const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
-                    
-                    const animateScroll = () => {
+
+                    const animateScroll = (currentTime: number) => {
                         if (!container) return;
-                        
+
                         // Keep overflow auto during scroll
                         container.style.overflow = 'auto';
-                        
-                        const elapsed = Date.now() - startTime;
+
+                        const elapsed = currentTime - startTime;
                         const progress = Math.min(elapsed / duration, 1);
                         const easedProgress = easeOutCubic(progress);
-                        
-                        // Smoothly interpolate scroll position
-                        container.scrollTop = startScrollTop + (totalScrollNeeded * easedProgress);
-                        
+
+                        // Smoothly interpolate scroll position to FINAL target
+                        container.scrollTop = animationStartScrollTop + (remainingScroll * easedProgress);
+
                         if (progress < 1) {
                             requestAnimationFrame(animateScroll);
                         } else {
-                            // Ensure we land exactly on target
+                            // Ensure we land exactly on FINAL target
                             container.scrollTop = targetScrollTop;
                             isScrollingToTop.current = false;
                         }
                     };
-                    
-                    requestAnimationFrame(animateScroll);
+
+                    // Start animation immediately (no additional frame delay)
+                    animateScroll(startTime);
                 }
             });
         }
@@ -1454,136 +2790,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setShowRightGradient(scrollLeft < scrollWidth - clientWidth - 5);
     }
   };
-
-  // Dynamic padding and scroll control during generation
-  // - Initially: Large padding (85vh) to guarantee scroll-to-top works (Phase 1)
-  // - After scroll (500ms): Switch to smart dynamic padding (Phase 2)
-  const scrollLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialBoostRef = useRef(false);
-  
-  // Trigger initial boost when generation starts
-  useEffect(() => {
-    if (isCurrentlyGenerating) {
-      initialBoostRef.current = true;
-      // Disable boost after scroll animation allows logic to take over
-      setTimeout(() => {
-        initialBoostRef.current = false;
-      }, 550);
-    }
-  }, [isCurrentlyGenerating]);
-
-  useEffect(() => {
-    if (!isCurrentlyGenerating) {
-      // Reset when generation ends
-      setDynamicBottomPadding(null);
-      setCanScrollDuringGeneration(true);
-      if (scrollLockTimerRef.current) {
-        clearTimeout(scrollLockTimerRef.current);
-        scrollLockTimerRef.current = null;
-      }
-      return;
-    }
-
-    const streamingEl = streamingContentRef.current;
-    const scrollContainer = chatScrollRef.current;
-    if (!scrollContainer) return;
-
-    const targetGap = 210; // Same as pb-[210px] for static content
-    const topPadding = isChatMode ? 76 : 20;
-
-    // Always allow scrolling initially
-    setCanScrollDuringGeneration(true);
-    
-    const calculatePaddingAndScroll = () => {
-      if (!scrollContainer) return;
-      
-      // PHASE 1: Initial Boost
-      // Force huge padding so scroll-to-top ALWAYS works
-      if (initialBoostRef.current || isScrollingToTop.current) {
-        setDynamicBottomPadding(window.innerHeight * 0.85); // 85vh equivalent
-        return;
-      }
-
-      // PHASE 2: Smart Dynamic Padding
-      // We must ensure padding is large enough to SUPPORT the current scroll position
-      // otherwise the browser forces the view to jump down.
-      const currentScrollTop = scrollContainer.scrollTop;
-      const viewportHeight = scrollContainer.clientHeight;
-      
-      // Get total content height (excluding current padding)
-      const contentWrapper = scrollContainer.firstElementChild;
-      if (!contentWrapper) return;
-      
-      const contentHeight = contentWrapper.scrollHeight;
-      
-      // Minimum padding needed to maintain the current scroll position
-      // ScrollHeight must be >= scrollTop + viewportHeight
-      // contentHeight + padding >= scrollTop + viewportHeight
-      const minPaddingForScroll = currentScrollTop + viewportHeight - contentHeight;
-      
-      // Also apply the target gap rule
-      // content fills viewport when: contentHeight > viewportHeight - targetGap
-      const fillsViewport = contentHeight > (viewportHeight - targetGap);
-      
-      if (fillsViewport && minPaddingForScroll <= targetGap) {
-        // Content is big enough AND we don't need extra padding to hold scroll
-        setCanScrollDuringGeneration(true);
-        setDynamicBottomPadding(targetGap);
-      } else {
-        // We need extra padding to hold the scroll position OR to keep prompt at top
-        // Use the larger of: 
-        // 1. Padding to hold current scroll (prevents jump)
-        // 2. Target gap (minimum aesthetic spacing)
-        // 3. (Optional) Padding to keep prompt exactly at top if we're not quite there?
-        //    Actually, minPaddingForScroll covers this if we are already scrolled there!
-        
-        const safePadding = Math.max(minPaddingForScroll, targetGap);
-        setDynamicBottomPadding(safePadding);
-      }
-      
-    };
-
-    // Observe content changes
-    const resizeObserver = new ResizeObserver(() => {
-      calculatePaddingAndScroll();
-    });
-    
-    // Observe the content wrapper
-    const contentWrapper = scrollContainer.firstElementChild;
-    if (contentWrapper) {
-      resizeObserver.observe(contentWrapper);
-    }
-    
-    // Also observe streaming element if present
-    if (streamingEl) {
-      resizeObserver.observe(streamingEl);
-    }
-    
-    // Initial calculation
-    calculatePaddingAndScroll();
-    
-    // After 500ms check for scroll lock (only if we are in Phase 2)
-    scrollLockTimerRef.current = setTimeout(() => {
-      if (isScrollingToTop.current || initialBoostRef.current) return;
-      
-      const viewportHeight = scrollContainer.clientHeight;
-      const cw = scrollContainer.firstElementChild;
-      if (cw) {
-        const contentHeight = cw.scrollHeight;
-        const fillsViewport = contentHeight > (viewportHeight - targetGap);
-        if (!fillsViewport) {
-          setCanScrollDuringGeneration(false);
-        }
-      }
-    }, 600);
-
-    return () => {
-      resizeObserver.disconnect();
-      if (scrollLockTimerRef.current) {
-        clearTimeout(scrollLockTimerRef.current);
-      }
-    };
-  }, [isCurrentlyGenerating, isChatMode]);
 
   // Tools Menu State
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
@@ -1728,25 +2934,106 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return () => clearTimeout(timer);
   }, [width, isChatMode]);
 
-  // Auto-expand textarea upwards
+  // Auto-expand textarea upwards - throttled with RAF to prevent lag
+  const textareaResizeRafRef = useRef<number | null>(null);
   useEffect(() => {
     if (textareaRef.current) {
-      // Base height for single line is 44px
-      textareaRef.current.style.height = '44px';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      
-      if (scrollHeight > 44) {
-        // Expand up to 270px before scrolling
-        const newHeight = Math.min(scrollHeight, 270);
-        textareaRef.current.style.height = `${newHeight}px`;
+      // Cancel any pending resize to avoid stacking
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
       }
+
+      // Throttle resize to once per frame
+      textareaResizeRafRef.current = requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          // Batch reads first, then writes (avoid layout thrashing)
+          textareaRef.current.style.height = 'auto';
+          const scrollHeight = textareaRef.current.scrollHeight;
+          const targetHeight = Math.max(44, Math.min(scrollHeight, 270));
+          textareaRef.current.style.height = `${targetHeight}px`;
+        }
+        textareaResizeRafRef.current = null;
+      });
     }
+
+    return () => {
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
+      }
+    };
   }, [promptValue]);
   return (
+    <>
+      <UnsavedChangesModal 
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={() => {
+          discardVisualChanges();
+          setShowExitModal(false);
+          setSidebarView('chat');
+          exitVisualEdit();
+        }}
+      />
     <div 
       style={{ width: isChatMode ? '100%' : `${width}px` }} 
       className="flex flex-col h-full overflow-hidden relative bg-[#1c1c1c]"
     >
+      {/* Design Header - Persistent across Design Tab and Visual Edit Mode */}
+      {/* Renders when in Design tab OR within visual edit mode */}
+      {(activeTab === 'design' || sidebarView === 'visual-edit') && !isChatMode && (
+        <>
+          {/* Background layer: sits at z-20, behind the scrolling menu (z-30) */}
+          <div className="absolute inset-x-0 top-14 z-20 h-[52px] bg-[#1c1c1c] pointer-events-none">
+             {/* Gradient Fade at the bottom of the background */}
+             <div className="absolute -bottom-6 left-0 right-0 h-6 bg-gradient-to-b from-[#1c1c1c] to-transparent" />
+          </div>
+
+          {/* Content layer: sits at z-40, above the scrolling menu (z-30) to keep header text always on top */}
+          <div className="absolute inset-x-0 top-14 z-40 px-6 pt-0 pb-3.5 flex items-center justify-between h-[52px] pointer-events-none">
+             {/* Left side: Breadcrumbs */}
+             <div className="flex items-center h-[32px] pointer-events-auto overflow-hidden">
+                <button 
+                  className={`text-base transition-colors duration-300 ${sidebarView === 'visual-edit' ? 'text-[#81888f] hover:text-white cursor-pointer' : 'text-white cursor-default'}`}
+                  onClick={() => sidebarView === 'visual-edit' && handleExitVisualEdit()}
+                >
+                  Design
+                </button>
+                
+                <div className={`flex items-center transition-all duration-300 ease-out origin-left ${sidebarView === 'visual-edit' ? 'w-[105px] opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
+                   <span className="text-[#81888f] mx-2">/</span>
+                   <span className="text-white font-medium whitespace-nowrap">Visual edits</span>
+                </div>
+             </div>
+
+             {/* Right side: Action Buttons (Only visible in Visual Edit) */}
+             <div className={`flex items-center gap-2 pointer-events-auto transition-opacity duration-300 ${sidebarView === 'visual-edit' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                 <button
+                   className={`flex items-center gap-2 h-[32px] rounded-lg transition-colors text-[13px] font-medium ${isCompact ? 'w-[32px] justify-center' : 'px-3'} ${
+                     canSelectParent
+                       ? 'bg-[#27272a] hover:bg-[#3f3f46] text-gray-300 hover:text-white cursor-pointer'
+                       : 'bg-[#27272a]/50 text-gray-500 cursor-not-allowed'
+                   }`}
+                   onClick={selectParentElement}
+                   disabled={!canSelectParent}
+                 >
+                    <CornerLeftUp size={14} className="flex-shrink-0" />
+                    {!isCompact && <span>Select parent</span>}
+                 </button>
+                 <button
+                   className={`w-[32px] h-[32px] flex items-center justify-center rounded-lg transition-colors ${
+                     hasUndo
+                       ? 'bg-[#27272a] hover:bg-[#3f3f46] text-gray-300 hover:text-white cursor-pointer'
+                       : 'bg-[#27272a]/50 text-gray-500 cursor-not-allowed'
+                   }`}
+                   onClick={undoLastVisualEdit}
+                   disabled={!hasUndo}
+                 >
+                    <CornerUpLeft size={16} />
+                 </button>
+             </div>
+          </div>
+        </>
+      )}
       {/* Header - Hidden in Chat Mode since StagingView renders it at root level */}
       {!isChatMode && (
         <div className={`h-14 flex items-center justify-between z-20 flex-shrink-0 bg-[#1c1c1c]`}>
@@ -1763,11 +3050,15 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             <div className="flex-shrink-0" style={{ width: '1px' }} />
             
             {/* Project Title and Toggle - Separate squircle hover */}
-            <div 
+            <div
               className="flex items-center gap-2 cursor-pointer hover:bg-white/5 px-2 py-1.5 rounded-xl transition-colors min-w-0"
               title="Project Settings"
             >
-              <span className="font-semibold text-gray-200 truncate">Melody Maker Studio</span>
+              {isGeneratingName ? (
+                <MessageLoading className="scale-75" />
+              ) : (
+                <span className="font-semibold text-gray-200 truncate">{projectName || 'New Project'}</span>
+              )}
               <ChevronDown size={14} className="text-gray-500 flex-shrink-0" />
             </div>
           </div>
@@ -1780,35 +3071,33 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         </div>
       )}
 
-      <div 
+      <div
         ref={chatScrollRef}
-        className={`flex-1 space-y-8 min-h-0 hover-scrollbar
-          ${isCurrentlyGenerating 
-            ? (canScrollDuringGeneration ? 'overflow-y-auto' : 'overflow-hidden')
-            : 'overflow-y-auto'
-          }
-          ${!dynamicBottomPadding && (showContextHeader ? 'pb-[290px]' : 'pb-[210px]')}
-          ${isChatMode 
+        className={`flex-1 space-y-8 min-h-0 hover-scrollbar overflow-y-auto
+          ${showContextHeader ? 'pb-[290px]' : 'pb-[210px]'}
+          ${isChatMode
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
             : activeTab === 'design'
-              ? 'pl-[8px] pr-[2px] mr-[8.5px] pt-1 scroll-pt-1' // Reduced padding for Design settings
+              ? 'pl-[8px] pr-[2px] mr-[8.5px] pt-0 scroll-pt-0' // Zero padding-top to align header perfectly with absolute overlays
               : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
           }`}
-        style={{ 
-          transition: 'padding-bottom 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-          ...(dynamicBottomPadding ? { paddingBottom: dynamicBottomPadding } : {})
+        style={{
+          // During resize: let browser maintain scroll position as text reflows (auto)
+          // Otherwise: disable scroll anchoring so our animation works correctly (none)
+          overflowAnchor: isResizing ? 'auto' : 'none'
         }}
       >
         <div className={isChatMode ? 'max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
           {activeTab === 'design' && !isChatMode ? (
-            <div className="space-y-4 pt-2 px-1">
-               <div className="text-[17px] font-semibold text-white mb-6">Design</div>
-               
+            <div className="space-y-4">
+               {/* Spacer to maintain vertical position of cards after removing "Design" text header */}
+               <div className="h-[52px]" />
+
                {/* Themes Card */}
-               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer border border-transparent hover:border-white/20 transition-all duration-200">
+               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
                   <div className="flex flex-col gap-[14px]">
                      <div className="text-white">
-                        <Palette size={26} strokeWidth={1.5} />
+                        <Palette size={20} strokeWidth={1.5} />
                      </div>
                      <div className="flex items-end justify-between">
                         <div>
@@ -1821,10 +3110,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                </div>
 
                {/* Visual Edits Card */}
-                <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer border border-transparent hover:border-white/20 transition-all duration-200">
+                <div
+                  onClick={() => {
+                    enterVisualEdit();
+                    setSidebarView('visual-edit');
+                    // onTabChange('preview'); // Keep preview switch to ensure elements are visible
+                  }}
+                  className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
+                >
                   <div className="flex flex-col gap-[14px]">
                      <div className="text-white">
-                        <VisualEditsIcon size={26} />
+                        <VisualEditsIcon size={20} />
                      </div>
                      <div className="flex items-end justify-between">
                         <div>
@@ -1838,89 +3134,66 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             </div>
           ) : (
           <div className="space-y-12">
-            {/* Render Static Placeholder for "Ship" mode */}
-            {!isChatMode && messages.length === 0 && (
-              <div className="space-y-8">
-                {prompt && (
-                  <div className="flex justify-end -mr-[6px]">
-                    <div className="bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl max-w-[78%] text-[15px] leading-relaxed shadow-sm">
-                      {prompt}
-                    </div>
-                  </div>
-                )}
+            {messages.map((msg, msgIndex) => {
+              // Check if this is the last assistant message (needs min-height to prevent snap)
+              const isLastAssistantMessage = msg.role === 'assistant' &&
+                msgIndex === messages.length - 1;
 
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
-                    <Lightbulb size={18} />
-                    <span className="text-[15.15px] font-medium">Thought for 12s</span>
-                  </div>
-
-                  <div className="text-gray-300 text-[15px] leading-[1.65] space-y-5">
-                    <p>
-                      I'll build a sleek music creation app with a dark, neon-synth aesthetic inspired by DAWs and drum machines.
-                    </p>
-
-                    <div className="space-y-2">
-                      <p className="font-semibold text-white">First version features:</p>
-                      <ul className="list-disc pl-5 space-y-1 text-gray-400 marker:text-gray-600">
-                        <li>Beat sequencer grid (4 tracks × 16 steps)</li>
-                        <li>Tempo and volume controls</li>
-                        <li>Play/pause functionality</li>
-                        <li>Visual beat indicators with animations</li>
-                        <li>Different synth sounds per track</li>
-                      </ul>
-                    </div>
-
-                    <div className="space-y-1">
-                      <p><strong className="text-white">Design:</strong> Dark cyberpunk theme with glowing cyan/teal accents, warm amber highlights, smooth animations, and a futuristic feel.</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
-                    <FileCode2 size={18} />
-                    <span className="text-[15.15px]">Editing <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded" style={{ color: '#81888f' }}>index.css</span></span>
-                  </div>
-                  
-                  <div className="flex items-center gap-3 pt-4 border-t border-white/5 flex-wrap shrink-0">
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button 
-                        onClick={() => setMessageReactions(prev => ({ ...prev, placeholder: prev.placeholder === 'like' ? null : 'like' }))}
-                        className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions.placeholder === 'like' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                      >
-                        <ThumbsUp size={14} fill={messageReactions.placeholder === 'like' ? 'currentColor' : 'none'} />
-                      </button>
-                      <button 
-                        onClick={() => setMessageReactions(prev => ({ ...prev, placeholder: prev.placeholder === 'dislike' ? null : 'dislike' }))}
-                        className={`p-1.5 transition-colors flex-shrink-0 ${messageReactions.placeholder === 'dislike' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                      >
-                        <ThumbsDown size={14} fill={messageReactions.placeholder === 'dislike' ? 'currentColor' : 'none'} />
-                      </button>
-                    </div>
-                    <button 
-                      onClick={() => navigator.clipboard.writeText('Perfect! I\'ll create a beat maker studio with a dark cyberpunk aesthetic...')}
-                      className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {messages.map((msg) => (
-              <div 
-                key={msg.id} 
+              return (
+              <div
+                key={msg.id}
                 ref={el => { messageRefs.current[msg.id] = el; }}
                 className="space-y-8"
               >
                 {msg.role === 'user' ? (
                   <div className="flex justify-end -mr-[6px]">
-                    <div className="bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl max-w-[78%] text-[15px] leading-relaxed shadow-sm">
-                      {msg.content}
+                    <div className="flex flex-col items-end gap-2 max-w-[78%]">
+                        {/* Attachments */}
+                        {msg.attachments && msg.attachments.length > 0 && (
+                            <div className="flex gap-2 flex-wrap justify-end">
+                                {msg.attachments.map((att, idx) => (
+                                    <div key={idx} className="shrink-0">
+                                        {att.type === 'image' ? (
+                                            <div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10 bg-[#1c1c1c]">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img 
+                                                    src={`data:${att.mimeType};base64,${att.data}`} 
+                                                    alt="Attachment" 
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="h-[58px] bg-[#1c1c1c] rounded-xl flex items-center px-4 gap-3.5 border border-white/5 min-w-[180px]">
+                                                <div className="text-gray-400 flex-shrink-0">
+                                                    <Globe size={20} strokeWidth={1.5} />
+                                                </div>
+                                                <div className="flex flex-col justify-center min-w-0 h-full">
+                                                    <span className="text-[13px] font-semibold text-gray-200 truncate max-w-[140px] leading-none mb-1">
+                                                        {att.name || 'File'}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide leading-none">
+                                                        {(att.name?.split('.').pop() || att.mimeType.split('/').pop() || 'FILE')}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm">
+                           {msg.content}
+                        </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div
+                    className="space-y-4"
+                    style={{
+                      // Min-height on last assistant message prevents snap when streaming ends
+                      minHeight: isLastAssistantMessage ? 'calc(100vh - 200px)' : undefined
+                    }}
+                  >
                     {/* Thinking indicator - show shimmer while generating, static when done */}
                     {msg.isGenerating ? (
                       <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
@@ -1970,16 +3243,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
 
             {/* Current Streaming / Thinking UI - Only for NORMAL messages (not test mode) */}
             {isCurrentlyGenerating && !testStore.isTestMode.get() && (
-              <div ref={streamingContentRef} className="space-y-4 animate-in fade-in duration-300">
+              <div
+                ref={streamingContentRef}
+                className="space-y-4"
+                style={{
+                  // Min-height on response area ensures scroll works and prevents snap
+                  minHeight: 'calc(100vh - 200px)'
+                }}
+              >
                 <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
                   <Lightbulb size={18} />
-                  <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
-                    {isCurrentlyThinking ? `Thinking` : `Thought for ${Math.round(currentThinkingTime)}s`}
-                  </TextShimmer>
+                  {isCurrentlyThinking ? (
+                    <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
+                      Thinking
+                    </TextShimmer>
+                  ) : (
+                    <span className="text-[15.15px] font-medium">
+                      Thought for {Math.round(currentThinkingTime)}s
+                    </span>
+                  )}
                 </div>
 
                 {currentStreamingResponse && (
@@ -1994,25 +3281,58 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         </div>
     </div>
 
+      {/* Visual Edit Menu Overlay */}
+      {sidebarView === 'visual-edit' && (
+        <VisualEditMenu 
+          isCompact={isCompact}
+          onBack={() => {
+            handleExitVisualEdit();
+          }} 
+        />
+      )}
+
       {/* Footer Container */}
       <div className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
-        <div className="h-4 w-full bg-gradient-to-t from-[#1c1c1c] via-[#1c1c1c]/90 to-transparent" />
+        {/* Gradient overlay - fades out when unsaved changes bar is visible */}
+        <div className={`h-8 w-full bg-gradient-to-t from-[#1c1c1c] to-transparent transition-opacity duration-300 ${hasUnsaved ? 'opacity-0' : 'opacity-100'}`} />
         <div className="bg-[#1c1c1c] pointer-events-auto">
-          <div 
-            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${activeTab !== 'design' ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+          {/* Unsaved Changes Bar */}
+          <UnsavedChangesBar />
+
+          {/* Grid collapses when either: design tab is active OR suggestions are hidden */}
+          {/* Uses deferredActiveTab to stagger animation and avoid layout thrashing */}
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${deferredActiveTab !== 'design' && suggestionsVisible ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            style={{ willChange: 'grid-template-rows' }}
           >
             <div className="overflow-hidden">
-              <div className={`relative transition-all duration-300 ease-in-out ${activeTab !== 'design' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-                <div 
+              <div
+                className={`relative transition-opacity duration-300 ease-in-out ${deferredActiveTab !== 'design' && suggestionsVisible ? 'opacity-100' : 'opacity-0'}`}
+                style={{ willChange: 'opacity' }}
+              >
+                <div
                   ref={tabsScrollRef}
                   onScroll={handleTabsScroll}
                   className="flex gap-2 overflow-x-auto no-scrollbar px-[14px] scroll-smooth"
                 >
-                   {['Add preset patterns', 'Add audio effects', 'Add MIDI support', 'Customize synth', 'Add more'].map((text, i) => (
-                     <button key={i} className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium border border-transparent">
-                        {text}
-                     </button>
-                   ))}
+                   {suggestions.length > 0 ? (
+                     suggestions.map((text, i) => (
+                       <button
+                         key={i}
+                         onClick={() => handleSendMessage(text)}
+                         className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium border border-white/5"
+                       >
+                         {text}
+                       </button>
+                     ))
+                   ) : (
+                     // Show placeholder buttons while no suggestions (maintains layout)
+                     Array.from({ length: 5 }).map((_, i) => (
+                       <div key={i} className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-transparent font-medium select-none">
+                         Loading...
+                       </div>
+                     ))
+                   )}
                 </div>
                 <div className={`absolute top-0 right-0 w-12 h-full bg-gradient-to-l from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showRightGradient ? 'opacity-100' : 'opacity-0'}`} />
                 <div className={`absolute top-0 left-0 w-12 h-full bg-gradient-to-r from-[#1c1c1c] to-transparent pointer-events-none transition-opacity duration-200 ${showLeftGradient ? 'opacity-100' : 'opacity-0'}`} />
@@ -2021,29 +3341,117 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           </div>
 
           <div className="px-[14px] pb-4 pt-4">
-            <div className={`bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5 transition-all duration-300 ease-in-out`}>
-               <div 
+            {/* Visual Edit Queue Indicator */}
+            {editQueue.length > 0 && (
+              <div className="mb-2 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                <span className="text-blue-400 text-sm font-medium">
+                  {editQueue.length} {editQueue.length === 1 ? 'Prompt' : 'Prompts'} in queue
+                </span>
+              </div>
+            )}
+            <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
+               <div
                  className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${showContextHeader ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                 style={{ willChange: 'grid-template-rows' }}
                >
                  <div className="overflow-hidden">
                     <div className={`flex flex-col gap-3 pb-2 transition-opacity duration-300 ${showContextHeader ? 'opacity-100' : 'opacity-0'}`}>
                      {displayTool && (
                        <>
-                         <button 
+                         <button
                            onClick={() => {
+                              // Always redirect to preview panel and exit visual edit if active
+                              // Always exit visual edit mode (and test mode) when going back to chat
+                              exitVisualEdit();
+                              // Also ensure test mode is cleared if active
+                              if (testStore.isTestMode.get()) {
+                                testStore.cancelTest();
+                              }
+                              setSidebarView('chat');
                               onTabChange('preview');
                               setSelectedToolId(null);
                             }}
                            className="flex items-center gap-2 text-[#a1a1aa] hover:text-white transition-colors text-sm font-medium self-start ml-1"
                          >
                            <ArrowLeft size={14} />
-                           <span>Back to Preview</span>
+                           <span>Back to Chat</span>
                          </button>
                          
-                         <div className="flex items-center gap-2 bg-[#3f3f46]/50 rounded-xl px-4 py-3 text-white">
-                           <displayTool.icon size={18} />
-                           <span className="font-medium">{displayTool.label}</span>
-                         </div>
+                         <div className="flex items-center gap-2 bg-[#3f3f46]/50 rounded-xl px-4 h-[44px] py-0 text-white flex-shrink-0 overflow-x-auto no-scrollbar max-w-full">
+                             <div className="flex-shrink-0"><displayTool.icon size={18} /></div>
+                             <span className="font-medium whitespace-nowrap flex-shrink-0">{displayTool.label}</span>
+                             
+                             {/* Visual Editor Element Indicator */}
+                             {/* Visual Editor Element Indicator (Multi-selection support) */}
+                             {sidebarView === 'visual-edit' && selectedEls.length > 0 && (
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                   {(() => {
+                                      // Group elements by selection transaction (GroupId)
+                                      // This ensures that a single click (selecting a stack) gets ONE pill,
+                                      // but separate Ctrl+Clicks get separate pills even if same tag.
+                                      const groups = selectedEls.reduce((acc, el, index) => {
+                                        // Use selectionGroupId if available, otherwise fallback to unique index to separate
+                                        const key = el.selectionGroupId || `legacy-${index}`;
+                                        if (!acc[key]) {
+                                          acc[key] = [];
+                                        }
+                                        acc[key].push(el);
+                                        return acc;
+                                      }, {} as Record<string, SelectedElement[]>);
+
+                                      return Object.entries(groups).map(([key, groupEls]) => {
+                                         // Use the tag name of the first element in the group
+                                         const primaryEl = groupEls[0];
+                                         const label = primaryEl.tagName.toLowerCase();
+                                         
+                                         return (
+                                            <div 
+                                              key={key} 
+                                              onClick={(e) => {
+                                                  e.stopPropagation(); // Prevent bubbling just in case
+                                                  // Open the code for this family (using the primary element)
+                                                  const el = groupEls[0];
+                                                  if (el.sourceLocation) {
+                                                      navigateToCode(
+                                                          el.sourceLocation.fileName,
+                                                          el.sourceLocation.line,
+                                                          el.sourceLocation.column
+                                                      );
+                                                  } else if (el.componentFile) {
+                                                      // Fallback to component file if specific location missing
+                                                      navigateToCode(
+                                                          el.componentFile.filePath,
+                                                          1 // Default to top of file
+                                                      );
+                                                  }
+                                              }}
+                                              title="Click to open code, Hover icon to remove"
+                                              className="group flex items-center justify-center gap-1.5 px-2 h-[21px] bg-[#1e40af] hover:bg-[#1e3a8a] cursor-pointer text-white rounded-full text-[11px] font-medium font-mono leading-none select-none flex-shrink-0 animate-in fade-in zoom-in-95 duration-200 transition-colors"
+                                            >
+                                              <div className="group-hover:hidden">
+                                                <Scan size={12} className="stroke-dashed opacity-90 text-white" />
+                                              </div>
+                                              <div 
+                                                className="hidden group-hover:block hover:bg-white/20 rounded-full"
+                                                onClick={(e) => {
+                                                  e.stopPropagation(); // Don't trigger navigation
+                                                  const newSelection = selectedEls.filter(el => !groupEls.includes(el));
+                                                  setSelectedElements(newSelection);
+                                                }}
+                                              >
+                                                <X size={12} className="text-white" />
+                                              </div>
+                                              <span className="translate-y-[0.5px]">
+                                                 {label}
+                                              </span>
+                                            </div>
+                                         );
+                                      });
+                                   })()}
+                                </div>
+                             )}
+                           </div>
                        </>
                      )}
                    </div>
@@ -2053,7 +3461,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                {/* Attachments Area */}
                <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasVisibleAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                  <div className="overflow-hidden">
-                   <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-1 px-1 transition-all duration-[250ms] ease-in-out ${showContextHeader ? 'pt-2' : 'pt-0'}`}>
+                   <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-1 px-1 transition-[padding] duration-[250ms] ease-in-out ${showContextHeader ? 'pt-2' : 'pt-0'}`}>
                      {attachments.map((att) => (
                        <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
                          {att.type === 'image' ? (
@@ -2092,10 +3500,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  </div>
                </div>
 
-               <textarea 
+               <textarea
                   ref={textareaRef}
-                  placeholder="Ask Lovable..." 
-                  className={`w-full bg-transparent text-gray-100 placeholder-gray-400 resize-none outline-none min-h-[44px] px-3 py-1.5 mb-2 text-[16px] leading-relaxed font-normal overflow-y-auto ${isChatMode ? 'text-lg' : ''}`}
+                  placeholder="Ask Willow..."
+                  className={`w-full bg-transparent text-gray-100 placeholder-gray-400 resize-none outline-none min-h-[44px] px-3 py-1.5 text-[16px] leading-relaxed font-normal overflow-y-auto ${isChatMode ? 'text-lg' : ''}`}
+                  style={{ scrollbarGutter: 'stable' }}
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -2106,7 +3515,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   }}
                   rows={1}
                />
-               <div className="flex items-center justify-between">
+               <div className="flex items-center justify-between pt-2">
                   <div className="flex items-center gap-2">
                      <input 
                         type="file" 
@@ -2136,11 +3545,15 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                              ))}
                           </div>
                         )}
-                        <button 
+                        <button
                            onClick={() => !currentTool && setIsToolsMenuOpen(!isToolsMenuOpen)}
-                           className={`flex items-center rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-colors text-[13px] font-medium flex-shrink-0 h-[36px]
-                             ${isCompact 
-                                ? (currentTool ? 'px-2.5 gap-2.5' : 'px-2.5') 
+                           className={`flex items-center rounded-full transition-colors text-[13px] font-medium flex-shrink-0 h-[36px]
+                             ${currentTool
+                                ? 'bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30'
+                                : 'bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white'
+                             }
+                             ${isCompact
+                                ? (currentTool ? 'px-2.5 gap-2.5' : 'px-2.5')
                                 : (currentTool ? 'pl-4 pr-2.5 gap-2.5' : 'px-4 gap-2')
                              }
                              ${isToolsMenuOpen ? 'bg-[#3f3f46] text-white' : ''}
@@ -2153,9 +3566,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                                  <currentTool.icon size={16} />
                                  {!isCompact && <span>{currentTool.label}</span>}
                                </div>
-                               <div 
+                               <div
                                   onClick={handleToolReset}
-                                  className="p-0.5 hover:bg-white/20 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+                                  className="p-0.5 hover:bg-[#3b82f6]/30 rounded-full transition-colors cursor-pointer flex items-center justify-center"
                                >
                                  <X size={12} />
                                </div>
@@ -2292,6 +3705,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         </div>
       </div>
     </div>
+    </>
   );
 };
 

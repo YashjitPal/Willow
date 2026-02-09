@@ -527,6 +527,7 @@ export const InputBar: React.FC<{
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaResizeRafRef = useRef<number | null>(null);
 
   const CurrentModeIcon =
     MODES.find((m) => m.id === currentMode)?.icon || Rocket;
@@ -547,18 +548,35 @@ export const InputBar: React.FC<{
     // Shift+Enter allows default behavior (new line)
   };
 
-  // Auto-expand textarea
+  // Auto-expand textarea - throttled with RAF to prevent lag
   useEffect(() => {
     if (textareaRef.current) {
-      // Revert to original static height (48px) to check if content overflows
-      textareaRef.current.style.height = '48px';
-      
-      const scrollHeight = textareaRef.current.scrollHeight;
-      if (scrollHeight > 48) {
-        const newHeight = Math.min(scrollHeight, 300);
-        textareaRef.current.style.height = `${newHeight}px`;
+      // Cancel any pending resize to avoid stacking
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
       }
+
+      // Throttle resize to once per frame
+      textareaResizeRafRef.current = requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          // Revert to original static height (48px) to check if content overflows
+          textareaRef.current.style.height = '48px';
+
+          const scrollHeight = textareaRef.current.scrollHeight;
+          if (scrollHeight > 48) {
+            const newHeight = Math.min(scrollHeight, 300);
+            textareaRef.current.style.height = `${newHeight}px`;
+          }
+        }
+        textareaResizeRafRef.current = null;
+      });
     }
+
+    return () => {
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
+      }
+    };
   }, [promptText]);
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
@@ -576,7 +594,7 @@ export const InputBar: React.FC<{
           ref={textareaRef}
           placeholder="Ask Willow to create an internal tool that..."
           className="w-full bg-transparent text-white placeholder-zinc-500 px-4 pt-2.5 pb-2 outline-none resize-none text-[15px] font-light leading-relaxed overflow-y-auto pr-2"
-          style={{ height: '48px', minHeight: '48px' }}
+          style={{ height: '48px', minHeight: '48px', scrollbarGutter: 'stable' }}
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
           onKeyDown={handleKeyDown}
