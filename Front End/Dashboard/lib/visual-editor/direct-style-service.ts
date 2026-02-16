@@ -3,7 +3,7 @@
 
 import { Project, SyntaxKind, Node, JsxAttribute, JsxExpression } from 'ts-morph';
 import { sandpackStore } from '../sandpack/sandpack-store';
-import { pushUndoState, clearSelection, requestInspectorReinit, previewRefreshRequest, pendingSelectionRestore, selectedElement, markAsUnsaved } from './visual-editor-store';
+import { pushUndoState, clearSelection, requestInspectorReinit, previewRefreshRequest, pendingSelectionRestore, selectedElement, markAsUnsaved, requestSelectionBoundsRefresh } from './visual-editor-store';
 import type { SelectedElement } from './types';
 
 // Reuse singleton project from visual-edit-service
@@ -78,6 +78,39 @@ const SPACING_SCALE: Record<string, string> = {
   '20': '5rem', '24': '6rem', '28': '7rem', '32': '8rem', '36': '9rem',
   '40': '10rem', '44': '11rem', '48': '12rem', '52': '13rem', '56': '14rem',
   '60': '15rem', '64': '16rem', '72': '18rem', '80': '20rem', '96': '24rem',
+};
+
+// Valid Tailwind spacing keys for margin/padding
+const TAILWIND_SPACING_KEYS = [
+  '0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '5', '6', '7', '8', '9', '10',
+  '11', '12', '14', '16', '20', '24', '28', '32', '36', '40', '44', '48', '52', '56',
+  '60', '64', '72', '80', '96', 'px', 'auto'
+];
+
+// Reverse lookup: Pixel value → Tailwind spacing key
+// e.g., "24" (24px) → "6" (p-6)
+const PIXEL_TO_TAILWIND_KEY: Record<string, string> = {
+  '0': '0',
+  '2': '0.5',
+  '4': '1',
+  '6': '1.5',
+  '8': '2',
+  '10': '2.5',
+  '12': '3',
+  '14': '3.5',
+  '16': '4',
+  '20': '5',
+  '24': '6',
+  '28': '7',
+  '32': '8',
+  '36': '9',
+  '40': '10',
+  '44': '11',
+  '48': '12',
+  '56': '14',
+  '64': '16',
+  '80': '20',
+  '96': '24',
 };
 
 // Parse px value to Tailwind spacing key
@@ -593,31 +626,68 @@ function styleToTailwindClass(style: StyleProperty): string {
       }
       return `border-${style.value}`;
 
-    case 'marginX':
-      return `mx-${style.value}`;
-    case 'marginY':
-      return `my-${style.value}`;
-    case 'marginTop':
-      return `mt-${style.value}`;
-    case 'marginRight':
-      return `mr-${style.value}`;
-    case 'marginBottom':
-      return `mb-${style.value}`;
-    case 'marginLeft':
-      return `ml-${style.value}`;
+    case 'marginX': {
+      // Convert pixel value to Tailwind key, or use arbitrary value
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `mx-${key}`;
+      return `mx-[${style.value}px]`;
+    }
+    case 'marginY': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `my-${key}`;
+      return `my-[${style.value}px]`;
+    }
+    case 'marginTop': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `mt-${key}`;
+      return `mt-[${style.value}px]`;
+    }
+    case 'marginRight': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `mr-${key}`;
+      return `mr-[${style.value}px]`;
+    }
+    case 'marginBottom': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `mb-${key}`;
+      return `mb-[${style.value}px]`;
+    }
+    case 'marginLeft': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `ml-${key}`;
+      return `ml-[${style.value}px]`;
+    }
 
-    case 'paddingX':
-      return `px-${style.value}`;
-    case 'paddingY':
-      return `py-${style.value}`;
-    case 'paddingTop':
-      return `pt-${style.value}`;
-    case 'paddingRight':
-      return `pr-${style.value}`;
-    case 'paddingBottom':
-      return `pb-${style.value}`;
-    case 'paddingLeft':
-      return `pl-${style.value}`;
+    case 'paddingX': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `px-${key}`;
+      return `px-[${style.value}px]`;
+    }
+    case 'paddingY': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `py-${key}`;
+      return `py-[${style.value}px]`;
+    }
+    case 'paddingTop': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `pt-${key}`;
+      return `pt-[${style.value}px]`;
+    }
+    case 'paddingRight': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `pr-${key}`;
+      return `pr-[${style.value}px]`;
+    }
+    case 'paddingBottom': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `pb-${key}`;
+      return `pb-[${style.value}px]`;
+    }
+    case 'paddingLeft': {
+      const key = PIXEL_TO_TAILWIND_KEY[style.value];
+      if (key) return `pl-${key}`;
+      return `pl-[${style.value}px]`;
+    }
 
     case 'borderRadius':
       return BORDER_RADIUS_MAP[style.value] || 'rounded';
@@ -904,7 +974,18 @@ export function getCurrentStyles(element: SelectedElement): Record<string, strin
       }
     }
 
-    // Margin
+    // Margin - check for shorthand m- first, then directional classes
+    // m-4 sets all margins, mx- sets left+right, my- sets top+bottom
+    if (cls.match(/^m-[0-9\[\]\.]+/) && !cls.startsWith('mx-') && !cls.startsWith('my-') && !cls.startsWith('mt-') && !cls.startsWith('mr-') && !cls.startsWith('mb-') && !cls.startsWith('ml-')) {
+      const value = cls.replace('m-', '');
+      // Shorthand sets all margins
+      result.marginX = value;
+      result.marginY = value;
+      result.marginTop = value;
+      result.marginRight = value;
+      result.marginBottom = value;
+      result.marginLeft = value;
+    }
     if (cls.startsWith('mx-')) result.marginX = cls.replace('mx-', '');
     if (cls.startsWith('my-')) result.marginY = cls.replace('my-', '');
     if (cls.startsWith('mt-')) result.marginTop = cls.replace('mt-', '');
@@ -912,7 +993,16 @@ export function getCurrentStyles(element: SelectedElement): Record<string, strin
     if (cls.startsWith('mb-')) result.marginBottom = cls.replace('mb-', '');
     if (cls.startsWith('ml-')) result.marginLeft = cls.replace('ml-', '');
 
-    // Padding
+    // Padding - check for shorthand p- first, then directional classes
+    if (cls.match(/^p-[0-9\[\]\.]+/) && !cls.startsWith('px-') && !cls.startsWith('py-') && !cls.startsWith('pt-') && !cls.startsWith('pr-') && !cls.startsWith('pb-') && !cls.startsWith('pl-')) {
+      const value = cls.replace('p-', '');
+      result.paddingX = value;
+      result.paddingY = value;
+      result.paddingTop = value;
+      result.paddingRight = value;
+      result.paddingBottom = value;
+      result.paddingLeft = value;
+    }
     if (cls.startsWith('px-')) result.paddingX = cls.replace('px-', '');
     if (cls.startsWith('py-')) result.paddingY = cls.replace('py-', '');
     if (cls.startsWith('pt-')) result.paddingTop = cls.replace('pt-', '');

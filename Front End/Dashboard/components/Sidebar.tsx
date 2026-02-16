@@ -753,7 +753,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {isCollapsed && (
           <button 
-            onClick={() => setIsCollapsed(false)}
+            onClick={() => onToggleCollapse()}
             className="absolute inset-y-0 right-0 w-1 hover:bg-white/5 transition-colors cursor-pointer group/tab"
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-[#1f1f1f] border border-white/10 p-1 rounded-l-md opacity-0 group-hover/tab:opacity-100 transition-opacity">

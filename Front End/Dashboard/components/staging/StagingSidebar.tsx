@@ -44,7 +44,7 @@ import {
   CodeXml,
   CornerLeftUp
 } from 'lucide-react';
-import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges } from '../../lib/visual-editor';
+import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, isSaving, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges, requestSelectionBoundsRefresh, selectionStyleRefreshRequest } from '../../lib/visual-editor';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '../ui/text-shimmer';
 import { MessageLoading } from '../ui/message-loading';
@@ -495,15 +495,21 @@ interface SidebarProps {
   isGeneratingName?: boolean;
 }
 
-const VisualEditLoader = () => (
+const VisualEditLoader = ({ 
+  title = "Starting live preview...", 
+  subtitle = "Hang on while we get everything set up" 
+}: { 
+  title?: string; 
+  subtitle?: string; 
+}) => (
   <div className="flex flex-col items-center justify-center">
     <div className="relative w-5 h-5 flex items-center justify-center mb-6">
       <div className="absolute w-full h-full rounded-full border-2 border-white opacity-0 animate-ripple ring-wait" />
       <div className="absolute w-full h-full rounded-full border-2 border-white opacity-0 animate-ripple" />
     </div>
     <div className="text-center space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-150">
-      <h3 className="text-white font-medium text-lg">Starting live preview...</h3>
-      <p className="text-[#81888f] text-sm">Hang on while we get everything set up</p>
+      <h3 className="text-white font-medium text-lg">{title}</h3>
+      <p className="text-[#81888f] text-sm">{subtitle}</p>
     </div>
     <style>{`
       @keyframes ripple {
@@ -563,12 +569,14 @@ const BORDER_STYLE_OPTIONS = ['Solid', 'Dashed', 'Dotted', 'Double', 'None'];
 const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isCompact?: boolean }) => {
   const isReady = useStore(inspectorReady);
   const scanning = useStore(isScanning);
+  const saving = useStore(isSaving);
   const files = useStore(sandpackStore.files);
   const selection = useStore(selectedElement);
   const selectedEls = useStore(selectedElements);
   const isEditing = useStore(isVisualEditing); // Track visual edit state
   const editQueue = useStore(visualEditQueue); // Track visual edit queue
   const hasUndo = useStore(canUndo); // Track undo history availability
+  const styleRefresh = useStore(selectionStyleRefreshRequest); // Track undo/discard style refresh
   const [expandMargin, setExpandMargin] = useState(false);
   const [expandPadding, setExpandPadding] = useState(false);
   const [activeColorMenu, setActiveColorMenu] = useState<'text' | 'bg' | 'border' | null>(null);
@@ -647,27 +655,102 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   const canHaveBorder = hasBoxModel && !isInlineText;
   const canHaveEffects = hasBoxModel && !isInlineText;
 
-  // Update current styles when selection changes
+  // Track the UID of the last selected element to avoid overwriting user input
+  const lastSelectedUidRef = useRef<string | null>(null);
+  // Track the last style refresh to detect undo/discard changes
+  const lastStyleRefreshRef = useRef<number>(0);
+
+  // Update current styles when selection changes - but only sync spacing when element changes
   useEffect(() => {
     if (selection) {
       const styles = getCurrentStyles(selection);
+
+      // On style refresh (undo/discard), re-derive computed color values from the
+      // Tailwind class names (already read from source by getCurrentStyles above).
+      // We can't use getFreshComputedStyles here because the iframe is mid-HMR reload.
+      const isStyleRefresh = styleRefresh !== lastStyleRefreshRef.current;
+      if (isStyleRefresh) {
+        lastStyleRefreshRef.current = styleRefresh;
+        // Derive _computedBgColor from bgColor class name
+        if (styles.bgColor) {
+          const cssColor = tailwindColorToCss(styles.bgColor);
+          if (cssColor) styles._computedBgColor = cssColor;
+        } else {
+          styles._computedBgColor = 'rgba(0, 0, 0, 0)';
+        }
+        // Derive _computedColor from textColor class name
+        if (styles.textColor) {
+          const cssColor = tailwindColorToCss(styles.textColor);
+          if (cssColor) styles._computedColor = cssColor;
+        }
+      }
+
       setCurrentStyles(styles);
 
-      // Update spacing inputs from current classes
-      setMarginX(styles.marginX || '0');
-      setMarginY(styles.marginY || '0');
-      setMarginTop(styles.marginTop || '0');
-      setMarginRight(styles.marginRight || '0');
-      setMarginBottom(styles.marginBottom || '0');
-      setMarginLeft(styles.marginLeft || '0');
-      setPaddingX(styles.paddingX || '0');
-      setPaddingY(styles.paddingY || '0');
-      setPaddingTop(styles.paddingTop || '0');
-      setPaddingRight(styles.paddingRight || '0');
-      setPaddingBottom(styles.paddingBottom || '0');
-      setPaddingLeft(styles.paddingLeft || '0');
+      // Update spacing inputs when a DIFFERENT element is selected OR when a style refresh
+      // is triggered (undo/discard). This prevents overwriting user input during preview
+      // refresh, but ensures spacing values are re-synced after undo/discard.
+      const currentUid = selection.uid;
+
+      if (lastSelectedUidRef.current !== currentUid || isStyleRefresh) {
+        lastSelectedUidRef.current = currentUid;
+
+        // Convert Tailwind spacing keys to pixel values for display
+        // If the value is a Tailwind key like "4", convert to pixel "16"
+        // If it's already a pixel value like "[14px]", extract just the number
+        const toPx = (val: string | undefined): string => {
+          if (!val) return '0';
+          // Handle arbitrary value syntax like "[14px]"
+          if (val.startsWith('[') && val.endsWith(']')) {
+            return val.slice(1, -1).replace('px', '');
+          }
+          // Check if it's a Tailwind key
+          const px = TAILWIND_SPACING[val];
+          return px || val;
+        };
+
+        // Parse computed CSS margin/padding values (e.g., "16px" or "16px 8px 16px 8px")
+        // Returns [top, right, bottom, left] as strings
+        const parseComputedSpacing = (computed: string | undefined): [string, string, string, string] => {
+          if (!computed) return ['0', '0', '0', '0'];
+          const parts = computed.split(' ').map(p => p.replace('px', '').trim());
+          if (parts.length === 1) {
+            return [parts[0], parts[0], parts[0], parts[0]];
+          } else if (parts.length === 2) {
+            return [parts[0], parts[1], parts[0], parts[1]];
+          } else if (parts.length === 3) {
+            return [parts[0], parts[1], parts[2], parts[1]];
+          } else if (parts.length >= 4) {
+            return [parts[0], parts[1], parts[2], parts[3]];
+          }
+          return ['0', '0', '0', '0'];
+        };
+
+        // Get computed margins as fallback
+        const [computedMarginTop, computedMarginRight, computedMarginBottom, computedMarginLeft] = parseComputedSpacing(styles._computedMargin);
+        const [computedPaddingTop, computedPaddingRight, computedPaddingBottom, computedPaddingLeft] = parseComputedSpacing(styles._computedPadding);
+
+        // Update margin inputs - use Tailwind class values if available, else computed values
+        setMarginX(toPx(styles.marginX) || computedMarginLeft);
+        setMarginY(toPx(styles.marginY) || computedMarginTop);
+        setMarginTop(toPx(styles.marginTop) || computedMarginTop);
+        setMarginRight(toPx(styles.marginRight) || computedMarginRight);
+        setMarginBottom(toPx(styles.marginBottom) || computedMarginBottom);
+        setMarginLeft(toPx(styles.marginLeft) || computedMarginLeft);
+
+        // Update padding inputs - use Tailwind class values if available, else computed values
+        setPaddingX(toPx(styles.paddingX) || computedPaddingLeft);
+        setPaddingY(toPx(styles.paddingY) || computedPaddingTop);
+        setPaddingTop(toPx(styles.paddingTop) || computedPaddingTop);
+        setPaddingRight(toPx(styles.paddingRight) || computedPaddingRight);
+        setPaddingBottom(toPx(styles.paddingBottom) || computedPaddingBottom);
+        setPaddingLeft(toPx(styles.paddingLeft) || computedPaddingLeft);
+      }
+    } else {
+      // Reset tracking when no selection
+      lastSelectedUidRef.current = null;
     }
-  }, [selection]);
+  }, [selection, styleRefresh]);
 
   // Text-related style types that should be applied to the text source element
   const TEXT_STYLE_TYPES = ['textColor', 'fontSize', 'fontWeight', 'fontFamily', 'textAlign', 'lineHeight', 'letterSpacing'];
@@ -722,68 +805,102 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
           ...prev,
           ...updates
         }));
+        // Note: Spacing input state is already set by handleSpacingChange before calling this function,
+        // so we don't update it again here to avoid overwriting user's typed input
 
-        // Also update spacing inputs immediately if applicable
-        switch (type) {
-          case 'marginX': setMarginX(value); break;
-          case 'marginY': setMarginY(value); break;
-          case 'marginTop': setMarginTop(value); break;
-          case 'marginRight': setMarginRight(value); break;
-          case 'marginBottom': setMarginBottom(value); break;
-          case 'marginLeft': setMarginLeft(value); break;
-          case 'paddingX': setPaddingX(value); break;
-          case 'paddingY': setPaddingY(value); break;
-          case 'paddingTop': setPaddingTop(value); break;
-          case 'paddingRight': setPaddingRight(value); break;
-          case 'paddingBottom': setPaddingBottom(value); break;
-          case 'paddingLeft': setPaddingLeft(value); break;
-        }
+        // Trigger selection bounds refresh after a small delay to let the preview re-layout
+        // This makes the selection overlay follow the element when margin/padding shifts it
+        setTimeout(() => {
+          requestSelectionBoundsRefresh();
+        }, 50);
       }
     } catch (error) {
       // Style application failed silently
     }
   };
 
-  // Ordered Tailwind spacing keys for stepping
-  const SPACING_STEPS = ['0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '5', '6', '7', '8', '9', '10', '11', '12', '14', '16', '20', '24'];
+  // Ordered pixel values for stepping (corresponding to Tailwind spacing scale)
+  const SPACING_STEPS = ['0', '2', '4', '6', '8', '10', '12', '14', '16', '20', '24', '28', '32', '36', '40', '44', '48', '56', '64', '80', '96'];
 
-  // Convert Tailwind spacing key to display value (px)
+  // Convert Tailwind spacing key to display value (px) - kept for backward compatibility
   const spacingToDisplay = (key: string): string => {
     if (!key || key === '0') return '0';
     const px = TAILWIND_SPACING[key];
     return px || key;
   };
 
-  // Step spacing up/down through Tailwind values
+  // Step spacing up/down through pixel values
   const stepSpacing = (type: string, currentValue: string, direction: 1 | -1, setter: (v: string) => void) => {
-    const currentIndex = SPACING_STEPS.indexOf(currentValue);
-    let newIndex: number;
-    if (currentIndex === -1) {
-      // Not a known value - find nearest
-      newIndex = direction > 0 ? 1 : 0;
-    } else {
-      newIndex = Math.max(0, Math.min(SPACING_STEPS.length - 1, currentIndex + direction));
+    const currentPx = parseInt(currentValue, 10) || 0;
+    
+    // Find the nearest step
+    let currentIndex = SPACING_STEPS.findIndex(s => parseInt(s, 10) >= currentPx);
+    if (currentIndex === -1) currentIndex = SPACING_STEPS.length - 1;
+    
+    // If current value is exactly a step, use that index; otherwise we're between steps
+    if (SPACING_STEPS[currentIndex] !== currentValue && direction === -1 && currentIndex > 0) {
+      // Going down from a non-standard value: go to the step below
+      currentIndex = currentIndex;
     }
+    
+    let newIndex = Math.max(0, Math.min(SPACING_STEPS.length - 1, currentIndex + direction));
     const newValue = SPACING_STEPS[newIndex];
     setter(newValue);
     handleStyleChange(type, newValue);
   };
 
 
-  // Debounced spacing change handler for manual text input
-
-  // Debounced spacing change handler for manual text input
-  const spacingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Spacing change handler for manual text input - NO DEBOUNCE for immediate feedback
   const handleSpacingChange = (type: string, value: string, setter: (v: string) => void) => {
     setter(value);
+    // Apply immediately like color changes
+    handleStyleChange(type, value);
+  };
 
-    // Debounce the actual style application
-    if (spacingTimeoutRef.current) {
-      clearTimeout(spacingTimeoutRef.current);
+  // Normalize empty spacing inputs to "0" on blur
+  const handleSpacingBlur = (value: string, setter: (v: string) => void, type: string) => {
+    if (value.trim() === '') {
+      setter('0');
+      handleStyleChange(type, '0');
     }
-    spacingTimeoutRef.current = setTimeout(() => {
-      handleStyleChange(type, value);
-    }, 100);
+  };
+
+  // Toggle margin expand with value synchronization
+  // When expanding: Copy X to Left/Right, Y to Top/Bottom
+  // When collapsing: Copy Left to X, Top to Y (consistent with which inputs are visible first)
+  const toggleExpandMargin = () => {
+    if (!expandMargin) {
+      // Expanding: 2-option → 4-option
+      // Copy X (horizontal) to Left and Right
+      setMarginLeft(marginX);
+      setMarginRight(marginX);
+      // Copy Y (vertical) to Top and Bottom
+      setMarginTop(marginY);
+      setMarginBottom(marginY);
+    } else {
+      // Collapsing: 4-option → 2-option
+      // Use Left for X (it's the first horizontal input shown)
+      setMarginX(marginLeft);
+      // Use Top for Y (it's the first vertical input shown)
+      setMarginY(marginTop);
+    }
+    setExpandMargin(!expandMargin);
+  };
+
+  // Toggle padding expand with value synchronization
+  const toggleExpandPadding = () => {
+    if (!expandPadding) {
+      // Expanding: 2-option → 4-option
+      setPaddingLeft(paddingX);
+      setPaddingRight(paddingX);
+      setPaddingTop(paddingY);
+      setPaddingBottom(paddingY);
+    } else {
+      // Collapsing: 4-option → 2-option
+      setPaddingX(paddingLeft);
+      setPaddingY(paddingTop);
+    }
+    setExpandPadding(!expandPadding);
   };
 
   // Track if user has ever selected something in this visual edit session
@@ -804,8 +921,8 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   // Check if there's an actual app in the codebase (files beyond just initial empty state)
   const hasApp = Object.keys(files).length > 0;
 
-  // Show loading during scan or init
-  const showLoading = scanning || !isReady || !hasApp;
+  // Show loading during scan or init or saving
+  const showLoading = scanning || !isReady || !hasApp || saving;
 
   // Handle undo button click
   const handleUndo = () => {
@@ -827,7 +944,14 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
       
       {showLoading ? (
          <div className="flex-1 flex flex-col items-center justify-center -mt-72">
-            <VisualEditLoader />
+            {saving ? (
+              <VisualEditLoader 
+                title="Saving edits..." 
+                subtitle="Hang tight while we save your changes" 
+              />
+            ) : (
+              <VisualEditLoader />
+            )}
          </div>
       ) : isEditing ? (
              <div className="flex-1 flex flex-col relative select-none">
@@ -971,9 +1095,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(expandMargin ? marginLeft : marginX)}
+                                       value={expandMargin ? marginLeft : marginX}
                                        onChange={(e) => handleSpacingChange(expandMargin ? 'marginLeft' : 'marginX', e.target.value, expandMargin ? setMarginLeft : setMarginX)}
-                                       onBlur={() => handleStyleChange(expandMargin ? 'marginLeft' : 'marginX', expandMargin ? marginLeft : marginX)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, expandMargin ? setMarginLeft : setMarginX, expandMargin ? 'marginLeft' : 'marginX')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -986,14 +1110,14 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(expandMargin ? marginTop : marginY)}
+                                       value={expandMargin ? marginTop : marginY}
                                        onChange={(e) => handleSpacingChange(expandMargin ? 'marginTop' : 'marginY', e.target.value, expandMargin ? setMarginTop : setMarginY)}
-                                       onBlur={() => handleStyleChange(expandMargin ? 'marginTop' : 'marginY', expandMargin ? marginTop : marginY)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, expandMargin ? setMarginTop : setMarginY, expandMargin ? 'marginTop' : 'marginY')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
                                  <button
-                                    onClick={() => setExpandMargin(!expandMargin)}
+                                    onClick={toggleExpandMargin}
                                     className={`w-8 h-8 flex items-center justify-center transition-colors rounded-md ${expandMargin ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                                  >
                                     <Maximize2 size={14} />
@@ -1011,9 +1135,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(marginRight)}
+                                       value={marginRight}
                                        onChange={(e) => handleSpacingChange('marginRight', e.target.value, setMarginRight)}
-                                       onBlur={() => handleStyleChange('marginRight', marginRight)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, setMarginRight, 'marginRight')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -1026,9 +1150,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(marginBottom)}
+                                       value={marginBottom}
                                        onChange={(e) => handleSpacingChange('marginBottom', e.target.value, setMarginBottom)}
-                                       onBlur={() => handleStyleChange('marginBottom', marginBottom)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, setMarginBottom, 'marginBottom')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -1053,9 +1177,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(expandPadding ? paddingLeft : paddingX)}
+                                       value={expandPadding ? paddingLeft : paddingX}
                                        onChange={(e) => handleSpacingChange(expandPadding ? 'paddingLeft' : 'paddingX', e.target.value, expandPadding ? setPaddingLeft : setPaddingX)}
-                                       onBlur={() => handleStyleChange(expandPadding ? 'paddingLeft' : 'paddingX', expandPadding ? paddingLeft : paddingX)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, expandPadding ? setPaddingLeft : setPaddingX, expandPadding ? 'paddingLeft' : 'paddingX')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -1068,14 +1192,14 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(expandPadding ? paddingTop : paddingY)}
+                                       value={expandPadding ? paddingTop : paddingY}
                                        onChange={(e) => handleSpacingChange(expandPadding ? 'paddingTop' : 'paddingY', e.target.value, expandPadding ? setPaddingTop : setPaddingY)}
-                                       onBlur={() => handleStyleChange(expandPadding ? 'paddingTop' : 'paddingY', expandPadding ? paddingTop : paddingY)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, expandPadding ? setPaddingTop : setPaddingY, expandPadding ? 'paddingTop' : 'paddingY')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
                                  <button
-                                    onClick={() => setExpandPadding(!expandPadding)}
+                                    onClick={toggleExpandPadding}
                                     className={`w-8 h-8 flex items-center justify-center transition-colors rounded-md ${expandPadding ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                                  >
                                     <Maximize2 size={14} />
@@ -1093,9 +1217,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(paddingRight)}
+                                       value={paddingRight}
                                        onChange={(e) => handleSpacingChange('paddingRight', e.target.value, setPaddingRight)}
-                                       onBlur={() => handleStyleChange('paddingRight', paddingRight)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, setPaddingRight, 'paddingRight')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -1108,9 +1232,9 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
                                      </button>
                                      <input
                                        type="text"
-                                       value={spacingToDisplay(paddingBottom)}
+                                       value={paddingBottom}
                                        onChange={(e) => handleSpacingChange('paddingBottom', e.target.value, setPaddingBottom)}
-                                       onBlur={() => handleStyleChange('paddingBottom', paddingBottom)}
+                                       onBlur={(e) => handleSpacingBlur(e.target.value, setPaddingBottom, 'paddingBottom')}
                                        className="w-full bg-transparent text-white text-[13px] px-1 h-8 outline-none text-center cursor-ns-resize"
                                      />
                                  </div>
@@ -1441,15 +1565,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const navigate = useNavigate();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
-  const [sidebarView, setSidebarView] = useState<'chat' | 'visual-edit'>('chat');
+  const [sidebarView, setSidebarViewRaw] = useState<'chat' | 'visual-edit'>('chat');
   const hasUnsaved = useStore(hasUnsavedChanges);
   const [showExitModal, setShowExitModal] = useState(false);
 
+  const [pendingExitAction, setPendingExitAction] = useState<(() => void) | null>(null);
+
+  // Guarded setSidebarView: prevent any view switch while the exit modal is open
+  const showExitModalRef = useRef(showExitModal);
+  useEffect(() => { showExitModalRef.current = showExitModal; }, [showExitModal]);
+  const setSidebarView = useCallback((view: 'chat' | 'visual-edit') => {
+    if (showExitModalRef.current) return; // Block state changes while modal is open
+    setSidebarViewRaw(view);
+  }, []);
+
   const handleExitVisualEdit = (action?: () => void) => {
     if (hasUnsaved) {
+      if (action) setPendingExitAction(() => action);
       setShowExitModal(true);
     } else {
-      setSidebarView('chat');
+      setSidebarViewRaw('chat');
       exitVisualEdit();
       action?.();
     }
@@ -1472,17 +1607,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   // Automatically exit visual edit view when navigating away from design tab
   // Use requestAnimationFrame to defer state change and avoid interrupting CSS animations
+  // Automatically exit visual edit view when navigating away from design tab
+  // Use requestAnimationFrame to defer state change and avoid interrupting CSS animations
   useEffect(() => {
     if (activeTab !== 'design' && sidebarView === 'visual-edit') {
-      requestAnimationFrame(() => {
-        setSidebarView('chat');
-        exitVisualEdit();
-      });
+      if (hasUnsaved) {
+        // Intercept tab switch if there are unsaved changes
+        const targetTab = activeTab; // Capture the intended destination
+        setPendingExitAction(() => () => onTabChange(targetTab));
+        // IMMEDIATELY revert to design tab to preserve the view
+        onTabChange('design');
+        setShowExitModal(true);
+      } else {
+        requestAnimationFrame(() => {
+          setSidebarViewRaw('chat');
+          exitVisualEdit();
+        });
+      }
     }
-  }, [activeTab, sidebarView]);
+  }, [activeTab, sidebarView, hasUnsaved, onTabChange]);
 
   // Robust Visual Edit Exit: Ensure we exit mode whenever sidebar view changes OR on unmount
   useEffect(() => {
+    // Skip if the exit modal is open - we don't want to exit while confirming
+    if (showExitModal) return;
     // If we are NOT in visual edit view, force exit mode
     // This catches cases like switching tools, clicking "Design" text, etc.
     if (sidebarView !== 'visual-edit') {
@@ -1490,7 +1638,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
          exitVisualEdit();
        }
     }
-  }, [sidebarView]);
+  }, [sidebarView, showExitModal]);
 
   // Cleanup on unmount to ensure mode doesn't persist if component destroyed
   useEffect(() => {
@@ -2204,7 +2352,37 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     });
   };
 
+  const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+  const sanitizeFileName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
+  const getUniqueImagePath = (name: string, existingFiles: Record<string, any>): string => {
+    const sanitized = sanitizeFileName(name);
+    const basePath = `/public/uploads/${sanitized}`;
+    if (!existingFiles[basePath]) return basePath;
+
+    const dotIndex = sanitized.lastIndexOf('.');
+    const stem = dotIndex > 0 ? sanitized.substring(0, dotIndex) : sanitized;
+    const ext = dotIndex > 0 ? sanitized.substring(dotIndex) : '';
+
+    let counter = 1;
+    let candidate: string;
+    do {
+      candidate = `/public/uploads/${stem}-${counter}${ext}`;
+      counter++;
+    } while (existingFiles[candidate]);
+
+    return candidate;
+  };
+
   const handleSendMessage = async (text: string) => {
+    if (hasUnsaved) return; // Block sending when unsaved changes exist
     if (!text.trim() && attachments.length === 0) return;
 
     // Process attachments
@@ -2235,6 +2413,25 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         } catch (e) {
             console.error('Failed to process file:', att.name, e);
         }
+    }
+
+    // Prepare image asset paths (don't store yet - only store if AI uses them in code)
+    const imageAssetPaths: { name: string; path: string; dataUrl: string }[] = [];
+    const currentFiles = workbenchStore.files.get();
+
+    for (const att of processedAttachments) {
+      if (att.type === 'image' && att.data) {
+        const approxBytes = att.data.length * 0.75;
+        if (approxBytes > MAX_IMAGE_SIZE_BYTES) {
+          console.warn(`[Sidebar] Image ${att.name} too large (${(approxBytes / 1024 / 1024).toFixed(1)} MB), skipping`);
+          continue;
+        }
+
+        const dataUrl = `data:${att.mimeType};base64,${att.data}`;
+        const imagePath = getUniqueImagePath(att.name || 'image.png', currentFiles);
+        imageAssetPaths.push({ name: att.name || 'image.png', path: imagePath, dataUrl });
+        console.log(`[Sidebar] Prepared image asset path: ${att.name} -> ${imagePath}`);
+      }
     }
 
     const userMessage: ChatMessage = {
@@ -2286,11 +2483,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           // For now, let's keep history simple or update it.
       }));
       // Pass processedAttachments for the NEW message
-      await startAiGeneration(text, history, true, processedAttachments); 
+      await startAiGeneration(text, history, true, processedAttachments, imageAssetPaths);
     }
   };
 
-  const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = []) => {
+  const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [], imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []) => {
     // Clear previously animated content tracking to allow fresh animations
     animatedContentRef.current.clear();
 
@@ -2346,13 +2543,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       // Update history to match new AiChatMessage structure if needed, but for now just casting/passing
       // effectively, we want to construct the FINAL history that streamChat uses.
       
+      // Build user content with image asset context if images were stored
+      let userContent = text;
+      if (imageAssetPaths.length > 0) {
+        const imageLines = imageAssetPaths.map(img =>
+          `- "${img.name}" is available at import path "${img.path}"`
+        ).join('\n');
+        userContent += `\n\n[Available image assets in the project - use these import paths to reference the attached images in code:\n${imageLines}\nUsage: import variableName from '${imageAssetPaths[0].path}'; then use variableName as the src value or in url().]`;
+      }
+
       const fullHistory = [
-          systemMessage, 
-          ...history, 
-          { 
-              role: 'user' as const, 
-              content: text,
-              attachments: currentAttachments 
+          systemMessage,
+          ...history,
+          {
+              role: 'user' as const,
+              content: userContent,
+              attachments: currentAttachments
           }
       ];
 
@@ -2424,6 +2630,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
 
+      // Store only images that the AI actually referenced in its code
+      if (imageAssetPaths.length > 0) {
+        for (const img of imageAssetPaths) {
+          if (responseText.includes(img.path)) {
+            workbenchStore.setFile(img.path, img.dataUrl);
+            console.log(`[Sidebar] Stored referenced image asset: ${img.path}`);
+          }
+        }
+      }
+
       // Process AI response with bolt.diy workbench
       workbenchStore.isGenerating.set(true);
       try {
@@ -2432,14 +2648,15 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       } catch (err) {
         console.error('[Sidebar] Error processing response:', err);
       }
-      
+
       // Flush any pending file edits (for batched edits during subsequent generations)
       await workbenchStore.flushPendingEdits();
-      
+
       workbenchStore.isGenerating.set(false);
 
     } catch (error: any) {
       console.error('Chat error:', error);
+
       const errorMessage: ChatMessage = {
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
@@ -2934,6 +3151,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return () => clearTimeout(timer);
   }, [width, isChatMode]);
 
+  // Cancel pending exit action if modal is closed via cancel
+  useEffect(() => {
+    if (!showExitModal) {
+      setPendingExitAction(null);
+    }
+  }, [showExitModal]);
+
   // Auto-expand textarea upwards - throttled with RAF to prevent lag
   const textareaResizeRafRef = useRef<number | null>(null);
   useEffect(() => {
@@ -2966,12 +3190,27 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     <>
       <UnsavedChangesModal 
         isOpen={showExitModal}
-        onCancel={() => setShowExitModal(false)}
+        onCancel={() => {
+          setShowExitModal(false);
+          setPendingExitAction(null);
+          // Only revert if we are somehow not in design tab (failsafe)
+          if (activeTab !== 'design' && sidebarView === 'visual-edit') {
+            onTabChange('design');
+          }
+        }}
         onConfirm={() => {
           discardVisualChanges();
           setShowExitModal(false);
-          setSidebarView('chat');
+          setSidebarViewRaw('chat');
           exitVisualEdit();
+          if (pendingExitAction) {
+            // Execute the stored action (e.g. switch tab or toggle sidebar)
+            // Use setTimeout to allow state updates to flush and prevent state clashes
+            setTimeout(() => {
+               pendingExitAction();
+            }, 0);
+            setPendingExitAction(null);
+          }
         }}
       />
     <div 
@@ -3065,7 +3304,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           <div className="flex items-center gap-3 text-gray-400 flex-shrink-0" style={{ paddingRight: '16px' }}>
             <div className="flex items-center gap-1">
               <button className="p-1.5 hover:text-white transition-colors"><Clock size={16} /></button>
-              <button onClick={onToggle} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
+              <button onClick={() => sidebarView === 'visual-edit' ? handleExitVisualEdit(onToggle) : onToggle()} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
             </div>
           </div>
         </div>
@@ -3296,8 +3535,36 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         {/* Gradient overlay - fades out when unsaved changes bar is visible */}
         <div className={`h-8 w-full bg-gradient-to-t from-[#1c1c1c] to-transparent transition-opacity duration-300 ${hasUnsaved ? 'opacity-0' : 'opacity-100'}`} />
         <div className="bg-[#1c1c1c] pointer-events-auto">
-          {/* Unsaved Changes Bar */}
-          <UnsavedChangesBar />
+          {/* Unsaved Changes Bar - Only show in visual edit mode */}
+          {/* Unsaved Changes Bar - Only show in visual edit mode */}
+          {sidebarView === 'visual-edit' && (
+            <>
+              {/* Queue Bar - Stacked above Unsaved Changes */}
+              <div
+                className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${editQueue.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                style={{ willChange: 'grid-template-rows' }}
+              >
+                <div className="overflow-hidden">
+                  <div
+                    className={`transition-opacity duration-300 ease-in-out ${editQueue.length > 0 ? 'opacity-100' : 'opacity-0'}`}
+                    style={{ willChange: 'opacity' }}
+                  >
+                   <div className="px-2"> 
+                    <div className="flex items-center justify-between px-4 bg-[#27272a] border border-white/5 rounded-full shadow-lg h-[46px]">
+                      <div className="flex items-center gap-2.5 text-[13px] font-medium text-white">
+                        <span>
+                          {editQueue.length} {editQueue.length === 1 ? 'Prompt' : 'Prompts'} in queue
+                        </span>
+                      </div>
+                    </div>
+                   </div>
+                  </div>
+                </div>
+              </div>
+              
+              <UnsavedChangesBar />
+            </>
+          )}
 
           {/* Grid collapses when either: design tab is active OR suggestions are hidden */}
           {/* Uses deferredActiveTab to stagger animation and avoid layout thrashing */}
@@ -3320,7 +3587,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                        <button
                          key={i}
                          onClick={() => handleSendMessage(text)}
-                         className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium border border-white/5"
+                         className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#27272a] text-sm text-gray-200 hover:bg-[#3f3f46] transition-colors font-medium"
                        >
                          {text}
                        </button>
@@ -3341,15 +3608,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           </div>
 
           <div className="px-[14px] pb-4 pt-4">
-            {/* Visual Edit Queue Indicator */}
-            {editQueue.length > 0 && (
-              <div className="mb-2 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center gap-2">
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                <span className="text-blue-400 text-sm font-medium">
-                  {editQueue.length} {editQueue.length === 1 ? 'Prompt' : 'Prompts'} in queue
-                </span>
-              </div>
-            )}
+
             <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
                <div
                  className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${showContextHeader ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
@@ -3359,19 +3618,28 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     <div className={`flex flex-col gap-3 pb-2 transition-opacity duration-300 ${showContextHeader ? 'opacity-100' : 'opacity-0'}`}>
                      {displayTool && (
                        <>
-                         <button
-                           onClick={() => {
-                              // Always redirect to preview panel and exit visual edit if active
-                              // Always exit visual edit mode (and test mode) when going back to chat
-                              exitVisualEdit();
-                              // Also ensure test mode is cleared if active
-                              if (testStore.isTestMode.get()) {
-                                testStore.cancelTest();
-                              }
-                              setSidebarView('chat');
-                              onTabChange('preview');
-                              setSelectedToolId(null);
-                            }}
+                          <button
+                            onClick={() => {
+                               // Intercept if in visual edit mode with unsaved changes
+                               if (sidebarView === 'visual-edit') {
+                                 handleExitVisualEdit(() => {
+                                   if (testStore.isTestMode.get()) {
+                                     testStore.cancelTest();
+                                   }
+                                   onTabChange('preview');
+                                   setSelectedToolId(null);
+                                 });
+                                 return;
+                               }
+                               // Normal path (not in visual edit)
+                               exitVisualEdit();
+                               if (testStore.isTestMode.get()) {
+                                 testStore.cancelTest();
+                               }
+                               setSidebarView('chat');
+                               onTabChange('preview');
+                               setSelectedToolId(null);
+                             }}
                            className="flex items-center gap-2 text-[#a1a1aa] hover:text-white transition-colors text-sm font-medium self-start ml-1"
                          >
                            <ArrowLeft size={14} />
@@ -3502,8 +3770,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
                <textarea
                   ref={textareaRef}
-                  placeholder="Ask Willow..."
-                  className={`w-full bg-transparent text-gray-100 placeholder-gray-400 resize-none outline-none min-h-[44px] px-3 py-1.5 text-[16px] leading-relaxed font-normal overflow-y-auto ${isChatMode ? 'text-lg' : ''}`}
+                  placeholder={hasUnsaved ? "Save or discard changes first..." : "Ask Willow..."}
+                  className={`w-full bg-transparent text-gray-100 placeholder-gray-400 resize-none outline-none min-h-[44px] px-3 py-1.5 text-[16px] leading-relaxed font-normal overflow-y-auto transition-opacity duration-200 ${isChatMode ? 'text-lg' : ''} ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}`}
                   style={{ scrollbarGutter: 'stable' }}
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
@@ -3513,7 +3781,33 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                       handleSendMessage(promptValue);
                     }
                   }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+
+                    const imageFiles: File[] = [];
+                    for (let i = 0; i < items.length; i++) {
+                      if (items[i].type.startsWith('image/')) {
+                        const file = items[i].getAsFile();
+                        if (file) imageFiles.push(file);
+                      }
+                    }
+
+                    if (imageFiles.length > 0) {
+                      e.preventDefault();
+                      const newAttachments: Attachment[] = imageFiles.map(file => ({
+                        id: Math.random().toString(36).substring(7),
+                        type: 'image' as const,
+                        url: URL.createObjectURL(file),
+                        name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
+                        extension: file.name?.split('.').pop() || file.type.split('/')[1] || 'png',
+                        file
+                      }));
+                      setAttachments(prev => [...prev, ...newAttachments]);
+                    }
+                  }}
                   rows={1}
+                  disabled={hasUnsaved}
                />
                <div className="flex items-center justify-between pt-2">
                   <div className="flex items-center gap-2">
@@ -3526,7 +3820,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                      />
                      <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-2.5 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-colors flex-shrink-0"
+                        disabled={hasUnsaved}
+                        className={`p-2.5 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-all flex-shrink-0 ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}`}
                      >
                         <Plus size={18} />
                      </button>
@@ -3547,7 +3842,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                         )}
                         <button
                            onClick={() => !currentTool && setIsToolsMenuOpen(!isToolsMenuOpen)}
-                           className={`flex items-center rounded-full transition-colors text-[13px] font-medium flex-shrink-0 h-[36px]
+                           disabled={hasUnsaved}
+                           className={`flex items-center rounded-full transition-all text-[13px] font-medium flex-shrink-0 h-[36px]
                              ${currentTool
                                 ? 'bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30'
                                 : 'bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white'
@@ -3557,6 +3853,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                                 : (currentTool ? 'pl-4 pr-2.5 gap-2.5' : 'px-4 gap-2')
                              }
                              ${isToolsMenuOpen ? 'bg-[#3f3f46] text-white' : ''}
+                             ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}
                            `}
                            title="Tools"
                         >
@@ -3585,8 +3882,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   
                   <div className="flex items-center gap-2">
                      <button 
-                        className={`flex items-center gap-2 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-colors text-[13px] font-medium flex-shrink-0 h-[36px]
+                        disabled={hasUnsaved}
+                        className={`flex items-center gap-2 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-all text-[13px] font-medium flex-shrink-0 h-[36px]
                           ${isCompact ? 'px-2.5 justify-center' : 'px-4'}
+                          ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}
                         `}
                         title="Chat"
                      >
@@ -3671,7 +3970,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                         )}
                         <button 
                            onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
-                           className={`p-2.5 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-colors flex-shrink-0 ${isModelsMenuOpen ? 'bg-[#3f3f46] text-white' : ''}`}
+                           disabled={hasUnsaved}
+                           className={`p-2.5 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-all flex-shrink-0 ${isModelsMenuOpen ? 'bg-[#3f3f46] text-white' : ''} ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}`}
                         >
                            <GeminiLogo size={18} />
                         </button>
@@ -3680,7 +3980,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                          <button 
                            onClick={() => {
                              // TODO: Add stop generation logic here
-                             workbenchStore.stopGeneration?.();
+                              sandpackStore.isGenerating.set(false);
                            }}
                            className="w-[38px] h-[38px] rounded-full bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30 transition-colors flex items-center justify-center shadow-md flex-shrink-0"
                          >
@@ -3688,9 +3988,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                          </button>
                        ) : (
                          <button 
-                           onClick={() => handleSendMessage(promptValue)}
-                           className="w-[38px] h-[38px] rounded-full bg-[#d4d4d8] text-black hover:bg-white transition-colors flex items-center justify-center shadow-md flex-shrink-0"
-                         >
+                            onClick={() => handleSendMessage(promptValue)}
+                            disabled={hasUnsaved}
+                            className={`w-[38px] h-[38px] rounded-full bg-[#d4d4d8] text-black hover:bg-white transition-all flex items-center justify-center shadow-md flex-shrink-0 ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}`}
+                          >
                            {(promptValue.trim().length > 0 || attachments.length > 0) ? (
                               <ArrowUp size={18} strokeWidth={2.5} />
                            ) : (

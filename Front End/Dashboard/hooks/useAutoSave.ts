@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@nanostores/react';
-import { workbenchStore } from '~/lib/sandpack';
+import { workbenchStore } from '@/lib/sandpack';
 import { useDrive } from './useDrive';
 
 /**

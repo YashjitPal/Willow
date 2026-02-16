@@ -84,6 +84,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           workspaceName: data.workspaceName || null,
           username: data.username || null,
           workspaceColor: data.workspaceColor || 'green',
+          workspaceDescription: data.workspaceDescription || null,
+          location: data.location || null,
+          background: data.background || 'solid',
+          theme: data.theme || null,
+          description: data.description || null,
         });
       } else {
         // New user - no profile yet
@@ -95,6 +100,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           workspaceName: null,
           username: null,
           workspaceColor: 'green',
+          workspaceDescription: null,
+          location: null,
+          background: 'solid',
+          theme: null,
+          description: null,
         });
       }
     } catch (err) {
@@ -107,6 +117,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         workspaceName: null,
         username: null,
         workspaceColor: 'green',
+        workspaceDescription: null,
+        location: null,
+        background: 'solid',
+        theme: null,
+        description: null,
       });
     }
   };
@@ -254,6 +269,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         workspaceName: data.workspaceName || null,
         username: data.username || null,
         workspaceColor: data.workspaceColor || 'green',
+        workspaceDescription: data.workspaceDescription || null,
+        location: data.location || null,
+        background: data.background || 'solid',
+        theme: data.theme || null,
+        description: data.description || null,
       });
       
       console.log('[Auth] User profile updated:', data);

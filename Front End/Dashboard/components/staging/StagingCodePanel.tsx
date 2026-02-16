@@ -16,7 +16,7 @@ import {
   LayoutTemplate,
   FolderOpen
 } from 'lucide-react';
-import { workbenchStore } from '~/lib/sandpack';
+import { workbenchStore } from '@/lib/sandpack';
 import { codeNavigationRequest } from '../../lib/visual-editor';
 
 interface FileNode {
@@ -167,6 +167,11 @@ const StagingCodePanel: React.FC = () => {
   // Get content of active file
   const activeFile = activeFilePath ? filesMap[activeFilePath] : null;
   const activeFileContent = activeFile?.type === 'file' ? activeFile.content : '';
+
+  // Check if the active file is an image (stored as data URL)
+  const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'avif', 'tiff', 'heic', 'heif', 'apng', 'jfif'];
+  const activeFileExt = activeFilePath?.split('.').pop()?.toLowerCase() || '';
+  const isImageFile = imageExtensions.includes(activeFileExt) && activeFileContent.startsWith('data:');
 
   const toggleFolder = (id: string) => {
     setOpenFolders(prev => {
@@ -423,9 +428,22 @@ const StagingCodePanel: React.FC = () => {
           className={`flex-1 overflow-auto custom-scrollbar ${activeFileContent ? 'py-3 bg-[#141414] rounded-tl-lg' : 'flex items-center justify-center bg-transparent'}`}
         >
           {activeFileContent ? (
-            <div key={activeFilePath} className="animate-fadeIn w-full">
-              {renderHighlightedCode(activeFileContent)}
-            </div>
+            isImageFile ? (
+              <div key={activeFilePath} className="animate-fadeIn flex flex-col items-center justify-center h-full p-6 gap-4">
+                <img
+                  src={activeFileContent}
+                  alt={activeFilePath?.split('/').pop() || 'Image'}
+                  className="max-w-full max-h-[calc(100%-60px)] object-contain rounded-lg border border-white/10 shadow-lg"
+                />
+                <span className="text-[13px] text-gray-500 font-mono">
+                  {activeFilePath?.split('/').pop()}
+                </span>
+              </div>
+            ) : (
+              <div key={activeFilePath} className="animate-fadeIn w-full">
+                {renderHighlightedCode(activeFileContent)}
+              </div>
+            )
           ) : (
             <div className="flex flex-col items-center justify-center text-center opacity-40 select-none pointer-events-none">
               <div className="w-16 h-16 bg-[#1a1a1a] rounded-2xl flex items-center justify-center mb-4 shadow-inner ring-1 ring-white/5">

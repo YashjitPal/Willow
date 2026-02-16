@@ -68,7 +68,11 @@ function getDir(filePath: string): string {
 
 // Find file with extensions
 function findFile(files: Record<string, string>, basePath: string): string | null {
-  const extensions = ['', '.tsx', '.ts', '.jsx', '.js', '.css', '/index.tsx', '/index.ts', '/index.js'];
+  const extensions = [
+    '', '.tsx', '.ts', '.jsx', '.js', '.css',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.heic', '.heif', '.apng', '.jfif', '.pjpeg', '.pjp', '.cur',
+    '/index.tsx', '/index.ts', '/index.js'
+  ];
   for (const ext of extensions) {
     const fullPath = basePath + ext;
     if (files[fullPath]) return fullPath;
@@ -215,6 +219,15 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
       const content = files[args.path];
       if (content === undefined) {
         throw new Error(`File not found: ${args.path}`);
+      }
+
+      // Image files - export data URL as default export
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.heic', '.heif', '.apng', '.jfif', '.pjpeg', '.pjp', '.cur'];
+      if (imageExtensions.some(ext => args.path.toLowerCase().endsWith(ext))) {
+        return {
+          contents: `export default ${JSON.stringify(content)};`,
+          loader: 'js',
+        };
       }
 
       // CSS files - inject as style tag

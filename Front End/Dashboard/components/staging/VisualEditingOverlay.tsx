@@ -22,6 +22,8 @@ import {
   previewRefreshRequest,
   pendingSelectionRestore,
   deleteElement,
+  selectionBoundsRefreshRequest,
+  hasUnsavedChanges,
 } from '../../lib/visual-editor';
 import type { SelectedElement, FamilyElement } from '../../lib/visual-editor/types';
 import type { AiOptions } from '../../lib/ai';
@@ -94,14 +96,116 @@ interface ElementInfo {
   borderBottomLeftRadius?: string;
   borderBottomRightRadius?: string;
   clipTop?: number;
+  coverFilter?: string;  // full backdrop-filter value from covering element (applied as filter on ghost border)
+  coverOpacity?: number; // effective opacity of covering element (opacity * bg alpha)
+  hideTagLabel?: boolean;  // true when the tag label area is under a covering element
+  hidden?: boolean;  // true when element is fully covered/off-screen (keeps index parity with DOM refs)
   selectionGroupId?: string; // To track grouping for solid/dashed borders
 }
 
+// Helper: Detect the visual effects of a covering element.
+// Returns whether to clip and what effects to apply to the "ghost" border for the covered portion.
+interface CoverEffects {
+  shouldClip: boolean;
+  filter: string | undefined; // full backdrop-filter value to apply as filter
+  opacity: number;
+}
+
+function getCoverEffects(coverEl: Element): CoverEffects {
+  try {
+    const styles = window.getComputedStyle(coverEl);
+
+    // Get opacity
+    const opacity = parseFloat(styles.opacity || '1');
+
+    // Get full backdrop-filter (handles blur, brightness, contrast, saturate, etc.)
+    const backdropFilter = styles.getPropertyValue('backdrop-filter') || styles.getPropertyValue('-webkit-backdrop-filter');
+    const hasBackdropFilter = backdropFilter && backdropFilter !== 'none';
+
+    // Get background alpha
+    let bgAlpha = 1;
+    const bg = styles.backgroundColor;
+    if (bg) {
+      const match = bg.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/);
+      if (match && match[4] !== undefined) {
+        bgAlpha = parseFloat(match[4]);
+      }
+    }
+
+    const effectiveOpacity = opacity * bgAlpha;
+
+    // Fully opaque, no effects → normal clip, no ghost border needed
+    if (effectiveOpacity >= 0.85 && !hasBackdropFilter) {
+      return { shouldClip: true, filter: undefined, opacity: 1 };
+    }
+
+    // Semi-transparent or has effects → clip, but provide effects for ghost border
+    return { shouldClip: true, filter: hasBackdropFilter ? backdropFilter : undefined, opacity: effectiveOpacity };
+  } catch {
+    return { shouldClip: true, filter: undefined, opacity: 1 };
+  }
+}
+
+// Helper: Check if an element is in a fixed/sticky positioning context
+function isInFixedStickyContext(el: Element): boolean {
+  let current: Element | null = el;
+  while (current && current.tagName !== 'BODY' && current.tagName !== 'HTML') {
+    try {
+      const pos = window.getComputedStyle(current).position;
+      if (pos === 'fixed' || pos === 'sticky') return true;
+    } catch { /* ignore */ }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+// Helper: Find the covering element at a given point using a two-phase approach.
+// Phase 1: Validate that at least one element at the point is in a fixed/sticky context
+//          (prevents normal layout siblings from being treated as covers).
+// Phase 2: Among all opaque elements in front of the target, return the one with the
+//          largest `bottom` value (handles stacked covers and transparent wrappers).
+function findTrueCover(doc: Document, x: number, y: number, targetEl: Element): Element | null {
+  try {
+    const elements = doc.elementsFromPoint(x, y);
+    let hasFixedStickyContext = false;
+    let bestCover: Element | null = null;
+    let maxBottom = -Infinity;
+
+    for (const el of elements) {
+      // Once we reach the target, everything after is behind it
+      if (el === targetEl) break;
+      // Skip ancestors and descendants of the target
+      if (el.contains(targetEl) || targetEl.contains(el)) continue;
+      if (el.tagName === 'BODY' || el.tagName === 'HTML') continue;
+
+      // Phase 1: Check if this element is in a fixed/sticky context
+      if (!hasFixedStickyContext && isInFixedStickyContext(el)) {
+        hasFixedStickyContext = true;
+      }
+
+      // Phase 2: Track the opaque element with the largest bottom edge
+      if (getCoverEffects(el).shouldClip) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom > maxBottom) {
+          maxBottom = rect.bottom;
+          bestCover = el;
+        }
+      }
+    }
+
+    // Only return a cover if there's structural validation (fixed/sticky context present)
+    return hasFixedStickyContext ? bestCover : null;
+  } catch {
+    // Fallback: ignore
+  }
+  return null;
+}
 const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, selectedModelId, modelConfig, isReloading = false }) => {
   const isActive = useStore(isVisualEditMode);
   const scanning = useStore(isScanning);
   const isInspectorReady = useStore(inspectorReady); // Subscribe to inspectorReady atom
   const globalSelectedElement = useStore(selectedElementAtom);
+  const hasUnsaved = useStore(hasUnsavedChanges);
   // Subscribe to multi-selection state to sync changes from sidebar back to overlay
   const globalSelectedElements = useStore(selectedElementsAtom);
 
@@ -111,13 +215,20 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
   const [hoveredElements, setHoveredElements] = useState<ElementInfo[]>([]);
   const [selectedElements, setSelectedElements] = useState<ElementInfo[]>([]);
   const [isPromptVisible, setIsPromptVisible] = useState(false);
+  const [promptAnimKey, setPromptAnimKey] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Store references to actual DOM elements for live position tracking
   const selectedDomElementsRef = useRef<Element[]>([]);
   // Store references to the overlay DOM elements for direct updates
   const selectionOverlayRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // Store references to hovered DOM elements for live position tracking
+  const hoveredDomElementsRef = useRef<Element[]>([]);
+  // Store references to hovered overlay DOM elements for direct updates
+  const hoverOverlayRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Store family elements with source locations for AI context
   const familyElementsRef = useRef<FamilyElement[]>([]);
@@ -169,45 +280,61 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       if (el.isConnected) {
         let info = getElementInfo(el);
 
+        // If the element is completely off-screen (above viewport), mark hidden
+        if (info.y + info.height < 0) {
+          newElements.push({ ...info, hidden: true });
+          continue;
+        }
+
         // Handle visual occlusion (e.g., sticky headers)
         // Check if the top center of the projected element/box is actively covered
         const doc = el.ownerDocument;
         if (doc) {
-          // Point to test: Top center of the element's bounding box
-          // We clamp y to 0 (viewport top) to check if it's covered "at the screen edge"
           const testX = info.x + info.width / 2;
-          const testY = Math.max(0, info.y + 1); // +1 to get slightly inside
 
-          const hitElement = doc.elementFromPoint(testX, testY);
+          // Probe 1: Check if the TAG LABEL area (~28px above element top) is under a cover
+          const TAG_LABEL_HEIGHT = 28;
+          const tagLabelTestY = Math.max(0, info.y - TAG_LABEL_HEIGHT);
+          if (tagLabelTestY < info.y) {
+            const tagCover = findTrueCover(doc, testX, tagLabelTestY, el);
+            if (tagCover) {
+              info = { ...info, hideTagLabel: true };
+            }
+          }
 
-          // If we hit something, and it's NOT the element itself or a descendant...
-          // And ignore BODY/HTML as they are usually backgrounds, not overlays
-          if (hitElement && hitElement !== el && !el.contains(hitElement) &&
-              hitElement.tagName !== 'BODY' && hitElement.tagName !== 'HTML') {
-            // ...then it's likely covered by a header/overlay.
-            const coverRect = hitElement.getBoundingClientRect();
+          // Probe 2: Check if element's top edge is covered (border clipping)
+          const testY = Math.max(0, info.y + 1);
+          const hitElement = findTrueCover(doc, testX, testY, el);
 
-            // If the cover is above the element (visually covering the top), clip it
-            if (coverRect.bottom > info.y) {
-               const newTop = coverRect.bottom;
-               const diff = newTop - info.y;
-               if (diff < info.height) { // Only clip if not fully covered
-                 // Instead of changing y/height (which moves the border), we set a clip amount
-                 // This allows proper "sliding under" effect via clip-path
-                 info = {
-                   ...info,
-                   clipTop: diff
-                 };
-               } else {
-                 // Fully covered - skip adding this element or make it 0 size
-                 // Skipping effectively hides it
-                 continue;
-               }
+          if (hitElement) {
+            const effects = getCoverEffects(hitElement);
+            if (effects.shouldClip) {
+              const coverRect = hitElement.getBoundingClientRect();
+
+              if (coverRect.bottom > info.y) {
+                 const newTop = coverRect.bottom;
+                 const diff = newTop - info.y;
+                 if (diff < info.height) {
+                   info = {
+                     ...info,
+                     clipTop: diff,
+                     hideTagLabel: true, // Always hide tag label when border is clipped
+                     coverFilter: effects.filter,
+                     coverOpacity: effects.opacity < 1 ? effects.opacity : undefined,
+                   };
+                 } else {
+                    // Fully covered — mark hidden but keep in array for index parity
+                    info = { ...info, hidden: true };
+                 }
+              }
             }
           }
         }
 
         newElements.push(info);
+      } else {
+        // Element removed from DOM — push hidden placeholder to maintain index parity
+        newElements.push({ x: 0, y: 0, width: 0, height: 0, tagName: '', hidden: true });
       }
     }
 
@@ -232,27 +359,50 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       if (!overlayEl || !el.isConnected) return;
 
       const rect = el.getBoundingClientRect();
+
+      // If the element is completely off-screen (above viewport), hide it
+      if (rect.bottom < 0) {
+        overlayEl.style.display = 'none';
+        return;
+      }
+
       let clipTop = 0;
+      let shouldHideTagLabel = false;
 
       // Handle occlusion (simplified logic from refreshPositions)
       const doc = el.ownerDocument;
       if (doc) {
         const testX = rect.left + rect.width / 2;
-        const testY = Math.max(0, rect.top + 1);
-        const hitElement = doc.elementFromPoint(testX, testY);
 
-        if (hitElement && hitElement !== el && !el.contains(hitElement) &&
-            hitElement.tagName !== 'BODY' && hitElement.tagName !== 'HTML') {
+        // Probe 1: Check if tag label area (~28px above) is under a cover
+        const TAG_LABEL_HEIGHT = 28;
+        const tagLabelTestY = Math.max(0, rect.top - TAG_LABEL_HEIGHT);
+        if (tagLabelTestY < rect.top) {
+          const tagCover = findTrueCover(doc, testX, tagLabelTestY, el);
+          if (tagCover) {
+            shouldHideTagLabel = true;
+          }
+        }
+
+        // Probe 2: Check if element's top edge is covered (border clipping)
+        const testY = Math.max(0, rect.top + 1);
+        const hitElement = findTrueCover(doc, testX, testY, el);
+
+        if (hitElement) {
+          const effects = getCoverEffects(hitElement);
+          if (effects.shouldClip) {
           const coverRect = hitElement.getBoundingClientRect();
           if (coverRect.bottom > rect.top) {
              const diff = coverRect.bottom - rect.top;
              if (diff < rect.height) {
                clipTop = diff;
+               shouldHideTagLabel = true;
              } else {
                // Fully covered - hide it
                overlayEl.style.display = 'none';
                return;
              }
+          }
           }
         }
       }
@@ -263,6 +413,12 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       overlayEl.style.top = `${rect.top}px`;
       overlayEl.style.width = `${rect.width}px`;
       overlayEl.style.height = `${rect.height}px`;
+      
+      // Hide/show tag label child (first child element if present)
+      const tagLabelEl = overlayEl.firstElementChild as HTMLElement | null;
+      if (tagLabelEl) {
+        tagLabelEl.style.display = shouldHideTagLabel ? 'none' : '';
+      }
       
       if (clipTop > 0) {
         overlayEl.style.clipPath = `inset(${clipTop}px 0 0 0)`;
@@ -324,6 +480,39 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       clearTimeout(scrollTimeout);
     };
   }, [isActive, iframeRef, updatePositionsDirectly, refreshPositions]);
+
+  // Continuous animation frame loop to track moving/animated elements
+  // This keeps selection AND hover borders glued to elements with CSS animations/transitions
+  useEffect(() => {
+    if (!isActive) return;
+    const hasSelection = selectedElements.length > 0;
+    const hasHover = hoveredElements.length > 0;
+    if (!hasSelection && !hasHover) return;
+
+    let rafId: number;
+    const tick = () => {
+      // Update selection overlays
+      if (hasSelection) {
+        updatePositionsDirectly();
+      }
+      // Update hover overlays
+      if (hasHover) {
+        hoveredDomElementsRef.current.forEach((el, index) => {
+          const overlayEl = hoverOverlayRefs.current.get(index);
+          if (!overlayEl || !el.isConnected) return;
+          const rect = el.getBoundingClientRect();
+          overlayEl.style.left = `${rect.left}px`;
+          overlayEl.style.top = `${rect.top}px`;
+          overlayEl.style.width = `${rect.width}px`;
+          overlayEl.style.height = `${rect.height}px`;
+        });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [isActive, selectedElements.length > 0, hoveredElements.length > 0, updatePositionsDirectly]);
 
 
   // Listen for ELEMENT_SELECT, THEME_COLORS_RESPONSE, and HOT_UPDATE_COMPLETE messages from iframe
@@ -436,6 +625,10 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
     const resizeObserver = new ResizeObserver(() => {
       // Refresh positions when size changes
       refreshPositions();
+      // Hide floating prompt during resize, show after it stops
+      setIsResizing(true);
+      if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+      resizeTimeoutRef.current = setTimeout(() => setIsResizing(false), 150);
     });
 
     resizeObserver.observe(iframe);
@@ -447,6 +640,21 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       resizeObserver.disconnect();
     };
   }, [isActive, iframeRef, refreshPositions]);
+
+  // Subscribe to selection bounds refresh requests (triggered when margin/padding changes shift element position)
+  const boundsRefreshRequest = useStore(selectionBoundsRefreshRequest);
+
+  useEffect(() => {
+    if (!boundsRefreshRequest || boundsRefreshRequest === 0) return;
+    if (!isActive || selectedDomElementsRef.current.length === 0) return;
+
+    // Add a small delay to ensure the preview iframe has re-layouted after the style change
+    const timer = setTimeout(() => {
+      refreshPositions();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [boundsRefreshRequest, isActive, refreshPositions]);
 
   // Sync global selection changes (e.g. from Sidebar) back to local overlay
   useEffect(() => {
@@ -719,15 +927,28 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       return area <= originalArea * 3 && area >= originalArea / 3;
     };
 
-    // Try multiple strategies for finding family elements
+    // Primary strategy: Use data-willow-source (same source code location = true family)
+    // This matches the same logic the sidebar edit system uses for targeting
+    const sourceAttr = (element as HTMLElement).dataset?.willowSource;
+    if (sourceAttr) {
+      const sourceMatches = Array.from(
+        iframeDoc.querySelectorAll(`[data-willow-source="${sourceAttr}"]`)
+      ).filter(el => isSimilarSize(el));
+
+      if (sourceMatches.length > 0) {
+        const withoutTarget = sourceMatches.filter(el => el !== element);
+        return [element, ...withoutTarget];
+      }
+    }
+
+    // Fallback strategies (when source location is not available)
     let familyElements: Element[] = [];
 
-    // Strategy 1: Same tag + first class name
+    // Fallback 1: Same tag + first class name
     if (className && typeof className === 'string' && className.trim()) {
       const firstClass = className.split(' ')[0];
       if (firstClass) {
         try {
-          // Escape special characters in class name for CSS selector
           const escapedClass = CSS.escape(firstClass);
           const allMatches = iframeDoc.querySelectorAll(`${tagName.toLowerCase()}.${escapedClass}`);
           familyElements = Array.from(allMatches).filter(el => isSimilarSize(el));
@@ -737,7 +958,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       }
     }
 
-    // Strategy 2: If no matches or only self, try parent's direct children of same tag
+    // Fallback 2: If no matches or only self, try parent's direct children of same tag
     if (familyElements.length <= 1) {
       const parent = element.parentElement;
       if (parent) {
@@ -750,7 +971,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       }
     }
 
-    // Strategy 3: For common interactive elements, also check grandparent
+    // Fallback 3: For common interactive elements, also check grandparent
     if (familyElements.length <= 1 && ['BUTTON', 'A', 'INPUT', 'LI', 'IMG'].includes(tagName)) {
       const grandparent = element.parentElement?.parentElement;
       if (grandparent) {
@@ -847,7 +1068,45 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       return !selectedDomElementsRef.current.includes(domEl);
     });
 
-    setHoveredElements(filteredElements);
+    // Compute clipTop for hover elements (same logic as refreshPositions for selection)
+    const clippedElements = filteredElements.map(info => {
+      const domIdx = elements.indexOf(info);
+      const domEl = domElements[domIdx];
+      if (domEl) {
+        const doc = domEl.ownerDocument;
+        if (doc) {
+          const testX = info.x + info.width / 2;
+          const testY = Math.max(0, info.y + 1);
+          const hitElement = findTrueCover(doc, testX, testY, domEl);
+          if (hitElement) {
+            const effects = getCoverEffects(hitElement);
+            if (effects.shouldClip) {
+            const coverRect = hitElement.getBoundingClientRect();
+            if (coverRect.bottom > info.y) {
+              const diff = coverRect.bottom - info.y;
+              if (diff < info.height) {
+                return {
+                  ...info,
+                  clipTop: diff,
+                  coverFilter: effects.filter,
+                  coverOpacity: effects.opacity < 1 ? effects.opacity : undefined,
+                };
+              } else {
+                return null; // Fully covered, skip
+              }
+            }
+            }
+          }
+        }
+      }
+      return info;
+    }).filter(Boolean) as typeof filteredElements;
+
+    setHoveredElements(clippedElements);
+    // Store hovered DOM elements for continuous RAF tracking
+    hoveredDomElementsRef.current = domElements.filter((_, idx) => {
+      return !selectedDomElementsRef.current.includes(domElements[idx]);
+    });
 
     // Update global store for Sidebar indicator
     const el = domElements[0];
@@ -922,7 +1181,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
           selectedDomElementsRef.current.push(...uniqueNewElements);
           
           // Assign the new Group ID to these newly selected elements
-          uniqueNewElements.forEach(el => selectedGroupIdsRef.current.set(el, currentClickGroupId));
+          uniqueNewElements.forEach(el => selectedGroupIdsRef.current.set(el as HTMLElement, currentClickGroupId));
         }
       } else {
         // Single select (default): Replace selection
@@ -931,11 +1190,50 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
         
         // Reset/Assign Group ID for this new single selection batch
         // Since it's a fresh selection, all these elements get the current click Group ID
-        domElements.forEach(el => selectedGroupIdsRef.current.set(el, currentClickGroupId));
+        domElements.forEach(el => selectedGroupIdsRef.current.set(el as HTMLElement, currentClickGroupId));
       }
 
-      // Update local UI state
-      const newSelectedInfos = selectedDomElementsRef.current.map(el => getElementInfo(el));
+      // Update local UI state — compute clipTop for occlusion (e.g. sticky headers)
+      const newSelectedInfos = selectedDomElementsRef.current.map(el => {
+        let info = getElementInfo(el);
+        const doc = el.ownerDocument;
+        if (doc) {
+          const testX = info.x + info.width / 2;
+
+          // Probe 1: Check if tag label area (~28px above) is under a cover
+          const TAG_LABEL_HEIGHT = 28;
+          const tagLabelTestY = Math.max(0, info.y - TAG_LABEL_HEIGHT);
+          if (tagLabelTestY < info.y) {
+            const tagCover = findTrueCover(doc, testX, tagLabelTestY, el);
+            if (tagCover) {
+              info = { ...info, hideTagLabel: true };
+            }
+          }
+
+          // Probe 2: Check if element's top edge is covered (border clipping)
+          const testY = Math.max(0, info.y + 1);
+          const hitElement = findTrueCover(doc, testX, testY, el);
+          if (hitElement) {
+            const effects = getCoverEffects(hitElement);
+            if (effects.shouldClip) {
+            const coverRect = hitElement.getBoundingClientRect();
+            if (coverRect.bottom > info.y) {
+              const diff = coverRect.bottom - info.y;
+              if (diff < info.height) {
+                info = {
+                  ...info,
+                  clipTop: diff,
+                  hideTagLabel: true,
+                  coverFilter: effects.filter,
+                  coverOpacity: effects.opacity < 1 ? effects.opacity : undefined,
+                };
+              }
+            }
+            }
+          }
+        }
+        return info;
+      });
       setSelectedElements(newSelectedInfos);
       setIsPromptVisible(selectedDomElementsRef.current.length > 0);
 
@@ -960,6 +1258,39 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
 
       // SYNC TO GLOBAL STORE (Multi-select support)
       // We map ALL selected elements to the global format
+      
+      // Calculate the DOM-order index of the PRIMARY clicked element among its family
+      // This gives us the real .map() index for targeting specific items
+      const primaryClickedEl = domElements[0] as HTMLElement;
+      let clickedFamilyIndex = -1;
+      let familyTotalSize = 0;
+      if (primaryClickedEl && iframeRef.current?.contentDocument) {
+        // Walk up from the clicked element to find the nearest ancestor with data-willow-source
+        let sourceAttr = primaryClickedEl.dataset?.willowSource;
+        let sourceEl: HTMLElement = primaryClickedEl;
+        if (!sourceAttr) {
+          let ancestor = primaryClickedEl.parentElement;
+          let depth = 0;
+          while (ancestor && depth < 10) {
+            if (ancestor.dataset?.willowSource) {
+              sourceAttr = ancestor.dataset.willowSource;
+              sourceEl = ancestor;
+              break;
+            }
+            ancestor = ancestor.parentElement;
+            depth++;
+          }
+        }
+        if (sourceAttr) {
+          // Find ALL elements with the same source location (same .map() template)
+          // These are in DOM order, which matches .map() iteration order
+          const allSameSource = Array.from(
+            iframeRef.current.contentDocument.querySelectorAll(`[data-willow-source="${sourceAttr}"]`)
+          );
+          familyTotalSize = allSameSource.length;
+          clickedFamilyIndex = allSameSource.indexOf(sourceEl);
+        }
+      }
       const richSelectedElements = selectedDomElementsRef.current.map(el => {
           const styles = window.getComputedStyle(el);
           const rect = el.getBoundingClientRect();
@@ -1080,7 +1411,12 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
               sourceLocation,
               componentFile,
               // ✨ Assign the tracked selection group ID
-              selectionGroupId: selectedGroupIdsRef.current.get(el)
+              selectionGroupId: selectedGroupIdsRef.current.get(el as HTMLElement),
+              // ✨ Family index: only set on the primary clicked element
+              ...(el === primaryClickedEl && clickedFamilyIndex >= 0 ? {
+                familyIndex: clickedFamilyIndex,
+                familySize: familyTotalSize
+              } : {})
           };
       });
 
@@ -1340,8 +1676,17 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
           const { fileName, line, column } = currentElement.sourceLocation;
           const sourceStr = `${fileName}:${line}:${column}`;
 
-          // Try to find the element by source location (survives rebuild)
-          let el = iframeDoc.querySelector(`[data-willow-source="${sourceStr}"]`);
+          // Find ALL elements with this source location (for .map() families, there are multiple)
+          const allMatching = iframeDoc.querySelectorAll(`[data-willow-source="${sourceStr}"]`);
+          
+          // Pick the correct element: use familyIndex for .map() families, otherwise first match
+          let el: Element | null = null;
+          if (allMatching.length > 1 && typeof currentElement.familyIndex === 'number' && currentElement.familyIndex >= 0 && currentElement.familyIndex < allMatching.length) {
+            // Family element — pick by DOM-order index (matches .map() iteration order)
+            el = allMatching[currentElement.familyIndex];
+          } else if (allMatching.length > 0) {
+            el = allMatching[0];
+          }
 
           if (el) {
             // Re-assign UID and update local state
@@ -1351,6 +1696,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
 
             const info = getElementInfo(el);
             setSelectedElements([info]);
+            setPromptAnimKey(k => k + 1);
             setIsPromptVisible(true);
             setEditError(null);
 
@@ -1376,7 +1722,9 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
                   borderRadius: styles.borderRadius
                 },
                 parentPath: [],
-                sourceLocation: currentElement.sourceLocation
+                sourceLocation: currentElement.sourceLocation,
+                familyIndex: currentElement.familyIndex,
+                familySize: currentElement.familySize,
               }]);
             });
 
@@ -1476,10 +1824,22 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
   // Clear hover state when mouse leaves overlay
   const handleMouseLeave = useCallback(() => {
     setHoveredElements([]);
+    hoveredDomElementsRef.current = [];
     import('../../lib/visual-editor').then(({ setHoveredElement }) => {
       setHoveredElement(null);
     });
   }, []);
+
+  // Clear local selection and prompt when preview reloads
+  useEffect(() => {
+    if (isReloading) {
+      setSelectedElements([]);
+      selectedDomElementsRef.current = [];
+      setIsPromptVisible(false);
+      setEditError(null);
+      import('../../lib/visual-editor').then(({ clearSelection }) => clearSelection());
+    }
+  }, [isReloading]);
 
   // Hide overlay when preview is reloading or not ready
   if (!isActive || !isInspectorReady || isReloading) return null;
@@ -1501,15 +1861,20 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
 
       {/* Hover Highlights - No tag label, just the border */}
       {hoveredElements.map((element, index) => (
+        <>
         <div
           key={`hover-${index}`}
+          ref={(el) => {
+              if (el) hoverOverlayRefs.current.set(index, el);
+              else hoverOverlayRefs.current.delete(index);
+          }}
           className="absolute pointer-events-none"
           style={{
             left: element.x,
             top: element.y,
             width: element.width,
             height: element.height,
-            backgroundColor: `rgba(${SELECTION_COLOR_RGB}, 0.08)`,
+            backgroundColor: 'transparent',
             borderTopLeftRadius: element.borderTopLeftRadius,
             borderTopRightRadius: element.borderTopRightRadius,
             borderBottomLeftRadius: element.borderBottomLeftRadius,
@@ -1517,9 +1882,34 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
             border: index === 0
               ? `2px solid ${SELECTION_COLOR}`
               : `2px dashed ${SELECTION_COLOR}`,
+            clipPath: element.clipTop ? `inset(${element.clipTop}px 0 0 0)` : undefined,
           }}
         />
-      ))}
+        {/* Ghost border for covered portion — matches cover's visual effects */}
+        {element.clipTop && (element.coverFilter || element.coverOpacity !== undefined) && (
+          <div
+            key={`hover-ghost-${index}`}
+            className="absolute pointer-events-none"
+            style={{
+              left: element.x,
+              top: element.y,
+              width: element.width,
+              height: element.height,
+              backgroundColor: 'transparent',
+              borderTopLeftRadius: element.borderTopLeftRadius,
+              borderTopRightRadius: element.borderTopRightRadius,
+              borderBottomLeftRadius: element.borderBottomLeftRadius,
+              borderBottomRightRadius: element.borderBottomRightRadius,
+              border: index === 0
+                ? `2px solid ${SELECTION_COLOR}`
+                : `2px dashed ${SELECTION_COLOR}`,
+              clipPath: `inset(0 0 ${element.height - element.clipTop}px 0)`,
+              filter: element.coverFilter || undefined,
+              opacity: element.coverOpacity ?? 1,
+            }}
+          />
+        )}
+      </>))}
 
       {/* Selection Highlights - Tag label only on primary selected element of EACH group */}
       {(() => {
@@ -1539,6 +1929,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
           }
 
           return (
+          <>
           <div
             key={`select-${index}`}
             ref={(el) => {
@@ -1547,13 +1938,12 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
             }}
             className="absolute pointer-events-none"
             style={{
+              display: element.hidden ? 'none' : undefined,
               left: element.x,
               top: element.y,
               width: element.width,
               height: element.height,
-              backgroundColor: isPrimary
-                ? `rgba(${SELECTION_COLOR_RGB}, 0.12)`
-                : `rgba(${SELECTION_COLOR_RGB}, 0.06)`,
+              backgroundColor: 'transparent',
               borderTopLeftRadius: element.borderTopLeftRadius,
               borderTopRightRadius: element.borderTopRightRadius,
               borderBottomLeftRadius: element.borderBottomLeftRadius,
@@ -1568,7 +1958,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
             }}
           >
             {/* Tag label - only on click/selected, not hover */}
-            {isPrimary && (
+            {isPrimary && !element.hideTagLabel && (
               <div
                 className="absolute -top-7 left-0 px-2 py-1 text-white text-xs font-medium rounded flex items-center gap-1.5"
                 style={{ backgroundColor: SELECTION_COLOR }}
@@ -1577,13 +1967,38 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
               </div>
             )}
           </div>
+          {/* Ghost border for covered portion — matches cover's visual effects */}
+          {element.clipTop && (element.coverFilter || element.coverOpacity !== undefined) && (
+            <div
+              key={`select-ghost-${index}`}
+              className="absolute pointer-events-none"
+              style={{
+                left: element.x,
+                top: element.y,
+                width: element.width,
+                height: element.height,
+                backgroundColor: 'transparent',
+                borderTopLeftRadius: element.borderTopLeftRadius,
+                borderTopRightRadius: element.borderTopRightRadius,
+                borderBottomLeftRadius: element.borderBottomLeftRadius,
+                borderBottomRightRadius: element.borderBottomRightRadius,
+                border: isPrimary
+                  ? `2px solid ${SELECTION_COLOR}`
+                  : `2px dashed ${SELECTION_COLOR}`,
+                clipPath: `inset(0 0 ${element.height - element.clipTop}px 0)`,
+                filter: element.coverFilter || undefined,
+                opacity: element.coverOpacity ?? 1,
+              }}
+            />
+          )}
+          </>
         );
       });
       })()}
 
       {/* Floating Toolbar - Smart positioning to stay in viewport */}
       <AnimatePresence>
-        {primaryElement && !scanning && isPromptVisible && (() => {
+        {primaryElement && !scanning && !isResizing && isPromptVisible && (() => {
           // Calculate optimal position for the prompt box
           let viewportWidth = window.innerWidth;
           let viewportHeight = window.innerHeight;
@@ -1627,7 +2042,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
 
           return (
             <motion.div
-              key="floating-prompt"
+              key={`floating-prompt-${promptAnimKey}`}
               layout
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1658,6 +2073,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
                 onDelete={handleDelete}
                 isLoading={isProcessing}
                 error={editError}
+                disabled={hasUnsaved}
               />
             </motion.div>
           );

@@ -20,7 +20,8 @@ import {
 import { useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
-import { isVisualEditMode, enterVisualEdit, exitVisualEdit } from '../../lib/visual-editor';
+import { isVisualEditMode, enterVisualEdit, exitVisualEdit, hasUnsavedChanges, discardVisualChanges } from '../../lib/visual-editor';
+import { UnsavedChangesModal } from './UnsavedChangesModal';
 
 interface TopBarProps {
   isSidebarCollapsed: boolean;
@@ -41,6 +42,9 @@ export const ALL_TOOLS = [
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {
   const isVisualEdit = useStore(isVisualEditMode);
+  const hasUnsaved = useStore(hasUnsavedChanges);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const [pinnedIds, setPinnedIds] = useState(['preview', 'code', 'design']);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [shouldRenderMenu, setShouldRenderMenu] = useState(false);
@@ -48,6 +52,16 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
   const [leavingId, setLeavingId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const handleExitWithCheck = (action?: () => void) => {
+    if (hasUnsaved) {
+      if (action) setPendingAction(() => action);
+      setShowExitModal(true);
+    } else {
+      exitVisualEdit();
+      action?.();
+    }
+  };
 
   const handleTabChange = (id: string) => {
     if (id === activeTab) return;
@@ -107,6 +121,23 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
   const menuTools = ALL_TOOLS;
 
   return (
+    <>
+      <UnsavedChangesModal 
+        isOpen={showExitModal}
+        onCancel={() => {
+          setShowExitModal(false);
+          setPendingAction(null);
+        }}
+        onConfirm={() => {
+          discardVisualChanges();
+          setShowExitModal(false);
+          exitVisualEdit();
+          if (pendingAction) {
+            pendingAction();
+            setPendingAction(null);
+          }
+        }}
+      />
     <div className={`h-14 flex items-center justify-between w-full flex-shrink-0 bg-[#1c1c1c] pr-4 transition-[padding] duration-300 ease-in-out relative ${isSidebarCollapsed ? 'pl-4' : 'pl-0'}`}>
       {/* Left Group */}
       <div className="flex items-center gap-4">
@@ -250,8 +281,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
         {isVisualEdit ? (
           <button
             onClick={() => {
-              exitVisualEdit();
-              onTabChange('preview');
+              handleExitWithCheck(() => onTabChange('preview'));
             }}
             className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-all duration-200"
           >
@@ -281,22 +311,39 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
         )}
       </div>
     </div>
+    </>
   );
 };
 
 // Visual Edit Button Component - Toggle visual editing mode
 const VisualEditButton: React.FC = () => {
   const isActive = useStore(isVisualEditMode);
+  const hasUnsavedBtn = useStore(hasUnsavedChanges);
+  const [showModal, setShowModal] = useState(false);
 
   const handleClick = () => {
     if (isActive) {
-      exitVisualEdit();
+      if (hasUnsavedBtn) {
+        setShowModal(true);
+      } else {
+        exitVisualEdit();
+      }
     } else {
       enterVisualEdit();
     }
   };
 
   return (
+    <>
+      <UnsavedChangesModal 
+        isOpen={showModal}
+        onCancel={() => setShowModal(false)}
+        onConfirm={() => {
+          discardVisualChanges();
+          setShowModal(false);
+          exitVisualEdit();
+        }}
+      />
     <button
       onClick={handleClick}
       className={`
@@ -313,6 +360,7 @@ const VisualEditButton: React.FC = () => {
         <div className="w-1.5 h-1.5 rounded-full bg-[#3b82f6] animate-pulse" />
       )}
     </button>
+    </>
   );
 };
 

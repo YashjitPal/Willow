@@ -19,6 +19,8 @@ interface AIInputWithLoadingProps {
   isLoading?: boolean;
   /** Error message to display */
   error?: string | null;
+  /** When true, disables all inputs and grays out the component */
+  disabled?: boolean;
 }
 
 export function AIInputWithLoading({
@@ -34,6 +36,7 @@ export function AIInputWithLoading({
   autoAnimate = false,
   isLoading: externalLoading,
   error,
+  disabled = false,
 }: AIInputWithLoadingProps) {
   const [inputValue, setInputValue] = useState("");
   const [internalSubmitted, setInternalSubmitted] = useState(autoAnimate);
@@ -62,7 +65,7 @@ export function AIInputWithLoading({
   }, [isAnimating, loadingDuration, thinkingDuration]);
 
   const handleSubmit = async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || disabled) return;
 
     // Only manage internal state if not externally controlled
     if (externalLoading === undefined) {
@@ -95,7 +98,8 @@ export function AIInputWithLoading({
               className={cn(
                 "w-full bg-transparent border-none ring-0 focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none",
                 "!border-none !ring-0 !shadow-none !outline-none",
-                "text-[#a1a1aa] placeholder:text-[#52525b] text-sm h-full"
+                "text-[#a1a1aa] placeholder:text-[#52525b] text-sm h-full transition-opacity duration-200",
+                disabled && "opacity-40"
               )}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -105,19 +109,21 @@ export function AIInputWithLoading({
                   handleSubmit();
                 }
               }}
-              disabled={isLoading}
+              disabled={isLoading || disabled}
             />
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Send button - disabled when disabled */}
             <button
               onClick={handleSubmit}
               className={cn(
                 "flex items-center justify-center w-7 h-7 rounded-full transition-all duration-200",
-                isLoading ? "bg-none" : "bg-[#d4d4d8] hover:bg-[#e5e5e5]"
+                isLoading ? "bg-none" : "bg-[#d4d4d8] hover:bg-[#e5e5e5]",
+                disabled && "opacity-40 pointer-events-none"
               )}
               type="button"
-              disabled={isLoading}
+              disabled={isLoading || disabled}
             >
               {isLoading ? (
                 <div
@@ -131,14 +137,20 @@ export function AIInputWithLoading({
 
             <div className="w-[1px] h-5 bg-[#2e2e2e]" />
 
+            {/* Code button - disabled when disabled */}
             <button
               onClick={onCode}
-              className="p-1 rounded text-[#a1a1aa] hover:text-white transition-colors"
+              className={cn(
+                "p-1 rounded text-[#a1a1aa] hover:text-white transition-all duration-200",
+                disabled && "opacity-40 pointer-events-none"
+              )}
               title="View Code"
+              disabled={disabled}
             >
               <Code2 size={18} />
             </button>
 
+            {/* Delete button - always active */}
             <button
               onClick={onDelete}
               className="p-1 rounded text-[#ef4444]/70 hover:text-[#ef4444] transition-colors"
@@ -147,6 +159,7 @@ export function AIInputWithLoading({
               <Trash2 size={18} />
             </button>
 
+            {/* Close button - always active */}
             <button
               onClick={onClose}
               className="p-1 rounded text-[#a1a1aa] hover:text-white transition-colors"

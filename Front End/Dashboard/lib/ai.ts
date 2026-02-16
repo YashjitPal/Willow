@@ -70,12 +70,101 @@ export const prewarmClient = (provider: 'gemini' | 'openai' | 'anthropic', apiKe
   else if (provider === 'anthropic') getAnthropicClient(apiKey);
 };
 
+// ============ GEMINI FILES API ============
+// Upload files once, reference by URI in subsequent messages
+const geminiFileCache = new Map<string, string>(); // fingerprint -> fileUri
+
+function getAttachmentFingerprint(att: Attachment): string {
+  return `${att.mimeType}:${att.data.length}:${att.data.substring(0, 32)}`;
+}
+
+async function uploadToGeminiFiles(
+  apiKey: string,
+  base64Data: string,
+  mimeType: string,
+  displayName: string
+): Promise<string> {
+  // Convert base64 to bytes
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  // Step 1: Start resumable upload
+  const startResponse = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+        'X-Goog-Upload-Header-Content-Length': String(bytes.length),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file: { displayName } })
+    }
+  );
+
+  if (!startResponse.ok) {
+    throw new Error(`Gemini Files API start failed: ${startResponse.status}`);
+  }
+
+  const uploadUrl = startResponse.headers.get('X-Goog-Upload-URL');
+  if (!uploadUrl) {
+    throw new Error('No upload URL returned from Gemini Files API');
+  }
+
+  // Step 2: Upload file data and finalize
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
+    },
+    body: bytes
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error(`Gemini Files API upload failed: ${uploadResponse.status}`);
+  }
+
+  const result = await uploadResponse.json();
+  const fileUri = result.file?.uri;
+  if (!fileUri) {
+    throw new Error('No file URI in Gemini Files API response');
+  }
+
+  return fileUri;
+}
+
+async function resolveGeminiImagePart(apiKey: string, att: Attachment): Promise<any> {
+  const fingerprint = getAttachmentFingerprint(att);
+  const cachedUri = geminiFileCache.get(fingerprint);
+
+  if (cachedUri) {
+    return { fileData: { fileUri: cachedUri, mimeType: att.mimeType } };
+  }
+
+  try {
+    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'image');
+    geminiFileCache.set(fingerprint, fileUri);
+    console.log(`[AI] Uploaded to Gemini Files: ${att.name} -> ${fileUri}`);
+    return { fileData: { fileUri, mimeType: att.mimeType } };
+  } catch (err) {
+    console.warn('[AI] Gemini Files upload failed, using inline:', err);
+    return { inlineData: { mimeType: att.mimeType, data: att.data } };
+  }
+}
+
 // ============ MAIN STREAM CHAT FUNCTION ============
 export const streamChat = async (
   messages: ChatMessage[],
   options: AiOptions,
   onToken: (token: string) => void,
-  onStart: () => void
+  onStart: () => void,
+  systemPrompt?: string
 ) => {
   const { provider, model, apiKey } = options;
 
@@ -106,6 +195,7 @@ export const streamChat = async (
 
     const geminiModel = genAI.getGenerativeModel({ 
       model,
+      ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
       // Strictly matching Gemini 3 Developer Guide
       generationConfig: {
         // @ts-ignore
@@ -116,49 +206,37 @@ export const streamChat = async (
     });
 
     const chat = geminiModel.startChat({
-      history: messages.slice(0, -1).map(m => {
+      history: await Promise.all(messages.slice(0, -1).map(async m => {
         const parts: any[] = [{ text: m.content }];
         if (m.attachments) {
-          m.attachments.forEach(att => {
+          for (const att of m.attachments) {
             if (att.type === 'image') {
-              parts.push({
-                inlineData: {
-                  mimeType: att.mimeType,
-                  data: att.data
-                }
-              });
+              parts.push(await resolveGeminiImagePart(apiKey, att));
             } else {
-               // Append text/code files to content
                const label = att.name || att.mimeType;
                parts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
             }
-          });
+          }
         }
         return {
           role: m.role === 'user' ? 'user' : 'model',
           parts,
         };
-      }),
+      })),
     });
 
     const lastMessage = messages[messages.length - 1];
     const parts: any[] = [{ text: lastMessage.content }];
-    
+
     if (lastMessage.attachments) {
-      lastMessage.attachments.forEach(att => {
+      for (const att of lastMessage.attachments) {
         if (att.type === 'image') {
-          parts.push({
-            inlineData: {
-              mimeType: att.mimeType,
-              data: att.data
-            }
-          });
+          parts.push(await resolveGeminiImagePart(apiKey, att));
         } else {
-           // For text files, just append to the prompt
            const label = att.name || att.mimeType;
            parts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
         }
-      });
+      }
     }
 
     const result = await chat.sendMessageStream(parts);
@@ -199,10 +277,12 @@ export const streamChat = async (
         return { role: m.role, content: contentParts };
     });
 
+    const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
+
     const stream = await openai.chat.completions.create({
       model,
       // @ts-ignore
-      messages: formattedMessages,
+      messages: [...systemMessages, ...formattedMessages],
       // @ts-ignore - reasoning_effort is used for o1 series
       reasoning_effort: options.thinkingLevel ? reasoningEffortMap[options.thinkingLevel] : "low",
       stream: true,
@@ -241,6 +321,7 @@ export const streamChat = async (
     const stream = await anthropic.messages.create({
       model,
       max_tokens: 4096,
+      ...(systemPrompt ? { system: systemPrompt } : {}),
       // @ts-ignore
       messages: formattedMessages,
       stream: true,

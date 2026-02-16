@@ -3,12 +3,12 @@ import { X } from "lucide-react";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
-import ScanningOverlay from "./ScanningOverlay";
+// ScanningOverlay import removed - component not yet created
 import VisualEditingOverlay from "./VisualEditingOverlay";
-import { sandpackStore } from "~/lib/sandpack";
+import { sandpackStore } from "../../lib/sandpack";
 import { CpuArchitecture } from "../ui/cpu-architecture";
 import "../ui/cpu-architecture.css";
-import { createPreviewURL, initBundler, bundleForHotUpdate } from "~/lib/preview";
+import { createPreviewURL, initBundler, bundleForHotUpdate } from "../../lib/preview";
 import { testStore } from "../../lib/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
 
@@ -411,7 +411,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const getFilesForBundler = useCallback(() => {
     const files: Record<string, string> = {};
     for (const [path, file] of Object.entries(filesMap)) {
-      files[path] = file.content;
+      files[path] = (file as { content: string }).content;
     }
     console.log('[MainPreview] Files in store:', Object.keys(files));
     return files;
@@ -799,7 +799,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
             {/* Preview Panel */}
             <div
-              className={`absolute inset-0 bg-[#1c1c1c] border border-[#27272a] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
+              className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
                 activeTab !== "code"
                   ? "opacity-100 z-10"
                   : "opacity-0 z-0 pointer-events-none"

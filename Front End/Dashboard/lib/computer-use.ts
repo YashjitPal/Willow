@@ -516,15 +516,16 @@ async function executeAction(
         testStore.triggerClick(); // Click to focus
         await new Promise(resolve => setTimeout(resolve, 150));
         
-        const element = iframeDocument.elementFromPoint(x, y) as HTMLInputElement | HTMLTextAreaElement;
+        const element = iframeDocument.elementFromPoint(x, y) as HTMLElement | null;
         if (element && ('value' in element || element.isContentEditable)) {
           element.focus();
           
           if ('value' in element) {
+            const inputElement = element as HTMLInputElement | HTMLTextAreaElement;
             if (clearFirst) {
-              element.value = '';
+              inputElement.value = '';
             }
-            element.value += text;
+            inputElement.value += text;
             element.dispatchEvent(new Event('input', { bubbles: true }));
             element.dispatchEvent(new Event('change', { bubbles: true }));
           } else if (element.isContentEditable) {
@@ -870,7 +871,7 @@ export async function runComputerUseTest(
       return {
         passed: false,
         explanation: 'Test was cancelled by user.',
-        actions: actionsPerformed,
+        actionsPerformed: actionsPerformed,
       };
     }
     
@@ -979,7 +980,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         return {
           passed: false,
           explanation: 'Test was cancelled by user.',
-          actions: actionsPerformed,
+          actionsPerformed: actionsPerformed,
         };
       }
       
@@ -1000,8 +1001,9 @@ Please analyze the screenshot and perform the necessary actions to test this fea
             thinkingBudget: 2048, // Token budget for thinking
           },
           tools: [{
-            // @ts-ignore - Computer Use tool configuration
+            // @ts-ignore - Computer Use tool configuration (SDK type issue)
             computerUse: {
+              // @ts-ignore - Environment enum not properly exported by SDK
               environment: 'ENVIRONMENT_BROWSER',
               excludedPredefinedFunctions: ['drag_and_drop'],
             }
@@ -1293,8 +1295,9 @@ export async function streamTestRequest(
     config: {
       systemInstruction: COMPUTER_USE_SYSTEM_PROMPT,
       tools: [{
-        // @ts-ignore
+        // @ts-ignore - Computer Use tool configuration (SDK type issue)
         computerUse: {
+          // @ts-ignore - Environment enum not properly exported by SDK
           environment: 'ENVIRONMENT_BROWSER',
           excludedPredefinedFunctions: ['drag_and_drop'],
         }

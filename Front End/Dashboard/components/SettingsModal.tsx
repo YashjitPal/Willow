@@ -785,7 +785,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                             <button
                                                 key={option.id}
                                                 onClick={() => {
-                                                    setLocalWorkspaceColor(option.id);
+                                                    setLocalWorkspaceColor(option.id as "green" | "pink" | "yellow" | "orange");
                                                     setWorkspaceSettingsChanged(true);
                                                     closeColorPicker();
                                                 }}

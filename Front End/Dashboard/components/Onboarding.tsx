@@ -103,13 +103,13 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       opacity: 1, 
       scale: 1,
       filter: 'blur(0px)',
-      transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
+      transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }
     },
     exit: { 
       opacity: 0, 
       scale: 0.98,
       filter: 'blur(10px)',
-      transition: { duration: 0.5, ease: "easeInOut" }
+      transition: { duration: 0.5, ease: "easeInOut" as const }
     }
   };
 

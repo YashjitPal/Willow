@@ -445,9 +445,9 @@ export const ColorPickerMenu: React.FC<ColorPickerMenuProps> = ({ onSelect, onCl
   // --- Interaction Handlers ---
   const handleMouseDown = (e: React.MouseEvent, type: 'gradient' | 'hue' | 'opacity') => {
     draggingRef.current = type;
-    handleMouseMove(e, type);
+    handleMouseMove(e.nativeEvent, type);
     
-    const moveHandler = (ev: MouseEvent) => handleMouseMove(ev as any, type);
+    const moveHandler = (ev: MouseEvent) => handleMouseMove(ev, type);
     const upHandler = () => {
       draggingRef.current = null;
       window.removeEventListener('mousemove', moveHandler);

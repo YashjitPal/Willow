@@ -13,6 +13,9 @@ For icons: use emoji (📊 💰 ✨) or inline SVG
 For charts: use CSS (divs with dynamic heights/widths)
 For animations: use Tailwind (animate-pulse, transition-all, hover:scale-105)
 
+## Image Assets
+When the user provides images, they are stored in the project filesystem. Their import paths will be listed in the user's message. Import them as default exports and use the imported value as src or in url(). The imported value is a data URL string.
+
 ## Important DOM Rules (prevents errors)
 - NEVER use document.createElement, appendChild, removeChild, or direct DOM manipulation
 - For games/canvas: use useRef + canvas context (ctx.fillRect, ctx.clearRect)

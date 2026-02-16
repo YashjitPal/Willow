@@ -89,6 +89,34 @@ export const canUndo = atom<boolean>(false);
 export const previewRefreshRequest = atom<number>(0);
 
 /**
+ * Signal to request selection bounds refresh after direct style changes
+ * The overlay watches this to update position when margin/padding changes shift the element
+ */
+export const selectionBoundsRefreshRequest = atom<number>(0);
+
+/**
+ * Signal to request sidebar style re-read after undo/discard
+ * The VisualEditMenu watches this to refresh its currentStyles display
+ */
+export const selectionStyleRefreshRequest = atom<number>(0);
+
+/**
+ * Request the selection overlay to update its bounds
+ * Called after applying direct styles that may change element position
+ */
+export function requestSelectionBoundsRefresh(): void {
+  selectionBoundsRefreshRequest.set(Date.now());
+}
+
+/**
+ * Request the sidebar to re-read styles for the currently selected element
+ * Called after undo/discard to sync the sidebar display
+ */
+export function requestSelectionStyleRefresh(): void {
+  selectionStyleRefreshRequest.set(Date.now());
+}
+
+/**
  * Signal that a parent selection was requested
  * The overlay should watch this to sync its local state when parent is selected
  */
@@ -111,6 +139,7 @@ export const pendingSelectionRestore = atom<{
   // Additional info for disambiguation when multiple elements have same sourceLocation
   textContent?: string;  // First 100 chars of textContent
   classNames?: string[]; // Class names for additional matching
+  familyIndex?: number;  // DOM-order index among family siblings (for .map() elements)
 } | null>(null);
 
 /**
@@ -152,7 +181,15 @@ export function markAsUnsaved(): void {
  * Save (commit) visual changes
  * Updates the baseline to current state, so future changes are tracked from this point
  */
-export function saveVisualChanges(): void {
+export async function saveVisualChanges(): Promise<void> {
+  if (isSaving.get()) return;
+  
+  isSaving.set(true);
+  console.log('[VisualEditor] Saving changes...');
+
+  // Simulate a small delay for the animation as requested by user
+  await new Promise(resolve => setTimeout(resolve, 800));
+
   // Capture current state as the new baseline
   const currentFiles = sandpackStore.files.get();
   const snapshot: Record<string, string> = {};
@@ -162,6 +199,7 @@ export function saveVisualChanges(): void {
   visualEditSessionSnapshot.set(snapshot);
   
   hasUnsavedChanges.set(false);
+  isSaving.set(false);
   
   // Keep undo history - user can still undo past the save point
   // If they do, checkUnsavedStatus will detect the difference and show the bar
@@ -173,13 +211,17 @@ export function saveVisualChanges(): void {
  * Restores the snapshot from the beginning of the "unsaved" session
  * Pushes current state to undo history first, so user can "undo the discard"
  */
-export function discardVisualChanges(): void {
+export async function discardVisualChanges(): Promise<void> {
+  if (isSaving.get()) return;
+
   const snapshot = visualEditSessionSnapshot.get();
   if (!snapshot) {
     console.log('[VisualEditor] No snapshot to restore');
     return;
   }
 
+  isSaving.set(true);
+  
   // Push current state to undo history BEFORE restoring
   // This allows user to "undo the discard" if they change their mind
   pushUndoState('Before discard');
@@ -192,11 +234,15 @@ export function discardVisualChanges(): void {
   // Clear unsaved state but KEEP the baseline for future edits in this session
   hasUnsavedChanges.set(false);
   
-  // DO NOT clear undo history - user may want to undo the discard or previous changes
-  // canUndo remains true since we just pushed a state
-  
   // Trigger preview refresh
   previewRefreshRequest.set(Date.now());
+
+  // Refresh sidebar styles after a short delay to let preview update
+  setTimeout(() => requestSelectionStyleRefresh(), 150);
+
+  // Wait for a bit for the UI feedback
+  await new Promise(resolve => setTimeout(resolve, 300));
+  isSaving.set(false);
 }
 
 /**
@@ -324,6 +370,9 @@ export function undoLastVisualEdit(): boolean {
 
   // Check if we're back at baseline after undo
   checkUnsavedStatus();
+
+  // Refresh sidebar styles after a short delay to let preview update
+  setTimeout(() => requestSelectionStyleRefresh(), 150);
 
   console.log('[VisualEditor] Undo complete - History size:', newHistory.length);
   return true;
@@ -481,6 +530,7 @@ export function requestInspectorReinit(): void {
             // Pass additional info for disambiguation
             textContent: pendingRestore.textContent,
             classNames: pendingRestore.classNames,
+            familyIndex: pendingRestore.familyIndex,
           }, '*');
           pendingSelectionRestore.set(null);
         }, 300);
@@ -729,8 +779,9 @@ export function handleInspectorMessage(message: InspectorMessage): void {
       isAtRootLevel.set(true);
       break;
 
-    case 'THEME_COLORS_RESPONSE':
-      if ((message as any).colors) {
+    default:
+      // Handle THEME_COLORS_RESPONSE which comes from a different message flow
+      if ((message as any).type === 'THEME_COLORS_RESPONSE' && (message as any).colors) {
         themeColors.set((message as any).colors);
         console.log('[VisualEditor] Theme colors received:', Object.keys((message as any).colors).length, 'colors');
       }
@@ -1143,40 +1194,46 @@ function getInspectorScriptContent(): string {
         // Only one match - use it directly
         targetEl = matchingElements[0];
       } else if (matchingElements.length > 1) {
-        // Multiple matches - find the best one using textContent and classNames
-        const targetTextContent = e.data.textContent || '';
-        const targetClassNames = e.data.classNames || [];
+        // Multiple matches (family/map elements) - use familyIndex if available
+        if (typeof e.data.familyIndex === 'number' && e.data.familyIndex >= 0 && e.data.familyIndex < matchingElements.length) {
+          // Direct index lookup - most reliable for .map() elements
+          targetEl = matchingElements[e.data.familyIndex];
+          console.log('[Willow Inspector] Restored by familyIndex:', e.data.familyIndex, 'of', matchingElements.length);
+        } else {
+          // Fallback: find the best one using textContent and classNames
+          const targetTextContent = e.data.textContent || '';
+          const targetClassNames = e.data.classNames || [];
 
-        let bestMatch = null;
-        let bestScore = -1;
+          let bestMatch = null;
+          let bestScore = -1;
 
-        for (const el of matchingElements) {
-          let score = 0;
+          for (const el of matchingElements) {
+            let score = 0;
 
-          // Check textContent match (most reliable for identifying specific element)
-          const elText = (el.textContent || '').trim().substring(0, 100);
-          if (targetTextContent && elText === targetTextContent) {
-            score += 10; // Strong match
-          } else if (targetTextContent && elText.includes(targetTextContent.substring(0, 20))) {
-            score += 3; // Partial match
+            // Check textContent match
+            const elText = (el.textContent || '').trim().substring(0, 100);
+            if (targetTextContent && elText === targetTextContent) {
+              score += 10;
+            } else if (targetTextContent && elText.includes(targetTextContent.substring(0, 20))) {
+              score += 3;
+            }
+
+            // Check class names match
+            if (targetClassNames.length > 0) {
+              const elClasses = Array.from(el.classList || []);
+              const commonClasses = targetClassNames.filter(c => elClasses.includes(c));
+              score += commonClasses.length;
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = el;
+            }
           }
 
-          // Check class names match
-          if (targetClassNames.length > 0) {
-            const elClasses = Array.from(el.classList || []);
-            const commonClasses = targetClassNames.filter(c => elClasses.includes(c));
-            score += commonClasses.length;
-          }
-
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = el;
-          }
+          targetEl = bestMatch || matchingElements[0];
+          console.log('[Willow Inspector] Found', matchingElements.length, 'elements with same sourceLocation, picked best match with score:', bestScore);
         }
-
-        // Use best match, or fall back to first if no good match found
-        targetEl = bestMatch || matchingElements[0];
-        console.log('[Willow Inspector] Found', matchingElements.length, 'elements with same sourceLocation, picked best match with score:', bestScore);
       }
 
       if (targetEl) {

@@ -6,7 +6,7 @@ import { Project, SyntaxKind, Node, SourceFile } from 'ts-morph';
 import { sandpackStore } from '../sandpack/sandpack-store';
 import { streamChat, type ChatMessage, type AiOptions } from '../ai';
 import type { SelectedElement, FamilyElement } from './types';
-import { isVisualEditing, pushUndoState, clearSelection, requestInspectorReinit, markAsUnsaved } from './visual-editor-store';
+import { isVisualEditing, pushUndoState, clearSelection, requestInspectorReinit, markAsUnsaved, pendingSelectionRestore } from './visual-editor-store';
 
 export interface VisualEditRequest {
   element: SelectedElement;
@@ -44,13 +44,14 @@ const fileVersions = new Map<string, string>(); // Track file content hashes
  */
 function getProject(): Project {
   if (!singletonProject) {
-    console.log('[VisualEdit] Creating singleton ts-morph Project');
     singletonProject = new Project({
       useInMemoryFileSystem: true,
       compilerOptions: {
         jsx: 4, // JsxEmit.ReactJSX
         target: 99, // ScriptTarget.ESNext
         module: 99, // ModuleKind.ESNext
+        noResolve: true, // Don't try to resolve external modules (react, etc.)
+        skipLibCheck: true, // Skip type-checking of declaration files
       },
     });
   }
@@ -174,11 +175,11 @@ function getSurgicalRange(code: string, fileName: string, line: number, column: 
     let mapVariableName: string | undefined;
 
     if (mapContext) {
-      // INSIDE MAP: Extract the full callback body
-      // This is the "family" - the template that renders all items
+      // INSIDE MAP: Extract the full arrow function (params + body)
+      // This lets the AI modify both the parameters (add index) and the body
       isInsideMap = true;
       mapVariableName = mapContext.itemVariable;
-      targetNode = mapContext.callbackBody;
+      targetNode = mapContext.callbackNode;
 
       console.log('[VisualEdit] Inside .map() - extracting FULL callback body (family template)');
       console.log('[VisualEdit] Map variable:', mapVariableName);
@@ -272,7 +273,7 @@ function findContainingJSXElement(node: Node): Node | null {
 /**
  * Check if the node is inside a .map() callback and return context
  */
-function findMapContext(node: Node): { callbackBody: Node; itemVariable: string } | null {
+function findMapContext(node: Node): { callbackNode: Node; itemVariable: string } | null {
   let current: Node | undefined = node;
 
   while (current) {
@@ -294,7 +295,7 @@ function findMapContext(node: Node): { callbackBody: Node; itemVariable: string 
             // Get the body - could be expression or block
             const body = arrowFunc.getBody();
             if (body) {
-              return { callbackBody: body, itemVariable };
+              return { callbackNode: arrowFunc, itemVariable };
             }
           }
         }
@@ -359,6 +360,12 @@ export async function applyVisualEdit(
 
     // Build the surgical prompt
     onProgress?.('Editing...');
+
+    // Get clicked element's index in the family (computed at selection time from DOM order)
+    // This matches the .map() iteration index because DOM order = render order
+    const clickedElementIndex = element.familyIndex ?? -1;
+    const totalFamilyElements = element.familySize ?? 0;
+
     const editPrompt = buildSurgicalPrompt(
       surgicalRange.text,
       element,
@@ -366,12 +373,45 @@ export async function applyVisualEdit(
       surgicalRange.mapVariableName,
       surgicalRange.clickedElementText,
       surgicalRange.clickedElementTag,
-      prompt
+      prompt,
+      clickedElementIndex,
+      totalFamilyElements
     );
 
     console.log('[VisualEdit] Prompt to AI:', editPrompt);
 
-    // Call AI
+    // Build system prompt for the visual edit AI
+    const systemPrompt = surgicalRange.isInsideMap
+      ? `You are a JSX code editor that edits .map() callback functions. Output ONLY the modified callback function. No explanations, no markdown fences, no imports.
+
+You will receive:
+- A .map() callback function (arrow function with params and JSX body)
+- Which item the user clicked on (by index or content)
+- The user's edit request
+
+CRITICAL — Single vs All:
+If the user says anything like "only this one", "not the whole family", "just this element", "not all of them", or similar, you MUST apply the change to ONLY the clicked item using an index conditional. This takes absolute priority over everything else.
+
+If the user says "IMPORTANT: Apply ONLY to index N", you MUST wrap the changed properties in \`index === N ? changed : original\` ternaries. No exceptions.
+
+If there is no such restriction and the request is about a general change, apply it to all items.
+
+How to target a single item:
+1. Add \`index\` as the second callback parameter if missing: \`(item) =>\` becomes \`(item, index) =>\`
+2. Wrap ONLY the changed properties in a ternary: \`index === N ? newValue : originalValue\`
+3. The else branch MUST keep the original value exactly. Never use null or undefined.
+
+Example — if index is 2 and user wants red background on only that item:
+Before: \`<div className="bg-white p-4">\`
+After:  \`<div className={index === 2 ? "bg-red-500 p-4" : "bg-white p-4"}>\`
+
+Rules:
+- NEVER delete or remove elements unless the user explicitly says "delete" or "remove".
+- NEVER return null, {null}, or empty fragments unless deletion was requested.
+- Return the COMPLETE modified callback function.`
+      : `You are a JSX code editor. Output ONLY the modified JSX code. No explanations, no markdown fences, no imports. Return the COMPLETE modified element. NEVER delete or remove elements unless the user explicitly says "delete" or "remove". NEVER return null or empty fragments.`;
+
+    // Call AI with system prompt
     const messages: ChatMessage[] = [{ role: 'user', content: editPrompt }];
     let aiResponse = '';
 
@@ -379,7 +419,8 @@ export async function applyVisualEdit(
       messages,
       apiOptions,
       (token) => { aiResponse += token; },
-      () => {}
+      () => {},
+      systemPrompt
     );
 
     console.log('[VisualEdit] AI response:', aiResponse.length, 'chars');
@@ -479,39 +520,55 @@ export async function applyVisualEdit(
              return { success: false, error: 'Validation failed: Could not create temp file.' };
         }
         
-        // Robust check for the diagnostics method
+        // Get diagnostics from the project for this source file
         let diagnostics: any[] = [];
-        if (typeof tempSourceFile.getSyntacticDiagnostics === 'function') {
-            diagnostics = tempSourceFile.getSyntacticDiagnostics();
-        } else if (typeof (tempSourceFile as any).getDiagnostics === 'function') {
-             // Fallback for some versions/environments
-             diagnostics = (tempSourceFile as any).getDiagnostics();
-        } else {
-             console.warn('[VisualEdit] Validation method not found on source file - skipping validation');
-             // Fail open: assume valid if we can't check
-             diagnostics = [];
+        try {
+            diagnostics = project.getPreEmitDiagnostics().filter(d => d.getSourceFile() === tempSourceFile);
+        } catch {
+            console.warn('[VisualEdit] Validation method not available - skipping validation');
+            diagnostics = [];
         }
         
         if (diagnostics.length > 0) {
-            const firstError = diagnostics[0];
-            const message = typeof firstError.getMessageText === 'function' ? 
-                            firstError.getMessageText() : 
-                            (firstError.messageText || 'Unknown syntax error');
-                            
-            const line = typeof firstError.getLineNumber === 'function' ? 
-                         firstError.getLineNumber() : '?';
+            // Only reject on actual SYNTAX errors (category 1), not semantic/module-resolution errors
+            // The in-memory project has no external modules (react, etc.) so those will always fail
+            const syntaxErrors = diagnostics.filter(d => {
+              try {
+                return d.getCategory() === 1; // DiagnosticCategory.Error that are syntax-level
+              } catch {
+                return false;
+              }
+            });
 
-            console.error('[VisualEdit] Syntax check failed:', message, 'at line', line);
-            
-            // Clean up
-            project.removeSourceFile(tempSourceFile);
-            
-            isVisualEditing.set(false);
-            clearSelection();
-            return { 
-                success: false, 
-                error: `Syntax Error: ${message}` 
-            };
+            // Also filter out "Cannot find module" errors specifically — expected in isolated env
+            const realErrors = syntaxErrors.filter(d => {
+              try {
+                const msg = typeof d.getMessageText === 'function' ? String(d.getMessageText()) : '';
+                return !msg.includes('Cannot find module') && !msg.includes('Cannot find name');
+              } catch {
+                return false;
+              }
+            });
+
+            if (realErrors.length > 0) {
+                const firstError = realErrors[0];
+                const message = typeof firstError.getMessageText === 'function' ? 
+                                firstError.getMessageText() : 
+                                (firstError.messageText || 'Unknown syntax error');
+                                
+                const line = typeof firstError.getLineNumber === 'function' ? 
+                             firstError.getLineNumber() : '?';
+
+                // Clean up
+                project.removeSourceFile(tempSourceFile);
+                
+                isVisualEditing.set(false);
+                clearSelection();
+                return { 
+                    success: false, 
+                    error: `Syntax Error: ${message}` 
+                };
+            }
         }
         
         // Clean up temp file
@@ -529,7 +586,6 @@ export async function applyVisualEdit(
     // PUSH UNDO STATE before applying the change
     const undoDescription = `Visual edit: "${prompt.substring(0, 30)}${prompt.length > 30 ? '...' : ''}"`;
     pushUndoState(undoDescription);
-    markAsUnsaved();
 
     console.log('[VisualEdit] Applying character-based surgical change');
     sandpackStore.setFile(targetFile, newContent);
@@ -545,9 +601,19 @@ export async function applyVisualEdit(
 
     isVisualEditing.set(false);
 
-    // Clear the global selection after a successful edit
-    // The DOM was rebuilt, so the old UID and sourceLocation are stale
-    // User needs to re-select an element to use Select Parent
+    // Store the selection for restoration after the DOM rebuilds
+    // This matches what the sidebar edit flow does in direct-style-service.ts
+    if (element.sourceLocation) {
+      pendingSelectionRestore.set({
+        ...element.sourceLocation,
+        textContent: element.textContent?.substring(0, 100),
+        classNames: element.classNames,
+        familyIndex: element.familyIndex,
+      });
+    }
+
+    // Clear the global selection (the DOM was rebuilt, old UIDs are stale)
+    // pendingSelectionRestore above ensures the same element is re-selected
     clearSelection();
 
     // Re-inject the inspector script since the preview rebuilt
@@ -655,7 +721,9 @@ function buildSurgicalPrompt(
   mapVariableName: string | undefined,
   clickedElementCode: string | undefined,
   _clickedElementTag: string | undefined,
-  userPrompt: string
+  userPrompt: string,
+  clickedElementIndex: number = -1,
+  totalFamilyElements: number = 0
 ): string {
   const textContent = element.textContent?.trim() || '';
   const wantsDelete = isDeleteRequest(userPrompt);
@@ -684,44 +752,40 @@ Modified code:`;
   }
 
   // ============================================================
-  // INSIDE .map() - CLEAR PROMPT WITH NATURAL INTERPRETATION
+  // INSIDE .map() - AI decides targeting scope
   // ============================================================
 
   const itemVar = mapVariableName || 'item';
   const selectedContent = textContent.substring(0, 80);
+  const hasIndex = clickedElementIndex >= 0;
 
-  return `# Visual Edit Request
+  // Detect if user wants single-element targeting
+  const singleTargetKeywords = /only this|not the (whole )?family|just this|not all|only one|single element|this one only|not the rest|not the others/i;
+  const wantsSingleTarget = singleTargetKeywords.test(userPrompt);
 
-**Request:** "${userPrompt}"
+  // Build the targeting instruction
+  let targetingInfo = '';
+  if (hasIndex) {
+    targetingInfo = `The user clicked on item at index ${clickedElementIndex} (0-based, out of ${totalFamilyElements} total items).`;
+    if (wantsSingleTarget) {
+      targetingInfo += `\n\nIMPORTANT: Apply ONLY to index ${clickedElementIndex}. Use \`index === ${clickedElementIndex} ? changedValue : originalValue\` ternaries. Do NOT change all items.`;
+    }
+  } else {
+    targetingInfo = `The user clicked on item showing: "${selectedContent}".`;
+    if (wantsSingleTarget) {
+      targetingInfo += `\n\nIMPORTANT: The user wants ONLY this specific item changed, not all items. Use an index conditional to apply the change to only this one item.`;
+    }
+  }
 
-**Context:**
-- This is a \`.map()\` template (iterator: \`${itemVar}\`)
-- User clicked on item showing: "${selectedContent}"
-${clickedElementCode ? `\n**Clicked element:**\n\`\`\`tsx\n${clickedElementCode}\n\`\`\`\n` : ''}
-**Template:**
-\`\`\`tsx
+  return `User request: "${userPrompt}"
+
+This is a .map() callback function. Iterator variable: \`${itemVar}\`.
+${targetingInfo}
+${clickedElementCode ? `\nClicked element code:\n${clickedElementCode}\n` : ''}
+Callback:
 ${codeToEdit}
-\`\`\`
 
----
-
-# Rules
-
-1. **DEFAULT = Edit the template (affects ALL items).** This is what you should do unless the user EXPLICITLY asks for only one item.
-
-2. **ONLY use conditionals** if the user's language clearly indicates they want ONLY the clicked item changed (not all items). In that case, find which property of \`${itemVar}\` contains "${selectedContent}" and add a conditional targeting that value.
-
-3. **NEVER do nothing.** Always make a change. If unsure, edit the template.
-
-4. **Be fast.** Make your decision immediately and return code.
-
-5. **Return ONLY code.** No explanations.
-
-${wantsDelete ? `6. **For deletion:** Either remove from template (all items) or wrap in conditional to hide only "${selectedContent}".` : ''}
-
----
-
-Modified template:`;
+Modified callback:`;
 }
 
 /**
@@ -742,11 +806,7 @@ function extractSnippet(response: string): string {
     .replace(/^Here(?:'s| is) the modified.*?:\s*/i, '')
     .replace(/^Modified.*?:\s*/i, '')
     .replace(/^MODIFIED(?: CODE)?:\s*/i, '')
-    .replace(/^The code.*?:\s*/i, '')
-    .replace(/^I(?:'ve| have) (?:made|updated|changed|modified).*?:\s*/i, '')
-    .replace(/\n\n(?:Note|This|I|The).*$/is, '')
-    .replace(/\n\nI(?:'ve| have).*$/is, '')
-    .replace(/^(?:Note|This change|I changed|The above).*?\n/gim, '');
+    .replace(/^I(?:'ve| have) (?:made|updated|changed|modified).*?:\s*/i, '');
 
   code = code.trim();
 
