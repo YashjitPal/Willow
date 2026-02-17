@@ -176,8 +176,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
             // Validate App is a valid component
             if (typeof App !== 'function' && typeof App !== 'object') {
               console.error('[Preview] Invalid App:', App);
-              document.getElementById('root').innerHTML = 
-                '<div class="error-display">Error: App is not a valid component. Got: ' + typeof App + '</div>';
+              showError('Component Error', 'App is not a valid component. Got: ' + typeof App);
               return;
             }
             
@@ -186,8 +185,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
             
             if (typeof AppComponent !== 'function') {
               console.error('[Preview] AppComponent is not a function:', AppComponent);
-              document.getElementById('root').innerHTML = 
-                '<div class="error-display">Error: App component is not a function. Check your export.</div>';
+              showError('Component Error', 'App component is not a function. Check your export.');
               return;
             }
             
@@ -204,7 +202,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
               console.log('[Preview] App rendered successfully');
             } catch (e) {
               console.error('[Preview] Render error:', e);
-              document.getElementById('root').innerHTML = '<div class="error-display">' + e.stack + '</div>';
+              showError('Render Error', e.message || String(e));
               // Clear cached root on error so next render creates fresh one
               window.__reactRoot = null;
             }
@@ -393,71 +391,6 @@ export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string)
     body { min-height: 100vh; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: system-ui, -apple-system, sans-serif; }
     #root { min-height: 100vh; }
     
-    /* Beautiful Error UI */
-    .error-container {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      background: transparent;
-    }
-    .error-card {
-      max-width: 480px;
-      width: 100%;
-      background: rgba(15, 15, 20, 0.85);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      padding: 32px;
-      box-shadow: 
-        0 4px 24px rgba(0, 0, 0, 0.4),
-        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-    }
-    .error-icon {
-      width: 56px;
-      height: 56px;
-      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.05));
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 20px;
-      border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-    .error-icon svg {
-      width: 28px;
-      height: 28px;
-      color: #f87171;
-    }
-    .error-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #ffffff;
-      margin-bottom: 8px;
-    }
-    .error-subtitle {
-      font-size: 14px;
-      color: rgba(255, 255, 255, 0.5);
-      margin-bottom: 20px;
-    }
-    .error-message {
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 12px;
-      padding: 16px;
-      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-      font-size: 13px;
-      color: #f87171;
-      line-height: 1.6;
-      overflow-x: auto;
-      max-height: 200px;
-      overflow-y: auto;
-      word-break: break-word;
-    }
-    .error-message::-webkit-scrollbar { width: 6px; height: 6px; }
-    .error-message::-webkit-scrollbar-track { background: transparent; }
-    .error-message::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -465,25 +398,10 @@ export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string)
   <script>
     // Error display function
     function showError(type, message) {
-      // Notify parent window that there's an error (for visual editor to exit)
+      // Notify parent window (for popup display and visual editor exit)
       try {
         window.parent.postMessage({ type: 'PREVIEW_ERROR', errorType: type, message: message }, '*');
       } catch (e) {}
-
-      document.getElementById('root').innerHTML = \`
-        <div class="error-container">
-          <div class="error-card">
-            <div class="error-icon">
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <h2 class="error-title">\${type}</h2>
-            <p class="error-subtitle">Something went wrong while rendering your app</p>
-            <div class="error-message">\${message}</div>
-          </div>
-        </div>
-      \`;
     }
 
     // Polyfill require for bundled code
@@ -682,60 +600,14 @@ export async function createPreviewURL(
     const errorHtml = `<!DOCTYPE html>
 <html>
 <head>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      min-height: 100vh; 
-      background: transparent; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center;
-      padding: 24px;
-      font-family: system-ui, -apple-system, sans-serif;
-    }
-    .error-card {
-      max-width: 480px;
-      width: 100%;
-      background: rgba(15, 15, 20, 0.85);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      padding: 32px;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-    }
-    .error-icon {
-      width: 56px; height: 56px;
-      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.05));
-      border-radius: 16px;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 20px;
-      border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-    .error-title { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 8px; }
-    .error-subtitle { font-size: 14px; color: rgba(255,255,255,0.5); margin-bottom: 20px; }
-    .error-message {
-      background: rgba(0,0,0,0.3);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 12px;
-      padding: 16px;
-      font-family: monospace;
-      font-size: 13px;
-      color: #f87171;
-      word-break: break-word;
-    }
-  </style>
+  <style>* { margin: 0; padding: 0; box-sizing: border-box; } body { min-height: 100vh; background: #1c1c1c; }</style>
 </head>
 <body>
-  <div class="error-card">
-    <div class="error-icon">
-      <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#f87171">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    </div>
-    <h2 class="error-title">Build Error</h2>
-    <p class="error-subtitle">Failed to compile your code</p>
-    <div class="error-message">${err.message || err}</div>
-  </div>
+  <script>
+    try {
+      window.parent.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: ${JSON.stringify(err.message || String(err))} }, '*');
+    } catch (e) {}
+  </script>
 </body>
 </html>`;
     const blob = new Blob([errorHtml], { type: 'text/html' });

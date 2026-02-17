@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
+import { flushSync, createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { 
   ChevronDown, 
@@ -42,7 +42,8 @@ import {
   Maximize2,
 
   CodeXml,
-  CornerLeftUp
+  CornerLeftUp,
+  AlertTriangle
 } from 'lucide-react';
 import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, isSaving, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges, requestSelectionBoundsRefresh, selectionStyleRefreshRequest } from '../../lib/visual-editor';
 import { useStore } from '@nanostores/react';
@@ -493,6 +494,7 @@ interface SidebarProps {
   isResizing?: boolean;
   projectName?: string;
   isGeneratingName?: boolean;
+  onSettingsClick?: (tab?: string) => void;
 }
 
 const VisualEditLoader = ({ 
@@ -1570,7 +1572,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick }) => {
   const navigate = useNavigate();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
@@ -1662,6 +1664,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const streamingContentRef = useRef<HTMLDivElement>(null);
+  const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
+  const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
   const [showLeftGradient, setShowLeftGradient] = useState(false);
   const [messageReactions, setMessageReactions] = useState<{ [key: string]: 'like' | 'dislike' | null }>({});
   const [fileListExpanded, setFileListExpanded] = useState(false); // Lifted state for file list expansion
@@ -1675,11 +1679,38 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   
   // Selected tool state (independent from tabs)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const [globalErrors, setGlobalErrors] = useState<{id: string; message: string; isClosing: boolean; action?: 'set-api-key'}[]>([]);
+
+  const addGlobalError = useCallback((message: string, action?: 'set-api-key') => {
+    setGlobalErrors(prev => [...prev, { id: Date.now().toString(), message, isClosing: false, action }]);
+  }, []);
+
+  const dismissGlobalError = useCallback((id: string) => {
+    setGlobalErrors(prev => prev.map(e => e.id === id ? { ...e, isClosing: true } : e));
+    setTimeout(() => {
+      setGlobalErrors(prev => prev.filter(e => e.id !== id));
+    }, 250);
+  }, []);
   
   // Debug: Log test mode changes
   useEffect(() => {
     console.log('[Sidebar] isTestMode changed to:', isTestMode);
   }, [isTestMode]);
+
+  // Listen for build/runtime errors from the preview iframe and show as popup
+  const lastPreviewErrorRef = useRef<string>('');
+  useEffect(() => {
+    const handlePreviewError = (event: MessageEvent) => {
+      if (event.data?.type === 'PREVIEW_ERROR' && event.data.message) {
+        if (event.data.message === lastPreviewErrorRef.current) return;
+        lastPreviewErrorRef.current = event.data.message;
+        addGlobalError(`${event.data.errorType || 'Build Error'}: ${event.data.message}`);
+        setTimeout(() => { lastPreviewErrorRef.current = ''; }, 3000);
+      }
+    };
+    window.addEventListener('message', handlePreviewError);
+    return () => window.removeEventListener('message', handlePreviewError);
+  }, [addGlobalError]);
   
   // Attachments State
   interface Attachment {
@@ -2665,15 +2696,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
     } catch (error: any) {
       console.error('Chat error:', error);
-
-      const errorMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(7),
-        role: 'assistant',
-        content: `Error: ${error.message || 'Failed to get response.'}`,
-        thinkingTime: thinkingTimeRef.current,
-        timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      const errMsg = error.message || 'An error occurred during generation';
+      const isApiKeyError = /api.?key/i.test(errMsg) && /missing/i.test(errMsg);
+      addGlobalError(errMsg, isApiKeyError ? 'set-api-key' : undefined);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
@@ -2997,6 +3022,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             // Ensure we land exactly on FINAL target
                             container.scrollTop = targetScrollTop;
                             isScrollingToTop.current = false;
+
+                            // Calculate dynamic min-height for response area:
+                            // Fill exactly the remaining visible space below the user message.
+                            // No padding subtracted because padding will be 0 when response is short.
+                            const gap = 48; // space-y-12 between message groups
+                            const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
+                            setResponseAreaMinHeight(Math.max(0, minH));
+                            setNeedsScrollPadding(false);
                         }
                     };
 
@@ -3007,6 +3040,72 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         }
     }
   }, [messages, isChatMode]);
+
+  // Recalculate response area min-height when container resizes
+  useEffect(() => {
+    if (!chatScrollRef.current) return;
+    const container = chatScrollRef.current;
+
+    const observer = new ResizeObserver(() => {
+      // Only recalculate if we have a previous value (scroll animation has run)
+      if (responseAreaMinHeight === undefined) return;
+
+      const userMessages = messages.filter(m => m.role === 'user');
+      const lastUserMsg = userMessages[userMessages.length - 1];
+      if (!lastUserMsg) return;
+
+      const msgEl = messageRefs.current[lastUserMsg.id];
+      if (!msgEl) return;
+
+      const targetVisualOffset = isChatMode ? 76 : 20;
+      const gap = 48;
+      const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
+      setResponseAreaMinHeight(Math.max(0, minH));
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [messages, isChatMode, responseAreaMinHeight]);
+
+  // Detect when response content overflows the allocated min-height.
+  // When it does, re-enable bottom padding so the user can scroll past the input box.
+  useEffect(() => {
+    if (responseAreaMinHeight === undefined || needsScrollPadding) return;
+
+    const checkOverflow = () => {
+      // Check streaming content during generation
+      const streamingEl = streamingContentRef.current;
+      if (streamingEl && streamingEl.scrollHeight > responseAreaMinHeight + 5) {
+        setNeedsScrollPadding(true);
+        return;
+      }
+
+      // Check last assistant message after generation completes
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg?.role === 'assistant') {
+        const el = messageRefs.current[lastMsg.id];
+        if (el && el.scrollHeight > responseAreaMinHeight + 5) {
+          setNeedsScrollPadding(true);
+        }
+      }
+    };
+
+    const observer = new ResizeObserver(checkOverflow);
+
+    if (streamingContentRef.current) {
+      observer.observe(streamingContentRef.current);
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === 'assistant' && messageRefs.current[lastMsg.id]) {
+      observer.observe(messageRefs.current[lastMsg.id]!);
+    }
+
+    // Initial check
+    checkOverflow();
+
+    return () => observer.disconnect();
+  }, [responseAreaMinHeight, needsScrollPadding, messages, isCurrentlyGenerating]);
 
   // Tabs scroll check (renamed from scrollContainerRef)
   const handleScroll = () => {
@@ -3322,7 +3421,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       <div
         ref={chatScrollRef}
         className={`flex-1 space-y-8 min-h-0 hover-scrollbar overflow-y-auto
-          ${showContextHeader ? 'pb-[290px]' : 'pb-[210px]'}
+          ${responseAreaMinHeight !== undefined && !needsScrollPadding
+            ? 'pb-0'
+            : (showContextHeader ? 'pb-[290px]' : 'pb-[210px]')
+          }
           ${isChatMode
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
             : activeTab === 'design'
@@ -3438,8 +3540,12 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   <div
                     className="space-y-4"
                     style={{
-                      // Min-height on last assistant message prevents snap when streaming ends
-                      minHeight: isLastAssistantMessage ? 'calc(100vh - 200px)' : undefined
+                      // Dynamic min-height fills exactly the remaining visible space below
+                      // the user message, preventing empty scrollable area while growing
+                      // naturally as AI content exceeds it
+                      minHeight: isLastAssistantMessage && responseAreaMinHeight !== undefined
+                        ? `${responseAreaMinHeight}px`
+                        : undefined
                     }}
                   >
                     {/* Thinking indicator - show shimmer while generating, static when done */}
@@ -3462,6 +3568,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     <div className="text-gray-300 text-[15px] leading-[1.65]">
                       {renderFormattedContent(msg.content, msg.isGenerating, msg.id)}
                     </div>
+
+                    {/* Preview Button - Only show when message is fully generated */}
+                    {!msg.isGenerating && (
+                      <div className="pt-2 pb-1">
+                        <button className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/20 text-gray-200 hover:text-white hover:bg-white/5 hover:border-white/30 transition-all duration-200 text-[13px] font-medium select-none group">
+                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400 group-hover:text-white transition-colors">
+                            <rect x="5.5" y="5.5" width="13" height="13" rx="4" transform="rotate(45 12 12)" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M10.5 9.5L14.5 12L10.5 14.5V9.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          Preview
+                        </button>
+                      </div>
+                    )}
 
                     {/* Action buttons - only show when message is fully generated */}
                     {!msg.isGenerating && (
@@ -3500,8 +3619,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 ref={streamingContentRef}
                 className="space-y-4"
                 style={{
-                  // Min-height on response area ensures scroll works and prevents snap
-                  minHeight: 'calc(100vh - 200px)'
+                  // Dynamic min-height fills exactly the remaining visible space,
+                  // preventing scrolling until AI content exceeds the visible area
+                  minHeight: responseAreaMinHeight !== undefined
+                    ? `${responseAreaMinHeight}px`
+                    : undefined
                 }}
               >
                 <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
@@ -4010,11 +4132,107 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                        )}
                   </div>
                </div>
-            </div>
           </div>
         </div>
       </div>
     </div>
+    </div>
+
+      {/* Global Error Popups - rendered via portal to escape sidebar stacking context */}
+      {globalErrors.length > 0 && createPortal(
+        <>
+          <style>{`
+            @keyframes errorSlideDown {
+              from { opacity: 0; transform: translateY(-12px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes errorFadeOut {
+              from { opacity: 1; }
+              to { opacity: 0; }
+            }
+          `}</style>
+          <div className="fixed top-20 bottom-4 right-6 z-50 flex flex-col overflow-y-auto no-scrollbar">
+            {globalErrors.map((err) => {
+              const isLastOne = globalErrors.length === 1;
+              return isLastOne && err.isClosing ? (
+                <div
+                  key={err.id}
+                  className="flex items-center gap-4 px-4 py-5 bg-[#18181b]/80 backdrop-blur-md border border-white/10 rounded-xl"
+                  style={{ animation: 'errorFadeOut 0.2s ease-out forwards' }}
+                >
+                  <div className="flex-shrink-0">
+                    <AlertTriangle className="text-red-400" size={20} />
+                  </div>
+                  <div className="flex-1 min-w-[200px] max-w-[400px]">
+                    <p className="text-sm font-medium text-gray-200 leading-snug">
+                      {err.message}
+                    </p>
+                  </div>
+                  {err.action === 'set-api-key' ? (
+                    <button 
+                      className="flex-shrink-0 text-red-400 text-sm font-medium"
+                    >
+                      Set
+                    </button>
+                  ) : (
+                    <button 
+                      className="flex-shrink-0 text-red-400 text-sm font-medium"
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div
+                  key={err.id}
+                  className="grid transition-[grid-template-rows] duration-[250ms] ease-in-out"
+                  style={{ gridTemplateRows: err.isClosing ? '0fr' : '1fr' }}
+                >
+                  <div className="overflow-hidden">
+                    <div className="pb-3">
+                      <div 
+                        className="flex items-center gap-4 px-4 py-5 bg-[#18181b]/80 backdrop-blur-md border border-white/10 rounded-xl transition-opacity duration-[250ms] ease-out"
+                        style={{
+                          animation: !err.isClosing ? 'errorSlideDown 0.25s ease-out forwards' : undefined,
+                          opacity: err.isClosing ? 0 : undefined
+                        }}
+                      >
+                        <div className="flex-shrink-0">
+                          <AlertTriangle className="text-red-400" size={20} />
+                        </div>
+                        <div className="flex-1 min-w-[200px] max-w-[400px]">
+                          <p className="text-sm font-medium text-gray-200 leading-snug">
+                            {err.message}
+                          </p>
+                        </div>
+                        {err.action === 'set-api-key' ? (
+                          <button 
+                            onClick={() => {
+                              dismissGlobalError(err.id);
+                              onSettingsClick?.('models');
+                            }}
+                            className="flex-shrink-0 text-red-400 hover:text-red-300 text-sm font-medium transition-colors cursor-pointer"
+                          >
+                            Set
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => dismissGlobalError(err.id)}
+                            className="flex-shrink-0 text-red-400 hover:text-red-300 text-sm font-medium transition-colors cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>,
+        document.body
+      )}
     </>
   );
 };

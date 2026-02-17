@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
@@ -11,6 +11,7 @@ import "../ui/cpu-architecture.css";
 import { createPreviewURL, initBundler, bundleForHotUpdate } from "../../lib/preview";
 import { testStore } from "../../lib/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
+import { previewErrors, isErrorPanelOpen, addPreviewError, clearPreviewErrors, removePreviewError } from "../../lib/stores/error-store";
 
 // Import cursor image from cursor folder
 import cursorImage from "../../../cursor/arrow.cur";
@@ -367,6 +368,21 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const refreshRequest = useStore(previewRefreshRequest);
   const wasVisualEditModeRef = useRef(false);
   const lastBuildHadSourceLocationsRef = useRef(false); // Track if we already have source locations
+
+  // Error panel state
+  const errors = useStore(previewErrors);
+  const errorPanelOpen = useStore(isErrorPanelOpen);
+
+  // Listen for PREVIEW_ERROR messages from the iframe and add to error store
+  useEffect(() => {
+    const handlePreviewError = (event: MessageEvent) => {
+      if (event.data?.type === 'PREVIEW_ERROR' && event.data.message) {
+        addPreviewError(event.data.errorType || 'Build Error', event.data.message);
+      }
+    };
+    window.addEventListener('message', handlePreviewError);
+    return () => window.removeEventListener('message', handlePreviewError);
+  }, []);
 
   // Listen for code navigation requests and switch to code tab
   useEffect(() => {
@@ -1087,6 +1103,75 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Error Panel - appears below preview when toggled */}
+          <div
+            className="overflow-hidden transition-all duration-300 ease-in-out flex-shrink-0"
+            style={{
+              maxHeight: errorPanelOpen ? '240px' : '0px',
+              opacity: errorPanelOpen ? 1 : 0,
+            }}
+          >
+            <div className="bg-[#18181b] border border-[#27272a] rounded-[12px] h-[224px] flex flex-col mt-3">
+              {/* Error Panel Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#27272a] flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">Errors</span>
+                  {errors.length > 0 && (
+                    <span className="text-[11px] font-semibold text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
+                      {errors.length}
+                    </span>
+                  )}
+                </div>
+                {errors.length > 0 && (
+                  <button
+                    onClick={clearPreviewErrors}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    <Trash2 size={13} />
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Error Panel Content */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {errors.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-gray-600 text-sm">
+                    No errors
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    {errors.map((err) => (
+                      <div
+                        key={err.id}
+                        className="flex items-start gap-3 px-4 py-3 border-b border-[#27272a]/60 last:border-b-0 hover:bg-[#1f1f23] transition-colors group"
+                      >
+                        <div className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-md bg-red-500/10 flex items-center justify-center">
+                          <span className="text-red-400 text-[10px] font-bold">!</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-red-400">{err.type}</span>
+                            <span className="text-[10px] text-gray-600">
+                              {new Date(err.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 leading-relaxed break-all font-mono">{err.message}</p>
+                        </div>
+                        <button
+                          onClick={() => removePreviewError(err.id)}
+                          className="mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-all"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -15,13 +15,15 @@ import {
   Beaker,
   FlaskConical,
   Settings,
-  MousePointer2
+  MousePointer2,
+  AlertTriangle
 } from 'lucide-react';
 import { useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
 import { isVisualEditMode, enterVisualEdit, exitVisualEdit, hasUnsavedChanges, discardVisualChanges } from '../../lib/visual-editor';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
+import { previewErrors, toggleErrorPanel, isErrorPanelOpen } from '../../lib/stores/error-store';
 
 interface TopBarProps {
   isSidebarCollapsed: boolean;
@@ -43,6 +45,8 @@ export const ALL_TOOLS = [
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {
   const isVisualEdit = useStore(isVisualEditMode);
   const hasUnsaved = useStore(hasUnsavedChanges);
+  const errors = useStore(previewErrors);
+  const errorPanelOpen = useStore(isErrorPanelOpen);
   const [showExitModal, setShowExitModal] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const [pinnedIds, setPinnedIds] = useState(['preview', 'code', 'design']);
@@ -289,6 +293,21 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           </button>
         ) : (
           <>
+            <button
+              onClick={toggleErrorPanel}
+              className={`relative flex items-center justify-center w-10 h-10 border rounded-xl text-white transition-[background-color] duration-200 ${
+                errorPanelOpen
+                  ? 'bg-[#27272a] border-[#3b3b3b]'
+                  : 'bg-[#1c1c1c] hover:bg-[#27272a] border-[#27272a]'
+              }`}
+            >
+              <AlertTriangle size={18} />
+              {errors.length > 0 && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-white leading-none">{errors.length > 9 ? '9+' : errors.length}</span>
+                </div>
+              )}
+            </button>
             <button
               onClick={onSettingsClick}
               className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-[background-color] duration-200"

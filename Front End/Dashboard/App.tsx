@@ -290,13 +290,17 @@ const App: React.FC = () => {
             <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
               <SettingsModal
                 isOpen={isSettingsOpen}
-                onClose={() => setIsSettingsOpen(false)}
+                onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
                 modelConfig={modelConfig}
                 setModelConfig={setModelConfig}
+                initialTab={settingsInitialTab}
               />
               <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
                 <StagingView
-                  onSettingsClick={() => setIsSettingsOpen(true)}
+                  onSettingsClick={(tab?: string) => {
+                    if (tab) setSettingsInitialTab(tab as any);
+                    setIsSettingsOpen(true);
+                  }}
                   modelConfig={modelConfig}
                   setModelConfig={setModelConfig}
                   selectedModelId={selectedModelId}

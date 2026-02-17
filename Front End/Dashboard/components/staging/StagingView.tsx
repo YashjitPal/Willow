@@ -14,7 +14,7 @@ import { PROJECT_NAME_MODEL } from '@models';
 
 interface StagingViewProps {
   prompt?: string;
-  onSettingsClick?: () => void;
+  onSettingsClick?: (tab?: string) => void;
   modelConfig: any;
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
@@ -289,6 +289,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             isResizing={isDragging}
             projectName={projectName}
             isGeneratingName={isGeneratingName}
+            onSettingsClick={onSettingsClick}
           />
         </div>
       </div>
