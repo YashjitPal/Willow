@@ -283,7 +283,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
             onClick={() => {
               handleExitWithCheck(() => onTabChange('preview'));
             }}
-            className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-all duration-200"
+            className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none"
           >
             Close
           </button>

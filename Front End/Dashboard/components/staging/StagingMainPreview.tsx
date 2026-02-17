@@ -800,6 +800,8 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             {/* Preview Panel */}
             <div
               className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
+                !(previewUrl && hasUserCode) ? 'border border-[#27272a]' : ''
+              } ${
                 activeTab !== "code"
                   ? "opacity-100 z-10"
                   : "opacity-0 z-0 pointer-events-none"

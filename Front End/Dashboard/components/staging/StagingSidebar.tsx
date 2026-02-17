@@ -921,8 +921,17 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   // Check if there's an actual app in the codebase (files beyond just initial empty state)
   const hasApp = Object.keys(files).length > 0;
 
-  // Show loading during scan or init or saving
-  const showLoading = scanning || !isReady || !hasApp || saving;
+  // Minimum loader display time so the entrance animation always plays fully
+  const [minLoaderActive, setMinLoaderActive] = useState(true);
+  useEffect(() => {
+    // Reset minimum loader on each mount (re-entering visual edit)
+    setMinLoaderActive(true);
+    const timer = setTimeout(() => setMinLoaderActive(false), 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Show loading during scan or init or saving, with minimum display time
+  const showLoading = scanning || !isReady || !hasApp || saving || minLoaderActive;
 
   // Handle undo button click
   const handleUndo = () => {
