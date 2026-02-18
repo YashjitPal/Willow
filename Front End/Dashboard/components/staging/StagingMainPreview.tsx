@@ -522,7 +522,30 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         const isVisualEdit = isVisualEditMode.get();
         const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
 
-        // Revoke previous URL
+        // Check if the build returned an error fallback page
+        const isBuildError = url.includes('#build-error');
+
+        if (isBuildError) {
+          // Build failed — if we already have a working preview, keep it
+          if (previewUrl && !previewUrl.includes('#build-error')) {
+            URL.revokeObjectURL(url); // Discard the error fallback
+            setIsPreviewLoading(false);
+            console.log('[MainPreview] Build failed, keeping last good preview');
+            return;
+          }
+          // First build ever — use the fallback so preview isn't gray
+          if (previousUrlRef.current) {
+            URL.revokeObjectURL(previousUrlRef.current);
+          }
+          previousUrlRef.current = url;
+          setPreviewUrl(url);
+          setIsPreviewLoading(false);
+          isFirstBuild.current = false;
+          console.log('[MainPreview] First build failed, showing blank fallback');
+          return;
+        }
+
+        // Build succeeded — update normally
         if (previousUrlRef.current) {
           URL.revokeObjectURL(previousUrlRef.current);
         }
@@ -532,6 +555,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         setPreviewUrl(url);
         setIsPreviewLoading(false);
         isFirstBuild.current = false;
+        clearPreviewErrors();
         console.log('[MainPreview] Preview built successfully');
       } catch (error) {
         console.error('[MainPreview] Preview build failed:', error);
@@ -625,6 +649,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               }, '*');
 
               console.log('[MainPreview] Visual edit hot update sent');
+              clearPreviewErrors();
 
               // Re-inject inspector after a brief moment for the DOM to settle
               setTimeout(() => {
@@ -690,6 +715,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             }, '*');
 
             console.log('[MainPreview] Undo hot update sent');
+            clearPreviewErrors();
 
             // Re-inject inspector after DOM settles
             setTimeout(() => {
@@ -797,7 +823,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         className={`flex-1 flex flex-col min-h-0 pr-4 pb-4 pt-0 ${isResizing ? '' : 'transition-[padding] duration-300 ease-in-out'} ${isSidebarCollapsed ? "pl-4" : "pl-0"}`}
       >
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-h-0 gap-3">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Main Panel Area */}
           <div className="relative flex-1 min-h-0">
             {/* Code Panel */}
@@ -816,7 +842,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             {/* Preview Panel */}
             <div
               className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
-                !(previewUrl && hasUserCode) ? 'border border-[#27272a]' : ''
+                !(previewUrl && hasUserCode) || errors.length > 0 ? 'border border-[#27272a]' : ''
               } ${
                 activeTab !== "code"
                   ? "opacity-100 z-10"
@@ -1114,58 +1140,51 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               opacity: errorPanelOpen ? 1 : 0,
             }}
           >
-            <div className="bg-[#18181b] border border-[#27272a] rounded-[12px] h-[224px] flex flex-col mt-3">
-              {/* Error Panel Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#27272a] flex-shrink-0">
+            <div className="border border-[#27272a] rounded-[12px] h-[224px] flex flex-col mt-3 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 h-9 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">Errors</span>
+                  <span className="text-[13px] text-white">Problems</span>
                   {errors.length > 0 && (
-                    <span className="text-[11px] font-semibold text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
-                      {errors.length}
-                    </span>
+                    <span className="text-[11px] text-gray-500 bg-[#27272a] rounded px-1.5 py-px">{errors.length}</span>
                   )}
                 </div>
                 {errors.length > 0 && (
                   <button
                     onClick={clearPreviewErrors}
-                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                    className="text-[12px] text-black bg-white hover:bg-gray-200 transition-colors rounded-full px-3 py-0.5 font-medium"
                   >
-                    <Trash2 size={13} />
-                    Clear
+                    Fix
                   </button>
                 )}
               </div>
 
-              {/* Error Panel Content */}
+              {/* Error list */}
               <div className="flex-1 overflow-y-auto min-h-0">
                 {errors.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-gray-600 text-sm">
-                    No errors
+                  <div className="flex items-center justify-center h-full text-[13px] text-gray-600">
+                    No problems
                   </div>
                 ) : (
                   <div className="flex flex-col">
-                    {errors.map((err) => (
+                    {errors.map((err, i) => (
                       <div
                         key={err.id}
-                        className="flex items-start gap-3 px-4 py-3 border-b border-[#27272a]/60 last:border-b-0 hover:bg-[#1f1f23] transition-colors group"
+                        className={`group flex items-start gap-2.5 px-4 py-2 hover:bg-[#ffffff05] cursor-default ${i > 0 ? 'border-t border-[#27272a]/50' : ''}`}
                       >
-                        <div className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-md bg-red-500/10 flex items-center justify-center">
-                          <span className="text-red-400 text-[10px] font-bold">!</span>
-                        </div>
+                        <div className="w-3.5 h-3.5 rounded-full border-2 border-red-500/70 flex-shrink-0 mt-[3px]" />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-semibold text-red-400">{err.type}</span>
-                            <span className="text-[10px] text-gray-600">
-                              {new Date(err.timestamp).toLocaleTimeString()}
-                            </span>
+                          <span className="text-[12px] text-gray-300 leading-snug break-all">{err.message}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[11px] text-gray-600">{err.type}</span>
+                            <span className="text-[11px] text-gray-700">{new Date(err.timestamp).toLocaleTimeString()}</span>
                           </div>
-                          <p className="text-xs text-gray-400 leading-relaxed break-all font-mono">{err.message}</p>
                         </div>
                         <button
                           onClick={() => removePreviewError(err.id)}
-                          className="mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-all"
+                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-opacity mt-0.5"
                         >
-                          <X size={14} />
+                          <X size={13} />
                         </button>
                       </div>
                     ))}

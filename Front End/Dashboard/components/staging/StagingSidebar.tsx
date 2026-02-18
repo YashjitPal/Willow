@@ -1661,6 +1661,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   }, []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const streamingContentRef = useRef<HTMLDivElement>(null);
@@ -3024,8 +3025,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             isScrollingToTop.current = false;
 
                             // Calculate dynamic min-height for response area:
-                            // Fill exactly the remaining visible space below the user message.
-                            // No padding subtracted because padding will be 0 when response is short.
+                            // Fill the full remaining visible space below the user message.
+                            // This keeps enough scrollable height for the animation to work.
+                            // Footer overlap is handled by paddingBottom on the response container.
                             const gap = 48; // space-y-12 between message groups
                             const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
                             setResponseAreaMinHeight(Math.max(0, minH));
@@ -3064,6 +3066,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     });
 
     observer.observe(container);
+    if (footerRef.current) observer.observe(footerRef.current);
     return () => observer.disconnect();
   }, [messages, isChatMode, responseAreaMinHeight]);
 
@@ -3540,11 +3543,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   <div
                     className="space-y-4"
                     style={{
-                      // Dynamic min-height fills exactly the remaining visible space below
-                      // the user message, preventing empty scrollable area while growing
-                      // naturally as AI content exceeds it
+                      // Dynamic min-height fills the full remaining visible space for scroll.
+                      // paddingBottom pushes content above the footer overlay so buttons stay visible.
+                      // When needsScrollPadding is true (long response), pb on the scroll container handles it instead.
                       minHeight: isLastAssistantMessage && responseAreaMinHeight !== undefined
                         ? `${responseAreaMinHeight}px`
+                        : undefined,
+                      paddingBottom: isLastAssistantMessage && responseAreaMinHeight !== undefined && !needsScrollPadding
+                        ? `${footerRef.current?.offsetHeight || 210}px`
                         : undefined
                     }}
                   >
@@ -3619,10 +3625,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 ref={streamingContentRef}
                 className="space-y-4"
                 style={{
-                  // Dynamic min-height fills exactly the remaining visible space,
-                  // preventing scrolling until AI content exceeds the visible area
+                  // Dynamic min-height fills the full remaining visible space for scroll.
+                  // paddingBottom pushes content above the footer overlay.
                   minHeight: responseAreaMinHeight !== undefined
                     ? `${responseAreaMinHeight}px`
+                    : undefined,
+                  paddingBottom: responseAreaMinHeight !== undefined && !needsScrollPadding
+                    ? `${footerRef.current?.offsetHeight || 210}px`
                     : undefined
                 }}
               >
@@ -3662,7 +3671,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       )}
 
       {/* Footer Container */}
-      <div className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
+      <div ref={footerRef} className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
         {/* Gradient overlay - fades out when unsaved changes bar is visible */}
         <div className={`h-8 w-full bg-gradient-to-t from-[#1c1c1c] to-transparent transition-opacity duration-300 ${hasUnsaved ? 'opacity-0' : 'opacity-100'}`} />
         <div className="bg-[#1c1c1c] pointer-events-auto">

@@ -286,6 +286,7 @@ export async function bundleFiles(
       format: 'iife',
       globalName: '__Bundle',
       logLevel: 'warning',
+      logLimit: 0,
     });
 
     console.log('[Bundler] Build successful, output size:', result.outputFiles[0].text.length);
@@ -596,22 +597,25 @@ export async function createPreviewURL(
     return URL.createObjectURL(blob);
   } catch (err: any) {
     console.error('[Bundler] createPreviewURL failed:', err);
-    // Return beautiful error page
-    const errorHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <style>* { margin: 0; padding: 0; box-sizing: border-box; } body { min-height: 100vh; background: #1c1c1c; }</style>
-</head>
-<body>
-  <script>
-    try {
-      window.parent.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: ${JSON.stringify(err.message || String(err))} }, '*');
-    } catch (e) {}
-  </script>
-</body>
-</html>`;
-    const blob = new Blob([errorHtml], { type: 'text/html' });
-    return URL.createObjectURL(blob);
+    // Post each error to the parent window so the error panel picks them up
+    const errors = err.errors || [];
+    if (errors.length > 0) {
+      for (const e of errors) {
+        const loc = e.location ? `${e.location.file}:${e.location.line}:${e.location.column}` : '';
+        const msg = loc ? `${loc}: ${e.text}` : e.text;
+        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg }, '*');
+      }
+    } else {
+      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err) }, '*');
+    }
+    // Return a minimal blank page so preview isn't completely empty
+    const fallbackHtml = `<!DOCTYPE html>
+<html><head><style>*{margin:0;padding:0;box-sizing:border-box;}body{min-height:100vh;background:#1c1c1c;}</style></head>
+<body></body></html>`;
+    const blob = new Blob([fallbackHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    // Add hash to mark this as a build error so the caller can detect it
+    return url + '#build-error';
   }
 }
 
@@ -631,6 +635,17 @@ export async function bundleForHotUpdate(
     return scriptCode;
   } catch (err: any) {
     console.error('[Bundler] Hot update bundle failed:', err);
+    // Post errors so the error panel picks them up
+    const errors = err.errors || [];
+    if (errors.length > 0) {
+      for (const e of errors) {
+        const loc = e.location ? `${e.location.file}:${e.location.line}:${e.location.column}` : '';
+        const msg = loc ? `${loc}: ${e.text}` : e.text;
+        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg }, '*');
+      }
+    } else {
+      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err) }, '*');
+    }
     throw err;
   }
 }
