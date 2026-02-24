@@ -3,6 +3,8 @@ import { X, Trash2 } from "lucide-react";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
+import { SwarmChatroom } from "./SwarmChatroom";
+import { AgentBuilder } from "../agents/AgentBuilder";
 // ScanningOverlay import removed - component not yet created
 import VisualEditingOverlay from "./VisualEditingOverlay";
 import { sandpackStore } from "../../lib/sandpack";
@@ -17,7 +19,7 @@ import { previewErrors, isErrorPanelOpen, addPreviewError, clearPreviewErrors, r
 import cursorImage from "../../../cursor/arrow.cur";
 
 // Visual cursor overlay for Computer Use testing
-const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = ({ iframeRef }) => {
+const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = React.memo(({ iframeRef }) => {
   const cursorPosition = useStore(testStore.cursorPosition);
   const isClicking = useStore(testStore.isClicking);
   const currentThought = useStore(testStore.currentThought);
@@ -205,10 +207,10 @@ const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = 
       `}</style>
     </div>
   );
-};
+});
 
 // Pulsing blue glow overlay for testing mode with smooth fade in/out
-const TestModeGlow: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+const TestModeGlow: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   
@@ -246,10 +248,10 @@ const TestModeGlow: React.FC<{ isActive: boolean }> = ({ isActive }) => {
       }}
     />
   );
-};
+});
 
 // Floating status indicator for active testing
-const TestStatusIndicator: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+const TestStatusIndicator: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   
@@ -317,7 +319,7 @@ const TestStatusIndicator: React.FC<{ isActive: boolean }> = ({ isActive }) => {
       </div>
     </div>
   );
-};
+});
 
 interface MainPreviewProps {
   isSidebarCollapsed: boolean;
@@ -326,6 +328,7 @@ interface MainPreviewProps {
   onTabChange: (id: string) => void;
   onSettingsClick?: () => void;
   isResizing?: boolean;
+  isTransitioning?: boolean;
   selectedModelId: string;
   modelConfig: any;
 }
@@ -337,6 +340,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   onTabChange,
   onSettingsClick,
   isResizing,
+  isTransitioning,
   selectedModelId,
   modelConfig,
 }) => {
@@ -820,7 +824,14 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
       {/* Content Area */}
       <div
-        className={`flex-1 flex flex-col min-h-0 pr-4 pb-4 pt-0 ${isResizing ? '' : 'transition-[padding] duration-300 ease-in-out'} ${isSidebarCollapsed ? "pl-4" : "pl-0"}`}
+        className={`flex-1 flex flex-col min-h-0 pr-4 pb-4 pt-0 ${isSidebarCollapsed ? "pl-4" : "pl-0"}`}
+        style={{
+          ...(!isResizing && {
+            transitionProperty: 'padding',
+            transitionDuration: '500ms',
+            transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)'
+          })
+        }}
       >
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-h-0">
@@ -839,12 +850,34 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               </div>
             </div>
 
+            {/* Swarm Chatroom Panel */}
+            <div
+              className={`absolute inset-0 transition-opacity duration-150 ${
+                activeTab === "swarm"
+                  ? "opacity-100 z-10"
+                  : "opacity-0 z-0 pointer-events-none"
+              }`}
+            >
+              <SwarmChatroom />
+            </div>
+
+            {/* Agent Builder Panel */}
+            <div
+              className={`absolute inset-0 transition-opacity duration-150 flex flex-col overflow-hidden bg-[#141414] rounded-[12px] border border-[#27272a] ${
+                activeTab === "agent-builder"
+                  ? "opacity-100 z-10"
+                  : "opacity-0 z-0 pointer-events-none"
+              }`}
+            >
+              <AgentBuilder isSidebarCollapsed={isSidebarCollapsed} />
+            </div>
+
             {/* Preview Panel */}
             <div
               className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
                 !(previewUrl && hasUserCode) || errors.length > 0 ? 'border border-[#27272a]' : ''
               } ${
-                activeTab !== "code"
+                activeTab !== "code" && activeTab !== "swarm" && activeTab !== "agent-builder"
                   ? "opacity-100 z-10"
                   : "opacity-0 z-0 pointer-events-none"
               }`}
@@ -977,7 +1010,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                       }
                     }}
                     style={{
-                      pointerEvents: (isResizing || isTestMode || isVisualEdit) ? "none" : "auto",
+                      pointerEvents: (isResizing || isTransitioning || isTestMode || isVisualEdit) ? "none" : "auto",
                       opacity: isRefreshing ? 0 : 1,
                       transform: isRefreshing ? 'scale(0.995)' : 'scale(1)',
                       filter: isRefreshing ? 'blur(4px)' : 'blur(0px)',
@@ -1014,7 +1047,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                   )}
                   
                   {/* Resize Overlay - Prevents iframe from capturing mouse events and causing lag during drag */}
-                  {isResizing && (
+                  {(isResizing || isTransitioning) && (
                     <div className="absolute inset-0 z-[100] bg-transparent cursor-[ew-resize]" />
                   )}
                 </>
@@ -1199,4 +1232,4 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   );
 };
 
-export default MainPreview;
+export default React.memo(MainPreview);

@@ -19,9 +19,11 @@ interface StagingViewProps {
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
+  agentSwarmEnabled?: boolean;
+  onSwarmToggle?: (enabled: boolean) => void;
 }
 
-const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
+const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlPrompt = searchParams.get('prompt') || '';
@@ -86,6 +88,19 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const transitionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup transition timers on unmount
+  React.useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    };
+  }, []);
+
+  const setTransitionTimeout = useCallback(() => {
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = setTimeout(() => setIsTransitioning(false), 500);
+  }, []);
 
   const toggleSidebar = useCallback(() => {
     // Set transitioning flag to disable iframe interactions during animation
@@ -97,8 +112,8 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
       return !prev;
     });
     // Clear transitioning after animation duration (500ms)
-    setTimeout(() => setIsTransitioning(false), 500);
-  }, [sidebarWidth]);
+    setTransitionTimeout();
+  }, [sidebarWidth, setTransitionTimeout]);
 
   const startResizing = useCallback(() => {
     setIsDragging(true);
@@ -143,14 +158,16 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             setIsSidebarCollapsed(false);
             setSidebarWidth(minWidth);
             setIsDragging(false);
-            setTimeout(() => setIsTransitioning(false), 500);
+            if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+            transitionTimerRef.current = setTimeout(() => setIsTransitioning(false), 500);
           }
         } else {
           if (newWidth < collapseThreshold) {
             setIsTransitioning(true);
             setIsSidebarCollapsed(true);
             setIsDragging(false);
-            setTimeout(() => setIsTransitioning(false), 500);
+            if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+            transitionTimerRef.current = setTimeout(() => setIsTransitioning(false), 500);
             return;
           }
 
@@ -259,19 +276,28 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
       <div 
         style={{
           ...containerStyle,
-          willChange: isDragging ? 'width' : 'auto'
+          willChange: isDragging ? 'width' : 'auto',
+          ...(!isDragging && {
+            transitionProperty: 'width',
+            transitionDuration: '500ms',
+            transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)'
+          })
         }} 
-        className={`flex-shrink-0 transition-[width] duration-500 ease-out overflow-hidden relative z-10
-          bg-[#1c1c1c]
-          ${isDragging ? 'transition-none' : ''}`}
+        className={`flex-shrink-0 overflow-hidden relative z-10
+          bg-[#1c1c1c]`}
       >
         <div
-          className={`h-full ${isDragging ? '' : 'transition-[left,transform,width] duration-500 ease-out'}`}
+          className="h-full"
           style={{ 
             position: 'relative',
             left: isChatMode ? '50%' : '0',
             transform: isChatMode ? 'translateX(-50%)' : 'translateX(0)',
-            width: isChatMode ? '800px' : '100%'
+            width: isChatMode ? '800px' : '100%',
+            ...(!isDragging && {
+              transitionProperty: isChatMode ? 'left, transform, width' : 'width',
+              transitionDuration: '500ms',
+              transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)'
+            })
           }}
         >
           <Sidebar
@@ -290,6 +316,8 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             projectName={projectName}
             isGeneratingName={isGeneratingName}
             onSettingsClick={onSettingsClick}
+            agentSwarmEnabled={agentSwarmEnabled}
+            onSwarmToggle={onSwarmToggle}
           />
         </div>
       </div>
@@ -321,8 +349,14 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
 
       {/* Main Preview - Slides in from right */}
       <div
-        className={`flex-1 min-w-0 ${isDragging ? '' : 'transition-[opacity,transform] duration-500 ease-out'}
-          ${isChatMode ? 'opacity-0 translate-x-[100px] pointer-events-none' : 'opacity-100 translate-x-0'}`}
+        className={`flex-1 min-w-0 ${isChatMode ? 'opacity-0 translate-x-[100px] pointer-events-none' : 'opacity-100 translate-x-0'}`}
+        style={{
+          ...(!isDragging && {
+            transitionProperty: 'opacity, transform',
+            transitionDuration: '500ms',
+            transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)'
+          })
+        }}
       >
         <MainPreview
             isSidebarCollapsed={isSidebarCollapsed}
@@ -330,7 +364,8 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             activeTab={activeTab}
             onTabChange={setActiveTab}
             onSettingsClick={onSettingsClick}
-            isResizing={isDragging || isTransitioning}
+            isResizing={isDragging}
+            isTransitioning={isTransitioning}
             selectedModelId={selectedModelId}
             modelConfig={modelConfig}
         />
@@ -339,4 +374,4 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   );
 };
 
-export default StagingView;
+export default React.memo(StagingView);

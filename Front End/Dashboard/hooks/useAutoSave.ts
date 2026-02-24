@@ -13,26 +13,17 @@ export function useAutoSave(projectName: string, enabled: boolean = true, deboun
   const { saveCheckpoint, isReady, isSaving, error } = useDrive();
   const filesMap = useStore(workbenchStore.files);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedFilesRef = useRef<string>('');
 
   const save = useCallback(async () => {
     if (!isReady || !enabled) return;
-    
+
     const files = workbenchStore.getAllFiles();
     if (files.length === 0) return;
-    
-    // Create hash of current files to check if anything changed
-    const currentHash = JSON.stringify(files);
-    if (currentHash === lastSavedFilesRef.current) {
-      console.log('[AutoSave] No changes detected, skipping save');
-      return;
-    }
-    
+
     console.log('[AutoSave] Saving checkpoint for:', projectName, 'with', files.length, 'files');
-    
+
     const checkpointId = await saveCheckpoint(projectName, files);
     if (checkpointId) {
-      lastSavedFilesRef.current = currentHash;
       console.log('[AutoSave] Checkpoint saved:', checkpointId);
     }
   }, [isReady, enabled, projectName, saveCheckpoint]);

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 
 export type BackgroundType = 'waves' | 'lines' | 'solid';
@@ -28,18 +28,20 @@ export const BackgroundProvider: React.FC<{ children: ReactNode }> = ({ children
     }
   }, [user, userProfile?.background]);
 
-  const setBackground = async (bg: BackgroundType) => {
+  const setBackground = useCallback(async (bg: BackgroundType) => {
     setBackgroundState(bg);
     localStorage.setItem(STORAGE_KEY, bg);
-    
+
     // If authenticated, also save to Firestore
     if (user) {
       await updateUserProfile({ background: bg });
     }
-  };
+  }, [user, updateUserProfile]);
+
+  const value = useMemo(() => ({ background, setBackground }), [background, setBackground]);
 
   return (
-    <BackgroundContext.Provider value={{ background, setBackground }}>
+    <BackgroundContext.Provider value={value}>
       {children}
     </BackgroundContext.Provider>
   );

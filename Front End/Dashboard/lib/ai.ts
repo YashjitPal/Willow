@@ -186,6 +186,10 @@ export const streamChat = async (
       if (model.includes('flash')) {
         const flashMap: Record<number, string> = { 0: 'minimal', 1: 'low', 2: 'medium', 3: 'high' };
         geminiThinkingLevel = flashMap[options.thinkingLevel] ?? 'high';
+      } else if (model.includes('3.1-pro')) {
+        // Gemini 3.1 Pro supports 3 thinking levels: low, medium, high
+        const pro31Map: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high' };
+        geminiThinkingLevel = pro31Map[options.thinkingLevel] || 'high';
       } else {
         const proMap: Record<number, string> = { 1: 'low', 2: 'high' };
         geminiThinkingLevel = proMap[options.thinkingLevel] || 'low';

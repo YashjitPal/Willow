@@ -80,7 +80,9 @@ const ModelsMenu: React.FC<{
   selectedId: string;
   onSelect: (id: string) => void;
   onAuthRequired?: () => void;
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired }) => {
+  agentSwarmEnabled?: boolean;
+  onSwarmToggle?: (enabled: boolean) => void;
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, agentSwarmEnabled, onSwarmToggle }) => {
   // Combine all saved models from all providers
   const ALL_MODELS = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
@@ -213,8 +215,34 @@ const ModelsMenu: React.FC<{
         </div>
       </div>
 
-      <div className="flex items-center h-[42px] border-t border-white/10 mt-1 bg-[#1c1c1c]">
-        <button 
+      {/* Agent Swarm Toggle */}
+      <div className="px-3 py-2.5 border-t border-white/5 flex items-center justify-between bg-[#1c1c1c]">
+        <div className="flex items-center gap-2.5">
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
+            <circle cx="12" cy="12" r="3"/>
+            <circle cx="5" cy="5" r="2"/>
+            <circle cx="19" cy="5" r="2"/>
+            <circle cx="5" cy="19" r="2"/>
+            <line x1="7" y1="7" x2="10" y2="10"/>
+            <line x1="17" y1="7" x2="14" y2="10"/>
+            <line x1="7" y1="17" x2="10" y2="14"/>
+          </svg>
+          <span className="text-[13px] font-medium text-zinc-300">Agent Swarm</span>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSwarmToggle?.(!agentSwarmEnabled); }}
+          className={`relative w-8 h-[18px] rounded-full transition-colors ${
+            agentSwarmEnabled ? 'bg-purple-500' : 'bg-zinc-700'
+          }`}
+        >
+          <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
+            agentSwarmEnabled ? 'translate-x-[16px]' : 'translate-x-[2px]'
+          }`} />
+        </button>
+      </div>
+
+      <div className="flex items-center h-[42px] border-t border-white/10 mt-0 bg-[#1c1c1c]">
+        <button
           onClick={() => { onAuthRequired?.(); handleClose(); }}
           className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-white/70 hover:text-white hover:bg-white/5 h-full"
         >
@@ -222,7 +250,7 @@ const ModelsMenu: React.FC<{
           <span>Add new</span>
         </button>
         <div className="w-[1px] h-4 bg-white/10"></div>
-        <button 
+        <button
           onClick={() => { onAuthRequired?.(); handleClose(); }}
           className="w-[42px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 h-full"
         >
@@ -483,7 +511,9 @@ export const InputBar: React.FC<{
   setSelectedModelId: (id: string) => void;
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated }) => {
+  agentSwarmEnabled?: boolean;
+  onSwarmToggle?: (enabled: boolean) => void;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -746,6 +776,8 @@ export const InputBar: React.FC<{
                   selectedId={selectedModelId}
                   onSelect={setSelectedModelId}
                   onAuthRequired={onAuthRequired}
+                  agentSwarmEnabled={agentSwarmEnabled}
+                  onSwarmToggle={onSwarmToggle}
                 />
               )}
             </div>

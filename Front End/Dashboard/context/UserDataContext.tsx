@@ -26,6 +26,7 @@ interface UserSettings {
     };
   };
   selectedModelId: string;
+  agentSwarmEnabled: boolean;
 }
 
 interface UserDataContextType {

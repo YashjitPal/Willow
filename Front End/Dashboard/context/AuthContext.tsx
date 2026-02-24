@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react';
 import { 
   User, 
   signInWithPopup,
@@ -152,14 +152,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = useCallback(async () => {
     setError(null);
     try {
       console.log('[Auth] Starting Google sign-in with popup...');
-      
+
       const result = await signInWithPopup(auth, googleProvider);
       console.log('[Auth] Google sign-in successful:', result.user.email);
-      
+
       // Get the Google OAuth access token (basic, no Drive access)
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -169,7 +169,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (err: any) {
       console.error('[Auth] Google sign-in error:', err.code, err.message);
-      
+
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Sign-in was cancelled. If this keeps happening, try signing in with email instead, or try a different browser.');
       } else if (err.code === 'auth/popup-blocked') {
@@ -181,13 +181,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
       throw err;
     }
-  };
+  }, []);
 
-  const connectDrive = async () => {
+  const connectDrive = useCallback(async () => {
     setError(null);
     try {
       console.log('[Auth] Starting Google Drive connection...');
-      
+
       // If user is logged in with Google, use their email as login_hint to skip account selection
       if (user?.email) {
         driveProvider.setCustomParameters({
@@ -195,10 +195,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           prompt: 'consent' // Still show consent for Drive permission
         });
       }
-      
+
       const result = await signInWithPopup(auth, driveProvider);
       console.log('[Auth] Google Drive connection successful');
-      
+
       // Get the Google OAuth access token with Drive scope
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -210,7 +210,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (err: any) {
       console.error('[Auth] Google Drive connection error:', err.code, err.message);
-      
+
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Drive connection was cancelled.');
       } else if (err.code === 'auth/popup-blocked') {
@@ -222,17 +222,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
       throw err;
     }
-  };
+  }, [user?.email]);
 
-  const disconnectDrive = () => {
+  const disconnectDrive = useCallback(() => {
     setDriveAccessToken(null);
     setIsDriveConnected(false);
     localStorage.removeItem('googleDriveAccessToken');
     localStorage.removeItem('isDriveConnected');
     console.log('[Auth] Google Drive disconnected');
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       await firebaseSignOut(auth);
       setAccessToken(null);
@@ -249,18 +249,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setError(err.message || 'Sign-out failed');
       throw err;
     }
-  };
+  }, []);
 
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
 
   // Update user profile in Firestore
-  const updateUserProfile = async (data: Partial<UserProfile>) => {
+  const updateUserProfile = useCallback(async (data: Partial<UserProfile>) => {
     if (!user) return;
-    
+
     try {
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, data, { merge: true });
-      
+
       setUserProfile(prev => prev ? { ...prev, ...data } : {
         displayName: data.displayName || null,
         photoURL: data.photoURL || null,
@@ -275,25 +275,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         theme: data.theme || null,
         description: data.description || null,
       });
-      
+
       console.log('[Auth] User profile updated:', data);
     } catch (err) {
       console.error('[Auth] Error updating user profile:', err);
       throw err;
     }
-  };
+  }, [user]);
 
   // Complete onboarding - save all profile data with auto-generated fields
-  const completeOnboarding = async (name: string, role: string, photoURL: string | null) => {
+  const completeOnboarding = useCallback(async (name: string, role: string, photoURL: string | null) => {
     if (!user) return;
-    
+
     // Extract first name for workspace name
     const firstName = name.split(' ')[0];
     const workspaceName = `${firstName}'s Willow`;
-    
+
     // Generate username from name (remove spaces)
     const username = name.replace(/\s+/g, '');
-    
+
     await updateUserProfile({
       displayName: name,
       role: role,
@@ -303,7 +303,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       username: username,
       workspaceColor: 'green',
     });
-  };
+  }, [user, updateUserProfile]);
 
   // Restore tokens from localStorage on mount
   useEffect(() => {
@@ -320,7 +320,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, []);
 
-  const value: AuthContextType = {
+  const value = useMemo<AuthContextType>(() => ({
     user,
     userProfile,
     loading,
@@ -335,7 +335,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearError,
     updateUserProfile,
     completeOnboarding,
-  };
+  }), [user, userProfile, loading, error, accessToken, driveAccessToken, isDriveConnected, signInWithGoogle, signOut, connectDrive, disconnectDrive, clearError, updateUserProfile, completeOnboarding]);
 
   return (
     <AuthContext.Provider value={value}>

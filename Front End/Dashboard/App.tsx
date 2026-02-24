@@ -186,6 +186,7 @@ const App: React.FC = () => {
   });
 
   const [selectedModelId, setSelectedModelId] = useState("");
+  const [agentSwarmEnabled, setAgentSwarmEnabled] = useState(false);
 
   const navigate = useNavigate();
   const { user, userProfile, loading } = useAuth();
@@ -263,13 +264,15 @@ const App: React.FC = () => {
             >
               {currentView === 'home' ? (
                 <div className="flex flex-col min-h-full">
-                  <HeroSection 
-                    onPromptSubmit={handlePromptSubmit} 
+                  <HeroSection
+                    onPromptSubmit={handlePromptSubmit}
                     modelConfig={modelConfig}
                     selectedModelId={selectedModelId}
                     setSelectedModelId={setSelectedModelId}
                     onAuthRequired={!user ? () => navigate('/login') : undefined}
                     isAuthenticated={!!user}
+                    agentSwarmEnabled={agentSwarmEnabled}
+                    onSwarmToggle={setAgentSwarmEnabled}
                   />
                   {/* Only show BottomPanel (projects showcase) when authenticated */}
                   {user && (
@@ -305,6 +308,8 @@ const App: React.FC = () => {
                   setModelConfig={setModelConfig}
                   selectedModelId={selectedModelId}
                   setSelectedModelId={setSelectedModelId}
+                  agentSwarmEnabled={agentSwarmEnabled}
+                  onSwarmToggle={setAgentSwarmEnabled}
                 />
               </Suspense>
             </div>

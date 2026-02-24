@@ -43,8 +43,11 @@ import {
 
   CodeXml,
   CornerLeftUp,
-  AlertTriangle
+  AlertTriangle,
+  MessagesSquare,
+  Library
 } from 'lucide-react';
+import { AgentIcon } from '../ui/AgentIcon';
 import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, isSaving, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges, requestSelectionBoundsRefresh, selectionStyleRefreshRequest } from '../../lib/visual-editor';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -66,6 +69,7 @@ import { ColorPickerMenu } from './ColorPickerMenu';
 import { VisualEditorSelectMenu } from './VisualEditorSelectMenu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
+import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
 
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
@@ -478,6 +482,45 @@ const stripCodeAndIndicators = (content: string): string => {
   return text;
 };
 
+// Agent Swarm Status Panel — shows per-agent status during swarm execution
+const SwarmStatusPanel: React.FC = () => {
+  const swarmRunning = useStore(swarmRunningAtom);
+  const agents = useStore(swarmAgentsAtom);
+
+  if (!swarmRunning) return null;
+
+  const agentEntries = Object.entries(agents) as [string, { status: string; statusMessage: string; streamingText: string }][];
+
+  return (
+    <div className="mx-0 mb-4 bg-[#1e1e2e] border border-purple-500/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2 text-purple-400 text-[13px] font-semibold">
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
+          <circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/>
+          <line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/>
+        </svg>
+        <span>Agent Swarm Active</span>
+      </div>
+      {agentEntries.map(([id, agent]) => (
+        <div key={id} className="flex items-center gap-3 text-[12px]">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+            agent.status === 'coding' || agent.status === 'thinking' || agent.status === 'assessing' || agent.status === 'synthesizing'
+              ? 'bg-green-400 animate-pulse'
+              : agent.status === 'waiting' || agent.status === 'distributing'
+              ? 'bg-yellow-400'
+              : agent.status === 'done'
+              ? 'bg-zinc-500'
+              : agent.status === 'error'
+              ? 'bg-red-400'
+              : 'bg-zinc-600'
+          }`} />
+          <span className="text-zinc-300 font-medium w-[70px]">{id.charAt(0).toUpperCase() + id.slice(1)}</span>
+          <span className="text-zinc-500 truncate flex-1">{agent.statusMessage || 'Idle'}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 
 interface SidebarProps {
   width: number;
@@ -495,6 +538,8 @@ interface SidebarProps {
   projectName?: string;
   isGeneratingName?: boolean;
   onSettingsClick?: (tab?: string) => void;
+  agentSwarmEnabled?: boolean;
+  onSwarmToggle?: (enabled: boolean) => void;
 }
 
 const VisualEditLoader = ({ 
@@ -1572,7 +1617,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
@@ -2510,10 +2555,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setCurrentThinkingTime(thinkingTimeRef.current);
     }, 1000);
 
-    // Route based on selectedToolId or isTestMode
+    // Route based on selectedToolId, isTestMode, or Agent Swarm
     if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
       await startTestGeneration(text);
+    } else if (agentSwarmEnabled && selectedToolId === null) {
+      // Agent Swarm mode — only when no tools are selected
+      const history: AiChatMessage[] = messages.map(m => ({
+          role: m.role,
+          content: m.content
+      }));
+      await startSwarmGeneration(text, history, processedAttachments, imageAssetPaths);
     } else {
       // Normal code generation - Trigger generation with history
       const history: AiChatMessage[] = messages.map(m => ({
@@ -2703,6 +2755,120 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+    }
+  };
+
+  // === AGENT SWARM GENERATION ===
+  const swarmAbortControllerRef = useRef<AbortController | null>(null);
+
+  const startSwarmGeneration = async (
+    text: string,
+    history: AiChatMessage[],
+    currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [],
+    imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []
+  ) => {
+    // Dynamic import to keep bundle small when not used
+    const { SwarmOrchestrator, isSwarmRunning, swarmAgents, appendChatroomMessage, resetSwarmState } = await import('../../lib/agent-swarm');
+
+    resetSwarmState();
+    isSwarmRunning.set(true);
+
+    const abortController = new AbortController();
+    swarmAbortControllerRef.current = abortController;
+
+    // Clear previously animated content tracking
+    animatedContentRef.current.clear();
+
+    // Set up streaming parser BEFORE execute so synthesis tokens stream live
+    const messageParser = workbenchStore.createMessageParser();
+    workbenchStore.isGenerating.set(true);
+    let synthesisResponseText = '';
+
+    try {
+      const projectFiles = sandpackStore.files.get();
+
+      const orchestrator = new SwarmOrchestrator({
+        apiKeys,
+        modelConfig,
+        selectedModelId,
+        projectFiles: projectFiles as any,
+        chatHistory: history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        onAgentStatusChange: (agentId, status, message) => {
+          const current = swarmAgents.get()[agentId];
+          swarmAgents.setKey(agentId, { ...current, status, statusMessage: message });
+        },
+        onToken: (agentId, token) => {
+          const current = swarmAgents.get()[agentId];
+          swarmAgents.setKey(agentId, { ...current, streamingText: current.streamingText + token });
+        },
+        onChatroomMessage: (message) => {
+          appendChatroomMessage(message);
+        },
+        // Stream Willow's final synthesis live — shows file indicators + streaming text
+        onSynthesisToken: (token) => {
+          synthesisResponseText += token;
+          setCurrentStreamingResponse(synthesisResponseText);
+          // Feed to the parser so "Editing <file>" indicators appear in real-time
+          messageParser.parse(token);
+        },
+        onComplete: () => {
+          isSwarmRunning.set(false);
+        },
+        onError: (error) => {
+          console.error('[Swarm] Error:', error);
+          isSwarmRunning.set(false);
+        },
+        abortSignal: abortController.signal,
+      });
+
+      const result = await orchestrator.execute(text);
+
+      const assistantMessage: ChatMessage = {
+        id: Math.random().toString(36).substring(7),
+        role: 'assistant',
+        content: result.finalResponse,
+        thinkingTime: Math.ceil(result.totalDuration / 1000),
+        timestamp: Date.now(),
+      };
+
+      // Mark as completed so it won't re-animate
+      completedMessagesRef.current.add(assistantMessage.id);
+
+      setMessages(prev => [...prev, assistantMessage]);
+      setCurrentStreamingResponse('');
+      setIsCurrentlyGenerating(false);
+      setIsCurrentlyThinking(false);
+      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+
+      // Process the full response through workbench for preview rendering
+      try {
+        await workbenchStore.processAIResponse(result.finalResponse);
+        console.log('[Swarm] Processed final response with workbenchStore');
+      } catch (err) {
+        console.error('[Swarm] Error processing response:', err);
+      }
+
+      // Flush any pending file edits
+      await workbenchStore.flushPendingEdits();
+
+      workbenchStore.isGenerating.set(false);
+      isSwarmRunning.set(false);
+    } catch (error: any) {
+      console.error('[Swarm] Execution error:', error);
+      setIsCurrentlyGenerating(false);
+      setIsCurrentlyThinking(false);
+      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+      isSwarmRunning.set(false);
+
+      // Add error as assistant message
+      const errorMessage: ChatMessage = {
+        id: Math.random().toString(36).substring(7),
+        role: 'assistant',
+        content: `Agent Swarm encountered an error: ${error.message || 'Unknown error'}`,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      setCurrentStreamingResponse('');
     }
   };
 
@@ -2979,7 +3145,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     // Capture initial state AFTER DOM has settled
                     const containerRect = container.getBoundingClientRect();
                     const msgRect = msgEl.getBoundingClientRect();
-                    const targetVisualOffset = isChatMode ? 76 : 20;
+                    const targetVisualOffset = isChatMode 
+                      ? 76 
+                      : (activeTab === 'agent-builder' || sidebarView === 'visual-edit') 
+                        ? 56 
+                        : 20;
                     const initialOffset = msgRect.top - containerRect.top;
                     const totalScrollNeeded = initialOffset - targetVisualOffset;
 
@@ -3059,7 +3229,12 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const msgEl = messageRefs.current[lastUserMsg.id];
       if (!msgEl) return;
 
-      const targetVisualOffset = isChatMode ? 76 : 20;
+      const targetVisualOffset = isChatMode 
+        ? 76 
+        : (activeTab === 'agent-builder' || sidebarView === 'visual-edit') 
+          ? 56 
+          : 20;
+
       const gap = 48;
       const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
       setResponseAreaMinHeight(Math.max(0, minH));
@@ -3333,9 +3508,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       {(activeTab === 'design' || sidebarView === 'visual-edit') && !isChatMode && (
         <>
           {/* Background layer: sits at z-20, behind the scrolling menu (z-30) */}
-          <div className="absolute inset-x-0 top-14 z-20 h-[52px] bg-[#1c1c1c] pointer-events-none">
-             {/* Gradient Fade at the bottom of the background */}
-             <div className="absolute -bottom-6 left-0 right-0 h-6 bg-gradient-to-b from-[#1c1c1c] to-transparent" />
+          <div className="absolute inset-x-0 top-14 z-20 h-[40px] bg-[#1c1c1c] pointer-events-none">
           </div>
 
           {/* Content layer: sits at z-40, above the scrolling menu (z-30) to keep header text always on top */}
@@ -3384,6 +3557,34 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           </div>
         </>
       )}
+
+      {/* Agents Header - Persistent across Agents Tab and Agent Builder Mode */}
+      {(activeTab === 'agents' || activeTab === 'agent-builder') && !isChatMode && (
+        <>
+          {/* Background layer: sits at z-20, behind the scrolling menu (z-30) */}
+          <div className="absolute inset-x-0 top-14 z-20 h-[40px] bg-[#1c1c1c] pointer-events-none">
+          </div>
+
+          {/* Content layer: sits at z-40, above the scrolling menu (z-30) to keep header text always on top */}
+          <div className="absolute inset-x-0 top-14 z-40 px-6 pt-0 pb-3.5 flex items-center justify-between h-[52px] pointer-events-none">
+             {/* Left side: Breadcrumbs */}
+             <div className="flex items-center h-[32px] pointer-events-auto overflow-hidden">
+                <button 
+                  className={`text-base transition-colors duration-300 ${activeTab === 'agent-builder' ? 'text-[#81888f] hover:text-white cursor-pointer' : 'text-white cursor-default'}`}
+                  onClick={() => activeTab === 'agent-builder' && onTabChange('agents')}
+                >
+                  Agents
+                </button>
+                
+                <div className={`flex items-center transition-all duration-300 ease-out origin-left ${activeTab === 'agent-builder' ? 'w-[105px] opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
+                   <span className="text-[#81888f] mx-2">/</span>
+                   <span className="text-white font-medium whitespace-nowrap">Builder</span>
+                </div>
+             </div>
+          </div>
+        </>
+      )}
+
       {/* Header - Hidden in Chat Mode since StagingView renders it at root level */}
       {!isChatMode && (
         <div className={`h-14 flex items-center justify-between z-20 flex-shrink-0 bg-[#1c1c1c]`}>
@@ -3430,9 +3631,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           }
           ${isChatMode
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
-            : activeTab === 'design'
+            : (activeTab === 'design' || activeTab === 'agents')
               ? 'pl-[8px] pr-[2px] mr-[8.5px] pt-0 scroll-pt-0' // Zero padding-top to align header perfectly with absolute overlays
-              : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
+              : (activeTab === 'agent-builder' || sidebarView === 'visual-edit')
+                ? 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-[56px] scroll-pt-[56px]' // Standard chat padding, 56px pt to clear 40px header + 16px gap
+                : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
           }`}
         style={{
           // During resize: let browser maintain scroll position as text reflows (auto)
@@ -3443,8 +3646,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         <div className={isChatMode ? 'max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
           {activeTab === 'design' && !isChatMode ? (
             <div className="space-y-4">
-               {/* Spacer to maintain vertical position of cards after removing "Design" text header */}
-               <div className="h-[52px]" />
+               {/* Spacer to maintain vertical position of cards precisely matching Visual Edits header height */}
+               <div className="h-[40px]" />
 
                {/* Themes Card */}
                <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
@@ -3479,6 +3682,46 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                         <div>
                            <div className="text-[16px] font-semibold text-white mb-1">Visual edits</div>
                            <div className="text-[14px] text-gray-400 font-medium">Select elements to edit and style visually</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+            </div>
+          ) : activeTab === 'agents' && !isChatMode ? (
+            <div className="space-y-4">
+               {/* Spacer to maintain vertical position of cards precisely matching Visual Edits header height */}
+               <div className="h-[40px]" />
+
+               {/* Builder Card */}
+               <div 
+                 onClick={() => onTabChange('agent-builder')}
+                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
+               >
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <AgentIcon size={20} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Builder</div>
+                           <div className="text-[14px] text-gray-400 font-medium">Create and manage your AI Agents</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+
+               {/* Library Card */}
+               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <Library size={20} strokeWidth={1.5} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Library</div>
+                           <div className="text-[14px] text-gray-400 font-medium">View and interact with your built Agents</div>
                         </div>
                         <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
                      </div>
@@ -3618,6 +3861,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               </div>
             );
             })}
+
+            {/* Agent Swarm Status Panel */}
+            <SwarmStatusPanel />
 
             {/* Current Streaming / Thinking UI - Only for NORMAL messages (not test mode) */}
             {isCurrentlyGenerating && !testStore.isTestMode.get() && (
@@ -4106,6 +4352,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                                   </button>
                                </div>
                              )}
+                             {/* Agent Swarm Toggle */}
+                             <div className="px-3 py-2.5 border-t border-white/5 flex items-center justify-between">
+                               <div className="flex items-center gap-2">
+                                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
+                                   <circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/>
+                                   <line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/>
+                                 </svg>
+                                 <span className="text-[12px] font-medium text-zinc-400">Swarm</span>
+                               </div>
+                               <button
+                                 onClick={(e) => { e.stopPropagation(); onSwarmToggle?.(!agentSwarmEnabled); }}
+                                 className={`relative w-7 h-[16px] rounded-full transition-colors ${agentSwarmEnabled ? 'bg-purple-500' : 'bg-zinc-700'}`}
+                               >
+                                 <div className={`absolute top-[1.5px] w-[13px] h-[13px] rounded-full bg-white transition-transform ${agentSwarmEnabled ? 'translate-x-[13px]' : 'translate-x-[1.5px]'}`} />
+                               </button>
+                             </div>
                           </div>
                         )}
                         <button 

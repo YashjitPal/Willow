@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebaseConfig';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,7 @@ interface UserSettings {
     };
   };
   selectedModelId: string;
+  agentSwarmEnabled: boolean;
 }
 
 interface UserData {
@@ -47,7 +48,8 @@ const DEFAULT_SETTINGS: UserSettings = {
     openai: { model: 'gpt-5.2-thinking', thinkingLevel: 2, savedModels: [] },
     anthropic: { model: 'claude-sonnet-4.5', thinkingLevel: 2, savedModels: [] }
   },
-  selectedModelId: ''
+  selectedModelId: '',
+  agentSwarmEnabled: false,
 };
 
 export const useUserData = () => {
@@ -87,6 +89,10 @@ export const useUserData = () => {
   const [settings, setSettingsState] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false); // Changed to false - keys already loaded from localStorage
   const [synced, setSynced] = useState(false);
+
+  // Ref to avoid stale closure in callbacks while keeping deps stable
+  const apiKeysRef = useRef(apiKeys);
+  apiKeysRef.current = apiKeys;
 
   // Load user data from Firestore
   useEffect(() => {
@@ -210,22 +216,32 @@ export const useUserData = () => {
   // Add a single API key
   const addApiKey = useCallback(async (provider: keyof ApiKeys, key: string) => {
     const newApiKeys = {
-      ...apiKeys,
-      [provider]: [...apiKeys[provider], key]
+      ...apiKeysRef.current,
+      [provider]: [...apiKeysRef.current[provider], key]
     };
-    await saveApiKeys(newApiKeys);
-  }, [apiKeys, saveApiKeys]);
+    setApiKeysState(newApiKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(newApiKeys));
+    if (user) {
+      const userDocRef = doc(db, 'users', user.uid);
+      updateDoc(userDocRef, { apiKeys: newApiKeys }).catch(console.error);
+    }
+  }, [user]);
 
   // Remove a single API key
   const removeApiKey = useCallback(async (provider: keyof ApiKeys, key: string) => {
     const newApiKeys = {
-      ...apiKeys,
-      [provider]: apiKeys[provider].filter(k => k !== key)
+      ...apiKeysRef.current,
+      [provider]: apiKeysRef.current[provider].filter(k => k !== key)
     };
-    await saveApiKeys(newApiKeys);
-  }, [apiKeys, saveApiKeys]);
+    setApiKeysState(newApiKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(newApiKeys));
+    if (user) {
+      const userDocRef = doc(db, 'users', user.uid);
+      updateDoc(userDocRef, { apiKeys: newApiKeys }).catch(console.error);
+    }
+  }, [user]);
 
-  return {
+  return useMemo(() => ({
     apiKeys,
     settings,
     loading,
@@ -235,5 +251,5 @@ export const useUserData = () => {
     addApiKey,
     removeApiKey,
     isLoggedIn: !!user
-  };
+  }), [apiKeys, settings, loading, synced, saveApiKeys, saveSettings, addApiKey, removeApiKey, user]);
 };

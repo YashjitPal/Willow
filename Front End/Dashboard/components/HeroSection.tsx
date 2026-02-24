@@ -11,7 +11,9 @@ export const HeroSection: React.FC<{
   setSelectedModelId: (id: string) => void;
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
-}> = ({ onPromptSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated }) => {
+  agentSwarmEnabled?: boolean;
+  onSwarmToggle?: (enabled: boolean) => void;
+}> = ({ onPromptSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle }) => {
   const { userProfile } = useAuth();
   const [mode, setMode] = useState<Mode>('ship');
 
@@ -58,15 +60,17 @@ export const HeroSection: React.FC<{
       </h1>
 
       {/* Input Component */}
-      <InputBar 
-        currentMode={mode} 
-        onModeChange={setMode} 
+      <InputBar
+        currentMode={mode}
+        onModeChange={setMode}
         onSubmit={onPromptSubmit}
         modelConfig={modelConfig}
         selectedModelId={selectedModelId}
         setSelectedModelId={setSelectedModelId}
         onAuthRequired={onAuthRequired}
         isAuthenticated={isAuthenticated}
+        agentSwarmEnabled={agentSwarmEnabled}
+        onSwarmToggle={onSwarmToggle}
       />
     </div>
   );

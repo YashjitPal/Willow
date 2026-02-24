@@ -12,12 +12,18 @@ import {
   Globe,
   Cloud,
   Pin,
+  MessagesSquare,
   Beaker,
   FlaskConical,
   Settings,
   MousePointer2,
-  AlertTriangle
+  AlertTriangle,
+  Bot,
+  Play,
+  Compass,
+  CodeXml
 } from 'lucide-react';
+import { AgentIcon } from '../ui/AgentIcon';
 import { useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
@@ -40,6 +46,8 @@ export const ALL_TOOLS = [
   { id: 'code', label: 'Code', icon: Code2 },
   { id: 'design', label: 'Design', icon: Palette },
   { id: 'cloud', label: 'Cloud', icon: Cloud },
+  { id: 'swarm', label: 'Swarm', icon: MessagesSquare },
+  { id: 'agents', label: 'Agents', icon: AgentIcon },
 ];
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {
@@ -142,7 +150,13 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           }
         }}
       />
-    <div className={`h-14 flex items-center justify-between w-full flex-shrink-0 bg-[#1c1c1c] pr-4 transition-[padding] duration-300 ease-in-out relative ${isSidebarCollapsed ? 'pl-4' : 'pl-0'}`}>
+    <div className={`h-14 flex items-center justify-between w-full flex-shrink-0 bg-[#1c1c1c] pr-4 relative ${isSidebarCollapsed ? 'pl-4' : 'pl-0'}`}
+      style={{
+        transitionProperty: 'padding',
+        transitionDuration: '500ms',
+        transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)'
+      }}
+    >
       {/* Left Group */}
       <div className="flex items-center gap-4">
         {isSidebarCollapsed && (
@@ -159,8 +173,8 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
       {/* Navigation Group - Single flat container to prevent layout jitters */}
       <div className="flex items-center gap-1">
         {visibleTools.map((item) => {
-          const isActive = activeTab === item.id;
-          const isLeaving = leavingId === item.id;
+          const isActive = activeTab === item.id || (activeTab === 'agent-builder' && item.id === 'agents');
+          const isLeaving = leavingId === item.id || (leavingId === 'agent-builder' && item.id === 'agents');
           
           return (
             <button
@@ -212,6 +226,16 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
             <Plus size={18} />
           </button>
 
+          {isAddMenuOpen && (
+            <div 
+              className="fixed inset-0 z-[90]" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAddMenuOpen(false);
+              }} 
+            />
+          )}
+
           {shouldRenderMenu && (
             <div 
               ref={menuRef}
@@ -250,7 +274,8 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
       </div>
 
       {/* Center Address Bar - Absolutely centered */}
-      <div className="absolute left-1/2 -translate-x-1/2 w-[280px]">
+      {activeTab !== 'agent-builder' && (
+        <div className="absolute left-1/2 -translate-x-1/2 w-[280px]">
         <div className="bg-[#1c1c1c] border border-[#383838] rounded-full flex items-center h-10 px-4 gap-2 shadow-sm">
           <div className="text-gray-500 flex items-center">
             <Monitor size={15} className="text-gray-500" />
@@ -279,6 +304,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           </div>
         </div>
       </div>
+      )}
 
       {/* Right Group */}
       <div className="flex items-center gap-3">
@@ -291,6 +317,27 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           >
             Close
           </button>
+        ) : activeTab === 'agent-builder' ? (
+          <>
+            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+              <Compass size={14} className="text-white" />
+              <span>Evaluate</span>
+            </button>
+            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+              <CodeXml size={14} className="text-white" />
+              <span>Code</span>
+            </button>
+            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+              <Play size={14} className="fill-white" />
+              <span>Preview</span>
+            </button>
+            <button
+              onClick={() => onTabChange('agents')}
+              className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none"
+            >
+              Close
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -309,7 +356,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
               )}
             </button>
             <button
-              onClick={onSettingsClick}
+              onClick={() => onSettingsClick?.()}
               className="flex items-center justify-center w-10 h-10 bg-[#1c1c1c] hover:bg-[#27272a] border border-[#27272a] rounded-xl text-white transition-[background-color] duration-200"
             >
               <Settings size={20} />
