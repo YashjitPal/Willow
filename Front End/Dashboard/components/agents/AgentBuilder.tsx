@@ -312,35 +312,35 @@ const GuardrailNode = ({ data, selected }: any) => {
               to { opacity: 1; }
             }
           `}</style>
-          <div style={{ animation: 'handleAppear 0s 0.25s backwards' }}>
-            {/* Pass Handle */}
-            <Handle 
-              type="source" 
-              id="pass"
-              position={Position.Right} 
-              isConnectable={!isPassConnected}
-              style={{ 
-                right: 0, 
-                top: '85px', 
-                transform: 'translate(50%, -50%)',
-              }}
-              className={`!w-3.5 !h-3.5 !bg-black !border-[2.5px] transition-colors ${selected ? '!border-white/40' : '!border-[#404040]'} ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-200 hover:!w-4 hover:!h-4 hover:!z-50 !z-40`} 
-            />
+          {/* Pass Handle */}
+          <Handle 
+            type="source" 
+            id="pass"
+            position={Position.Right} 
+            isConnectable={!isPassConnected}
+            style={{ 
+              right: 0, 
+              top: '85px', 
+              transform: 'translate(50%, -50%)',
+              animation: 'handleAppear 0s 0.25s backwards'
+            }}
+            className={`!w-3.5 !h-3.5 !bg-black !border-[2.5px] transition-colors ${selected ? '!border-white/40' : '!border-[#404040]'} ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-200 hover:!w-4 hover:!h-4 hover:!z-50 !z-40`} 
+          />
 
-            {/* Fail Handle */}
-            <Handle 
-              type="source" 
-              id="fail"
-              position={Position.Right} 
-              isConnectable={!isFailConnected}
-              style={{ 
-                right: 0, 
-                top: '135px', 
-                transform: 'translate(50%, -50%)',
-              }}
-              className={`!w-3.5 !h-3.5 !bg-black !border-[2.5px] transition-colors ${selected ? '!border-white/40' : '!border-[#404040]'} ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-200 hover:!w-4 hover:!h-4 hover:!z-50 !z-40`} 
-            />
-          </div>
+          {/* Fail Handle */}
+          <Handle 
+            type="source" 
+            id="fail"
+            position={Position.Right} 
+            isConnectable={!isFailConnected}
+            style={{ 
+              right: 0, 
+              top: '135px', 
+              transform: 'translate(50%, -50%)',
+              animation: 'handleAppear 0s 0.25s backwards'
+            }}
+            className={`!w-3.5 !h-3.5 !bg-black !border-[2.5px] transition-colors ${selected ? '!border-white/40' : '!border-[#404040]'} ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-200 hover:!w-4 hover:!h-4 hover:!z-50 !z-40`} 
+          />
         </>
       )}
     </div>
