@@ -23,7 +23,8 @@ import {
   BaseEdge,
   type EdgeProps,
   useReactFlow,
-  useHandleConnections
+  useHandleConnections,
+  useOnViewportChange
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { 
@@ -131,7 +132,10 @@ const SetStateNode = ({ data, selected }: any) => {
 
 const PlaceholderNode = ({ data, selected }: any) => {
   return (
-    <div className={`flex items-center justify-center gap-4 py-3 px-3 bg-[#2b2b2b]/30 rounded-[24px] shadow-2xl border-[2.5px] transition-colors ${selected ? 'border-white/40' : 'border-[#404040]'} group relative animate-node-drop`}>
+    // Reverted border-[2px] border-dashed back to border-[2.5px]
+    // Reverted rounded-[18px] back to rounded-[24px]
+    // Increased opacity to /80 and added backdrop-blur-md and backdrop-saturate-150 for a beautiful glass effect over other nodes
+    <div className={`flex items-center justify-center gap-2.5 py-3 px-4 bg-[#232323]/80 backdrop-blur-md backdrop-saturate-150 rounded-[24px] shadow-2xl border-[2.5px] transition-colors ${selected ? 'border-white/40' : 'border-[#404040]'} group relative animate-node-drop`}>
       <Handle 
         type="target" 
         position={Position.Left} 
@@ -139,7 +143,8 @@ const PlaceholderNode = ({ data, selected }: any) => {
         style={{ left: 0, transform: 'translate(-50%, -50%)' }}
         className={`!w-3.5 !h-3.5 !bg-black !border-[2.5px] transition-colors ${selected ? '!border-white/40' : '!border-[#404040]'} ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-200 hover:!w-4 hover:!h-4 hover:!z-50 !z-40`} 
       />
-      <div className="w-11 h-11 rounded-[12px] border-[2px] border-dashed border-[#555] bg-[#232323] flex items-center justify-center shrink-0">
+      {/* We add h-11 here strictly to force the exact same vertical height as before, but without any width/padding, so it stays horizontally compact */}
+      <div className="h-11 flex items-center justify-center">
         <Plus size={20} className="text-[#a1a1aa]" strokeWidth={2.5} />
       </div>
       <span className="text-white text-[16px] font-normal tracking-wide">New node</span>
@@ -563,8 +568,18 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const [localInstructions, setLocalInstructions] = useState(instructions);
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
 
+  // Sync state when props change (switching nodes of same type)
+  useEffect(() => {
+    setLocalName(nodeName);
+    setLocalInstructions(instructions);
+  }, [nodeName, instructions]);
+
   return (
-    <div 
+    <motion.div 
+      initial={{ opacity: 0, x: 20, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 15, scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 450, damping: 35, mass: 0.8 }}
       className="absolute right-6 top-6 w-[340px] bg-[#1a1a1a] rounded-[20px] shadow-2xl flex flex-col z-20 pointer-events-auto"
       style={{
         maxHeight: 'calc(100% - 48px)', // Leaves 24px (top-6) and 24px (bottom-6) spacing when fully expanded
@@ -681,7 +696,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 animate={{ 
                   height: 'auto', 
                   transition: { 
-                    height: { type: "spring", stiffness: 70, damping: 20, mass: 1.5 }
+                    height: { type: "spring", stiffness: 70, damping: 20, mass: 1.5, restDelta: 2 }
                   }
                 }}
                 exit={{ 
@@ -807,14 +822,20 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           <button 
             onClick={() => {
               if (isExpanded) {
-                // Smooth scroll up before starting the collapse animation
-                scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                setIsClosing(true);
-                // Wait for scroll to visually complete before triggering framer motion exit 
-                setTimeout(() => {
+                const isScrolled = scrollContainerRef.current && scrollContainerRef.current.scrollTop > 0;
+                
+                if (isScrolled) {
+                  // If scrolled down, scroll up smoothly first, then animate collapse
+                  scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                  setIsClosing(true);
+                  setTimeout(() => {
+                    setIsExpanded(false);
+                    setIsClosing(false);
+                  }, 300);
+                } else {
+                  // If already at the top, collapse instantly without the artificial 300ms delay
                   setIsExpanded(false);
-                  setIsClosing(false);
-                }, 300);
+                }
               } else {
                 setIsExpanded(true);
               }
@@ -840,7 +861,171 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           onInstructionsChange(val);
         }}
       />
-    </div>
+    </motion.div>
+  );
+};
+
+const InputTextIcon: React.FC<{ className?: string; size?: number }> = ({ className, size = 16 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="16" x="4" y="4" rx="4" />
+    <path d="M8 8h3" />
+    <path d="M14 8h2" />
+    <path d="M8 12h5" />
+    <path d="M8 16h8" />
+  </svg>
+);
+
+const StartConfigPanel: React.FC = () => {
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [selectedType, setSelectedType] = useState('String');
+  const panelRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const types = ['String', 'Number', 'Boolean', 'Object', 'List'];
+
+  useOnViewportChange({
+    onStart: () => {
+      setIsAddMenuOpen(false);
+    }
+  });
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Use globalThis.Node to disambiguate from ReactFlow's Node type
+      const target = event.target as globalThis.Node;
+      const el = event.target as HTMLElement;
+
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        buttonRef.current && !buttonRef.current.contains(target)
+      ) {
+        // If the click is inside the main StartConfigPanel itself (but outside the popup/add button), 
+        // we deliberately trigger the smooth fade out.
+        // If the click is entirely outside the StartConfigPanel (e.g. on the React Flow canvas),
+        // we do nothing and let React Flow native unmount routine completely obliterate the pane instantly.
+        if (panelRef.current && !panelRef.current.contains(target)) {
+          return;
+        }
+
+        setIsAddMenuOpen(false);
+      }
+    };
+
+    if (isAddMenuOpen) {
+      document.addEventListener('click', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [isAddMenuOpen]);
+
+  return (
+    <motion.div 
+      ref={panelRef}
+      initial={{ opacity: 0, x: 20, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 15, scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 450, damping: 35, mass: 0.8 }}
+      className="absolute right-6 top-6 w-[340px] bg-[#1a1a1a] rounded-[20px] shadow-2xl flex flex-col z-20 pointer-events-auto"
+    >
+      <div className="p-5 flex-1 flex flex-col min-h-0 relative">
+        <h2 className="text-white text-[16px] font-semibold tracking-wide">
+          Start
+        </h2>
+        <p className="text-[#a1a1aa] text-[13px] mt-1 tracking-wide">
+          Define the workflow inputs
+        </p>
+
+        <div className="mt-8 flex flex-col gap-3">
+          <h3 className="text-white text-[14.5px] font-medium tracking-wide">Input variables</h3>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 text-white">
+              <InputTextIcon className="text-[#22c55e]" size={16} />
+              <span className="text-[14.5px]">input_as_text</span>
+            </div>
+            <span className="text-[#a1a1aa] text-[13px]">string</span>
+          </div>
+        </div>
+
+        <div className="mt-8 flex flex-col gap-3">
+          <h3 className="text-white text-[14.5px] font-medium tracking-wide">State variables</h3>
+          <button 
+            ref={buttonRef}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsAddMenuOpen(!isAddMenuOpen);
+            }}
+            className="flex items-center justify-center gap-1.5 w-[76px] h-[32px] bg-[#2b2b2b] hover:bg-[#333] transition-colors rounded-full text-white text-[14px] font-medium"
+          >
+            <Plus size={16} strokeWidth={2.5} className="text-[#a1a1aa]" /> Add
+          </button>
+        </div>
+
+        {/* Add State Variable Popup Menu */}
+        <AnimatePresence>
+          {isAddMenuOpen && (
+            <motion.div
+              ref={menuRef}
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute right-0 top-[102%] w-[400px] bg-[#2a2a2a] rounded-[16px] shadow-xl p-4 flex flex-col gap-4 border border-[#3a3a3a] z-50"
+            >
+              {/* Type Selector Tabs */}
+              <div className="flex items-center bg-[#141414] rounded-[10px] p-1 w-full justify-between">
+                {types.map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setSelectedType(type)}
+                    className={`flex-1 min-w-max px-3 py-1.5 rounded-[8px] text-[13px] font-medium transition-colors ${
+                      selectedType === type
+                        ? 'bg-[#3b3b3b] text-white shadow-sm'
+                        : 'text-[#a1a1aa] hover:text-white hover:bg-[#222]'
+                    }`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+
+              {/* Name Input */}
+              <div className="flex flex-col gap-2">
+                <label className="text-white text-[14px] font-medium">Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter the variable name"
+                  className="w-full bg-[#3b3b3b]/50 border-transparent rounded-[8px] px-3 py-2 text-[14px] text-white placeholder:text-[#888] focus:outline-none focus:ring-0 focus:border-transparent transition-colors font-medium"
+                />
+              </div>
+
+              {/* Default Value Input */}
+              <div className="flex flex-col gap-2">
+                <label className="text-white text-[14px] font-medium flex items-center gap-1.5">
+                  Default value <span className="text-[#6a6a6a] text-[13px] font-normal">Optional</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="New variable"
+                  className="w-full bg-[#3b3b3b]/50 border-transparent rounded-[8px] px-3 py-2 text-[14px] text-white placeholder:text-[#888] focus:outline-none focus:ring-0 focus:border-transparent transition-colors font-medium"
+                />
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end mt-1">
+                <button
+                  onClick={() => setIsAddMenuOpen(false)}
+                  className="px-5 py-2 bg-white hover:bg-gray-100 text-black text-[14px] font-medium rounded-full transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+      </div>
+    </motion.div>
   );
 };
 
@@ -860,6 +1045,11 @@ interface GuardrailConfigPanelProps {
 const GuardrailConfigPanel: React.FC<GuardrailConfigPanelProps> = ({ nodeName, onNameChange, config, onConfigChange }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [localName, setLocalName] = useState(nodeName);
+
+  // Sync state when props change (switching nodes of same type)
+  useEffect(() => {
+    setLocalName(nodeName);
+  }, [nodeName]);
 
   const handleToggle = (key: keyof typeof config) => {
     onConfigChange({
@@ -883,7 +1073,11 @@ const GuardrailConfigPanel: React.FC<GuardrailConfigPanelProps> = ({ nodeName, o
   );
 
   return (
-    <div 
+    <motion.div 
+      initial={{ opacity: 0, x: 20, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 15, scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 450, damping: 35, mass: 0.8 }}
       className="absolute right-6 top-6 w-[340px] bg-[#1a1a1a] rounded-[20px] shadow-2xl flex flex-col z-20 pointer-events-auto"
       style={{
         maxHeight: 'calc(100% - 48px)', // Leaves 24px (top-6) and 24px (bottom-6) spacing when fully expanded
@@ -928,7 +1122,7 @@ const GuardrailConfigPanel: React.FC<GuardrailConfigPanelProps> = ({ nodeName, o
           <label className="text-white text-[14.5px] font-medium">Input</label>
           <div className="w-[220px] h-[32px] bg-[#2b2b2b] rounded-lg px-3 flex items-center justify-between">
             <div className="flex items-center gap-2 text-white">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-[#93dfca]"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" stroke="currentColor" strokeWidth="2.5"></rect><line x1="9" x2="15" y1="9" y2="9" stroke="currentColor" strokeWidth="2.5"></line><line x1="9" x2="15" y1="15" y2="15" stroke="currentColor" strokeWidth="2.5"></line><line x1="9" x2="12" y1="12" y2="12" stroke="currentColor" strokeWidth="2.5"></line></svg>
+              <InputTextIcon className="text-[#22c55e]" size={16} />
               <span className="text-[14px]">input_as_text</span>
             </div>
             <div className="flex items-center gap-1.5 text-[#a1a1aa] text-[12px] font-bold tracking-wider">
@@ -947,7 +1141,7 @@ const GuardrailConfigPanel: React.FC<GuardrailConfigPanelProps> = ({ nodeName, o
           {renderToggle('Continue on error', 'continueOnError')}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -1459,13 +1653,16 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
             `}</style>
             <Background gap={28} size={2} color="#27272a" />
             
-            {(() => {
-              if (!isSidebarCollapsed) return null;
+            <AnimatePresence mode="popLayout">
+              {isSidebarCollapsed && nodes.find(n => n.selected && n.type === 'start') && (
+                <StartConfigPanel key="start-panel" />
+              )}
               
-              const selectedAgentNode = nodes.find(n => n.selected && n.type === 'agent');
-              if (selectedAgentNode) {
-                return (
+              {isSidebarCollapsed && nodes.find(n => n.selected && n.type === 'agent') && (() => {
+                const selectedAgentNode = nodes.find(n => n.selected && n.type === 'agent');
+                return selectedAgentNode ? (
                   <AgentConfigPanel 
+                    key="agent-panel"
                     nodeName={(selectedAgentNode.data?.label as string) || ''}
                     onNameChange={(newName) => {
                       setNodes((nds) => 
@@ -1489,13 +1686,14 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                       );
                     }}
                   />
-                );
-              }
+                ) : null;
+              })()}
               
-              const selectedGuardrailNode = nodes.find(n => n.selected && n.type === 'guardrail');
-              if (selectedGuardrailNode) {
-                return (
+              {isSidebarCollapsed && nodes.find(n => n.selected && n.type === 'guardrail') && (() => {
+                const selectedGuardrailNode = nodes.find(n => n.selected && n.type === 'guardrail');
+                return selectedGuardrailNode ? (
                   <GuardrailConfigPanel 
+                    key="guardrail-panel"
                     nodeName={(selectedGuardrailNode.data?.label as string) || ''}
                     onNameChange={(newName) => {
                       setNodes((nds) => 
@@ -1526,11 +1724,9 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                       );
                     }}
                   />
-                );
-              }
-              
-              return null;
-            })()}
+                ) : null;
+              })()}
+            </AnimatePresence>
 
             <Panel position="top-right" className="mt-6 mr-6">
               <div className="flex items-center justify-center px-3 py-1.5 h-8 bg-black/40 backdrop-blur-md rounded-xl text-white text-xs font-semibold shadow-xl">
