@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useUserDataContext } from '../../context/UserDataContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ReactFlow, 
@@ -53,7 +54,14 @@ import {
   Trash2,
 
   ChevronDown,
-  ExternalLink
+  ExternalLink,
+  Search,
+  Check,
+  Globe,
+  Code,
+  Settings,
+  X,
+  Plus as PlusIcon
 } from 'lucide-react';
 
 // Custom node types
@@ -558,15 +566,177 @@ interface AgentConfigPanelProps {
   onInstructionsChange: (newInstructions: string) => void;
 }
 
+interface APIModel {
+  name: string;
+  displayName: string;
+  description: string;
+}
+
+const formatModelName = (displayName: string) => {
+  return displayName.replace(/^Gemini\s+/, '').replace(/\s+Preview$|\s+Experimental$/, '');
+};
+
 const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameChange, instructions, onInstructionsChange }) => {
+  const { apiKeys } = useUserDataContext();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const dropdownButtonRef = useRef<HTMLDivElement>(null);
 
   // Local state for the input to allow immediate typing before the flow state updates
   const [localName, setLocalName] = useState(nodeName);
   const [localInstructions, setLocalInstructions] = useState(instructions);
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
+
+  // Model Selector State
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [models, setModels] = useState<APIModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<APIModel | null>({
+    name: 'models/gemini-3-flash',
+    displayName: 'Gemini 3 Flash',
+    description: ''
+  });
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, right: 0, width: 0 });
+
+  // Tools Selector State
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  const toolsDropdownRef = useRef<HTMLDivElement>(null);
+  const toolsDropdownButtonRef = useRef<HTMLButtonElement>(null);
+  const [toolsDropdownPosition, setToolsDropdownPosition] = useState({ top: 0, left: 0, right: 0 });
+
+  // MCP Modal State
+  const [isMCPModalOpen, setIsMCPModalOpen] = useState(false);
+  const [mcpTab, setMcpTab] = useState<'All' | 'Hosted' | 'Third-party'>('All');
+  const [mcpView, setMcpView] = useState<'list' | 'connect' | 'connector'>('list');
+  const [selectedConnector, setSelectedConnector] = useState<{name: string, iconUrl: string, color: string, features?: string[]} | null>(null);
+  const [mcpForm, setMcpForm] = useState({
+    url: '',
+    label: '',
+    description: '',
+    authType: 'Access token / API key',
+    token: ''
+  });
+
+  useOnViewportChange({
+    onStart: () => {
+      setIsModelDropdownOpen(false);
+      setIsToolsDropdownOpen(false);
+    }
+  });
+
+  // Fetch Models from Gemini API using user's API key from Settings
+  const geminiApiKey = apiKeys?.gemini?.[0];
+  useEffect(() => {
+    const fetchModels = async () => {
+      if (!geminiApiKey) return;
+
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (!data.models || !Array.isArray(data.models)) {
+            return;
+          }
+
+          // Filter to only models matching user's requested keywords: flash, pro, flash-lite
+          const filtered = data.models.filter((m: any) => {
+            const lowerName = m.name.toLowerCase();
+            return lowerName.includes('flash') || lowerName.includes('pro');
+          }).map((m: any) => ({
+            name: m.name,
+            displayName: m.displayName || m.name.split('/').pop() || m.name,
+            description: m.description || '',
+          }));
+
+          if (filtered.length > 0) {
+            setModels(filtered);
+            // Default to the first "3 flash" or "flash" model found in the real data
+            // Default to '3 flash' -> any '3' -> any 'flash' -> first model found
+            const defaultModel = filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3') && m.name.toLowerCase().includes('flash')) || 
+                                 filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3')) || 
+                                 filtered.find((m: any) => m.name.toLowerCase().includes('flash')) || 
+                                 filtered[0];
+            setSelectedModel(defaultModel);
+          }
+        }
+      } catch (error) {
+        // Silently fail - dropdown will remain empty
+      }
+    };
+
+    fetchModels();
+  }, [geminiApiKey]);
+
+  // Handle Model Dropdown Click Outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as globalThis.Node;
+
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(target) &&
+        dropdownButtonRef.current && !dropdownButtonRef.current.contains(target)
+      ) {
+         // If clicking randomly in the canvas, just hide the dropdown instantly (react flow behavior)
+        setIsModelDropdownOpen(false);
+      }
+    };
+    
+    if (isModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isModelDropdownOpen]);
+
+  // Handle Tools Dropdown Click Outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as globalThis.Node;
+
+      if (
+        toolsDropdownRef.current && !toolsDropdownRef.current.contains(target) &&
+        toolsDropdownButtonRef.current && !toolsDropdownButtonRef.current.contains(target)
+      ) {
+         setIsToolsDropdownOpen(false);
+      }
+    };
+    
+    if (isToolsDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isToolsDropdownOpen]);
+
+  // Track position of the dropdown button for exactly placing the portal
+  useLayoutEffect(() => {
+    if (isModelDropdownOpen && dropdownButtonRef.current) {
+      const rect = dropdownButtonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        right: window.innerWidth - rect.right,
+        width: rect.width
+      });
+    }
+  }, [isModelDropdownOpen, isExpanded]);
+
+  // Track position of the tools dropdown button
+  useLayoutEffect(() => {
+    if (isToolsDropdownOpen && toolsDropdownButtonRef.current) {
+      const rect = toolsDropdownButtonRef.current.getBoundingClientRect();
+      setToolsDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        right: window.innerWidth - rect.right
+      });
+    }
+  }, [isToolsDropdownOpen, isExpanded]);
 
   // Sync state when props change (switching nodes of same type)
   useEffect(() => {
@@ -587,7 +757,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
     >
       <div 
         ref={scrollContainerRef}
-        className="p-5 flex-1 flex flex-col gap-[18px] min-h-0 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden"
+        className="p-5 flex-1 flex flex-col gap-[18px] min-h-0 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden relative"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         
@@ -663,19 +833,161 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           </div>
         </div>
 
-        <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center justify-between shrink-0 relative">
           <label className="text-white text-[14.5px] font-medium">Model</label>
-          <div className="flex items-center gap-1.5 text-gray-300 cursor-pointer hover:text-white">
-            <span className="text-[14px] font-medium">gpt-4.1</span>
-            <ChevronDown size={16} className="text-[#a1a1aa]" />
+          <div 
+            ref={dropdownButtonRef}
+            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+            className="flex items-center gap-1.5 text-gray-300 cursor-pointer hover:text-white transition-colors"
+          >
+            <span className="text-[14px] font-medium">
+              {selectedModel 
+                ? (formatModelName(selectedModel.displayName).length > 25 
+                  ? formatModelName(selectedModel.displayName).slice(0, 25) + '...' 
+                  : formatModelName(selectedModel.displayName))
+                : 'Select a model...'}
+            </span>
+            <ChevronDown size={16} className={`text-[#a1a1aa] transition-transform duration-200 ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
           </div>
+
+          {createPortal(
+            <AnimatePresence>
+              {isModelDropdownOpen && (
+                <motion.div
+                  ref={dropdownRef}
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  className="fixed w-[280px] bg-[#1f1f1f] border border-[#333] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-[99999] overflow-hidden flex flex-col"
+                  style={{
+                    top: dropdownPosition.top,
+                    right: dropdownPosition.right
+                  }}
+                >
+                  {/* Search Header */}
+                  <div className="p-3 border-b border-[#333] shrink-0">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a1a1aa]" size={14} />
+                      <input
+                        type="text"
+                        className="w-full bg-[#111] text-white text-[13px] rounded-lg pl-9 pr-3 py-2 outline-none border border-transparent focus:border-[#444] transition-colors placeholder:text-[#6a6a6a]"
+                        placeholder="Select a model..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Model List */}
+                  <div className="max-h-[260px] overflow-y-auto [&::-webkit-scrollbar]:hidden scrollbar-none pb-1">
+                    {models
+                      .filter(m => 
+                        m.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+                      )
+                      .map((model) => (
+                      <div
+                        key={model.name}
+                        onClick={() => {
+                          setSelectedModel(model);
+                          setIsModelDropdownOpen(false);
+                        }}
+                        className="flex items-center gap-3 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors hover:bg-[#252525]"
+                      >
+                        <div className="shrink-0 flex items-center justify-center w-4 h-4">
+                          {selectedModel?.name === model.name && <Check size={14} className="text-white" />}
+                        </div>
+                        <span className="text-white text-[13px] font-medium">{formatModelName(model.displayName)}</span>
+                      </div>
+                    ))}
+                    
+                    {models.filter(m => m.displayName.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                      <div className="px-5 py-4 text-center text-[#a1a1aa] text-[13px]">
+                        No models found
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>,
+            document.body
+          )}
         </div>
 
-        <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center justify-between shrink-0 relative">
           <label className="text-white text-[14.5px] font-medium">Tools</label>
-          <button className="text-[#a1a1aa] hover:text-white transition-colors">
+          <button 
+            ref={toolsDropdownButtonRef}
+            onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
+            className="text-[#a1a1aa] hover:text-white transition-colors p-[5px] -mr-1 rounded hover:bg-[#2b2b2b]"
+          >
             <Plus size={18} strokeWidth={2.5} />
           </button>
+
+          {/* Tools Selector Dropdown (Portaled to avoid clipping) */}
+          {createPortal(
+            <AnimatePresence>
+              {isToolsDropdownOpen && (
+                <motion.div 
+                  ref={toolsDropdownRef}
+                  initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  className="fixed bg-[#1e1e1e] border border-[#333] rounded-xl shadow-2xl z-[999999] overflow-hidden flex flex-col pointer-events-auto"
+                  style={{
+                    top: toolsDropdownPosition.top,
+                    right: toolsDropdownPosition.right - 5,
+                    width: '240px'
+                  }}
+                >
+                  <div className="flex flex-col py-2">
+                    {/* Hosted Section */}
+                    <div className="px-3 pb-1.5 text-[11.5px] text-[#888] font-medium tracking-wide">Hosted</div>
+                    <button 
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setIsMCPModalOpen(true);
+                      }}
+                      className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
+                      <Blocks size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
+                      MCP server
+                    </button>
+                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                      <Database size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
+                      File search
+                    </button>
+                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                      <Globe size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
+                      Web search
+                    </button>
+                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                      <Code size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
+                      Code Interpreter
+                    </button>
+
+                    <div className="h-[1px] bg-[#333] my-1.5 mx-3" />
+
+                    {/* Local Section */}
+                    <div className="px-3 py-1.5 pt-1 text-[11.5px] text-[#888] font-medium tracking-wide">Local</div>
+                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                      <div className="w-[15px] h-[15px] flex items-center justify-center font-mono text-[11px] font-bold text-[#a1a1aa] group-hover:text-white transition-colors leading-none tracking-tighter">
+                        {"{f}"}
+                      </div>
+                      Function
+                    </button>
+                    <button className="flex items-center gap-[11px] px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                      <Settings size={15} strokeWidth={1.5} className="ml-[1px] text-[#a1a1aa] group-hover:text-white transition-colors" />
+                      Custom
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>,
+            document.body
+          )}
         </div>
 
         {/* Wrapper for the last visible element and the expandable content to prevent flex gap collapse jumping on unmount */}
@@ -706,6 +1018,18 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                   }
                 }}
                 className="overflow-hidden"
+                onUpdate={(latest) => {
+                  const el = document.querySelector('[data-expand-container]') as HTMLElement;
+                  if (!el) return;
+                  if (isExpanded && typeof latest.height === 'number' && el.scrollHeight > 0 && Math.abs(latest.height - el.scrollHeight) < 3) {
+                    el.style.overflow = 'visible';
+                  }
+                }}
+                onAnimationStart={() => {
+                  const el = document.querySelector('[data-expand-container]') as HTMLElement;
+                  if (el) el.style.overflow = 'hidden';
+                }}
+                data-expand-container
               >
                 <motion.div 
                   initial={{ y: -30, opacity: 0 }}
@@ -861,6 +1185,432 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           onInstructionsChange(val);
         }}
       />
+
+      {/* Add MCP Server Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isMCPModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              {/* Backdrop */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => {
+                  setIsMCPModalOpen(false);
+                  setMcpView('list');
+                }}
+              />
+
+              {/* Modal Content */}
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.98, height: 580 }}
+                animate={{ opacity: 1, y: 0, scale: 1, height: mcpView === 'list' ? 580 : mcpView === 'connect' ? 720 : (520 + (selectedConnector?.features?.length || 0) * 36) }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[600px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Close Button OVERLAY (always visible) */}
+                <button 
+                  onClick={() => {
+                    setIsMCPModalOpen(false);
+                    setMcpView('list');
+                  }}
+                  className="absolute top-5 right-5 text-gray-400 hover:text-black dark:hover:text-white transition-colors p-1 z-[100]"
+                >
+                  <X size={20} strokeWidth={2} />
+                </button>
+
+                <AnimatePresence mode="wait">
+                  {mcpView === 'list' ? (
+                    <motion.div
+                      key="mcp-list"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="flex flex-col h-full"
+                    >
+                      {/* Modal Header for List View */}
+                      <div className="px-6 pt-6 pb-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative">
+                        <h2 className="text-[20px] font-semibold text-black dark:text-white mb-4">Add MCP server</h2>
+                        
+                        <div className="flex items-center justify-between">
+                          {/* Tabs */}
+                          <div className="flex items-center bg-[#f1f1f1] dark:bg-[#2b2b2b] p-1 rounded-[10px]">
+                            {(['All', 'Hosted', 'Third-party'] as const).map(tab => (
+                              <button
+                                key={tab}
+                                onClick={() => setMcpTab(tab)}
+                                className={`px-3 py-1.5 rounded-[8px] text-[13.5px] font-medium transition-all ${
+                                  mcpTab === tab 
+                                    ? 'bg-white dark:bg-[#3d3d3d] text-black dark:text-white shadow-sm' 
+                                    : 'text-[#666] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
+                                }`}
+                              >
+                                {tab}
+                              </button>
+                            ))}
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setMcpView('connect');
+                              setMcpForm({
+                                url: '',
+                                label: '',
+                                description: '',
+                                authType: 'None',
+                                token: ''
+                              });
+                            }}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-[#f1f1f1] dark:bg-[#2b2b2b] hover:bg-[#e5e5e5] dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                          >
+                            <PlusIcon size={14} strokeWidth={2.5} />
+                            Server
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Modal Content Scrollable Area (List View) */}
+                      <div 
+                        className="px-6 pb-6 overflow-y-auto flex-1 [&::-webkit-scrollbar]:hidden"
+                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                      >
+                        {/* Built-in Section */}
+                        {(mcpTab === 'All' || mcpTab === 'Hosted') && (
+                          <div className="mb-8">
+                            <h3 className="text-[14px] font-medium text-black dark:text-white mb-4 flex items-center gap-2 mt-2">
+                              Built-in connectors <span className="text-gray-400 dark:text-[#6a6a6a] font-normal">— maintained by the platform</span>
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                              {[
+                                { name: 'Gmail', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Gmail_icon_%282020%29.svg', color: '#EA4335', features: ['Search messages', 'Read recent emails'] },
+                                { name: 'Google Calendar', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg', color: '#4285F4', features: ['Search events', 'Fetch event details'] },
+                                { name: 'Google Drive', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg', color: '#0F9D58', features: ['Search files', 'List recent files', 'Fetch file contents'] },
+                                { name: 'Outlook Email', iconUrl: 'https://api.iconify.design/vscode-icons/file-type-outlook.svg', color: '#0078D4', features: ['Search messages', 'Read recent emails', 'Send emails'] },
+                                { name: 'Outlook Calendar', iconUrl: 'https://api.iconify.design/vscode-icons/file-type-outlook.svg', color: '#0078D4', features: ['Search events', 'Fetch event details'] },
+                                { name: 'Sharepoint', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Microsoft_Office_SharePoint_%282019%E2%80%932025%29.svg/512px-Microsoft_Office_SharePoint_%282019%E2%80%932025%29.svg.png?_=20190925170659', color: '#0364B8', features: ['Search documents', 'List site contents', 'Fetch document contents'] },
+                                { name: 'Microsoft Teams', iconUrl: 'https://api.iconify.design/logos/microsoft-teams.svg', color: '#6264A7', features: ['List channels', 'Read messages', 'Send messages'] },
+                                { name: 'Dropbox', iconUrl: '/icons/dropbox.svg', color: '#0061FF', features: ['Search files', 'List recent files', 'Fetch file contents'] },
+                              ].map(connector => (
+                                <div 
+                                  key={connector.name} 
+                                  onClick={() => {
+                                    setSelectedConnector(connector);
+                                    setMcpView('connector');
+                                    // Pre-fill form for this connector
+                                    setMcpForm({
+                                      url: `https://mcp.${connector.name.toLowerCase().replace(' ', '')}.com/api/mcp/mcp`,
+                                      label: `${connector.name.toLowerCase().replace(' ', '_')}_mcp`,
+                                      description: '',
+                                      authType: 'Access token / API key',
+                                      token: ''
+                                    });
+                                  }}
+                                  className="flex flex-col justify-center gap-3 p-4 bg-transparent border border-gray-200 dark:border-[#333] rounded-xl hover:bg-[#f9f9f9] dark:hover:bg-[#1a1a1a] cursor-pointer transition-all duration-200 group min-h-[90px] active:scale-[0.98]"
+                                >
+                                  <div className="w-8 h-8 rounded-md flex items-center justify-center p-1" style={{ backgroundColor: `${connector.color || '#444'}15` }}>
+                                    <img src={connector.iconUrl} alt={`${connector.name} icon`} className="w-full h-full object-contain" draggable={false} />
+                                  </div>
+                                  <span className="text-[13.5px] font-medium text-gray-800 dark:text-[#a0a0a0] group-hover:text-black dark:group-hover:text-white transition-colors">{connector.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Third Party Section */}
+                        {(mcpTab === 'All' || mcpTab === 'Third-party') && (
+                          <div className="mb-4">
+                            <h3 className="text-[14px] font-medium text-black dark:text-white mb-4 flex items-center gap-2 mt-2">
+                              Third party servers <span className="text-gray-400 dark:text-[#6a6a6a] font-normal">— created and maintained by others</span>
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                              {[
+                                { name: 'Zapier', iconUrl: 'https://api.iconify.design/logos/zapier-icon.svg', color: '#FF4A00', features: ['Gmail', 'Notion', '8,000+ other apps'] },
+                                { name: 'Shopify', iconUrl: 'https://api.iconify.design/logos/shopify.svg', color: '#95BF47', features: ['Manage products', 'Read orders', 'Update inventory'] },
+                                { name: 'Intercom', iconUrl: 'https://api.iconify.design/logos/intercom.svg', color: '#000000', features: ['Manage conversations', 'Search users'] },
+                                { name: 'Stripe', iconUrl: 'https://api.iconify.design/logos/stripe.svg', color: '#635BFF', features: ['List customers', 'Read payments', 'Create invoices'] },
+                                { name: 'Square', iconUrl: 'https://api.iconify.design/logos/square.svg', color: '#000000', features: ['Manage catalog', 'Process payments', 'List orders'] },
+                                { name: 'Cloudflare Browser', iconUrl: 'https://api.iconify.design/logos/cloudflare.svg', color: '#F38020', features: ['Manage zones', 'Read DNS records', 'Purge cache'] },
+                                { name: 'HubSpot', iconUrl: 'https://api.iconify.design/logos/hubspot.svg', color: '#FF7A59', features: ['Manage contacts', 'Read deals', 'Update companies'] },
+                                { name: 'Pipedream', iconUrl: 'https://api.iconify.design/logos/pipedream.svg', color: '#14C882', features: ['Trigger workflows', 'Execute code'] },
+                                { name: 'PayPal', iconUrl: 'https://api.iconify.design/logos/paypal.svg', color: '#00457C', features: ['List transactions', 'Manage subscriptions'] },
+
+                              ].map(connector => (
+                                <div 
+                                  key={connector.name} 
+                                  onClick={() => {
+                                    setSelectedConnector(connector);
+                                    setMcpView('connector');
+                                    // Pre-fill form for this connector
+                                    setMcpForm({
+                                      url: `https://mcp.${connector.name.toLowerCase().replace(' ', '')}.com/api/mcp/mcp`,
+                                      label: `${connector.name.toLowerCase().replace(' ', '_')}_mcp`,
+                                      description: '',
+                                      authType: 'Access token / API key',
+                                      token: ''
+                                    });
+                                  }}
+                                  className="flex flex-col justify-center gap-3 p-4 bg-transparent border border-gray-200 dark:border-[#333] rounded-xl hover:bg-[#f9f9f9] dark:hover:bg-[#1a1a1a] cursor-pointer transition-all duration-200 group min-h-[90px] active:scale-[0.98]"
+                                >
+                                  <div className="w-8 h-8 rounded-md flex items-center justify-center p-1" style={{ backgroundColor: `${connector.color || '#444'}15` }}>
+                                    <img src={connector.iconUrl} alt={`${connector.name} icon`} className="w-full h-full object-contain" draggable={false} />
+                                  </div>
+                                  <span className="text-[13.5px] font-medium text-gray-800 dark:text-[#a0a0a0] group-hover:text-black dark:group-hover:text-white transition-colors">{connector.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  ) : mcpView === 'connector' && selectedConnector ? (
+                    <motion.div
+                      key="mcp-connector"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="flex flex-col h-full"
+                    >
+                      {/* Scrollable form area */}
+                      <div 
+                        className="flex-1 overflow-y-auto px-8 pt-[60px] [&::-webkit-scrollbar]:hidden"
+                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                      >
+                        <div className="flex flex-col items-center max-w-[400px] w-full mx-auto">
+                          {/* App Icon Header */}
+                          <div className="w-[72px] h-[72px] bg-white dark:bg-[#2b2b2b] rounded-[18px] shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-5 p-3" style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                            <img src={selectedConnector.iconUrl} alt={`${selectedConnector.name} icon`} className="w-full h-full object-contain" draggable={false} />
+                          </div>
+                          
+                          <h2 className="text-[20px] font-semibold text-black dark:text-white mb-2">Connect to {selectedConnector.name} MCP</h2>
+                          <p className="text-[13px] text-gray-500 dark:text-[#888] mb-8 select-all">{mcpForm.url}</p>
+
+                          {/* Permissions List */}
+                          {selectedConnector.features && selectedConnector.features.length > 0 && (
+                            <div className="w-full bg-[#f4f4f4] dark:bg-[#262626] rounded-[12px] p-5 mb-6 flex flex-col gap-3.5">
+                              {selectedConnector.features.map((feature, idx) => (
+                                <div key={idx} className="flex items-center gap-3 text-[14px] text-gray-800 dark:text-[#ddd] font-medium">
+                                  <svg className="w-[20px] h-[20px] text-black dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="10" strokeWidth="2.5" />
+                                    <path d="M8 12.5l3 3 5-6" strokeWidth="2.5" />
+                                  </svg>
+                                  {feature}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Description Input */}
+                          <div className="w-full mb-4">
+                            <input 
+                              type="text" 
+                              placeholder="Description (optional)"
+                              autoComplete="one-time-code"
+                              className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] px-4 py-3 text-[14.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                              value={mcpForm.description}
+                              onChange={(e) => setMcpForm({...mcpForm, description: e.target.value})}
+                            />
+                          </div>
+
+                          {/* API Key Input */}
+                          <div className="w-full relative mb-4">
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-[#a0a0a0]">
+                              <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                              </svg>
+                            </div>
+                            <input 
+                              type="password" 
+                              placeholder={`Enter your ${selectedConnector.name} API key`}
+                              autoComplete="one-time-code"
+                              className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] pl-[44px] pr-[44px] py-3 text-[14.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                              value={mcpForm.token}
+                              onChange={(e) => setMcpForm({...mcpForm, token: e.target.value})}
+                            />
+                            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 transition-colors">
+                              <svg className="w-[20px] h-[20px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"/>
+                              </svg>
+                            </button>
+                          </div>
+
+                          <a href="#" className="text-[13.5px] text-gray-600 dark:text-[#a0a0a0] font-medium hover:text-black dark:hover:text-white transition-colors flex items-center gap-1.5 mt-2">
+                            Get API key 
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Footer Actions (sticky at bottom) */}
+                      <div className="flex items-center justify-between w-full px-8 pb-6 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                        <button 
+                          onClick={() => setMcpView('list')}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-[#f4f4f4] dark:bg-[#2b2b2b] hover:bg-[#eaeaea] dark:hover:bg-[#3d3d3d] rounded-[10px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                        >
+                          <svg className="w-4 h-4 ml-[-2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+                          Back
+                        </button>
+                        <button className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="13 2 13 9 20 9" />
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                            <path d="M9 13l2 2 4-4" />
+                          </svg>
+                          Connect
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : mcpView === 'connect' ? (
+                    <motion.div
+                      key="mcp-connect"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="flex flex-col h-full"
+                    >
+                      {/* Scrollable form area */}
+                      <div 
+                        className="flex-1 overflow-y-auto px-8 pt-[60px] [&::-webkit-scrollbar]:hidden"
+                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                      >
+                        <div className="flex flex-col items-center max-w-[400px] w-full mx-auto">
+                          {/* Form Header */}
+                          <div className="w-14 h-14 bg-white dark:bg-[#2b2b2b] rounded-[16px] shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-6">
+                            <svg className="w-6 h-6 text-black dark:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                              <polyline points="14 2 14 8 20 8" />
+                              <line x1="16" y1="13" x2="8" y2="13" />
+                              <line x1="16" y1="17" x2="8" y2="17" />
+                              <line x1="10" y1="9" x2="8" y2="9" />
+                            </svg>
+                          </div>
+                          
+                          <h2 className="text-[18px] font-semibold text-black dark:text-white mb-8">Connect to MCP Server</h2>
+
+                          {/* URL Field */}
+                          <div className="flex flex-col gap-1.5 w-full mb-5">
+                            <label className="text-[13.5px] font-medium text-black dark:text-white text-left">URL</label>
+                            <p className="text-[12px] text-gray-500 dark:text-[#888] text-left mb-0.5 mt-[-2px]">Only use MCP servers you trust and verify</p>
+                            <input 
+                              type="text" 
+                              placeholder="https://mcp.example.com"
+                              autoComplete="one-time-code"
+                              className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                              value={mcpForm.url}
+                              onChange={(e) => setMcpForm({...mcpForm, url: e.target.value})}
+                            />
+                          </div>
+
+                          {/* Label Field */}
+                          <div className="flex flex-col gap-1.5 w-full mb-5">
+                            <label className="text-[13.5px] font-medium text-black dark:text-white text-left">Label</label>
+                            <input 
+                              type="text" 
+                              placeholder="my_mcp_server"
+                              autoComplete="one-time-code"
+                              className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                              value={mcpForm.label}
+                              onChange={(e) => setMcpForm({...mcpForm, label: e.target.value})}
+                            />
+                          </div>
+
+                          {/* Description Field */}
+                          <div className="flex flex-col gap-1.5 w-full mb-5">
+                            <label className="text-[13.5px] font-medium text-black dark:text-white flex items-center gap-1.5 justify-start">
+                              Description <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
+                            </label>
+                            <input 
+                              type="text" 
+                              placeholder="My MCP Server"
+                              autoComplete="off"
+                              className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                              value={mcpForm.description}
+                              onChange={(e) => setMcpForm({...mcpForm, description: e.target.value})}
+                            />
+                          </div>
+
+                          {/* Authentication Field */}
+                          <div className="flex flex-col gap-1.5 w-full pb-6">
+                            <label className="text-[13.5px] font-medium text-black dark:text-white flex items-center gap-1.5 justify-start">
+                              Authentication 
+                              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" strokeWidth="2"/><path strokeWidth="2" strokeLinecap="round" d="M12 16v-4m0-4h.01"/></svg>
+                            </label>
+                            
+                            <div className="relative">
+                              <select 
+                                className="w-full appearance-none border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none cursor-pointer hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white pr-10"
+                                value={mcpForm.authType}
+                                onChange={(e) => setMcpForm({...mcpForm, authType: e.target.value})}
+                              >
+                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">Access token / API key</option>
+                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">Basic Auth</option>
+                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">None</option>
+                              </select>
+                              <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-gray-500 pointer-events-none stroke-[2px]" />
+                            </div>
+                            
+                            <div className="relative mt-[2px]">
+                              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-[#a0a0a0]">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                                </svg>
+                              </div>
+                              <input 
+                                type="password" 
+                                placeholder="Add your access token"
+                                autoComplete="one-time-code"
+                                className="w-full border border-gray-200 dark:border-[#333] rounded-[10px] pl-[38px] pr-10 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                                value={mcpForm.token}
+                                onChange={(e) => setMcpForm({...mcpForm, token: e.target.value})}
+                              />
+                              <button className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+                                <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer Actions (sticky at bottom) */}
+                      <div className="flex items-center justify-between w-full px-8 pb-6 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                        <button 
+                          onClick={() => setMcpView('list')}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-[#f4f4f4] dark:bg-[#2b2b2b] hover:bg-[#eaeaea] dark:hover:bg-[#3d3d3d] rounded-[10px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                        >
+                          <svg className="w-4 h-4 ml-[-2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+                          Back
+                        </button>
+                        <button className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="13 2 13 9 20 9" />
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                            <path d="M9 13l2 2 4-4" />
+                          </svg>
+                          Connect
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
     </motion.div>
   );
 };
