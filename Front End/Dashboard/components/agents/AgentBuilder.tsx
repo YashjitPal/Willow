@@ -61,7 +61,8 @@ import {
   Code,
   Settings,
   X,
-  Plus as PlusIcon
+  Plus as PlusIcon,
+  Wand2
 } from 'lucide-react';
 
 // Custom node types
@@ -600,6 +601,38 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, right: 0, width: 0 });
 
+  // Output Format State
+  const [isAgentFormatDropdownOpen, setIsAgentFormatDropdownOpen] = useState(false);
+  const agentFormatDropdownRef = useRef<HTMLDivElement>(null);
+  const agentFormatDropdownButtonRef = useRef<HTMLDivElement>(null);
+  const [agentFormatDropdownPosition, setAgentFormatDropdownPosition] = useState({ top: 0, left: 0, right: 0, width: 0 });
+  const [selectedAgentFormat, setSelectedAgentFormat] = useState('Text');
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as globalThis.Node;
+      if (
+        agentFormatDropdownRef.current && !agentFormatDropdownRef.current.contains(target) &&
+        agentFormatDropdownButtonRef.current && !agentFormatDropdownButtonRef.current.contains(target)
+      ) {
+        setIsAgentFormatDropdownOpen(false);
+      }
+    };
+    if (isAgentFormatDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isAgentFormatDropdownOpen]);
+
+  useEffect(() => {
+    // If Format is set to Image but the newly selected model does not support images, revert to Text
+    if (selectedAgentFormat === 'Image' && selectedModel && !selectedModel.name.toLowerCase().includes('image')) {
+      setSelectedAgentFormat('Text');
+    }
+  }, [selectedModel, selectedAgentFormat]);
+
   // Tools Selector State
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
   const toolsDropdownRef = useRef<HTMLDivElement>(null);
@@ -618,11 +651,68 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
     authType: 'Access token / API key',
     token: ''
   });
+  const [isMcpAuthDropdownOpen, setIsMcpAuthDropdownOpen] = useState(false);
+  const mcpAuthDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mcpAuthDropdownRef.current && !mcpAuthDropdownRef.current.contains(event.target as globalThis.Node)) {
+        setIsMcpAuthDropdownOpen(false);
+      }
+    };
+    
+    if (isMcpAuthDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMcpAuthDropdownOpen]);
+
+  // File Search Modal State
+  const [isFileSearchModalOpen, setIsFileSearchModalOpen] = useState(false);
+
+  // Code Interpreter Modal State
+  const [isCodeInterpreterModalOpen, setIsCodeInterpreterModalOpen] = useState(false);
+
+  // Function Modal State
+  const [isFunctionModalOpen, setIsFunctionModalOpen] = useState(false);
+
+  // JSON Schema Modal State
+  const [isJsonSchemaModalOpen, setIsJsonSchemaModalOpen] = useState(false);
+  const [jsonSchemaMode, setJsonSchemaMode] = useState<'Simple' | 'Advanced'>('Simple');
+  const [jsonSchemaName, setJsonSchemaName] = useState('response_schema');
+  const [jsonSchemaProperties, setJsonSchemaProperties] = useState<Array<{ id: number, name: string, type: string, description: string }>>([{ id: Date.now(), name: '', type: 'String', description: '' }]);
+  const [jsonSchemaRaw, setJsonSchemaRaw] = useState('{\n  "type": "object",\n  "properties": {\n    \n  }\n}');
+
+  // Custom Tool Modal State
+  const [isCustomToolModalOpen, setIsCustomToolModalOpen] = useState(false);
+  const [isFormatDropdownOpen, setIsFormatDropdownOpen] = useState(false);
+  const [selectedFormat, setSelectedFormat] = useState('Text');
+  const formatDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (formatDropdownRef.current && !formatDropdownRef.current.contains(event.target as globalThis.Node)) {
+        setIsFormatDropdownOpen(false);
+      }
+    };
+    
+    if (isFormatDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isFormatDropdownOpen]);
 
   useOnViewportChange({
     onStart: () => {
       setIsModelDropdownOpen(false);
       setIsToolsDropdownOpen(false);
+      setIsFormatDropdownOpen(false);
     }
   });
 
@@ -737,6 +827,19 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
       });
     }
   }, [isToolsDropdownOpen, isExpanded]);
+
+  // Track position of the output format dropdown button
+  useLayoutEffect(() => {
+    if (isAgentFormatDropdownOpen && agentFormatDropdownButtonRef.current) {
+      const rect = agentFormatDropdownButtonRef.current.getBoundingClientRect();
+      setAgentFormatDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        right: window.innerWidth - rect.right,
+        width: rect.width
+      });
+    }
+  }, [isAgentFormatDropdownOpen, isExpanded]);
 
   // Sync state when props change (switching nodes of same type)
   useEffect(() => {
@@ -955,7 +1058,13 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       <Blocks size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       MCP server
                     </button>
-                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                    <button 
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setIsFileSearchModalOpen(true);
+                      }}
+                      className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
                       <Database size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       File search
                     </button>
@@ -963,7 +1072,13 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       <Globe size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       Web search
                     </button>
-                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                    <button 
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setIsCodeInterpreterModalOpen(true);
+                      }}
+                      className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
                       <Code size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       Code Interpreter
                     </button>
@@ -972,13 +1087,25 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
 
                     {/* Local Section */}
                     <div className="px-3 py-1.5 pt-1 text-[11.5px] text-[#888] font-medium tracking-wide">Local</div>
-                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                    <button 
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setIsFunctionModalOpen(true);
+                      }}
+                      className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
                       <div className="w-[15px] h-[15px] flex items-center justify-center font-mono text-[11px] font-bold text-[#a1a1aa] group-hover:text-white transition-colors leading-none tracking-tighter">
                         {"{f}"}
                       </div>
                       Function
                     </button>
-                    <button className="flex items-center gap-[11px] px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                    <button 
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setIsCustomToolModalOpen(true);
+                      }}
+                      className="flex items-center gap-[11px] px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
                       <Settings size={15} strokeWidth={1.5} className="ml-[1px] text-[#a1a1aa] group-hover:text-white transition-colors" />
                       Custom
                     </button>
@@ -991,14 +1118,107 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
         </div>
 
         {/* Wrapper for the last visible element and the expandable content to prevent flex gap collapse jumping on unmount */}
-        <div className="flex flex-col shrink-0">
+        <div className="flex flex-col shrink-0 relative">
           <div className="flex items-center justify-between">
             <label className="text-white text-[14.5px] font-medium">Output format</label>
-            <div className="flex items-center gap-1.5 text-gray-300 cursor-pointer hover:text-white">
-              <span className="text-[14px] font-medium">Text</span>
-              <ChevronDown size={16} className="text-[#a1a1aa]" />
+            <div 
+              ref={agentFormatDropdownButtonRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAgentFormatDropdownOpen(!isAgentFormatDropdownOpen);
+              }}
+              className="flex items-center gap-1.5 text-gray-300 cursor-pointer hover:text-white transition-colors py-1 pl-3 pr-1 rounded-md hover:bg-[#2b2b2b] -mr-1"
+            >
+              <span className="text-[14px] font-medium">{selectedAgentFormat}</span>
+              <ChevronDown size={16} className={`text-[#a1a1aa] transition-transform duration-200 ${isAgentFormatDropdownOpen ? 'rotate-180' : ''}`} />
             </div>
+
+            {createPortal(
+              <AnimatePresence>
+                {isAgentFormatDropdownOpen && (
+                  <motion.div
+                    ref={agentFormatDropdownRef}
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    transition={{ duration: 0.15 }}
+                    className="fixed bg-[#2b2b2b] border border-[#333] rounded-[10px] shadow-xl py-1 z-[999999] overflow-hidden"
+                    style={{
+                      top: agentFormatDropdownPosition.top,
+                      right: agentFormatDropdownPosition.right,
+                      width: '140px'
+                    }}
+                  >
+                    {['Text', 'JSON', ...(selectedModel?.name.toLowerCase().includes('image') ? ['Image'] : [])].map((formatOption) => (
+                      <button
+                        key={formatOption}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAgentFormat(formatOption);
+                          setIsAgentFormatDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 text-[13.5px] flex items-center justify-between transition-colors ${
+                          selectedAgentFormat === formatOption 
+                            ? 'text-white bg-[#333] font-medium' 
+                            : 'text-[#a1a1aa] hover:bg-[#333] hover:text-white'
+                        }`}
+                      >
+                        {formatOption}
+                        {selectedAgentFormat === formatOption && (
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>,
+              document.body
+            )}
           </div>
+
+          {/* Conditional JSON Schema Button */}
+          <AnimatePresence initial={false}>
+            {selectedAgentFormat === 'JSON' && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ 
+                  height: 'auto', 
+                  opacity: 1,
+                  transition: { 
+                    height: { type: "spring", stiffness: 300, damping: 30 },
+                    opacity: { duration: 0.2, delay: 0.05 }
+                  }
+                }}
+                exit={{ 
+                  height: 0, 
+                  opacity: 0,
+                  transition: { 
+                    height: { duration: 0.2, ease: [0.32, 0.72, 0, 1] },
+                    opacity: { duration: 0.1 }
+                  }
+                }}
+                className="overflow-hidden"
+              >
+                <div className="mt-2.5 w-[fit-content]">
+                  <button 
+                    onClick={() => {
+                      setJsonSchemaMode('Simple');
+                      setJsonSchemaName('response_schema');
+                      setJsonSchemaProperties([{ id: Date.now(), name: '', type: 'String', description: '' }]);
+                      setJsonSchemaRaw('{\n  "type": "object",\n  "properties": {\n    \n  }\n}');
+                      setIsJsonSchemaModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#333] transition-colors rounded-full"
+                  >
+                    <Plus size={14} className="text-[#a1a1aa]" />
+                    <span className="text-white text-[13px] font-medium pr-1">Add schema</span>
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* --- Expanded Content --- */}
           <AnimatePresence initial={false}>
@@ -1131,11 +1351,10 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                   </div>
                 </div>
               </div>
-
+                </motion.div>
               </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>
         </div>
 
       </div>
@@ -1478,12 +1697,11 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       transition={{ duration: 0.2, ease: "easeInOut" }}
                       className="flex flex-col h-full"
                     >
-                      {/* Scrollable form area */}
+                      {/* Form area */}
                       <div 
-                        className="flex-1 overflow-y-auto px-8 pt-[60px] [&::-webkit-scrollbar]:hidden"
-                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                        className="flex-1 overflow-visible px-8 pt-10 relative z-20"
                       >
-                        <div className="flex flex-col items-center max-w-[400px] w-full mx-auto">
+                        <div className="flex flex-col items-center max-w-[400px] w-full mx-auto pb-4">
                           {/* Form Header */}
                           <div className="w-14 h-14 bg-white dark:bg-[#2b2b2b] rounded-[16px] shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-6">
                             <svg className="w-6 h-6 text-black dark:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1540,23 +1758,64 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                           </div>
 
                           {/* Authentication Field */}
-                          <div className="flex flex-col gap-1.5 w-full pb-6">
+                          <div className="flex flex-col gap-1.5 w-full pb-6 relative z-50">
                             <label className="text-[13.5px] font-medium text-black dark:text-white flex items-center gap-1.5 justify-start">
                               Authentication 
                               <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" strokeWidth="2"/><path strokeWidth="2" strokeLinecap="round" d="M12 16v-4m0-4h.01"/></svg>
                             </label>
                             
-                            <div className="relative">
-                              <select 
-                                className="w-full appearance-none border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none cursor-pointer hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white pr-10"
-                                value={mcpForm.authType}
-                                onChange={(e) => setMcpForm({...mcpForm, authType: e.target.value})}
+                            <div className="relative" ref={mcpAuthDropdownRef}>
+                              <button 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setIsMcpAuthDropdownOpen(!isMcpAuthDropdownOpen);
+                                }}
+                                className="w-full text-left border border-gray-200 dark:border-[#333] rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none cursor-pointer hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white flex items-center justify-between"
                               >
-                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">Access token / API key</option>
-                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">Basic Auth</option>
-                                <option className="bg-white dark:bg-[#2b2b2b] text-black dark:text-white">None</option>
-                              </select>
-                              <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-gray-500 pointer-events-none stroke-[2px]" />
+                                {mcpForm.authType}
+                                <ChevronDown className="w-[18px] h-[18px] text-gray-500 pointer-events-none stroke-[2px]" />
+                              </button>
+
+                              <AnimatePresence>
+                                {isMcpAuthDropdownOpen && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -5 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -5 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#2b2b2b] border border-gray-100 dark:border-[#333] rounded-[10px] shadow-lg py-1 z-50 overflow-hidden"
+                                  >
+                                    {['Access token / API key', 'Basic Auth', 'None'].map((authOption) => (
+                                      <button
+                                        key={authOption}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setMcpForm({...mcpForm, authType: authOption});
+                                          setIsMcpAuthDropdownOpen(false);
+                                        }}
+                                        className={`w-full text-left px-3.5 py-2 text-[13.5px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-[#333] transition-colors ${
+                                          mcpForm.authType === authOption 
+                                            ? 'text-black dark:text-white font-medium' 
+                                            : 'text-gray-600 dark:text-[#a1a1aa]'
+                                        }`}
+                                      >
+                                        <svg 
+                                          className={`w-3.5 h-3.5 shrink-0 ${mcpForm.authType === authOption ? 'opacity-100' : 'opacity-0'}`} 
+                                          viewBox="0 0 24 24" 
+                                          fill="none" 
+                                          stroke="currentColor" 
+                                          strokeWidth="3" 
+                                          strokeLinecap="round" 
+                                          strokeLinejoin="round"
+                                        >
+                                          <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                        {authOption}
+                                      </button>
+                                    ))}
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
                             
                             <div className="relative mt-[2px]">
@@ -1584,7 +1843,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       </div>
 
                       {/* Footer Actions (sticky at bottom) */}
-                      <div className="flex items-center justify-between w-full px-8 pb-6 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                      <div className="flex items-center justify-between w-full px-8 pb-8 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] relative z-10">
                         <button 
                           onClick={() => setMcpView('list')}
                           className="flex items-center gap-1.5 px-3 py-2 bg-[#f4f4f4] dark:bg-[#2b2b2b] hover:bg-[#eaeaea] dark:hover:bg-[#3d3d3d] rounded-[10px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
@@ -1604,6 +1863,545 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     </motion.div>
                   ) : null}
                 </AnimatePresence>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* File Search Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isFileSearchModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              {/* Backdrop */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsFileSearchModalOpen(false)}
+              />
+
+              {/* Modal Content */}
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[500px] h-[500px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="px-6 pt-6 pb-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative">
+                  <h2 className="text-[20px] font-semibold text-black dark:text-white">Attach files to file search</h2>
+                </div>
+
+                {/* Body Content */}
+                <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex flex-col items-center justify-center w-full max-w-[320px] mx-auto cursor-pointer">
+                    <div className="w-12 h-12 bg-white dark:bg-[#2b2b2b] rounded-xl shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-black dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    </div>
+                    <h3 className="text-[15.5px] font-semibold text-black dark:text-white mb-2 transition-colors">Drag your files here or click to upload</h3>
+                    <p className="text-[13px] text-gray-500 dark:text-[#a1a1aa] text-center mb-5">Information in attached files will be available to this response.</p>
+                    <div className="flex items-center justify-center w-full">
+                      <button className="px-4 py-2 bg-gray-200 dark:bg-[#333] hover:bg-gray-300 dark:hover:bg-[#404040] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors">
+                        Upload
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex items-center justify-end w-full px-6 py-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setIsFileSearchModalOpen(false)}
+                      className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button className="px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] dark:text-[#555] text-gray-400 rounded-[8px] text-[13.5px] font-medium transition-colors cursor-not-allowed">
+                      Attach
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+      {/* Code Interpreter Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isCodeInterpreterModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsCodeInterpreterModalOpen(false)}
+              />
+
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[500px] h-[500px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-6 pt-6 pb-2 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative">
+                  <h2 className="text-[20px] font-semibold text-black dark:text-white mb-2">Code interpreter</h2>
+                  <p className="text-[14px] text-gray-500 dark:text-[#a0a0a0]">Run Python code and analyze uploaded files.</p>
+                </div>
+
+                <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex flex-col items-center justify-center w-full max-w-[320px] mx-auto cursor-pointer">
+                    <div className="w-12 h-12 bg-white dark:bg-[#2b2b2b] rounded-xl shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-black dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    </div>
+                    <h3 className="text-[15.5px] font-semibold text-black dark:text-white mb-2 transition-colors">Drag your files here or click to upload</h3>
+                    <p className="text-[13px] text-gray-500 dark:text-[#a1a1aa] text-center mb-5">Adding files is optional.</p>
+                    <div className="flex items-center justify-center w-full">
+                      <button className="px-4 py-2 bg-gray-200 dark:bg-[#333] hover:bg-gray-300 dark:hover:bg-[#404040] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors">
+                        Select files
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end w-full px-6 py-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setIsCodeInterpreterModalOpen(false)}
+                      className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* Function Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isFunctionModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              {/* Backdrop */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsFunctionModalOpen(false)}
+              />
+
+              {/* Modal Content */}
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[650px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="px-7 pt-7 pb-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative">
+                  <h2 className="text-[20px] font-semibold text-black dark:text-white mb-2">Function</h2>
+                  <p className="text-[14px] text-gray-600 dark:text-[#a0a0a0]">
+                    The model will intelligently decide to call functions based on input it receives from the user. <a href="#" className="underline hover:text-gray-800 dark:hover:text-white transition-colors">Learn more.</a>
+                  </p>
+                </div>
+
+                {/* Body Content */}
+                <div className="flex-1 px-7 pb-2 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[14.5px] font-semibold text-black dark:text-white">Definition</h3>
+                    <div className="flex items-center gap-4">
+                      <button className="flex items-center gap-1.5 text-[13px] font-medium text-black dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                        <svg className="w-[15px] h-[15px] fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M 6.5 1.25 C 6.5 4.15 4.15 6.5 1.25 6.5 C 4.15 6.5 6.5 8.85 6.5 11.75 C 6.5 8.85 8.85 6.5 11.75 6.5 C 8.85 6.5 6.5 4.15 6.5 1.25 Z" />
+                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                        </svg>
+                        Generate
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Code Editor Area */}
+                  <div className="w-full bg-white dark:bg-[#252525] border border-gray-200 dark:border-[#333] rounded-[10px] flex flex-col overflow-hidden h-[260px]">
+                    <textarea 
+                      className="flex-1 w-full p-4 font-mono text-[13px] text-gray-800 dark:text-[#e0e0e0] leading-[1.6] bg-transparent resize-none outline-none focus:ring-0 placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                      placeholder="Write your function definition here..."
+                    />
+                    
+                    {/* Inline Footer of Code Block */}
+                    <div className="w-full border-t border-gray-200 dark:border-[#333] bg-[#fdfdfd] dark:bg-[#2a2a2a] p-3 text-[13px] text-gray-600 dark:text-[#a0a0a0] flex items-center gap-1.5 shrink-0">
+                      <span>Add</span>
+                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                      <code className="bg-gray-100 dark:bg-[#1f1f1f] px-1.5 py-0.5 rounded-[6px] text-[12.5px] font-mono border border-gray-200 dark:border-[#404040] text-black dark:text-[#d4d4d4] shrink-0">"strict": true</code>
+                      <span className="truncate">to ensure the model's response always follows this schema.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex items-center justify-end w-full px-7 py-5 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setIsFunctionModalOpen(false)}
+                      className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* JSON Schema Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isJsonSchemaModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsJsonSchemaModalOpen(false)}
+              />
+
+              <motion.div
+                layout
+                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ 
+                  layout: { type: "spring", stiffness: 400, damping: 30 },
+                  default: { type: "spring", stiffness: 400, damping: 30 }
+                }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[650px] rounded-[16px] overflow-hidden shadow-2xl flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <motion.div 
+                  layout 
+                  transition={{ layout: { type: "spring", stiffness: 400, damping: 30 } }}
+                  className="px-7 pt-7 pb-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative flex justify-between items-start"
+                >
+                  <div>
+                    <h2 className="text-[20px] font-semibold text-black dark:text-white mb-2">Structured output (JSON)</h2>
+                    <p className="text-[14px] text-gray-600 dark:text-[#a0a0a0]">
+                      The model will generate a JSON object that matches this schema.
+                    </p>
+                  </div>
+                  
+                  {/* Simple/Advanced Toggle */}
+                  <div className="flex bg-[#e5e5e5] dark:bg-[#2b2b2b] rounded-lg p-1 shrink-0">
+                    <button 
+                      onClick={() => setJsonSchemaMode('Simple')}
+                      className={`px-4 py-1.5 rounded-md text-[13.5px] font-medium transition-colors ${jsonSchemaMode === 'Simple' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white'}`}
+                    >
+                      Simple
+                    </button>
+                    <button 
+                      onClick={() => setJsonSchemaMode('Advanced')}
+                      className={`px-4 py-1.5 rounded-md text-[13.5px] font-medium transition-colors ${jsonSchemaMode === 'Advanced' ? 'bg-[#1a1a1a] text-white shadow-sm' : 'text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white'}`}
+                    >
+                      Advanced
+                    </button>
+                  </div>
+                </motion.div>
+
+                <motion.div 
+                  layout 
+                  transition={{ layout: { type: "spring", stiffness: 400, damping: 30 } }}
+                  className={`flex-1 px-7 pb-2 bg-[#fafafa] dark:bg-[#1e1e1e] flex flex-col gap-5 overflow-y-auto [&::-webkit-scrollbar]:hidden ${jsonSchemaMode === 'Advanced' ? 'h-[50vh]' : 'max-h-[50vh]'}`}
+                >
+                  <motion.div layout className="flex flex-col gap-2.5">
+                    <label className="text-[14px] font-semibold text-black dark:text-white">Name</label>
+                    <input 
+                      type="text" 
+                      value={jsonSchemaName}
+                      onChange={(e) => setJsonSchemaName(e.target.value)}
+                      className="w-full border border-gray-200 dark:border-[#333] rounded-[6px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                    />
+                  </motion.div>
+
+                  {jsonSchemaMode === 'Simple' ? (
+                    <div className="flex flex-col gap-3">
+                      <label className="text-[14px] font-semibold text-black dark:text-white">Properties</label>
+                      
+                      <div className="flex items-center text-[12.5px] text-gray-400 dark:text-[#6a6a6a] font-medium px-2">
+                         <div className="w-[30%]">Name</div>
+                         <div className="w-[25%]">Type</div>
+                         <div className="flex-1">Description</div>
+                      </div>
+
+                      <AnimatePresence initial={false}>
+                        {jsonSchemaProperties.map((prop, idx) => (
+                          <motion.div 
+                            key={prop.id}
+                            initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
+                            animate={{ opacity: 1, height: 'auto', overflow: 'hidden' }}
+                            exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+                            transition={{ duration: 0.2, ease: "easeInOut" }}
+                          >
+                            <div className="flex gap-2 items-center pb-1">
+                              <input 
+                                type="text"
+                                value={prop.name}
+                                onChange={(e) => {
+                                  const newProps = [...jsonSchemaProperties];
+                                  newProps[idx].name = e.target.value;
+                                  setJsonSchemaProperties(newProps);
+                                }}
+                                className="w-[30%] border border-gray-200 dark:border-[#333] rounded-[6px] px-3.5 py-2 text-[13.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white"
+                              />
+                              <select
+                                value={prop.type}
+                                onChange={(e) => {
+                                  const newProps = [...jsonSchemaProperties];
+                                  newProps[idx].type = e.target.value;
+                                  setJsonSchemaProperties(newProps);
+                                }}
+                                className="w-[25%] border border-gray-200 dark:border-[#333] rounded-[6px] px-3 py-2 text-[13.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white appearance-none cursor-pointer"
+                              >
+                                <option value="String">String</option>
+                                <option value="Number">Number</option>
+                                <option value="Boolean">Boolean</option>
+                                <option value="Object">Object</option>
+                                <option value="Array">Array</option>
+                              </select>
+                              <input 
+                                type="text"
+                                value={prop.description}
+                                onChange={(e) => {
+                                  const newProps = [...jsonSchemaProperties];
+                                  newProps[idx].description = e.target.value;
+                                  setJsonSchemaProperties(newProps);
+                                }}
+                                className="flex-1 border border-gray-200 dark:border-[#333] rounded-[6px] px-3.5 py-2 text-[13.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white"
+                              />
+                              {jsonSchemaProperties.length > 1 && (
+                                <button 
+                                  onClick={() => {
+                                    const newProps = [...jsonSchemaProperties];
+                                    newProps.splice(idx, 1);
+                                    setJsonSchemaProperties(newProps);
+                                  }}
+                                  className="p-2 text-gray-400 hover:text-red-500 transition-colors shrink-0"
+                                  title="Remove property"
+                                >
+                                  <Trash2 size={16} strokeWidth={2} />
+                                </button>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+
+                      <button 
+                        onClick={() => setJsonSchemaProperties([...jsonSchemaProperties, { id: Date.now(), name: '', type: 'String', description: '' }])}
+                        className="w-[fit-content] mt-2 flex items-center justify-center gap-1.5 px-4 py-1.5 bg-[#e5e5e5] hover:bg-[#d4d4d4] dark:bg-[#2b2b2b] dark:hover:bg-[#333] transition-colors rounded-full text-black dark:text-white text-[13.5px] font-medium"
+                      >
+                        <Plus size={14} className="text-gray-500 dark:text-[#a1a1aa]" /> Add
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2.5">
+                      <label className="text-[14px] font-semibold text-black dark:text-white">Raw JSON Schema</label>
+                      <textarea
+                        value={jsonSchemaRaw}
+                        onChange={(e) => setJsonSchemaRaw(e.target.value)}
+                        className="w-full h-[calc(50vh-150px)] min-h-[300px] border border-gray-200 dark:border-[#333] rounded-[8px] p-3.5 text-[13.5px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-white dark:bg-[#121212] text-black dark:text-[#d4d4d4] font-mono resize-none"
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
+                </motion.div>
+
+                <motion.div 
+                  layout 
+                  transition={{ layout: { type: "spring", stiffness: 400, damping: 30 } }}
+                  className="flex items-center justify-between w-full px-7 py-5 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]"
+                >
+                  <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-[#2b2b2b] dark:hover:bg-[#333] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" className="fill-current">
+                      <path d="M 6.5 1.25 C 6.5 4.15 4.15 6.5 1.25 6.5 C 4.15 6.5 6.5 8.85 6.5 11.75 C 6.5 8.85 8.85 6.5 11.75 6.5 C 8.85 6.5 6.5 4.15 6.5 1.25 Z" />
+                      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                    </svg>
+                    Generate
+                  </button>
+                  
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setIsJsonSchemaModalOpen(false)}
+                      className="px-4 py-2 bg-transparent hover:bg-gray-100 dark:hover:bg-[#2b2b2b] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]"
+                    >
+                      Update
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* Custom Tool Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isCustomToolModalOpen && (
+            <div className="fixed inset-0 z-[9999999] flex items-center justify-center p-6 sm:p-12 pointer-events-auto">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsCustomToolModalOpen(false)}
+              />
+
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[650px] rounded-[16px] shadow-2xl flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-7 pt-7 pb-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] z-10 relative">
+                  <h2 className="text-[20px] font-semibold text-black dark:text-white mb-2">Custom tool</h2>
+                  <p className="text-[14px] text-gray-600 dark:text-[#a0a0a0]">
+                    The model will intelligently decide to call custom tools based on input it receives from the user. <a href="#" className="underline hover:text-gray-800 dark:hover:text-white transition-colors">Learn more.</a>
+                  </p>
+                </div>
+
+                <div className="flex-1 px-7 pb-2 bg-[#fafafa] dark:bg-[#1e1e1e] flex flex-col gap-5">
+                  <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+                    <label className="text-[14px] font-semibold text-black dark:text-white sm:w-[100px] shrink-0">Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="coding_tool"
+                      className="w-full border border-gray-200 dark:border-[#333] rounded-[8px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2.5">
+                    <label className="text-[14px] font-semibold text-black dark:text-white">Description</label>
+                    <textarea 
+                      placeholder="Describe what your tool should do, e.g. execute arbitrary code."
+                      className="w-full h-[180px] resize-none border border-gray-200 dark:border-[#333] rounded-[8px] px-3.5 py-3 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-4 sm:items-center pt-2">
+                    <label className="text-[14px] font-semibold text-black dark:text-white sm:w-[100px] shrink-0">Format</label>
+                    <div 
+                      className="relative w-full"
+                      ref={formatDropdownRef}
+                    >
+                      <button 
+                        onClick={() => setIsFormatDropdownOpen(!isFormatDropdownOpen)}
+                        className="w-full text-left border border-gray-200 dark:border-[#333] rounded-[8px] px-3.5 py-2.5 text-[14px] outline-none cursor-pointer hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white flex items-center justify-between"
+                      >
+                        {selectedFormat}
+                        <ChevronDown className="w-[16px] h-[16px] text-gray-500 pointer-events-none stroke-[2.5px]" />
+                      </button>
+
+                      <AnimatePresence>
+                        {isFormatDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -5 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute top-full left-0 mt-1 w-[160px] bg-white dark:bg-[#2b2b2b] border border-gray-100 dark:border-[#333] rounded-[8px] shadow-lg py-1 z-50 overflow-hidden"
+                          >
+                            {['Text', 'JSON'].map((format) => (
+                              <button
+                                key={format}
+                                onClick={() => {
+                                  setSelectedFormat(format);
+                                  setIsFormatDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3.5 py-2 text-[13.5px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-[#333] transition-colors ${
+                                  selectedFormat === format 
+                                    ? 'text-black dark:text-white font-medium' 
+                                    : 'text-gray-600 dark:text-[#a1a1aa]'
+                                }`}
+                              >
+                                <svg 
+                                  className={`w-3.5 h-3.5 ${selectedFormat === format ? 'opacity-100' : 'opacity-0'}`} 
+                                  viewBox="0 0 24 24" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  strokeWidth="3" 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                {format}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end w-full px-7 py-5 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setIsCustomToolModalOpen(false)}
+                      className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                      Add
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             </div>
           )}
