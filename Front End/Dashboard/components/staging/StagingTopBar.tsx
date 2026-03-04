@@ -24,6 +24,7 @@ import {
   CodeXml
 } from 'lucide-react';
 import { AgentIcon } from '../ui/AgentIcon';
+import { CanvasIcon } from '../ui/CanvasIcon';
 import { useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
@@ -48,6 +49,7 @@ export const ALL_TOOLS = [
   { id: 'cloud', label: 'Cloud', icon: Cloud },
   { id: 'swarm', label: 'Swarm', icon: MessagesSquare },
   { id: 'agents', label: 'Agents', icon: AgentIcon },
+  { id: 'canvas', label: 'Canvas', icon: CanvasIcon },
 ];
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {
@@ -78,9 +80,11 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
   const handleTabChange = (id: string) => {
     if (id === activeTab) return;
 
+    // Map agent-builder back to agents for the leaving animation check
+    const leavingTab = activeTab === 'agent-builder' ? 'agents' : activeTab;
     // If the tool we're leaving isn't pinned, it should animate out
-    if (!pinnedIds.includes(activeTab)) {
-      setLeavingId(activeTab);
+    if (!pinnedIds.includes(leavingTab)) {
+      setLeavingId(leavingTab);
       setTimeout(() => setLeavingId(null), 300);
     }
 
@@ -174,7 +178,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
       <div className="flex items-center gap-1">
         {visibleTools.map((item) => {
           const isActive = activeTab === item.id || (activeTab === 'agent-builder' && item.id === 'agents');
-          const isLeaving = leavingId === item.id || (leavingId === 'agent-builder' && item.id === 'agents');
+          const isLeaving = !pinnedIds.includes(item.id) && (leavingId === item.id || (leavingId === 'agent-builder' && item.id === 'agents'));
           
           return (
             <button
