@@ -24,6 +24,12 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar }) 
       <div className="flex items-center gap-4">
         {isSidebarCollapsed && (
           <div className="flex items-center gap-1.5 text-gray-400 mr-2 transition-all duration-300 animate-in fade-in slide-in-from-left-4">
+            <button className="p-1.5 hover:text-white transition-colors" title="New Chat">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+            </button>
             <button className="p-1.5 hover:text-white transition-colors">
               <Clock size={16} />
             </button>

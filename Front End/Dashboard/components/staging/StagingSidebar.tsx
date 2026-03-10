@@ -45,9 +45,12 @@ import {
   CornerLeftUp,
   AlertTriangle,
   MessagesSquare,
-  Library
+  Library,
+  Layout,
+  Component
 } from 'lucide-react';
 import { AgentIcon } from '../ui/AgentIcon';
+import { CanvasIcon } from '../ui/CanvasIcon';
 import { enterVisualEdit, exitVisualEdit, isVisualEditMode, inspectorReady, isScanning, isSaving, selectedElement, selectedElements, type SelectedElement, hoveredElement, isVisualEditing, visualEditQueue, canUndo, undoLastVisualEdit, selectParentElement, setSelectedElements, navigateToCode, applyDirectStyle, getCurrentStyles, getFreshComputedStyles, formatColorForDisplay, isTransparent, isAtRootLevel, tailwindColorToCss, TAILWIND_SPACING, hasUnsavedChanges, discardVisualChanges, requestSelectionBoundsRefresh, selectionStyleRefreshRequest } from '../../lib/visual-editor';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -70,6 +73,7 @@ import { VisualEditorSelectMenu } from './VisualEditorSelectMenu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
+import { newChatSignal } from '../../lib/stores/chat-store';
 
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
@@ -1645,6 +1649,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       action?.();
     }
   };
+
+
   const [promptValue, setPromptValue] = useState('');
 
   // Visual edit queue subscription
@@ -2014,6 +2020,65 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   
   // Track message IDs whose intro text has been shown (to prevent re-animation when indicator appears)
   const introShownRef = useRef<Set<string>>(new Set());
+
+  // New Chat — clears all chat context while preserving the codebase
+  const handleNewChat = useCallback(() => {
+    // Don't allow new chat while generating
+    if (isCurrentlyGenerating) return;
+
+    // Clear chat messages
+    setMessages([]);
+    setCurrentStreamingResponse('');
+    setPromptValue('');
+
+    // Clear thinking state
+    setIsCurrentlyGenerating(false);
+    setIsCurrentlyThinking(false);
+    isCurrentlyThinkingRef.current = false;
+    setCurrentThinkingTime(0);
+    thinkingTimeRef.current = 0;
+    thinkingStartTimeRef.current = null;
+    if (thinkingTimerRef.current) {
+      clearInterval(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+
+    // Keep suggestions (do not clear them)
+    // Removed: setSuggestions([]);
+    // Removed: setSuggestionsVisible(false);
+    suggestionsGeneratedRef.current = false;
+    prevGeneratingRef.current = false;
+    initialLoadCompleteRef.current = false;
+
+    // Clear animation tracking
+    animatedContentRef.current.clear();
+    completedMessagesRef.current.clear();
+    introShownRef.current.clear();
+
+    // Clear file list expansion state
+    setFileListExpanded(false);
+
+    // Reset attachments
+    setAttachments([]);
+    setRemovingIds(new Set());
+
+    // Switch to chat view if in visual edit
+    if (sidebarView === 'visual-edit') {
+      setSidebarViewRaw('chat');
+      exitVisualEdit();
+    }
+
+    // Switch to preview tab
+    onTabChange('preview');
+  }, [isCurrentlyGenerating, sidebarView, onTabChange]);
+
+  // Listen for new chat signal from collapsed TopBar
+  useEffect(() => {
+    const unsub = newChatSignal.listen(() => {
+      handleNewChat();
+    });
+    return unsub;
+  }, [handleNewChat]);
 
   // Helper to render plain text with word-by-word staggered animation
   // isAnimating: true for streaming content that should animate
@@ -2645,8 +2710,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         userContent += `\n\n[Available image assets in the project - use these import paths to reference the attached images in code:\n${imageLines}\nUsage: import variableName from '${imageAssetPaths[0].path}'; then use variableName as the src value or in url().]`;
       }
 
+      // Build codebase context from current project files so AI knows existing code
+      const currentFiles = workbenchStore.files.get();
+      const fileEntries = Object.entries(currentFiles);
+      let codebaseContext = '';
+      if (fileEntries.length > 0) {
+        const fileContents = fileEntries
+          .filter(([, file]: [string, any]) => file?.content !== undefined)
+          .map(([path, file]: [string, any]) => `### ${path}\n\`\`\`\n${file.content}\n\`\`\``)
+          .join('\n\n');
+        if (fileContents) {
+          codebaseContext = `\n\nHere is the current project codebase. When the user asks for changes, ONLY modify the files and sections they mention. Do NOT rewrite or re-output files that don't need changes.\n\n${fileContents}`;
+        }
+      }
+
       const fullHistory = [
           systemMessage,
+          // Inject codebase context so AI always knows existing code (even after "new chat")
+          ...(codebaseContext ? [{
+            role: 'user' as const,
+            content: `[EXISTING PROJECT FILES — for reference only, do not rewrite unless asked]${codebaseContext}`
+          }, {
+            role: 'assistant' as const,
+            content: 'I can see the existing project files. I\'ll only modify what you ask for and keep everything else intact. What would you like me to change?'
+          }] : []),
           ...history,
           {
               role: 'user' as const,
@@ -3585,6 +3672,35 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         </>
       )}
 
+      {/* Canvas Header - Persistent across Canvas Tab and its sub-modes */}
+      {(activeTab === 'canvas' || activeTab === 'canvas-screens' || activeTab === 'canvas-elements') && !isChatMode && (
+        <>
+          {/* Background layer: sits at z-20, behind the scrolling menu (z-30) */}
+          <div className="absolute inset-x-0 top-14 z-20 h-[40px] bg-[#1c1c1c] pointer-events-none">
+          </div>
+
+          {/* Content layer: sits at z-40, above the scrolling menu (z-30) to keep header text always on top */}
+          <div className="absolute inset-x-0 top-14 z-40 px-6 pt-0 pb-3.5 flex items-center justify-between h-[52px] pointer-events-none">
+             {/* Left side: Breadcrumbs */}
+             <div className="flex items-center h-[32px] pointer-events-auto overflow-hidden">
+                <button 
+                  className={`text-base transition-colors duration-300 ${(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') ? 'text-[#81888f] hover:text-white cursor-pointer' : 'text-white cursor-default'}`}
+                  onClick={() => (activeTab === 'canvas-screens' || activeTab === 'canvas-elements') && onTabChange('canvas')}
+                >
+                  Canvas
+                </button>
+                
+                <div className={`flex items-center transition-all duration-300 ease-out origin-left ${(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') ? 'w-[105px] opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
+                   <span className="text-[#81888f] mx-2">/</span>
+                   <span className="text-white font-medium whitespace-nowrap">
+                     {activeTab === 'canvas-screens' ? 'Screens' : 'Elements'}
+                   </span>
+                </div>
+             </div>
+          </div>
+        </>
+      )}
+
       {/* Header - Hidden in Chat Mode since StagingView renders it at root level */}
       {!isChatMode && (
         <div className={`h-14 flex items-center justify-between z-20 flex-shrink-0 bg-[#1c1c1c]`}>
@@ -3615,6 +3731,12 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           </div>
           <div className="flex items-center gap-3 text-gray-400 flex-shrink-0" style={{ paddingRight: '16px' }}>
             <div className="flex items-center gap-1">
+              <button onClick={handleNewChat} className="p-1.5 hover:text-white transition-colors" title="New Chat">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
               <button className="p-1.5 hover:text-white transition-colors"><Clock size={16} /></button>
               <button onClick={() => sidebarView === 'visual-edit' ? handleExitVisualEdit(onToggle) : onToggle()} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
             </div>
@@ -3631,9 +3753,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           }
           ${isChatMode
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
-            : (activeTab === 'design' || activeTab === 'agents')
+            : (activeTab === 'design' || activeTab === 'agents' || activeTab === 'canvas')
               ? 'pl-[8px] pr-[2px] mr-[8.5px] pt-0 scroll-pt-0' // Zero padding-top to align header perfectly with absolute overlays
-              : (activeTab === 'agent-builder' || sidebarView === 'visual-edit')
+              : (activeTab === 'agent-builder' || sidebarView === 'visual-edit' || activeTab === 'canvas-screens' || activeTab === 'canvas-elements')
                 ? 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-[56px] scroll-pt-[56px]' // Standard chat padding, 56px pt to clear 40px header + 16px gap
                 : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
           }`}
@@ -3687,6 +3809,25 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                      </div>
                   </div>
                </div>
+
+               {/* Canvas Card */}
+               <div 
+                 onClick={() => onTabChange('canvas')}
+                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
+               >
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <CanvasIcon size={20} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Canvas</div>
+                           <div className="text-[14px] text-gray-400 font-medium">A blank infinite canvas for your ideas</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
             </div>
           ) : activeTab === 'agents' && !isChatMode ? (
             <div className="space-y-4">
@@ -3728,8 +3869,78 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   </div>
                </div>
             </div>
+          ) : activeTab === 'canvas' && !isChatMode ? (
+            <div className="space-y-4">
+               {/* Spacer to maintain vertical position of cards precisely matching Visual Edits header height */}
+               <div className="h-[40px]" />
+
+               {/* Screens Card */}
+               <div 
+                 onClick={() => onTabChange('canvas-screens')}
+                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
+               >
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <Layout size={20} strokeWidth={1.5} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Screens</div>
+                           <div className="text-[14px] text-gray-400 font-medium">View and manage all your app screens</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+
+               {/* Elements Card */}
+               <div 
+                 onClick={() => onTabChange('canvas-elements')}
+                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
+               >
+                  <div className="flex flex-col gap-[14px]">
+                     <div className="text-white">
+                        <Component size={20} strokeWidth={1.5} />
+                     </div>
+                     <div className="flex items-end justify-between">
+                        <div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Elements</div>
+                           <div className="text-[14px] text-gray-400 font-medium">View and manage all your app elements</div>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                     </div>
+                  </div>
+               </div>
+            </div>
           ) : (
           <div className="space-y-12">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
+                <div className="text-[#3f3f46] mb-6">
+                  <GeminiLogo size={64} />
+                </div>
+                <h2 className="text-2xl font-semibold text-gray-200 mb-10 max-w-[280px] leading-snug">What do you want to build</h2>
+                
+                {suggestions && suggestions.length > 0 && (
+                  <div className="flex flex-col items-center gap-4 w-full mx-auto">
+                    {suggestions.slice(0, 3).map((promptText, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          if (isCurrentlyGenerating || !promptText) return;
+                          handleSendMessage(promptText);
+                        }}
+                        className="text-center bg-[#27272a] hover:bg-[#3f3f46] px-5 py-2.5 rounded-full transition-all duration-200 group max-w-[90%]"
+                      >
+                        <div className="text-[14px] text-gray-300 font-medium leading-relaxed group-hover:text-white transition-colors">
+                          {promptText}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {messages.map((msg, msgIndex) => {
               // Check if this is the last assistant message (needs min-height to prevent snap)
               const isLastAssistantMessage = msg.role === 'assistant' &&
@@ -3952,15 +4163,15 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             </>
           )}
 
-          {/* Grid collapses when either: design tab is active OR suggestions are hidden */}
+          {/* Grid collapses unless the preview tab is active */}
           {/* Uses deferredActiveTab to stagger animation and avoid layout thrashing */}
           <div
-            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${deferredActiveTab !== 'design' && suggestionsVisible ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${messages.length > 0 && activeTab === 'preview' && suggestionsVisible && !isCurrentlyGenerating ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
             style={{ willChange: 'grid-template-rows' }}
           >
             <div className="overflow-hidden">
               <div
-                className={`relative transition-opacity duration-300 ease-in-out ${deferredActiveTab !== 'design' && suggestionsVisible ? 'opacity-100' : 'opacity-0'}`}
+                className={`relative transition-opacity duration-300 ease-in-out ${messages.length > 0 && activeTab === 'preview' && suggestionsVisible && !isCurrentlyGenerating ? 'opacity-100' : 'opacity-0'}`}
                 style={{ willChange: 'opacity' }}
               >
                 <div

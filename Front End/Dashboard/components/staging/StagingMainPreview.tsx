@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
 import { X, Trash2 } from "lucide-react";
+import { ReactFlow, Background } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
@@ -1143,7 +1145,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               `}</style>
 
               {/* Empty State - only when no user code yet */}
-              {!hasUserCode && !isGenerating && (
+              {!hasUserCode && !isGenerating && activeTab !== 'canvas-screens' && activeTab !== 'canvas-elements' && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="flex flex-col items-center gap-6 opacity-30">
                     <div className="w-24 h-24 text-gray-500">
@@ -1160,6 +1162,22 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                       here.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {/* Canvas empty state - for Screens and Elements */}
+              {(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') && (
+                <div className="absolute inset-0 bg-[#0c0c0c] z-[50]">
+                  <ReactFlow
+                    nodes={[]}
+                    edges={[]}
+                    fitView
+                    fitViewOptions={{ maxZoom: 1 }}
+                    proOptions={{ hideAttribution: true }}
+                    className="xyflow-dark"
+                  >
+                    <Background gap={28} size={2} color="#27272a" />
+                  </ReactFlow>
                 </div>
               )}
             </div>
