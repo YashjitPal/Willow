@@ -140,13 +140,16 @@ const getNavigationType = (): string => {
 // This prevents the visual glitch caused by StagingView rendering then redirecting
 const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Check synchronously if this is a refresh that should redirect
-  const shouldRedirect = React.useMemo(() => {
+  const [shouldRedirect] = React.useState(() => {
     const isRouterNav = sessionStorage.getItem('staging-nav');
     if (isRouterNav) {
-      sessionStorage.removeItem('staging-nav');
       return false;
     }
     return getNavigationType() === 'reload';
+  });
+
+  React.useEffect(() => {
+    sessionStorage.removeItem('staging-nav');
   }, []);
 
   // If refreshing while on staging, redirect to dashboard immediately

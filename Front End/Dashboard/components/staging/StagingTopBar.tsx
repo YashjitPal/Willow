@@ -24,7 +24,6 @@ import {
   CodeXml
 } from 'lucide-react';
 import { AgentIcon } from '../ui/AgentIcon';
-import { CanvasIcon } from '../ui/CanvasIcon';
 import { useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { ShimmerButton } from '../ui/shimmer-button';
@@ -32,6 +31,27 @@ import { isVisualEditMode, enterVisualEdit, exitVisualEdit, hasUnsavedChanges, d
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { previewErrors, toggleErrorPanel, isErrorPanelOpen } from '../../lib/stores/error-store';
 import { triggerNewChat } from '../../lib/stores/chat-store';
+
+const VisualEditsIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg" 
+    className={className}
+  >
+    <path d="M3 9V6C3 4.344 4.344 3 6 3H9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M15 3H18C20.1 3 21 3.9 21 6V9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M3 15V18C3 20.1 3.9 21 6 21H9" 
+          stroke="currentColor" strokeWidth="2.1" strokeLinecap="round"/>
+    <path d="M11.25 11.25L15.75 22.5Q17.25 17.25 22.5 15.75L11.25 11.25Z" 
+          stroke="currentColor" strokeWidth="2.1" fill="none"
+          strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
 
 interface TopBarProps {
   isSidebarCollapsed: boolean;
@@ -46,11 +66,11 @@ interface TopBarProps {
 export const ALL_TOOLS = [
   { id: 'preview', label: 'Preview', icon: Globe },
   { id: 'code', label: 'Code', icon: Code2 },
-  { id: 'design', label: 'Design', icon: Palette },
+  { id: 'design', label: 'Edit', icon: VisualEditsIcon },
   { id: 'cloud', label: 'Cloud', icon: Cloud },
   { id: 'swarm', label: 'Swarm', icon: MessagesSquare },
   { id: 'agents', label: 'Agents', icon: AgentIcon },
-  { id: 'canvas', label: 'Canvas', icon: CanvasIcon },
+  { id: 'canvas', label: 'Design', icon: Palette },
 ];
 
 const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, activeTab, onTabChange, onSettingsClick, onRefreshPreview, onOpenInNewTab }) => {

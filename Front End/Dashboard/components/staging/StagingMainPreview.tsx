@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
-import { X, Trash2 } from "lucide-react";
-import { ReactFlow, Background } from "@xyflow/react";
+import { X, Trash2, MousePointer2, Pencil, Hand, Palette, Image as ImageIcon, Star } from "lucide-react";
+import { ReactFlow, ReactFlowProvider, Background, Panel, useStore as useRFStore } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
@@ -9,9 +9,10 @@ import { SwarmChatroom } from "./SwarmChatroom";
 import { AgentBuilder } from "../agents/AgentBuilder";
 // ScanningOverlay import removed - component not yet created
 import VisualEditingOverlay from "./VisualEditingOverlay";
-import { sandpackStore } from "../../lib/sandpack";
 import { CpuArchitecture } from "../ui/cpu-architecture";
 import "../ui/cpu-architecture.css";
+import { DesignCanvas } from "./DesignCanvas";
+import { sandpackStore } from "../../lib/sandpack/sandpack-store";
 import { createPreviewURL, initBundler, bundleForHotUpdate } from "../../lib/preview";
 import { testStore } from "../../lib/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
@@ -334,6 +335,111 @@ interface MainPreviewProps {
   selectedModelId: string;
   modelConfig: any;
 }
+
+// Zoom percentage indicator (must be rendered inside ReactFlow)
+const ZoomDisplay: React.FC = () => {
+  const zoom = useRFStore((s) => s.transform[2]);
+  const zoomPercentage = Math.round(zoom * 100);
+  return (
+    <Panel position="bottom-right" className="mb-6 mr-6">
+      <div className="flex items-center justify-center px-3 py-1.5 h-8 bg-black/40 backdrop-blur-md rounded-xl text-white text-xs font-semibold shadow-xl">
+        {zoomPercentage}%
+      </div>
+    </Panel>
+  );
+};
+
+// Inner canvas component (must be inside ReactFlowProvider)
+const CanvasEmptyStateInner: React.FC = () => {
+  const [activeTool, setActiveTool] = useState<'cursor' | 'edit' | 'hand' | 'palette' | 'image' | 'star'>('hand');
+
+  return (
+    <div className="w-full h-full bg-[#0c0c0c]">
+      <ReactFlow
+        nodes={[]}
+        edges={[]}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        minZoom={0.1}
+        maxZoom={2}
+        proOptions={{ hideAttribution: true }}
+        className="xyflow-dark"
+      >
+        <Background gap={28} size={2} color="#27272a" />
+        <ZoomDisplay />
+        <Panel position="top-right" className="mt-6 mr-6 flex items-center h-full">
+          <div className="flex flex-col items-center gap-2.5 px-2 py-2.5 bg-[#171717]/80 backdrop-blur-md rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all">
+            {/* Cursor Button */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'cursor' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Cursor (V)"
+              onClick={() => setActiveTool('cursor')}
+            >
+              <MousePointer2 size={16} strokeWidth={2} />
+            </button>
+
+            {/* Edit Button */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'edit' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Edit"
+              onClick={() => setActiveTool('edit')}
+            >
+              <Pencil size={16} strokeWidth={2} className="relative left-[1px] top-[1px]" />
+            </button>
+
+            {/* Hand Tool */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'hand' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Hand tool (H)"
+              onClick={() => setActiveTool('hand')}
+            >
+              <Hand size={18} strokeWidth={2} />
+            </button>
+
+            {/* Divider */}
+            <div className="w-5 h-[1px] bg-[#333333] my-1" />
+
+            {/* Palette Tool */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'palette' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Color Palette"
+              onClick={() => setActiveTool('palette')}
+            >
+              <Palette size={18} strokeWidth={2} />
+            </button>
+
+            {/* Image Tool */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'image' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Image"
+              onClick={() => setActiveTool('image')}
+            >
+              <ImageIcon size={18} strokeWidth={2} />
+            </button>
+
+            {/* Divider */}
+            <div className="w-5 h-[1px] bg-[#333333] my-1" />
+
+            {/* Star Tool */}
+            <button
+              className={`w-[33px] h-[33px] rounded-full transition-colors flex items-center justify-center shrink-0 ${activeTool === 'star' ? 'bg-[#32323e] text-white' : 'text-[#a1a1aa] hover:bg-[#2b2b2b] hover:text-white'}`}
+              title="Star"
+              onClick={() => setActiveTool('star')}
+            >
+              <Star size={18} strokeWidth={2} />
+            </button>
+          </div>
+        </Panel>
+      </ReactFlow>
+    </div>
+  );
+};
+
+// Dedicated empty state for Canvas - wrapped in ReactFlowProvider like AgentBuilder
+const CanvasEmptyState: React.FC = () => (
+  <ReactFlowProvider>
+    <CanvasEmptyStateInner />
+  </ReactFlowProvider>
+);
 
 const MainPreview: React.FC<MainPreviewProps> = ({
   isSidebarCollapsed,
@@ -838,7 +944,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-h-0">
           {/* Main Panel Area */}
-          <div className="relative flex-1 min-h-0">
+          <div className="relative flex-1 min-h-0 overflow-hidden rounded-[12px]">
             {/* Code Panel */}
             <div
               className={`absolute inset-0 transition-opacity duration-150 flex flex-col overflow-hidden ${
@@ -874,22 +980,33 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               <AgentBuilder isSidebarCollapsed={isSidebarCollapsed} />
             </div>
 
+            {/* Canvas Panel - dedicated container like Agent Builder */}
+            <div
+              className={`absolute inset-0 transition-opacity duration-150 overflow-hidden bg-[#0c0c0c] rounded-[12px] border border-[#27272a] ${
+                activeTab === "canvas-screens" || activeTab === "canvas-elements"
+                  ? "opacity-100 z-10"
+                  : "opacity-0 z-0 pointer-events-none"
+              }`}
+            >
+              <DesignCanvas />
+            </div>
+
             {/* Preview Panel */}
             <div
               className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
-                !(previewUrl && hasUserCode) || errors.length > 0 ? 'border border-[#27272a]' : ''
+                (!(previewUrl && hasUserCode) || errors.length > 0) && activeTab !== 'canvas-screens' && activeTab !== 'canvas-elements' ? 'border border-[#27272a]' : ''
               } ${
-                activeTab !== "code" && activeTab !== "swarm" && activeTab !== "agent-builder"
+                activeTab !== "code" && activeTab !== "swarm" && activeTab !== "agent-builder" && activeTab !== "canvas-screens" && activeTab !== "canvas-elements"
                   ? "opacity-100 z-10"
                   : "opacity-0 z-0 pointer-events-none"
               }`}
             >
               {/* Preview iframe */}
               {previewUrl && hasUserCode && (
-                <>
+                <div className="absolute inset-0 rounded-[12px]" style={{ clipPath: 'inset(0.5px round 12px)' }}>
                   <iframe
                     src={previewUrl}
-                    className="w-full h-full border-0"
+                    className="w-full h-full border-0 rounded-[12px]"
                     title="Preview"
                     sandbox="allow-scripts allow-same-origin"
                     ref={(el) => {
@@ -1052,7 +1169,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                   {(isResizing || isTransitioning) && (
                     <div className="absolute inset-0 z-[100] bg-transparent cursor-[ew-resize]" />
                   )}
-                </>
+                </div>
               )}
 
               {/* Premium Loading Bar */}
@@ -1162,22 +1279,6 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                       here.
                     </p>
                   </div>
-                </div>
-              )}
-
-              {/* Canvas empty state - for Screens and Elements */}
-              {(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') && (
-                <div className="absolute inset-0 bg-[#0c0c0c] z-[50]">
-                  <ReactFlow
-                    nodes={[]}
-                    edges={[]}
-                    fitView
-                    fitViewOptions={{ maxZoom: 1 }}
-                    proOptions={{ hideAttribution: true }}
-                    className="xyflow-dark"
-                  >
-                    <Background gap={28} size={2} color="#27272a" />
-                  </ReactFlow>
                 </div>
               )}
             </div>

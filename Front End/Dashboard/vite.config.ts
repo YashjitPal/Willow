@@ -1,6 +1,27 @@
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
+
+// Vite plugin: Apply COOP/COEP headers only on WebContainer routes (e.g. /project1).
+// These headers are required for SharedArrayBuffer but break Firebase signInWithPopup,
+// so they must NOT be set on the login page or any other auth-related route.
+function conditionalCrossOriginHeaders(): Plugin {
+  return {
+    name: 'conditional-cross-origin-headers',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url || '';
+        // Only apply isolation headers when serving the WebContainer staging page
+        if (url.startsWith('/project1')) {
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+          res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+        }
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
@@ -9,12 +30,6 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: "0.0.0.0",
       open: true,
-      // Required headers for WebContainer (SharedArrayBuffer)
-      // Using 'credentialless' instead of 'require-corp' to allow cross-origin resources
-      headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'credentialless',
-      },
       // Allow imports from parent directory (for defaultmodel.ts in Willow Code root)
       fs: {
         allow: [
@@ -23,7 +38,7 @@ export default defineConfig(({ mode }) => {
         ],
       },
     },
-    plugins: [react()],
+    plugins: [react(), conditionalCrossOriginHeaders()],
     define: {
       "process.env.API_KEY": JSON.stringify(env.GEMINI_API_KEY),
       "process.env.GEMINI_API_KEY": JSON.stringify(env.GEMINI_API_KEY),

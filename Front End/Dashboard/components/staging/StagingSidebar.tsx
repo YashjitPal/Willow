@@ -74,6 +74,7 @@ import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
 import { newChatSignal } from '../../lib/stores/chat-store';
+import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
 
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
@@ -1781,7 +1782,71 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   // Enable select parent when there's a selection and we're not at root
   const canSelectParent = !!selection && !atRoot;
-  
+
+  // Design canvas screen selection (for screen attachments in prompt)
+  const selectedDesignIds = useStore(selectedDesignNodeIds);
+  const allDesignNodes = useStore(designNodesStore);
+  const selectedScreens = allDesignNodes.filter(n => selectedDesignIds.includes(n.id));
+
+  // Track displayed screen attachments with animated removal for ALL deselect paths
+  const [displayedScreenIds, setDisplayedScreenIds] = useState<string[]>([]);
+  const [fadingOutScreenIds, setFadingOutScreenIds] = useState<Set<string>>(new Set());
+  const fadingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const displayedScreenIdsRef = useRef<string[]>([]);
+  displayedScreenIdsRef.current = displayedScreenIds;
+
+  useEffect(() => {
+    const currentIds = activeTab === 'canvas-screens' ? selectedDesignIds : [];
+    const prevIds = displayedScreenIdsRef.current;
+    const added = currentIds.filter(id => !prevIds.includes(id));
+    const removed = prevIds.filter(id => !currentIds.includes(id));
+
+    if (removed.length > 0) {
+      // Start fade-out for removed items
+      setFadingOutScreenIds(prev => {
+        const next = new Set(prev);
+        removed.forEach(id => next.add(id));
+        return next;
+      });
+      // After animation, remove them from displayed list
+      removed.forEach(id => {
+        const existing = fadingTimersRef.current.get(id);
+        if (existing) clearTimeout(existing);
+
+        const timer = setTimeout(() => {
+          setDisplayedScreenIds(prev => prev.filter(x => x !== id));
+          setFadingOutScreenIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          fadingTimersRef.current.delete(id);
+        }, 200);
+        fadingTimersRef.current.set(id, timer);
+      });
+    }
+
+    if (added.length > 0) {
+      // Cancel any pending fade-out for items being re-added
+      added.forEach(id => {
+        const existing = fadingTimersRef.current.get(id);
+        if (existing) {
+          clearTimeout(existing);
+          fadingTimersRef.current.delete(id);
+        }
+      });
+      setFadingOutScreenIds(prev => {
+        const next = new Set(prev);
+        added.forEach(id => next.delete(id));
+        return next;
+      });
+      setDisplayedScreenIds(prev => [...prev.filter(id => !added.includes(id)), ...added]);
+    }
+  }, [selectedDesignIds, activeTab]);
+
+  // The screens to render = currently displayed (includes fading-out ones)
+  const displayedScreens = allDesignNodes.filter(n => displayedScreenIds.includes(n.id));
+
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1820,8 +1885,12 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }, 200); // Match animation duration
   };
 
-  // Check if any attachments are visible (not all being removed)
-  const hasVisibleAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
+  // Check if any attachments are visible — includes screen selections
+  // hasVisibleScreens stays true while items are fading out so the grid container doesn't collapse mid-animation
+  // Only true when at least one screen is NOT fading out — mirrors file attachment logic
+  // so the last screen removal lets the grid collapse directly instead of squeeze-then-collapse
+  const hasVisibleScreens = activeTab === 'canvas-screens' && displayedScreenIds.some(id => !fadingOutScreenIds.has(id));
+  const hasVisibleAttachments = (attachments.length > 0 && !attachments.every(att => removingIds.has(att.id))) || hasVisibleScreens;
   const [showRightGradient, setShowRightGradient] = useState(true);
 
   // Chat/Messaging State
@@ -1835,9 +1904,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
     timestamp: number;
     attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
+    designNodeId?: string; // Links to a design node on the canvas
   }
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentStreamingResponse, setCurrentStreamingResponse] = useState('');
+
+  // Design mode (canvas-screens) — separate chat state
+  const [designMessages, setDesignMessages] = useState<ChatMessage[]>([]);
+  const [designStreamingResponse, setDesignStreamingResponse] = useState('');
   const [currentThinkingTime, setCurrentThinkingTime] = useState(0);
   const thinkingTimeRef = useRef(0); // Ref to capture accurate final thinking time
   const thinkingStartTimeRef = useRef<number | null>(null); // Timestamp when thinking started
@@ -2596,7 +2670,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     // Batch ALL state updates in flushSync to prevent multiple re-renders
     // that would interfere with the scroll animation
     flushSync(() => {
-      setMessages(prev => [...prev, userMessage]);
+      // In design mode, user message is added via startDesignGeneration instead
+      if (activeTab !== 'canvas-screens') {
+        setMessages(prev => [...prev, userMessage]);
+      }
       setPromptValue('');
       setAttachments([]); // Clear attachments
       setRemovingIds(new Set());
@@ -2620,8 +2697,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setCurrentThinkingTime(thinkingTimeRef.current);
     }, 1000);
 
-    // Route based on selectedToolId, isTestMode, or Agent Swarm
-    if (selectedToolId === 'test' || isTestMode) {
+    // Route based on activeTab, selectedToolId, isTestMode, or Agent Swarm
+    if (activeTab === 'canvas-screens') {
+      // Design mode — isolated design generation
+      await startDesignGeneration(text);
+    } else if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
       await startTestGeneration(text);
     } else if (agentSwarmEnabled && selectedToolId === null) {
@@ -2636,9 +2716,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const history: AiChatMessage[] = messages.map(m => ({
           role: m.role,
           content: m.content
-          // Don't pass attachments in history yet as AiChatMessage might mismatch? 
-          // Actually we should mapping attachments too if we want memory.
-          // For now, let's keep history simple or update it.
       }));
       // Pass processedAttachments for the NEW message
       await startAiGeneration(text, history, true, processedAttachments, imageAssetPaths);
@@ -2839,6 +2916,181 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const errMsg = error.message || 'An error occurred during generation';
       const isApiKeyError = /api.?key/i.test(errMsg) && /missing/i.test(errMsg);
       addGlobalError(errMsg, isApiKeyError ? 'set-api-key' : undefined);
+      setIsCurrentlyGenerating(false);
+      setIsCurrentlyThinking(false);
+      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+    }
+  };
+
+  // === DESIGN GENERATION (canvas-screens mode) ===
+
+  const extractDesignCode = (content: string): string | null => {
+    const match = content.match(/```(?:jsx|tsx|react|javascript|typescript)?\n([\s\S]*?)```/i);
+    return match ? match[1].trim() : null;
+  };
+
+  const generateDesignFileName = (prompt: string): string => {
+    // Extract max 4 meaningful words from prompt to generate PascalCase filename
+    const words = prompt
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !['design', 'create', 'make', 'build'].includes(w.toLowerCase()))
+      .slice(0, 4);
+    
+    if (words.length === 0) return `Design${Math.floor(Math.random() * 1000)}`;
+    
+    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('') + 'Design';
+  };
+
+  const startDesignGeneration = async (text: string) => {
+    // Build screen context from selected screens on the canvas
+    let screenContext = '';
+    if (selectedScreens.length > 0) {
+      const screenParts = selectedScreens.map(s =>
+        `Screen: "${s.fileName || 'App'}.tsx"\n\`\`\`tsx\n${s.code}\n\`\`\``
+      );
+      screenContext = `[The user has attached the following screen(s) from the canvas — they want to edit, reference, or build upon them:]\n${screenParts.join('\n\n')}\n\n`;
+    }
+
+    const userMessage: ChatMessage = {
+      id: Math.random().toString(36).substring(7),
+      role: 'user',
+      content: text,
+      timestamp: Date.now()
+    };
+
+    setDesignMessages(prev => [...prev, userMessage]);
+    setDesignStreamingResponse('');
+
+    const assistantId = Math.random().toString(36).substring(7);
+    let fullResponse = '';
+
+    const aiMessages: AiChatMessage[] = designMessages.concat(userMessage).map(m => {
+      let contentForAI = m.content;
+      
+      // If this was a past assistant message where we stripped the code, 
+      // explicitly inject a massive fake code block to prove to the LLM that it generated code.
+      // Otherwise, the LLM looks at its history, sees no code, and stops generating code!
+      if (m.role === 'assistant' && m.designNodeId) {
+        contentForAI = `\`\`\`tsx\n// Code generated successfully\n\`\`\`\n${m.content}`;
+      } else {
+        // Strip out any real code blocks from user/other to just a placeholder to save context
+        contentForAI = contentForAI.replace(/```[\s\S]*?```/g, '```tsx\n// Code generated successfully\n```');
+      }
+
+      return {
+        role: m.role,
+        content: contentForAI
+      };
+    });
+
+    // Prepend screen context to the last user message so the AI knows which screens are attached
+    if (screenContext && aiMessages.length > 0) {
+      const lastMsg = aiMessages[aiMessages.length - 1];
+      if (lastMsg.role === 'user') {
+        lastMsg.content = screenContext + lastMsg.content;
+      }
+    }
+
+    try {
+      let provider: 'gemini' | 'openai' | 'anthropic' = 'gemini';
+      let modelId = '';
+
+      const allSavedModels = [
+        ...(modelConfig.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' })),
+        ...(modelConfig.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' })),
+        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' }))
+      ];
+
+      const selected = allSavedModels.find((m: any) => m.id === selectedModelId);
+      if (selected) {
+        provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+        modelId = selected.modelId;
+      } else {
+        provider = 'gemini';
+        modelId = (modelConfig.gemini?.model) || 'gemini-2.5-pro';
+      }
+
+      const apiKey = apiKeys[provider]?.[0];
+      if (!apiKey) {
+        throw new Error(`API Key for ${provider} is missing. Please add it in settings.`);
+      }
+
+      // Stream silently — don't show streaming response in the chat.
+      // User will only see a thinking indicator until generation completes.
+      await streamChat(
+        aiMessages,
+        {
+          provider: provider as any,
+          model: modelId,
+          apiKey: apiKey,
+          thinkingLevel: selected?.thinkingLevel || 1
+        },
+        (token) => {
+          fullResponse += token;
+          // Don't update designStreamingResponse — we show the response only once complete
+        },
+        () => { /* onStart */ },
+        `You are a world-class UI/UX designer who writes production-quality React code. You ALWAYS generate REAL, COMPLETE, WORKING code — never pseudocode, never descriptions, never placeholders.
+
+CRITICAL INSTRUCTION:
+DO NOT output ANY introductory text, thoughts, or explanations before the code.
+Your response MUST START IMMEDIATELY with the \`\`\`tsx code block.
+
+RESPONSE FORMAT MUST BE EXACTLY THIS STRUCTURE:
+\`\`\`tsx
+import React from 'react';
+// ... complete actual working React component code here ...
+// Must use Tailwind CSS and Lucide React
+export default function Design() { ... }
+\`\`\`
+I've designed... [1-2 short conversational sentences]
+- **Feature**: Detail
+- **Feature**: Detail
+
+CODING RULES:
+- Write a single, self-contained React component that uses Tailwind CSS for ALL styling and Lucide React for icons.
+- Export the component as default export.
+- The component must be COMPLETE — include all state, handlers, styling, layout, and visual details inline. No lazy "add more here" comments.
+- Make the design stunning — use gradients, shadows, rounded corners, hover effects, smooth transitions, and a cohesive dark color palette.
+- NEVER describe what you would build. ALWAYS write the actual code.
+- NEVER output multiple code blocks. ONE code block only.`
+      );
+
+      // Extract code and add to canvas
+      const code = extractDesignCode(fullResponse);
+      let designNodeId: string | null = null;
+      if (code) {
+        // Save to codebase
+        const fileName = generateDesignFileName(text);
+        sandpackStore.setFile(`/Designs/${fileName}.tsx`, code);
+
+        const node = addDesignNode({ prompt: text, code, fileName });
+        designNodeId = node.id;
+      }
+
+      // Strip code blocks from the displayed message — only show the summary
+      const summaryContent = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
+
+      // Add completed response to design messages with the linked design node ID
+      flushSync(() => {
+        setDesignMessages(prev => [...prev, {
+          id: assistantId,
+          role: 'assistant',
+          content: summaryContent,
+          timestamp: Date.now(),
+          // Store the design node ID so we can render a clickable indicator
+          designNodeId: designNodeId ?? undefined
+        }]);
+        setDesignStreamingResponse('');
+        setIsCurrentlyGenerating(false);
+        setIsCurrentlyThinking(false);
+        if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+      });
+
+    } catch (error: any) {
+      const errMsg = error.message || 'Design generation failed';
+      addGlobalError(errMsg);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
@@ -3606,7 +3858,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   className={`text-base transition-colors duration-300 ${sidebarView === 'visual-edit' ? 'text-[#81888f] hover:text-white cursor-pointer' : 'text-white cursor-default'}`}
                   onClick={() => sidebarView === 'visual-edit' && handleExitVisualEdit()}
                 >
-                  Design
+                  Edit
                 </button>
                 
                 <div className={`flex items-center transition-all duration-300 ease-out origin-left ${sidebarView === 'visual-edit' ? 'w-[105px] opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
@@ -3687,7 +3939,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   className={`text-base transition-colors duration-300 ${(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') ? 'text-[#81888f] hover:text-white cursor-pointer' : 'text-white cursor-default'}`}
                   onClick={() => (activeTab === 'canvas-screens' || activeTab === 'canvas-elements') && onTabChange('canvas')}
                 >
-                  Canvas
+                  Design
                 </button>
                 
                 <div className={`flex items-center transition-all duration-300 ease-out origin-left ${(activeTab === 'canvas-screens' || activeTab === 'canvas-elements') ? 'w-[105px] opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'}`}>
@@ -3771,22 +4023,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                {/* Spacer to maintain vertical position of cards precisely matching Visual Edits header height */}
                <div className="h-[40px]" />
 
-               {/* Themes Card */}
-               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
-                  <div className="flex flex-col gap-[14px]">
-                     <div className="text-white">
-                        <Palette size={20} strokeWidth={1.5} />
-                     </div>
-                     <div className="flex items-end justify-between">
-                        <div>
-                           <div className="text-[16px] font-semibold text-white mb-1">Themes</div>
-                           <div className="text-[14px] text-gray-400 font-medium">Browse and apply themes to your project</div>
-                        </div>
-                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
-                     </div>
-                  </div>
-               </div>
-
                {/* Visual Edits Card */}
                 <div
                   onClick={() => {
@@ -3810,19 +4046,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   </div>
                </div>
 
-               {/* Canvas Card */}
-               <div 
-                 onClick={() => onTabChange('canvas')}
-                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
-               >
+               {/* Themes Card */}
+               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
                   <div className="flex flex-col gap-[14px]">
                      <div className="text-white">
-                        <CanvasIcon size={20} />
+                        <Palette size={20} strokeWidth={1.5} />
                      </div>
                      <div className="flex items-end justify-between">
                         <div>
-                           <div className="text-[16px] font-semibold text-white mb-1">Canvas</div>
-                           <div className="text-[14px] text-gray-400 font-medium">A blank infinite canvas for your ideas</div>
+                           <div className="text-[16px] font-semibold text-white mb-1">Themes</div>
+                           <div className="text-[14px] text-gray-400 font-medium">Browse and apply themes to your project</div>
                         </div>
                         <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
                      </div>
@@ -3912,14 +4145,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   </div>
                </div>
             </div>
-          ) : (
+           ) : (
           <div className="space-y-12">
-            {messages.length === 0 && (
+            {(activeTab === 'canvas-screens' ? designMessages : messages).length === 0 && (
               <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
                 <div className="text-[#3f3f46] mb-6">
-                  <GeminiLogo size={64} />
+                  <GeminiLogo size={48} />
                 </div>
-                <h2 className="text-2xl font-semibold text-gray-200 mb-10 max-w-[280px] leading-snug">What do you want to build</h2>
+                <h2 className="text-[19px] font-semibold text-gray-200 mb-10 text-center leading-snug">
+                  What do you want to<br />build
+                </h2>
                 
                 {suggestions && suggestions.length > 0 && (
                   <div className="flex flex-col items-center gap-4 w-full mx-auto">
@@ -3941,10 +4176,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 )}
               </div>
             )}
-            {messages.map((msg, msgIndex) => {
+            {(activeTab === 'canvas-screens' ? designMessages : messages).map((msg, msgIndex) => {
               // Check if this is the last assistant message (needs min-height to prevent snap)
               const isLastAssistantMessage = msg.role === 'assistant' &&
-                msgIndex === messages.length - 1;
+                msgIndex === (activeTab === 'canvas-screens' ? designMessages : messages).length - 1;
 
               return (
               <div
@@ -4029,8 +4264,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                       {renderFormattedContent(msg.content, msg.isGenerating, msg.id)}
                     </div>
 
+                    {/* Design Indicator - clickable design card for design mode messages */}
+                    {msg.designNodeId && !msg.isGenerating && (
+                      <div className="pt-3">
+                        <button
+                          onClick={() => focusDesignNode(msg.designNodeId!)}
+                          className="group flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-gradient-to-r from-[#1e1e2e] to-[#252535] border border-white/[0.08] hover:border-white/20 transition-all duration-200 text-left"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center shrink-0">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-blue-400">
+                              <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="1.5"/>
+                              <path d="M8 12h8M12 8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-medium text-gray-200 group-hover:text-white transition-colors truncate">View Design</div>
+                            <div className="text-[11px] text-gray-500">Click to highlight on canvas</div>
+                          </div>
+                          <ChevronRight size={16} className="text-gray-500 group-hover:text-gray-300 transition-colors shrink-0" />
+                        </button>
+                      </div>
+                    )}
+
                     {/* Preview Button - Only show when message is fully generated */}
-                    {!msg.isGenerating && (
+                    {!msg.isGenerating && !msg.designNodeId && (
                       <div className="pt-2 pb-1">
                         <button className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/20 text-gray-200 hover:text-white hover:bg-white/5 hover:border-white/30 transition-all duration-200 text-[13px] font-medium select-none group">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400 group-hover:text-white transition-colors">
@@ -4105,9 +4362,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   )}
                 </div>
 
-                {currentStreamingResponse && (
+                {(activeTab === 'canvas-screens' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
-                    {renderFormattedContent(currentStreamingResponse, true, 'streaming')}
+                    {renderFormattedContent(activeTab === 'canvas-screens' ? designStreamingResponse : currentStreamingResponse, true, 'streaming')}
                   </div>
                 )}
               </div>
@@ -4323,10 +4580,33 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  </div>
                </div>
 
-               {/* Attachments Area */}
+               {/* Attachments Area (includes screen selections + file/image attachments in one row) */}
                <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasVisibleAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                  <div className="overflow-hidden">
                    <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-1 px-1 transition-[padding] duration-[250ms] ease-in-out ${showContextHeader ? 'pt-2' : 'pt-0'}`}>
+                     {/* Screen attachments from canvas selection */}
+                     {activeTab === 'canvas-screens' && displayedScreens.map((screen) => (
+                       <div key={`screen-${screen.id}`} className={`relative group flex-shrink-0 transition-[opacity,transform] duration-200 ${fadingOutScreenIds.has(screen.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100'}`}>
+                         <div className="relative">
+                           <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#0a0a0a]">
+                             {screen.thumbnailUrl ? (
+                               <img src={screen.thumbnailUrl} alt={screen.fileName || 'Screen'} className="w-full h-full object-cover object-top" />
+                             ) : (
+                               <div className="w-full h-full bg-[#0a0a0a] animate-pulse" />
+                             )}
+                           </div>
+                           <button
+                             onClick={() => {
+                               selectedDesignNodeIds.set(selectedDesignIds.filter(id => id !== screen.id));
+                             }}
+                             className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                           >
+                             <X size={12} />
+                           </button>
+                         </div>
+                       </div>
+                     ))}
+                     {/* File / image attachments */}
                      {attachments.map((att) => (
                        <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
                          {att.type === 'image' ? (
