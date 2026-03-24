@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild-wasm';
+import esbuildWasmUrl from 'esbuild-wasm/esbuild.wasm?url';
 import { injectSourceLocations as injectSourceLocationsToCode } from './babel-source-plugin';
 
 let esbuildInitialized = false;
@@ -14,7 +15,7 @@ export async function initBundler(): Promise<void> {
   initializationPromise = (async () => {
     try {
       await esbuild.initialize({
-        wasmURL: '/esbuild.wasm',
+        wasmURL: esbuildWasmUrl,
         worker: false
       });
       esbuildInitialized = true;

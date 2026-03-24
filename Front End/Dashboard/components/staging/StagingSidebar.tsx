@@ -1901,6 +1901,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     thinkingTime?: number;
     isGenerating?: boolean;
     isThinking?: boolean;
+    hasCodeChanges?: boolean;
 
     timestamp: number;
     attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
@@ -1927,6 +1928,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const suggestionsGeneratedRef = useRef(false);
   const prevGeneratingRef = useRef(false);
   const initialLoadCompleteRef = useRef(false); // Track if first generation from dashboard is done
+
+  const activeConversationMode = activeTab === 'canvas-screens' ? 'design' : 'default';
+  const activeConversationMessages = activeConversationMode === 'design' ? designMessages : messages;
+  const currentTargetVisualOffset = isChatMode
+    ? 76
+    : (activeTab === 'agent-builder' ||
+       sidebarView === 'visual-edit' ||
+       activeTab === 'canvas-screens' ||
+       activeTab === 'canvas-elements')
+      ? 56
+      : 20;
+
+  const LAST_RESPONSE_PREVIEW_GAP_COMPENSATION = 48;
+  const responseHasCodeChanges = (response: string) => parseAIResponse(response).length > 0;
 
   // Generate prompt suggestions based on conversation
   const generateSuggestions = useCallback(async () => {
@@ -2858,6 +2873,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         role: 'assistant',
         content: responseText,
         thinkingTime: thinkingTimeRef.current, // Use ref for accurate value
+        hasCodeChanges: responseHasCodeChanges(responseText),
         timestamp: Date.now()
       };
 
@@ -2959,8 +2975,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       timestamp: Date.now()
     };
 
-    setDesignMessages(prev => [...prev, userMessage]);
-    setDesignStreamingResponse('');
+    flushSync(() => {
+      setDesignMessages(prev => [...prev, userMessage]);
+      setDesignStreamingResponse('');
+    });
 
     const assistantId = Math.random().toString(36).substring(7);
     let fullResponse = '';
@@ -3027,6 +3045,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           thinkingLevel: selected?.thinkingLevel || 1
         },
         (token) => {
+          if (isCurrentlyThinkingRef.current) {
+            const elapsedMs = thinkingStartTimeRef.current ? Date.now() - thinkingStartTimeRef.current : 0;
+            const elapsedSeconds = Math.ceil(elapsedMs / 1000);
+            thinkingTimeRef.current = elapsedSeconds;
+            setCurrentThinkingTime(elapsedSeconds);
+
+            isCurrentlyThinkingRef.current = false;
+            setIsCurrentlyThinking(false);
+            if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+          }
           fullResponse += token;
           // Don't update designStreamingResponse — we show the response only once complete
         },
@@ -3078,11 +3106,14 @@ CODING RULES:
           id: assistantId,
           role: 'assistant',
           content: summaryContent,
+          thinkingTime: thinkingTimeRef.current,
+          hasCodeChanges: !!code,
           timestamp: Date.now(),
           // Store the design node ID so we can render a clickable indicator
           designNodeId: designNodeId ?? undefined
         }]);
         setDesignStreamingResponse('');
+        setCurrentThinkingTime(0);
         setIsCurrentlyGenerating(false);
         setIsCurrentlyThinking(false);
         if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
@@ -3091,6 +3122,7 @@ CODING RULES:
     } catch (error: any) {
       const errMsg = error.message || 'Design generation failed';
       addGlobalError(errMsg);
+      setCurrentThinkingTime(0);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
@@ -3167,6 +3199,7 @@ CODING RULES:
         role: 'assistant',
         content: result.finalResponse,
         thinkingTime: Math.ceil(result.totalDuration / 1000),
+        hasCodeChanges: responseHasCodeChanges(result.finalResponse),
         timestamp: Date.now(),
       };
 
@@ -3204,6 +3237,7 @@ CODING RULES:
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
         content: `Agent Swarm encountered an error: ${error.message || 'Unknown error'}`,
+        hasCodeChanges: false,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -3223,6 +3257,7 @@ CODING RULES:
       const errorMessage: ChatMessage = {
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
+        hasCodeChanges: false,
         content: '⚠️ Cannot run test: Preview not available. Please generate some code first, then try testing again.',
         timestamp: Date.now()
       };
@@ -3255,7 +3290,8 @@ CODING RULES:
       role: 'assistant',
       content: '',  // Will be populated by plan
       timestamp: Date.now(),
-      isGenerating: true  // Mark as generating to hide action buttons
+      isGenerating: true,  // Mark as generating to hide action buttons
+      hasCodeChanges: false
     };
     
     // Smoothly add the assistant message without waiting (states already handled in handleSendMessage)
@@ -3365,7 +3401,7 @@ CODING RULES:
           
           setMessages(prev => prev.map(msg =>
             msg.id === messageId
-              ? { ...msg, content: updatedContent, thinkingTime: thinkingTimeRef.current, isGenerating: true }
+              ? { ...msg, content: updatedContent, thinkingTime: thinkingTimeRef.current, isGenerating: true, hasCodeChanges: false }
               : msg
           ));
         },
@@ -3399,7 +3435,7 @@ CODING RULES:
       // Update message with isGenerating: false to show action buttons
       setMessages(prev => prev.map(msg => 
         msg.id === messageId 
-          ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current, isGenerating: false }
+          ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current, isGenerating: false, hasCodeChanges: false }
           : msg
       ));
       
@@ -3437,7 +3473,8 @@ CODING RULES:
                 ? '*Test cancelled by user.*' 
                 : `❌ Test Error: ${error.message || 'Failed to run test.'}`,
               thinkingTime: thinkingTimeRef.current,
-              isGenerating: false
+              isGenerating: false,
+              hasCodeChanges: false
             }
           : msg
       ));
@@ -3459,17 +3496,25 @@ CODING RULES:
   }, []);
 
   // Scroll logic - useLayoutEffect runs BEFORE browser paint, eliminating flash
-  const lastPromptId = useRef<string | null>(null);
+  const lastPromptIds = useRef<{ default: string | null; design: string | null }>({ default: null, design: null });
   const isScrollingToTop = useRef(false);
+
+  useEffect(() => {
+    if (activeConversationMessages.length === 0) {
+      setResponseAreaMinHeight(undefined);
+      setNeedsScrollPadding(false);
+      lastPromptIds.current[activeConversationMode] = null;
+    }
+  }, [activeConversationMessages.length, activeConversationMode]);
 
   React.useLayoutEffect(() => {
     if (chatScrollRef.current) {
         const container = chatScrollRef.current;
-        const userMessages = messages.filter(m => m.role === 'user');
+        const userMessages = activeConversationMessages.filter(m => m.role === 'user');
         const lastUserMessage = userMessages[userMessages.length - 1];
 
-        if (lastUserMessage && lastUserMessage.id !== lastPromptId.current) {
-            lastPromptId.current = lastUserMessage.id;
+        if (lastUserMessage && lastUserMessage.id !== lastPromptIds.current[activeConversationMode]) {
+            lastPromptIds.current[activeConversationMode] = lastUserMessage.id;
             isScrollingToTop.current = true;
 
             // CRITICAL: Temporarily force overflow to auto so scroll can work
@@ -3484,11 +3529,7 @@ CODING RULES:
                     // Capture initial state AFTER DOM has settled
                     const containerRect = container.getBoundingClientRect();
                     const msgRect = msgEl.getBoundingClientRect();
-                    const targetVisualOffset = isChatMode 
-                      ? 76 
-                      : (activeTab === 'agent-builder' || sidebarView === 'visual-edit') 
-                        ? 56 
-                        : 20;
+                    const targetVisualOffset = currentTargetVisualOffset;
                     const initialOffset = msgRect.top - containerRect.top;
                     const totalScrollNeeded = initialOffset - targetVisualOffset;
 
@@ -3550,7 +3591,7 @@ CODING RULES:
             });
         }
     }
-  }, [messages, isChatMode]);
+  }, [activeConversationMessages, activeConversationMode, currentTargetVisualOffset]);
 
   // Recalculate response area min-height when container resizes
   useEffect(() => {
@@ -3561,18 +3602,14 @@ CODING RULES:
       // Only recalculate if we have a previous value (scroll animation has run)
       if (responseAreaMinHeight === undefined) return;
 
-      const userMessages = messages.filter(m => m.role === 'user');
+      const userMessages = activeConversationMessages.filter(m => m.role === 'user');
       const lastUserMsg = userMessages[userMessages.length - 1];
       if (!lastUserMsg) return;
 
       const msgEl = messageRefs.current[lastUserMsg.id];
       if (!msgEl) return;
 
-      const targetVisualOffset = isChatMode 
-        ? 76 
-        : (activeTab === 'agent-builder' || sidebarView === 'visual-edit') 
-          ? 56 
-          : 20;
+      const targetVisualOffset = currentTargetVisualOffset;
 
       const gap = 48;
       const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
@@ -3582,7 +3619,7 @@ CODING RULES:
     observer.observe(container);
     if (footerRef.current) observer.observe(footerRef.current);
     return () => observer.disconnect();
-  }, [messages, isChatMode, responseAreaMinHeight]);
+  }, [activeConversationMessages, currentTargetVisualOffset, responseAreaMinHeight]);
 
   // Detect when response content overflows the allocated min-height.
   // When it does, re-enable bottom padding so the user can scroll past the input box.
@@ -3598,10 +3635,18 @@ CODING RULES:
       }
 
       // Check last assistant message after generation completes
-      const lastMsg = messages[messages.length - 1];
+      const lastMsg = activeConversationMessages[activeConversationMessages.length - 1];
       if (lastMsg?.role === 'assistant') {
         const el = messageRefs.current[lastMsg.id];
-        if (el && el.scrollHeight > responseAreaMinHeight + 5) {
+        const effectiveMinHeight = Math.max(
+          0,
+          responseAreaMinHeight - (
+            !lastMsg.isGenerating && !lastMsg.designNodeId && !lastMsg.hasCodeChanges
+              ? LAST_RESPONSE_PREVIEW_GAP_COMPENSATION
+              : 0
+          )
+        );
+        if (el && el.scrollHeight > effectiveMinHeight + 5) {
           setNeedsScrollPadding(true);
         }
       }
@@ -3613,7 +3658,7 @@ CODING RULES:
       observer.observe(streamingContentRef.current);
     }
 
-    const lastMsg = messages[messages.length - 1];
+    const lastMsg = activeConversationMessages[activeConversationMessages.length - 1];
     if (lastMsg?.role === 'assistant' && messageRefs.current[lastMsg.id]) {
       observer.observe(messageRefs.current[lastMsg.id]!);
     }
@@ -3622,7 +3667,7 @@ CODING RULES:
     checkOverflow();
 
     return () => observer.disconnect();
-  }, [responseAreaMinHeight, needsScrollPadding, messages, isCurrentlyGenerating]);
+  }, [responseAreaMinHeight, needsScrollPadding, activeConversationMessages, isCurrentlyGenerating]);
 
   // Tabs scroll check (renamed from scrollContainerRef)
   const handleScroll = () => {
@@ -4147,7 +4192,7 @@ CODING RULES:
             </div>
            ) : (
           <div className="space-y-12">
-            {(activeTab === 'canvas-screens' ? designMessages : messages).length === 0 && (
+            {activeConversationMessages.length === 0 && (
               <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
                 <div className="text-[#3f3f46] mb-6">
                   <GeminiLogo size={48} />
@@ -4176,10 +4221,20 @@ CODING RULES:
                 )}
               </div>
             )}
-            {(activeTab === 'canvas-screens' ? designMessages : messages).map((msg, msgIndex) => {
+            {activeConversationMessages.map((msg, msgIndex) => {
               // Check if this is the last assistant message (needs min-height to prevent snap)
               const isLastAssistantMessage = msg.role === 'assistant' &&
-                msgIndex === (activeTab === 'canvas-screens' ? designMessages : messages).length - 1;
+                msgIndex === activeConversationMessages.length - 1;
+              const lastAssistantMinHeight = isLastAssistantMessage && responseAreaMinHeight !== undefined
+                ? Math.max(
+                    0,
+                    responseAreaMinHeight - (
+                      !msg.isGenerating && !msg.designNodeId && !msg.hasCodeChanges
+                        ? LAST_RESPONSE_PREVIEW_GAP_COMPENSATION
+                        : 0
+                    )
+                  )
+                : undefined;
 
               return (
               <div
@@ -4235,8 +4290,8 @@ CODING RULES:
                       // Dynamic min-height fills the full remaining visible space for scroll.
                       // paddingBottom pushes content above the footer overlay so buttons stay visible.
                       // When needsScrollPadding is true (long response), pb on the scroll container handles it instead.
-                      minHeight: isLastAssistantMessage && responseAreaMinHeight !== undefined
-                        ? `${responseAreaMinHeight}px`
+                      minHeight: lastAssistantMinHeight !== undefined
+                        ? `${lastAssistantMinHeight}px`
                         : undefined,
                       paddingBottom: isLastAssistantMessage && responseAreaMinHeight !== undefined && !needsScrollPadding
                         ? `${footerRef.current?.offsetHeight || 210}px`
@@ -4286,8 +4341,8 @@ CODING RULES:
                       </div>
                     )}
 
-                    {/* Preview Button - Only show when message is fully generated */}
-                    {!msg.isGenerating && !msg.designNodeId && (
+                    {/* Preview Button - Only show when message is fully generated and code changed */}
+                    {!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && (
                       <div className="pt-2 pb-1">
                         <button className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/20 text-gray-200 hover:text-white hover:bg-white/5 hover:border-white/30 transition-all duration-200 text-[13px] font-medium select-none group">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400 group-hover:text-white transition-colors">
@@ -4362,9 +4417,9 @@ CODING RULES:
                   )}
                 </div>
 
-                {(activeTab === 'canvas-screens' ? designStreamingResponse : currentStreamingResponse) && (
+                {(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
-                    {renderFormattedContent(activeTab === 'canvas-screens' ? designStreamingResponse : currentStreamingResponse, true, 'streaming')}
+                    {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true, 'streaming')}
                   </div>
                 )}
               </div>
