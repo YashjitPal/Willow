@@ -220,14 +220,18 @@ const TestModeGlow: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) 
   useEffect(() => {
     if (isActive) {
       // Always reset isVisible to false first to ensure animation plays
-      setIsVisible(false);
-      setShouldRender(true);
-      // Small delay to trigger CSS transition (ensures opacity starts at 0)
-      requestAnimationFrame(() => {
+      if (!shouldRender) {
+        setIsVisible(false);
+        setShouldRender(true);
+        // Small delay to trigger CSS transition (ensures opacity starts at 0)
         requestAnimationFrame(() => {
-          setIsVisible(true);
+          requestAnimationFrame(() => {
+            setIsVisible(true);
+          });
         });
-      });
+      } else {
+        setIsVisible(true);
+      }
     } else {
       setIsVisible(false);
       // Wait for fade out animation to complete before unmounting
@@ -236,7 +240,7 @@ const TestModeGlow: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) 
       }, 1000); // Match the 1s fade duration
       return () => clearTimeout(timeout);
     }
-  }, [isActive]);
+  }, [isActive, shouldRender]);
   
   if (!shouldRender) return null;
   
@@ -247,9 +251,17 @@ const TestModeGlow: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) 
         zIndex: 30,
         opacity: isVisible ? 1 : 0,
         transition: 'opacity 1s ease-in-out',
-        animation: 'pulseGlow 3s ease-in-out infinite',
       }}
-    />
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          boxShadow: 'inset 0 0 120px 30px rgba(59, 130, 246, 0.3), inset 0 0 60px rgba(59, 130, 246, 0.5)',
+          animation: 'pulseGlowOpacity 3s ease-in-out infinite',
+          willChange: 'opacity',
+        }}
+      />
+    </div>
   );
 });
 
@@ -1228,12 +1240,12 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                   }
                 }
                 
-                @keyframes pulseGlow {
+                @keyframes pulseGlowOpacity {
                   0%, 100% { 
-                    box-shadow: inset 0 0 100px 25px rgba(59, 130, 246, 0.25), inset 0 0 50px rgba(59, 130, 246, 0.4);
+                    opacity: 0.8;
                   }
                   50% { 
-                    box-shadow: inset 0 0 120px 30px rgba(59, 130, 246, 0.3), inset 0 0 60px rgba(59, 130, 246, 0.5); 
+                    opacity: 1;
                   }
                 }
 

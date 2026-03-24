@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '@nanostores/react';
 import {
   Search,
@@ -91,7 +91,10 @@ const StagingCodePanel: React.FC = () => {
   const [highlightedLines, setHighlightedLines] = useState<{ start: number; end: number } | null>(null);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const codeContainerRef = useRef<HTMLDivElement>(null);
+  const codeSelectionRef = useRef<HTMLTextAreaElement>(null);
   const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const wheelAxisLockRef = useRef<'x' | 'y' | null>(null);
+  const wheelAxisReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for code navigation requests from visual editor
   useEffect(() => {
@@ -160,6 +163,14 @@ const StagingCodePanel: React.FC = () => {
       });
     }
   }, [openTabs.length]);
+
+  useEffect(() => {
+    return () => {
+      if (wheelAxisReleaseTimeoutRef.current) {
+        clearTimeout(wheelAxisReleaseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Build file tree from bolt store
   const fileTree = useMemo(() => buildFileTree(filesMap), [filesMap]);
@@ -315,6 +326,79 @@ const StagingCodePanel: React.FC = () => {
 
   const hasFiles = Object.keys(filesMap).length > 0;
 
+  const focusCodeViewer = useCallback(() => {
+    codeContainerRef.current?.focus();
+  }, []);
+
+  const selectAllCode = useCallback(() => {
+    const selectionTarget = codeSelectionRef.current;
+
+    if (!selectionTarget) {
+      return;
+    }
+
+    selectionTarget.focus();
+    selectionTarget.select();
+    selectionTarget.setSelectionRange(0, selectionTarget.value.length);
+  }, []);
+
+  const handleCodeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!activeFileContent || isImageFile) {
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      event.stopPropagation();
+      selectAllCode();
+    }
+  }, [activeFileContent, isImageFile, selectAllCode]);
+
+  const handleCodeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (!activeFileContent || isImageFile || !codeContainerRef.current) {
+      return;
+    }
+
+    const absDeltaX = Math.abs(event.deltaX);
+    const absDeltaY = Math.abs(event.deltaY);
+    const canScrollHorizontally = codeContainerRef.current.scrollWidth > codeContainerRef.current.clientWidth;
+    const canScrollVertically = codeContainerRef.current.scrollHeight > codeContainerRef.current.clientHeight;
+
+    if (absDeltaX === 0 && absDeltaY === 0) {
+      return;
+    }
+
+    const nextAxis =
+      wheelAxisLockRef.current ??
+      ((event.shiftKey && canScrollHorizontally) || (canScrollHorizontally && absDeltaX > absDeltaY * 1.25)
+        ? 'x'
+        : canScrollVertically
+          ? 'y'
+          : 'x');
+
+    wheelAxisLockRef.current = nextAxis;
+
+    if (wheelAxisReleaseTimeoutRef.current) {
+      clearTimeout(wheelAxisReleaseTimeoutRef.current);
+    }
+
+    wheelAxisReleaseTimeoutRef.current = setTimeout(() => {
+      wheelAxisLockRef.current = null;
+      wheelAxisReleaseTimeoutRef.current = null;
+    }, 120);
+
+    const horizontalDelta = absDeltaX > 0 ? event.deltaX : event.deltaY;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    codeContainerRef.current.scrollBy({
+      left: nextAxis === 'x' ? horizontalDelta : 0,
+      top: nextAxis === 'y' ? event.deltaY : 0,
+      behavior: 'auto',
+    });
+  }, [activeFileContent, isImageFile]);
+
   return (
     <div className="h-full flex-1 min-h-0 w-full bg-[#1c1c1c] border border-[#27272a] rounded-[12px] flex overflow-hidden font-sans shadow-2xl">
       
@@ -425,7 +509,12 @@ const StagingCodePanel: React.FC = () => {
         {/* Code Content */}
         <div
           ref={codeContainerRef}
-          className={`flex-1 overflow-auto custom-scrollbar ${activeFileContent ? 'py-3 bg-[#141414] rounded-tl-lg' : 'flex items-center justify-center bg-transparent'}`}
+          tabIndex={activeFileContent && !isImageFile ? 0 : -1}
+          aria-label={activeFileContent && !isImageFile ? 'Code viewer' : undefined}
+          onMouseDown={activeFileContent && !isImageFile ? focusCodeViewer : undefined}
+          onKeyDown={activeFileContent && !isImageFile ? handleCodeKeyDown : undefined}
+          onWheel={activeFileContent && !isImageFile ? handleCodeWheel : undefined}
+          className={`relative flex-1 overflow-auto custom-scrollbar focus:outline-none ${activeFileContent ? 'py-3 bg-[#141414] rounded-tl-lg' : 'flex items-center justify-center bg-transparent'}`}
         >
           {activeFileContent ? (
             isImageFile ? (
@@ -440,9 +529,19 @@ const StagingCodePanel: React.FC = () => {
                 </span>
               </div>
             ) : (
-              <div key={activeFilePath} className="animate-fadeIn w-full">
-                {renderHighlightedCode(activeFileContent)}
-              </div>
+              <>
+                <textarea
+                  ref={codeSelectionRef}
+                  value={activeFileContent}
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0 top-0 h-px w-px -translate-x-[200vw] opacity-0"
+                />
+                <div key={activeFilePath} className="animate-fadeIn w-full">
+                  {renderHighlightedCode(activeFileContent)}
+                </div>
+              </>
             )
           ) : (
             <div className="flex flex-col items-center justify-center text-center opacity-40 select-none pointer-events-none">
