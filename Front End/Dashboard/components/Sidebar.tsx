@@ -99,6 +99,19 @@ const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMou
 
   const backgrounds: { id: BackgroundType; label: string; preview: React.ReactNode }[] = [
     {
+      id: 'solid',
+      label: 'Dark',
+      preview: (
+        <div className="w-full h-full bg-[#212121] flex flex-col items-center justify-center px-2 gap-1.5">
+          <div className="w-8 h-0.5 bg-white/60 rounded-full" />
+          <div className="w-full h-3 bg-[#2f2f2f] rounded-[4px] border border-white/5 flex items-center justify-between px-1">
+            <div className="w-1 h-1 rounded-full bg-white/40" />
+            <div className="w-1.5 h-1.5 rounded-full bg-white/80" />
+          </div>
+        </div>
+      )
+    },
+    {
       id: 'waves',
       label: 'Waves',
       preview: (
@@ -118,13 +131,6 @@ const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMou
             <div className="w-[2px] h-full bg-gradient-to-b from-slate-300/50 via-gray-400/30 to-transparent blur-[1px]" />
           </div>
         </div>
-      )
-    },
-    {
-      id: 'solid',
-      label: 'Dark',
-      preview: (
-        <div className="w-full h-full bg-[#1c1c1c]" />
       )
     }
   ];
@@ -554,7 +560,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Apply transparency only for 'waves' background - 90% opacity (happy medium)
   const sidebarBgClass = backgroundType === 'waves' 
     ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
-    : 'bg-[#0d0d0d]';
+    : backgroundType === 'solid'
+      ? 'bg-[#181818]'
+      : 'bg-[#0d0d0d]';
 
   return (
     <aside 

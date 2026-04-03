@@ -12,6 +12,7 @@ import { ProjectsPage } from './components/ProjectsPage';
 import { RainbowButton } from './components/ui/rainbow-button';
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
+import { TopDropdown } from './components/TopDropdown';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
@@ -71,7 +72,7 @@ const DashboardLayout: React.FC<{
   const effectiveBackground = isAuthenticated ? background : 'lines';
   
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#1c1c1c] text-white selection:bg-pink-500/30 relative">
+    <div className={`flex h-screen w-screen overflow-hidden ${effectiveBackground === 'solid' ? 'bg-[#212121]' : 'bg-[#1c1c1c]'} text-white selection:bg-pink-500/30 relative`}>
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
       {currentView === 'home' && effectiveBackground === 'waves' && (
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -100,6 +101,7 @@ const DashboardLayout: React.FC<{
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
+        <TopDropdown />
         {/* Background rendered in content area for lines only (solid is just plain color) */}
         {currentView === 'home' && effectiveBackground === 'lines' && (
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -204,7 +206,7 @@ const App: React.FC = () => {
     }
   }, [user, userProfile]);
 
-  const handlePromptSubmit = (prompt: string, mode: string = 'ship') => {
+  const handlePromptSubmit = (prompt: string, mode: string = 'ship', attachments?: any[]) => {
     if (!user) {
       navigate('/login');
       return;
@@ -212,7 +214,7 @@ const App: React.FC = () => {
     // Mark that we're navigating to staging via React Router (not a page refresh)
     sessionStorage.setItem('staging-nav', 'true');
     const encodedPrompt = encodeURIComponent(prompt);
-    navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`);
+    navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`, { state: { initialAttachments: attachments } });
   };
 
   // Helper to open settings to Drive connector

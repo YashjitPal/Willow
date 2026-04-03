@@ -104,6 +104,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings })
     setOpenMenuId(openMenuId === id ? null : id);
   };
 
+  if (background === 'solid') {
+    return null;
+  }
+
   // Match sidebar opacity (90%) for waves, keep original (70%) for others
   const panelBgClass = background === 'waves'
     ? 'bg-[#0d0d0d]/90'

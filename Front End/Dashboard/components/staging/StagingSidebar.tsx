@@ -532,6 +532,7 @@ interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
   prompt?: string;
+  initialAttachments?: any[];
   activeTab: string;
   onTabChange: (id: string) => void;
   isChatMode?: boolean;
@@ -1622,7 +1623,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
@@ -1916,8 +1917,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [currentThinkingTime, setCurrentThinkingTime] = useState(0);
   const thinkingTimeRef = useRef(0); // Ref to capture accurate final thinking time
   const thinkingStartTimeRef = useRef<number | null>(null); // Timestamp when thinking started
-  const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(false);
-  const [isCurrentlyThinking, setIsCurrentlyThinking] = useState(false);
+  const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(!!prompt);
+  const [isCurrentlyThinking, setIsCurrentlyThinking] = useState(!!prompt);
   const isCurrentlyThinkingRef = useRef(false); // Ref to avoid stale closure in streaming callback
   const { apiKeys, loading: userDataLoading } = useUserDataContext();
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -2525,29 +2526,67 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       completedMessagesRef.current.clear();
       introShownRef.current.clear();
 
-      // Show user message immediately
-      const userMessage: ChatMessage = {
-        id: 'initial-prompt',
-        role: 'user',
-        content: prompt,
-        timestamp: Date.now()
+      // Process initial attachments for display in user message
+      const processInitialAttachments = async () => {
+        const processedAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [];
+
+        if (initialAttachments && initialAttachments.length > 0) {
+          for (const att of initialAttachments) {
+            if (!att.file) continue;
+            try {
+              if (att.type === 'image') {
+                const base64 = await fileToBase64(att.file);
+                processedAttachments.push({
+                  type: 'image',
+                  mimeType: att.file.type,
+                  data: base64,
+                  name: att.name
+                });
+              } else {
+                const content = await readFileText(att.file);
+                processedAttachments.push({
+                  type: 'text',
+                  mimeType: att.file.type || 'text/plain',
+                  data: content,
+                  name: att.name
+                });
+              }
+            } catch (e) {
+              // Skip failed attachment
+            }
+          }
+        }
+
+        // Show user message immediately (with attachments if any)
+        const userMessage: ChatMessage = {
+          id: 'initial-prompt',
+          role: 'user',
+          content: prompt,
+          timestamp: Date.now(),
+          attachments: processedAttachments.length > 0 ? processedAttachments : undefined
+        };
+        setMessages([userMessage]);
+
+        // Clear attachments from the input area since they've been sent
+        setAttachments([]);
+
+        // Set generating/thinking status immediately
+        setIsCurrentlyGenerating(true);
+        setIsCurrentlyThinking(true);
+        isCurrentlyThinkingRef.current = true;
+        setCurrentThinkingTime(0);
+        thinkingTimeRef.current = 0;
+        thinkingStartTimeRef.current = Date.now();
+
+        // Start timer immediately
+        if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+        thinkingTimerRef.current = setInterval(() => {
+          thinkingTimeRef.current += 1;
+          setCurrentThinkingTime(thinkingTimeRef.current);
+        }, 1000);
       };
-      setMessages([userMessage]);
 
-      // Set generating/thinking status immediately
-      setIsCurrentlyGenerating(true);
-      setIsCurrentlyThinking(true);
-      isCurrentlyThinkingRef.current = true; // Set ref directly to avoid timing issues
-      setCurrentThinkingTime(0);
-      thinkingTimeRef.current = 0;
-      thinkingStartTimeRef.current = Date.now(); // Track when thinking started
-
-      // Start timer immediately
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-      thinkingTimerRef.current = setInterval(() => {
-        thinkingTimeRef.current += 1;
-        setCurrentThinkingTime(thinkingTimeRef.current);
-      }, 1000);
+      processInitialAttachments();
     }
   }, [prompt]);
 
@@ -2556,7 +2595,42 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   useEffect(() => {
     if (prompt && !initialAiTriggered.current && messages.length > 0) {
       initialAiTriggered.current = true;
-      startAiGeneration(prompt, [], true, []); // true = UI already started
+
+      // Process initial attachments for sending to AI
+      const fireInitialGeneration = async () => {
+        const processedAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [];
+
+        if (initialAttachments && initialAttachments.length > 0) {
+          for (const att of initialAttachments) {
+            if (!att.file) continue;
+            try {
+              if (att.type === 'image') {
+                const base64 = await fileToBase64(att.file);
+                processedAttachments.push({
+                  type: 'image',
+                  mimeType: att.file.type,
+                  data: base64,
+                  name: att.name
+                });
+              } else {
+                const content = await readFileText(att.file);
+                processedAttachments.push({
+                  type: 'text',
+                  mimeType: att.file.type || 'text/plain',
+                  data: content,
+                  name: att.name
+                });
+              }
+            } catch (e) {
+              // Skip failed attachment
+            }
+          }
+        }
+
+        startAiGeneration(prompt, [], true, processedAttachments); // true = UI already started
+      };
+
+      fireInitialGeneration();
     }
   }, [prompt, messages]);
 
@@ -2934,6 +3008,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       addGlobalError(errMsg, isApiKeyError ? 'set-api-key' : undefined);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
+      setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
     }
   };
@@ -3125,6 +3200,7 @@ CODING RULES:
       setCurrentThinkingTime(0);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
+      setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
     }
   };
@@ -3229,6 +3305,7 @@ CODING RULES:
       console.error('[Swarm] Execution error:', error);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
+      setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       isSwarmRunning.set(false);
 
@@ -3481,6 +3558,7 @@ CODING RULES:
 
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
+      setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       testStore.setStatus('idle');
       testStore.setCurrentAction(null);

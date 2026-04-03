@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { InputBar } from './InputBar';
 import { useAuth } from '../context/AuthContext';
+import { useBackground } from '../context/BackgroundContext';
 
 export type Mode = 'ship' | 'design' | 'proto' | 'chat';
 
@@ -52,10 +53,12 @@ export const HeroSection: React.FC<{
     }
   };
 
+  const { background } = useBackground();
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center min-h-[85vh] w-full px-4 relative z-30">
+    <div className={`flex-1 flex flex-col items-center justify-center min-h-[85vh] w-full px-4 relative z-30 ${background === 'solid' ? '-mt-20' : ''}`}>
       {/* Main Heading */}
-      <h1 className="text-2xl md:text-3xl font-bold text-white mb-10 tracking-tight text-center drop-shadow-sm transition-all duration-300">
+      <h1 className={`text-white text-center transition-all duration-300 ${background === 'solid' ? 'text-[26px] font-medium tracking-normal mb-8' : 'text-2xl md:text-3xl font-bold tracking-tight mb-10 drop-shadow-sm'}`}>
         {getHeadingText()}
       </h1>
 

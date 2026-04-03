@@ -19,6 +19,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useBackground } from '../context/BackgroundContext';
 
 interface ProjectCardProps {
   id: string;
@@ -375,6 +376,7 @@ const FilterButton: React.FC<{
 };
 
 export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () => void }> = ({ view = 'projects', onOpenDriveSettings }) => {
+  const { background } = useBackground();
   const { isDriveConnected } = useAuth();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set(PROJECT_DATA.filter(p => p.isStarred).map(p => p.id)));
@@ -451,7 +453,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   };
 
   return (
-    <div className="flex-1 w-full h-full bg-[#1c1c1c] flex flex-col relative">
+    <div className={`flex-1 w-full h-full ${background === 'solid' ? 'bg-[#212121]' : 'bg-[#1c1c1c]'} flex flex-col relative`}>
        <style>{`
         @keyframes subtle-star-jump {
           0%, 100% { transform: translateY(0); }

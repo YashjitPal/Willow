@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { PlusDropdownMenu } from './PlusDropdownMenu';
 import {
   Plus,
   FileText,
@@ -11,7 +12,53 @@ import {
   Palette,
   Zap,
   MessageSquare,
+  Globe,
+  X,
+  Mic,
+  Lightbulb,
+  ImagePlus,
+  Telescope,
+  BookOpen,
+  SquarePen,
+  Github,
+  Copy,
 } from "lucide-react";
+
+const SpotifyIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="#1ed760" className={className}>
+    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.54.659.3 1.02zm1.44-3.3c-.301.42-.84.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.48.12-1.02-.12-1.14-.6-.12-.48.12-1.02.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.38 4.26-1.26 11.28-1.02 15.72 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+  </svg>
+);
+
+type ToolId = 'thinking' | 'images' | 'research' | 'web' | 'learn' | 'canvas' | 'github' | 'quizzes' | 'spotify';
+
+interface ToolMetadata {
+  id: ToolId;
+  label: string;
+  chipLabel: string;
+  icon: React.ElementType;
+}
+
+const TOOLS: Record<ToolId, ToolMetadata> = {
+  thinking: { id: 'thinking', label: 'Thinking', chipLabel: 'Think', icon: Lightbulb },
+  images: { id: 'images', label: 'Create image', chipLabel: 'Image', icon: ImagePlus },
+  research: { id: 'research', label: 'Deep research', chipLabel: 'Research', icon: Telescope },
+  web: { id: 'web', label: 'Web search', chipLabel: 'Search', icon: Globe },
+  learn: { id: 'learn', label: 'Study and learn', chipLabel: 'Learn', icon: BookOpen },
+  canvas: { id: 'canvas', label: 'Canvas', chipLabel: 'Canvas', icon: SquarePen },
+  github: { id: 'github', label: 'GitHub', chipLabel: 'GitHub', icon: Github },
+  quizzes: { id: 'quizzes', label: 'Quizzes', chipLabel: 'Quizzes', icon: Copy },
+  spotify: { id: 'spotify', label: 'Spotify', chipLabel: 'Spotify', icon: SpotifyIcon as any },
+};
+
+export interface Attachment {
+  id: string;
+  type: 'image' | 'file';
+  url: string;
+  name: string;
+  extension: string;
+  file: File;
+}
 import { useBackground } from "../context/BackgroundContext";
 
 const ModelIcon = ({ size = 18, ...props }: any) => (
@@ -505,7 +552,7 @@ const ThemesMenu: React.FC<{
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
-  onSubmit?: (prompt: string, mode: Mode) => void;
+  onSubmit?: (prompt: string, mode: Mode, attachments?: Attachment[]) => void;
   modelConfig: any;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
@@ -518,6 +565,43 @@ export const InputBar: React.FC<{
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
+  const [isSolidExpanded, setIsSolidExpanded] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
+  const solidPlusRef = useRef<HTMLButtonElement>(null);
+  const normalPlusRef = useRef<HTMLButtonElement>(null);
+  
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    
+    const newAttachments: Attachment[] = Array.from(e.target.files).map(file => ({
+      id: Math.random().toString(36).substring(7),
+      type: file.type.startsWith('image/') ? 'image' : 'file',
+      url: URL.createObjectURL(file),
+      name: file.name,
+      extension: file.name.split('.').pop() || 'file',
+      file
+    }));
+    
+    setAttachments(prev => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (id: string) => {
+    setRemovingIds(prev => new Set(prev).add(id));
+    setTimeout(() => {
+      setAttachments(prev => prev.filter(att => att.id !== id));
+      setRemovingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 200);
+  };
   
   // Get background type for conditional styling
   const { background } = useBackground();
@@ -564,9 +648,50 @@ export const InputBar: React.FC<{
 
   // Submit prompt internally
   const handleSubmit = () => {
-    if (promptText.trim()) {
-      onSubmit?.(promptText.trim(), currentMode);
+    if (promptText.trim() || attachments.length > 0 || selectedTool) {
+      onSubmit?.(promptText.trim(), currentMode, attachments);
+      setPromptText("");
+      setAttachments([]);
+      setSelectedTool(null);
     }
+  };
+
+  const ToolChip = ({ toolId, onRemove }: { toolId: ToolId, onRemove: () => void }) => {
+    const tool = TOOLS[toolId];
+    const Icon = tool.icon;
+    const [isHovered, setIsHovered] = useState(false);
+
+    // Refined light blue color (sky-200)
+    const lightBlue = "#bae6fd"; 
+
+    return (
+      <div 
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={`flex items-center gap-2 px-2.5 py-2.5 rounded-full transition-all duration-200 cursor-default select-none border-transparent ${
+          isHovered 
+            ? "bg-sky-500/10" 
+            : "bg-transparent"
+        }`}
+      >
+        {isHovered ? (
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="w-4 h-4 rounded-full bg-sky-500/20 flex items-center justify-center hover:bg-sky-500/30 transition-colors cursor-pointer"
+          >
+            <X size={10} className="text-[#bae6fd]" strokeWidth={3} />
+          </div>
+        ) : (
+          <Icon size={16} className="text-[#bae6fd]" strokeWidth={2.2} />
+        )}
+        <span className="text-[13.5px] font-medium leading-none text-[#bae6fd]">
+          {tool.chipLabel}
+        </span>
+      </div>
+    );
   };
 
   // Handle Enter key press - Enter submits, Shift+Enter for new line
@@ -589,13 +714,43 @@ export const InputBar: React.FC<{
       // Throttle resize to once per frame
       textareaResizeRafRef.current = requestAnimationFrame(() => {
         if (textareaRef.current) {
-          // Revert to original static height (48px) to check if content overflows
-          textareaRef.current.style.height = '48px';
-
-          const scrollHeight = textareaRef.current.scrollHeight;
-          if (scrollHeight > 48) {
-            const newHeight = Math.min(scrollHeight, 300);
-            textareaRef.current.style.height = `${newHeight}px`;
+          const isSolid = effectiveBackground === 'solid';
+          const baseHeight = isSolid ? 24 : 48;
+          
+          if (isSolid) {
+            // Force narrow padding for measurement to see if it wraps inline
+            textareaRef.current.style.paddingLeft = '38px';
+            textareaRef.current.style.paddingRight = '76px';
+            textareaRef.current.style.height = `${baseHeight}px`;
+            
+            const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
+            const shouldExpand = (hypotheticalScrollHeight > baseHeight) || !!selectedTool;
+            
+            setIsSolidExpanded(shouldExpand);
+            
+            // To prevent height glitch before React re-renders, 
+            // force the target padding before calculating final height
+            textareaRef.current.style.paddingLeft = shouldExpand ? '0px' : '38px';
+            textareaRef.current.style.paddingRight = shouldExpand ? '0px' : '76px';
+            
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const scrollHeight = textareaRef.current.scrollHeight;
+            
+            if (scrollHeight > baseHeight) {
+              const newHeight = Math.min(scrollHeight, 300);
+              textareaRef.current.style.height = `${newHeight}px`;
+            }
+            
+            // Clean up inline styles so Tailwind classes take over smoothly
+            textareaRef.current.style.paddingLeft = '';
+            textareaRef.current.style.paddingRight = '';
+          } else {
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const scrollHeight = textareaRef.current.scrollHeight;
+            if (scrollHeight > baseHeight) {
+              const newHeight = Math.min(scrollHeight, 300);
+              textareaRef.current.style.height = `${newHeight}px`;
+            }
           }
         }
         textareaResizeRafRef.current = null;
@@ -607,19 +762,199 @@ export const InputBar: React.FC<{
         cancelAnimationFrame(textareaResizeRafRef.current);
       }
     };
-  }, [promptText]);
+  }, [promptText, selectedTool]);
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
   const promptBoxBg = effectiveBackground === 'lines' 
     ? 'bg-[#18181b]/70' 
     : 'bg-[#18181b]';
   
-  // Conditional hover shadow: only for waves and lines, not solid
-  const hoverShadow = effectiveBackground === 'solid' ? '' : 'hover:shadow-pink-500/5';
+  const hasContent = promptText.trim() || attachments.length > 0 || selectedTool;
+
+  if (effectiveBackground === 'solid') {
+    return (
+      <div className="w-full max-w-[760px] mx-auto relative z-20">
+        <div className="w-full bg-[#2a2a2a] rounded-[28px] pl-4 pr-3 flex flex-col justify-center transition-all duration-200">
+          
+          {/* Attachments Area */}
+          <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden">
+              <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-1 pt-4 px-1`}>
+                {attachments.map((att) => (
+                  <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
+                    {att.type === 'image' ? (
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
+                           {/* eslint-disable-next-line @next/next/no-img-element */}
+                           <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <button 
+                          onClick={() => removeAttachment(att.id)}
+                          className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                        >
+                            <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="h-16 min-w-[180px] bg-[#1c1c1c] rounded-2xl flex items-center px-4 gap-3.5 relative border border-white/5 hover:border-white/10 transition-colors">
+                         <div className="text-gray-400">
+                            <Globe size={24} strokeWidth={1.5} />
+                         </div>
+                         <div className="flex flex-col min-w-0">
+                            <span className="text-[13px] font-semibold text-gray-200 truncate max-w-[120px] leading-tight">{att.name}</span>
+                            <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">{att.extension}</span>
+                         </div>
+                         <button 
+                           onClick={() => removeAttachment(att.id)}
+                           className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                         >
+                            <X size={12} />
+                         </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Input Row */}
+          <div className={`flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : 'py-[16px] min-h-[56px]'}`}>
+            <textarea 
+              ref={textareaRef}
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                const imageFiles: File[] = [];
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) imageFiles.push(file);
+                  }
+                }
+                if (imageFiles.length > 0) {
+                  e.preventDefault();
+                  const newAttachments: Attachment[] = imageFiles.map(file => ({
+                    id: Math.random().toString(36).substring(7),
+                    type: 'image' as const,
+                    url: URL.createObjectURL(file),
+                    name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
+                    extension: file.name?.split('.').pop() || file.type.split('/')[1] || 'png',
+                    file
+                  }));
+                  setAttachments(prev => [...prev, ...newAttachments]);
+                }
+              }}
+              placeholder="Ask anything" 
+              style={{ height: '24px', minHeight: '24px', scrollbarGutter: 'stable' }}
+              className={`w-full bg-transparent text-white placeholder-[#8e8e8e] outline-none text-[15.5px] font-normal resize-none overflow-y-auto ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : 'pl-[38px] pr-[76px]'}`}
+            />
+
+            <input 
+              type="file" 
+              multiple 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleFileSelect} 
+            />
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${isSolidExpanded ? 'bottom-[10px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
+              <div className={`w-[30px] flex items-center justify-center ${isSolidExpanded ? 'py-2.5' : ''}`}>
+                <button 
+                  ref={solidPlusRef}
+                  onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                  className="text-[#a0a0a0] hover:text-white transition-colors outline-none"
+                >
+                  <Plus size={22} className="stroke-[2.5]" />
+                </button>
+                <PlusDropdownMenu 
+                  isOpen={isPlusMenuOpen} 
+                  onClose={() => setIsPlusMenuOpen(false)} 
+                  onFileSelect={() => fileInputRef.current?.click()} 
+                  buttonRef={solidPlusRef} 
+                  onToolSelect={(id) => setSelectedTool(id as ToolId)}
+                />
+              </div>
+              {selectedTool && (
+                <div className="mt-[1px]">
+                  <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
+                </div>
+              )}
+            </div>
+            
+            <div className={`absolute flex items-center gap-3 shrink-0 transition-all duration-200 ${isSolidExpanded ? 'bottom-[10px] right-[0px]' : 'bottom-[12px] right-[0px]'}`}>
+              <button className="text-[#a0a0a0] hover:text-white transition-colors outline-none flex items-center justify-center mr-[2px]">
+                <Mic size={20} className="stroke-[2.5]" />
+              </button>
+              <button 
+                onClick={(e) => hasContent ? handleSubmit() : undefined} 
+                className={`w-[34px] h-[34px] rounded-full flex items-center justify-center shrink-0 transition-colors shadow-sm outline-none cursor-pointer ${
+                  hasContent 
+                    ? "bg-white hover:bg-zinc-200" 
+                    : "bg-white hover:bg-zinc-200"
+                }`}
+              >
+                {hasContent ? (
+                  <ArrowUp size={18} className="text-black stroke-[3]" />
+                ) : (
+                  <AudioLines size={16} className="text-black stroke-[2.5]" />
+                )}
+              </button>
+            </div>
+          </div>
+          
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto relative z-20">
       <div className={`${promptBoxBg} backdrop-blur-2xl border border-white/5 rounded-[1.75rem] p-2 shadow-2xl flex flex-col gap-1 ring-1 ring-white/5`}>
+        {/* Attachments Area */}
+        <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className="overflow-hidden">
+            <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 px-3 pt-2`}>
+              {attachments.map((att) => (
+                <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
+                  {att.type === 'image' ? (
+                    <div className="relative">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
+                         {/* eslint-disable-next-line @next/next/no-img-element */}
+                         <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <button 
+                        onClick={() => removeAttachment(att.id)}
+                        className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                      >
+                          <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-16 min-w-[180px] bg-[#1c1c1c] rounded-2xl flex items-center px-4 gap-3.5 relative border border-white/5 hover:border-white/10 transition-colors">
+                       <div className="text-gray-400">
+                          <Globe size={24} strokeWidth={1.5} />
+                       </div>
+                       <div className="flex flex-col min-w-0">
+                          <span className="text-[13px] font-semibold text-gray-200 truncate max-w-[120px] leading-tight">{att.name}</span>
+                          <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">{att.extension}</span>
+                       </div>
+                       <button 
+                         onClick={() => removeAttachment(att.id)}
+                         className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                       >
+                          <X size={12} />
+                       </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <textarea
           ref={textareaRef}
           placeholder="Ask Willow to create an internal tool that..."
@@ -628,17 +963,66 @@ export const InputBar: React.FC<{
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+
+            const imageFiles: File[] = [];
+            for (let i = 0; i < items.length; i++) {
+              if (items[i].type.startsWith('image/')) {
+                const file = items[i].getAsFile();
+                if (file) imageFiles.push(file);
+              }
+            }
+
+            if (imageFiles.length > 0) {
+              e.preventDefault();
+              const newAttachments: Attachment[] = imageFiles.map(file => ({
+                id: Math.random().toString(36).substring(7),
+                type: 'image' as const,
+                url: URL.createObjectURL(file),
+                name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
+                extension: file.name?.split('.').pop() || file.type.split('/')[1] || 'png',
+                file
+              }));
+              setAttachments(prev => [...prev, ...newAttachments]);
+            }
+          }}
         />
 
         <div className="flex items-center justify-between px-2 pb-1">
           <div className="flex items-center gap-1.5">
-            <button className="w-9 h-9 rounded-full border border-white/10 hover:border-white/20 bg-transparent hover:bg-white/5 flex items-center justify-center text-zinc-400 transition-all group">
-              <Plus
-                size={18}
-                strokeWidth={2.5}
-                className="group-hover:text-white"
+            <input 
+              type="file" 
+              multiple 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleFileSelect} 
+            />
+            <div className="relative flex items-center gap-1.5 z-[60]">
+              <button 
+                ref={normalPlusRef}
+                onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                className="w-9 h-9 rounded-full border border-white/10 hover:border-white/20 bg-transparent hover:bg-white/5 flex items-center justify-center text-zinc-400 transition-all group">
+                <Plus
+                  size={18}
+                  strokeWidth={2.5}
+                  className="group-hover:text-white"
+                />
+              </button>
+              <PlusDropdownMenu 
+                isOpen={isPlusMenuOpen} 
+                onClose={() => setIsPlusMenuOpen(false)} 
+                onFileSelect={() => fileInputRef.current?.click()} 
+                buttonRef={normalPlusRef} 
+                onToolSelect={(id) => setSelectedTool(id as ToolId)}
               />
-            </button>
+              {selectedTool && (
+                <div className="ml-2">
+                  <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
+                </div>
+              )}
+            </div>
 
             {/* Modes Selector Button */}
             <div className="relative">
@@ -789,11 +1173,11 @@ export const InputBar: React.FC<{
               onClick={handleSubmit}
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg
                       ${
-                        promptText.trim()
+                        promptText.trim() || attachments.length > 0
                           ? "bg-zinc-200 hover:bg-white text-black cursor-pointer"
                           : "bg-zinc-600 text-zinc-400 cursor-not-allowed"
                       }`}
-              disabled={!promptText.trim()}
+              disabled={!promptText.trim() && attachments.length === 0}
             >
               <ArrowUp size={20} strokeWidth={3} />
             </button>

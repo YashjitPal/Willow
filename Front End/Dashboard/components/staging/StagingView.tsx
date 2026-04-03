@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Sidebar from './StagingSidebar';
 import MainPreview from './StagingMainPreview';
@@ -26,9 +26,11 @@ interface StagingViewProps {
 const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const urlPrompt = searchParams.get('prompt') || '';
   const urlMode = searchParams.get('mode') || 'ship';
   const prompt = propPrompt || urlPrompt;
+  const initialAttachments = location.state?.initialAttachments;
 
   // Auth context for Drive integration
   const { user, accessToken } = useAuth();
@@ -305,6 +307,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             isCollapsed={isSidebarCollapsed}
             onToggle={toggleSidebar}
             prompt={prompt}
+            initialAttachments={initialAttachments}
             activeTab={activeTab}
             onTabChange={setActiveTab}
             isChatMode={isChatMode}

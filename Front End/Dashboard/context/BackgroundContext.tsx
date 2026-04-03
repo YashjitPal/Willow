@@ -18,7 +18,7 @@ export const BackgroundProvider: React.FC<{ children: ReactNode }> = ({ children
   const [background, setBackgroundState] = useState<BackgroundType>(() => {
     // Load from localStorage on init (fallback for non-authenticated users)
     const saved = localStorage.getItem(STORAGE_KEY);
-    return (saved as BackgroundType) || 'waves'; // Default to waves
+    return (saved as BackgroundType) || 'solid'; // Default to solid
   });
 
   // Sync with userProfile when authenticated
