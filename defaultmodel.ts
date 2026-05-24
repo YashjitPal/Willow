@@ -14,11 +14,11 @@
 
 // Model for the actual computer use testing (clicking, typing, screenshots)
 // Uses Gemini's Computer Use API for interacting with web applications
-export const COMPUTER_USE_MODEL = 'gemini-2.5-computer-use-preview-10-2025';
+export const COMPUTER_USE_MODEL = 'gemini-3.5-flash';
 
 // Model for generating the intro paragraph before testing starts
 // Uses a fast, lightweight model for quick text generation
-export const TEST_INTRO_MODEL = 'gemini-2.5-flash-lite';
+export const TEST_INTRO_MODEL = 'gemini-3.5-flash';
 
 // -----------------------------------------------------------------------------
 // PROJECT NAME GENERATION
@@ -26,5 +26,5 @@ export const TEST_INTRO_MODEL = 'gemini-2.5-flash-lite';
 
 // Model for generating project names from user prompts
 // Uses a fast, lightweight model for quick 1-3 word generation
-export const PROJECT_NAME_MODEL = 'gemini-2.5-flash-lite';
+export const PROJECT_NAME_MODEL = 'gemini-3.5-flash';
 // The project name decider model also sets the Prompt suggestions.

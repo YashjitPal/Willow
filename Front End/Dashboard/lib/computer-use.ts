@@ -130,11 +130,157 @@ You: "I'll test the calculator by entering some numbers and operations. I'll try
 
 Keep it brief and conversational. Don't use bullet points or formatting - just a simple paragraph.`;
 
+// Custom Function Declarations to simulate Computer Use on models like gemini-3.5-flash
+const LOCAL_COMPUTER_USE_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: 'click_at',
+        description: 'Click at specified normalized coordinates (x, y) on the screen. Coordinates must be normalized 0-1000.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER', description: 'Normalized X coordinate (0-1000)' },
+            y: { type: 'INTEGER', description: 'Normalized Y coordinate (0-1000)' }
+          },
+          required: ['x', 'y']
+        }
+      },
+      {
+        name: 'type_text_at',
+        description: 'Type text at specified normalized coordinates (x, y). Coordinates must be normalized 0-1000.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER', description: 'Normalized X coordinate (0-1000)' },
+            y: { type: 'INTEGER', description: 'Normalized Y coordinate (0-1000)' },
+            text: { type: 'STRING', description: 'The text content to type' },
+            press_enter: { type: 'BOOLEAN', description: 'Whether to press enter key after typing' },
+            clear_before_typing: { type: 'BOOLEAN', description: 'Whether to clear existing text first' }
+          },
+          required: ['x', 'y', 'text']
+        }
+      },
+      {
+        name: 'hover_at',
+        description: 'Hover cursor at specified normalized coordinates (x, y).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER', description: 'Normalized X coordinate (0-1000)' },
+            y: { type: 'INTEGER', description: 'Normalized Y coordinate (0-1000)' }
+          },
+          required: ['x', 'y']
+        }
+      },
+      {
+        name: 'scroll_at',
+        description: 'Scroll element at (x, y) in a direction (up, down, left, right).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER', description: 'Normalized X coordinate (0-1000)' },
+            y: { type: 'INTEGER', description: 'Normalized Y coordinate (0-1000)' },
+            direction: { type: 'STRING', description: 'Scroll direction ("up", "down", "left", "right")' },
+            magnitude: { type: 'INTEGER', description: 'Pixels to scroll (default 200)' }
+          },
+          required: ['x', 'y', 'direction']
+        }
+      },
+      {
+        name: 'scroll_document',
+        description: 'Scroll document in a direction (up, down).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            direction: { type: 'STRING', description: 'Scroll direction ("up", "down")' }
+          },
+          required: ['direction']
+        }
+      },
+      {
+        name: 'drag_and_drop',
+        description: 'Drag mouse from (x, y) to destination_x, destination_y.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER', description: 'Normalized start X coordinate' },
+            y: { type: 'INTEGER', description: 'Normalized start Y coordinate' },
+            destination_x: { type: 'INTEGER', description: 'Normalized destination X coordinate' },
+            destination_y: { type: 'INTEGER', description: 'Normalized destination Y coordinate' }
+          },
+          required: ['x', 'y', 'destination_x', 'destination_y']
+        }
+      },
+      {
+        name: 'key_combination',
+        description: 'Press a keyboard key combination (e.g. "Control+a", "Enter", "Tab").',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            keys: { type: 'STRING', description: 'Key combo string' }
+          },
+          required: ['keys']
+        }
+      },
+      {
+        name: 'wait_5_seconds',
+        description: 'Wait for 5 seconds.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'go_back',
+        description: 'Navigate back in history.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'go_forward',
+        description: 'Navigate forward in history.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'navigate',
+        description: 'Navigate to specified URL.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            url: { type: 'STRING', description: 'URL string' }
+          },
+          required: ['url']
+        }
+      },
+      {
+        name: 'search',
+        description: 'Navigate to search engine.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'open_web_browser',
+        description: 'Verify if browser is open.',
+        parameters: { type: 'OBJECT', properties: {} }
+      }
+    ]
+  }
+];
+
 // ============================================================================
 // Helpers
 // ============================================================================
 
 function getActionType(name: string, args: any): string {
+  if (name === 'click_at') return 'Clicking';
+  if (name === 'type_text_at') return 'Typing';
+  if (name === 'hover_at') return 'Hovering';
+  if (name === 'scroll_at' || name === 'scroll_document') return 'Scrolling';
+  if (name === 'drag_and_drop') return 'Dragging';
+  if (name === 'key_combination') return 'Hotkey';
+  if (name === 'wait_5_seconds') return 'Waiting';
+  if (name === 'go_back') return 'Navigating back';
+  if (name === 'go_forward') return 'Navigating forward';
+  if (name === 'search') return 'Searching';
+  if (name === 'navigate') return 'Navigating';
+  if (name === 'open_web_browser') return 'Opening Browser';
+
   if (name === 'computer' || name === 'computerUse') {
     const action = args?.action;
     if (action === 'key' || action === 'type') return 'Type';
@@ -659,6 +805,48 @@ async function executeAction(
         console.log('[ComputerUse] Browser already open');
         return { success: true };
       }
+
+      case 'search': {
+        console.log('[ComputerUse] Navigating to search engine (google.com)');
+        iframeWindow.location.href = 'https://www.google.com';
+        return { success: true };
+      }
+
+      case 'drag_and_drop': {
+        const x = denormalizeX(args.x as number, actualDimensions.width);
+        const y = denormalizeY(args.y as number, actualDimensions.height);
+        const destX = denormalizeX(args.destination_x as number, actualDimensions.width);
+        const destY = denormalizeY(args.destination_y as number, actualDimensions.height);
+        
+        console.log(`[ComputerUse] Dragging from (${x}, ${y}) to (${destX}, ${destY})`);
+        
+        // Move visual cursor to start
+        testStore.moveCursor(args.x as number, args.y as number);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Simulate drag mouse events on the element
+        const startElement = iframeDocument.elementFromPoint(x, y);
+        if (startElement) {
+          const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y, which: 1 });
+          startElement.dispatchEvent(mousedownEvent);
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Move cursor to dest
+          testStore.moveCursor(args.destination_x as number, args.destination_y as number);
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          const mousemoveEvent = new MouseEvent('mousemove', { bubbles: true, clientX: destX, clientY: destY, which: 1 });
+          const mouseupEvent = new MouseEvent('mouseup', { bubbles: true, clientX: destX, clientY: destY });
+          
+          const endElement = iframeDocument.elementFromPoint(destX, destY) || startElement;
+          endElement.dispatchEvent(mousemoveEvent);
+          await new Promise(resolve => setTimeout(resolve, 100));
+          endElement.dispatchEvent(mouseupEvent);
+          
+          return { success: true };
+        }
+        return { success: false, error: `No element found to drag at (${x}, ${y})` };
+      }
       
       default:
         console.warn(`[ComputerUse] Unknown action: ${name}`);
@@ -726,7 +914,25 @@ function extractText(response: any): string {
         if (part.thought === true) continue;
         
         if (part.text) {
-          textParts.push(part.text);
+          let cleanedText = part.text;
+          
+          // Workaround for Gemini API bug (Issue #2121):
+          // Thoughts with coordinate reasoning and random numbers can leak into regular part.text
+          // prefixed with "THOUGHT:". We strip any such leaked thought blocks.
+          if (cleanedText.includes('THOUGHT:')) {
+            cleanedText = cleanedText.replace(/THOUGHT:[\s\S]*?(?:\n\n|$)/gi, '');
+          }
+          
+          // Also strip any raw leaked coordinate thoughts/plans
+          cleanedText = cleanedText.replace(/Let's click at \d+ \d+/gi, '');
+          cleanedText = cleanedText.replace(/click at x=\d+ y=\d+/gi, '');
+          
+          // Normalize bold Result formatting (e.g. _Result:YES, **Result:**YES)
+          cleanedText = cleanedText.replace(/[_*]*Result[_*:\s]+(yes|no)/gi, (match, p1) => '**Result:** ' + p1.toUpperCase());
+          
+          if (cleanedText.trim()) {
+            textParts.push(cleanedText);
+          }
         }
       }
     }
@@ -848,6 +1054,10 @@ export async function runComputerUseTest(
       contents: [{ role: 'user', parts: [{ text: `Test request: ${userPrompt}${conversationContext}` }] }],
       config: {
         systemInstruction: TEST_INTRO_SYSTEM_PROMPT,
+        // @ts-ignore - Native Thinking/Thought Signature config
+        thinkingConfig: {
+          thinkingLevel: 'low',
+        },
         abortSignal: abortSignal, // Allow cancellation during intro
       },
     });
@@ -939,8 +1149,13 @@ export async function runComputerUseTest(
     
     // Build initial content for testing
     const fullPrompt = `Test request: ${userPrompt}
-${conversationContext ? `\n${conversationContext}\n` : ''}
-Please analyze the screenshot and perform the necessary actions to test this feature. When done, provide your conclusion with either:
+
+Generated Testing Plan & Intro:
+${introText}
+
+${conversationContext ? `\n${conversationContext}
+` : ''}
+Please analyze the screenshot and perform the necessary actions to test this feature based on the plan above. When done, provide your conclusion with either:
 - YES - the feature works correctly
 - NO - the feature has issues (explain what's wrong)`;
 
@@ -998,16 +1213,9 @@ Please analyze the screenshot and perform the necessary actions to test this fea
           // @ts-ignore - Native Thinking/Thought Signature config
           thinkingConfig: {
             includeThoughts: true,
-            thinkingBudget: 2048, // Token budget for thinking
+            thinkingLevel: 'low',
           },
-          tools: [{
-            // @ts-ignore - Computer Use tool configuration (SDK type issue)
-            computerUse: {
-              // @ts-ignore - Environment enum not properly exported by SDK
-              environment: 'ENVIRONMENT_BROWSER',
-              excludedPredefinedFunctions: ['drag_and_drop'],
-            }
-          }],
+          tools: LOCAL_COMPUTER_USE_TOOLS,
           abortSignal: abortSignal, // Allow immediate cancellation
         },
       });
@@ -1109,7 +1317,26 @@ Please analyze the screenshot and perform the necessary actions to test this fea
         
         // Add specific details based on action type
         const args = action.args || {};
-        if (actionType === 'Clicking' && args.coordinate) {
+        if (action.name === 'click_at') {
+          actionDescription = `Clicking at (${args.x}, ${args.y})`;
+        } else if (action.name === 'type_text_at') {
+          const text = String(args.text).substring(0, 30);
+          actionDescription = `Typing "${text}${String(args.text).length > 30 ? '...' : ''}" at (${args.x}, ${args.y})`;
+        } else if (action.name === 'scroll_at') {
+          const dir = args.direction || '';
+          actionDescription = `Scrolling ${dir} at (${args.x}, ${args.y})`;
+        } else if (action.name === 'scroll_document') {
+          const dir = args.direction || '';
+          actionDescription = `Scrolling document ${dir}`;
+        } else if (action.name === 'drag_and_drop') {
+          actionDescription = `Dragging from (${args.x}, ${args.y}) to (${args.destination_x}, ${args.destination_y})`;
+        } else if (action.name === 'key_combination') {
+          actionDescription = `Pressing keys: ${args.keys}`;
+        } else if (action.name === 'navigate') {
+          actionDescription = `Navigating to ${args.url}`;
+        } else if (action.name === 'wait_5_seconds') {
+          actionDescription = `Waiting 5 seconds`;
+        } else if (actionType === 'Clicking' && args.coordinate) {
           actionDescription = `Clicking at (${args.coordinate[0]}, ${args.coordinate[1]})`;
         } else if (actionType === 'Typing' && args.text) {
           const text = String(args.text).substring(0, 30);
@@ -1294,14 +1521,7 @@ export async function streamTestRequest(
     ],
     config: {
       systemInstruction: COMPUTER_USE_SYSTEM_PROMPT,
-      tools: [{
-        // @ts-ignore - Computer Use tool configuration (SDK type issue)
-        computerUse: {
-          // @ts-ignore - Environment enum not properly exported by SDK
-          environment: 'ENVIRONMENT_BROWSER',
-          excludedPredefinedFunctions: ['drag_and_drop'],
-        }
-      }],
+      tools: LOCAL_COMPUTER_USE_TOOLS,
     },
   });
   
