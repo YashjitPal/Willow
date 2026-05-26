@@ -601,6 +601,43 @@ export const MediaView: React.FC = () => {
   const [hoveredTileId, setHoveredTileId] = React.useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
+  interface ImageAttachment {
+    id: string;
+    url: string;
+    name: string;
+    file?: File;
+  }
+  const [attachments, setAttachments] = React.useState<ImageAttachment[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [removingIds, setRemovingIds] = React.useState<Set<string>>(new Set());
+  const hasActiveAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
+
+  const removeAttachment = (id: string) => {
+    setRemovingIds(prev => new Set(prev).add(id));
+    setTimeout(() => {
+      setAttachments(prev => prev.filter(att => att.id !== id));
+      setRemovingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 200);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const newAttachments: ImageAttachment[] = Array.from(e.target.files)
+      .filter(file => file.type.startsWith('image/'))
+      .map(file => ({
+        id: Math.random().toString(36).substring(7),
+        url: URL.createObjectURL(file),
+        name: file.name,
+        file
+      }));
+    setAttachments(prev => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   // Model Menu State
   const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
   const [generationError, setGenerationError] = React.useState<string | null>(null);
@@ -804,12 +841,75 @@ export const MediaView: React.FC = () => {
     }
   }, [prompt]);
 
+  const getGeminiInlinePart = async (att: ImageAttachment): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+    if (att.url.startsWith('data:')) {
+      const match = att.url.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        return {
+          inlineData: {
+            mimeType: match[1],
+            data: match[2],
+          },
+        };
+      }
+    }
+
+    if (att.file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const match = result.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            resolve({
+              inlineData: {
+                mimeType: match[1],
+                data: match[2],
+              },
+            });
+          } else {
+            reject(new Error('Failed to parse file data'));
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(att.file);
+      });
+    }
+
+    try {
+      const resp = await fetch(att.url);
+      const blob = await resp.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const match = result.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            resolve({
+              inlineData: {
+                mimeType: match[1],
+                data: match[2],
+              },
+            });
+          } else {
+            reject(new Error('Failed to parse fetched blob'));
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      throw new Error(`Failed to load attachment: ${att.name}`);
+    }
+  };
+
   const generateSingleImage = async (
     item: MediaItem,
     activePrompt: string,
     modelId: string,
     ratio: string,
     apiKey: string,
+    activeAttachments: ImageAttachment[],
   ) => {
     // In parallel, rephrase the prompt using Gemini 3.1 Flash Lite
     void (async () => {
@@ -857,13 +957,20 @@ export const MediaView: React.FC = () => {
     })();
 
     try {
+      const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: activePrompt }] }],
+            contents: [{
+              parts: [
+                { text: activePrompt },
+                ...inlineParts
+              ]
+            }],
             generationConfig: {
               responseModalities: ['IMAGE'],
               imageConfig: { aspectRatio: ratio, imageSize: '1K' },
@@ -904,10 +1011,22 @@ export const MediaView: React.FC = () => {
     ratio: string,
     durationStr: string,
     apiKey: string,
+    activeAttachments: ImageAttachment[],
   ) => {
     try {
       const apiModelId = getVideoApiModelId(videoModelKey);
       const durationSec = parseInt(durationStr.replace('s', ''), 10) || 8;
+
+      const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
+      const firstImagePart = inlineParts[0]?.inlineData;
+
+      const instance: any = { prompt: activePrompt };
+      if (firstImagePart) {
+        instance.image = {
+          imageBytes: firstImagePart.data,
+          mimeType: firstImagePart.mimeType
+        };
+      }
 
       const startResp = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${apiModelId}:predictLongRunning?key=${apiKey}`,
@@ -915,7 +1034,7 @@ export const MediaView: React.FC = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            instances: [{ prompt: activePrompt }],
+            instances: [instance],
             parameters: {
               aspectRatio: ratio,
               durationSeconds: durationSec,
@@ -979,7 +1098,30 @@ export const MediaView: React.FC = () => {
     if (!activePrompt) return;
     setGenerationError(null);
 
+    const activeAttachments = [...attachments];
+    const attachmentIds = attachments.map(att => att.id);
+    if (attachmentIds.length > 0) {
+      setRemovingIds(prev => {
+        const next = new Set(prev);
+        attachmentIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+
     setPrompt('');
+
+    if (attachmentIds.length > 0) {
+      setTimeout(() => {
+        setAttachments([]);
+        setRemovingIds(prev => {
+          const next = new Set(prev);
+          attachmentIds.forEach(id => next.delete(id));
+          return next;
+        });
+      }, 200);
+    } else {
+      setAttachments([]);
+    }
 
     const apiKey = apiKeys?.gemini?.[0];
     if (!apiKey) {
@@ -1009,9 +1151,9 @@ export const MediaView: React.FC = () => {
 
     newItems.forEach(item => {
       if (item.kind === 'image') {
-        void generateSingleImage(item, activePrompt, item.modelId, item.ratio, apiKey);
+        void generateSingleImage(item, activePrompt, item.modelId, item.ratio, apiKey, activeAttachments);
       } else {
-        void generateSingleVideo(item, activePrompt, item.modelId as VideoModelId, item.ratio, videoDuration, apiKey);
+        void generateSingleVideo(item, activePrompt, item.modelId as VideoModelId, item.ratio, videoDuration, apiKey, activeAttachments);
       }
     });
   };
@@ -1022,11 +1164,23 @@ export const MediaView: React.FC = () => {
       style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
     >
       
+      {/* Fading Backdrop Blur & Dark Gradient Strip */}
+      <div 
+        className="absolute inset-x-0 top-0 h-32 pointer-events-none z-20"
+        style={{
+          background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          maskImage: 'linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.9) 35%, rgba(0, 0, 0, 0.3) 70%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.9) 35%, rgba(0, 0, 0, 0.3) 70%, transparent 100%)'
+        }}
+      />
+
       {/* Top Header */}
-      <header className="flex items-center justify-between px-4 h-16 shrink-0 relative z-30">
+      <header className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-40 bg-transparent pointer-events-none">
         
         {/* Left Section */}
-        <div className="flex items-center gap-4 w-[300px]">
+        <div className="flex items-center gap-4 w-[300px] pointer-events-auto">
           <button className="p-2.5 hover:bg-white/10 rounded-full transition-colors">
             <ArrowLeft size={22} className="text-white" />
           </button>
@@ -1039,7 +1193,7 @@ export const MediaView: React.FC = () => {
         </div>
 
         {/* Center Section: Search */}
-        <div className="flex items-center gap-3 flex-1 justify-center max-w-2xl">
+        <div className="flex items-center gap-3 flex-1 justify-center max-w-2xl pointer-events-auto">
           <div className="flex items-center bg-[#171717]/90 backdrop-blur-xl rounded-full h-11 w-full max-w-[500px] px-4 border border-transparent hover:border-white/10 transition-colors">
             <Search size={18} className="text-gray-400" />
             <input 
@@ -1054,7 +1208,7 @@ export const MediaView: React.FC = () => {
         </div>
 
         {/* Right Section */}
-        <div className="flex items-center gap-4 w-[300px] justify-end">
+        <div className="flex items-center gap-4 w-[300px] justify-end pointer-events-auto">
           <button className="text-gray-300 hover:text-white transition-colors">
             <Plus size={22} />
           </button>
@@ -1085,7 +1239,7 @@ export const MediaView: React.FC = () => {
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Sidebar */}
-        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between py-2 px-3 shrink-0`}>
+        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-16 pb-2 px-3 shrink-0 relative z-30`}>
           <nav className="flex flex-col gap-1">
             <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 bg-[#373737] rounded-2xl text-white`}>
               <AllMediaIcon className="text-gray-300" />
@@ -1139,7 +1293,7 @@ export const MediaView: React.FC = () => {
         <main ref={mainRef} className="flex-1 bg-[#000000] relative overflow-y-auto no-scrollbar">
           {mediaItems.length > 0 && (
             <div
-              className="flex flex-wrap gap-3 pt-2 pr-3 pb-44 w-full"
+              className="flex flex-wrap gap-3 pt-[72px] pr-3 pb-44 w-full"
               style={{ ['--th' as any]: isSidebarCollapsed ? '230px' : '270px' }}
             >
               <AnimatePresence mode="popLayout">
@@ -1225,8 +1379,18 @@ export const MediaView: React.FC = () => {
           buttonRef={assetMenuPlusRef}
           projectName={projectName}
           mediaItems={mediaItems}
+          onFileSelect={() => fileInputRef.current?.click()}
           onAddPrompt={(assetId, assetUrl, assetTitle) => {
-            if (assetTitle) {
+            if (assetUrl) {
+              setAttachments(prev => {
+                if (prev.some(att => att.url === assetUrl)) return prev;
+                return [...prev, {
+                  id: assetId,
+                  url: assetUrl,
+                  name: assetTitle || 'Attached Image'
+                }];
+              });
+            } else if (assetTitle) {
               setPrompt(prev => {
                 const separator = prev.trim() ? ' ' : '';
                 return `${prev.trim()}${separator}[${assetTitle}]`;
@@ -1234,8 +1398,40 @@ export const MediaView: React.FC = () => {
             }
           }}
         />
-        <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-2 flex flex-col gap-2.5 shadow-2xl border border-white/5">
+        <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-2 flex flex-col shadow-2xl border border-white/5">
           
+          <input 
+            type="file" 
+            multiple 
+            accept="image/*"
+            className="hidden" 
+            ref={fileInputRef} 
+            onChange={handleFileSelect} 
+          />
+
+          {/* Attachments Area */}
+          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr] mb-2.5' : 'grid-rows-[0fr] mb-0'}`}>
+            <div className="overflow-hidden">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-3 px-3 pt-2">
+                {attachments.map((att) => (
+                  <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
+                    <div className="relative">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
+                        <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <button 
+                        onClick={() => removeAttachment(att.id)}
+                        className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <style>{`
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
             .no-scrollbar::-webkit-scrollbar {
@@ -1290,6 +1486,27 @@ export const MediaView: React.FC = () => {
                   handleGenerate();
                 }
               }}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                const imageFiles: File[] = [];
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) imageFiles.push(file);
+                  }
+                }
+                if (imageFiles.length > 0) {
+                  e.preventDefault();
+                  const newAttachments: ImageAttachment[] = imageFiles.map(file => ({
+                    id: Math.random().toString(36).substring(7),
+                    url: URL.createObjectURL(file),
+                    name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
+                    file
+                  }));
+                  setAttachments(prev => [...prev, ...newAttachments]);
+                }
+              }}
               rows={1}
               placeholder="What do you want to create?" 
               className={`bg-transparent border-none outline-none text-[14px] font-medium text-white placeholder-[#606060] w-full pl-1 py-0.5 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
@@ -1310,7 +1527,7 @@ export const MediaView: React.FC = () => {
             )}
           </div>
           
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mt-2.5">
             
             {/* Left Controls */}
             <div className="flex items-center gap-2.5 relative">
@@ -1321,7 +1538,7 @@ export const MediaView: React.FC = () => {
               >
                 <Plus size={22} strokeWidth={1.5} />
               </button>
-              <button className="flex items-center justify-center h-9 bg-[#27282b]/90 hover:bg-[#33343a]/90 backdrop-blur-xl transition-colors rounded-full px-4 border border-transparent">
+              <button className="flex items-center justify-center h-9 bg-[#27282b] hover:bg-[#33343a] transition-colors rounded-full px-4 border border-transparent">
                 <span className="text-[11px] font-semibold text-[#d0d0d0] tracking-wide">Agent</span>
               </button>
             </div>
@@ -1331,7 +1548,7 @@ export const MediaView: React.FC = () => {
               <div className="relative" ref={menuRef}>
                 <button
                   onClick={() => (isModelMenuOpen ? setIsModelMenuOpen(false) : openModelMenu())}
-                  className={`flex items-center h-9 backdrop-blur-xl transition-colors rounded-full px-3.5 gap-1.5 border border-transparent ${isModelMenuOpen ? 'bg-[#33343a]/90' : 'bg-[#27282b]/90 hover:bg-[#33343a]/90'}`}
+                  className={`flex items-center h-9 transition-colors rounded-full px-3.5 gap-1.5 border border-transparent ${isModelMenuOpen ? 'bg-[#33343a]' : 'bg-[#27282b] hover:bg-[#33343a]'}`}
                 >
                   {(() => {
                     const activeName = modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
@@ -1377,7 +1594,7 @@ export const MediaView: React.FC = () => {
                   >
 
                     {/* Top Tabs */}
-                    <motion.div layout className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                    <div className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
                       <button
                         onClick={() => setModelMode('image')}
                         className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] transition-colors font-normal ${modelMode === 'image' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
@@ -1392,13 +1609,12 @@ export const MediaView: React.FC = () => {
                         <PlayCircle size={14} strokeWidth={2} />
                         <span className="text-[13px]">Video</span>
                       </button>
-                    </motion.div>
+                    </div>
 
                     <AnimatePresence mode="popLayout" initial={false}>
                     {modelMode === 'image' ? (
                       <motion.div
                         key="image-panel"
-                        layout
                         initial="hidden"
                         animate="visible"
                         exit="exit"
@@ -1482,7 +1698,6 @@ export const MediaView: React.FC = () => {
                     ) : (
                       <motion.div
                         key="video-panel"
-                        layout
                         initial="hidden"
                         animate="visible"
                         exit="exit"
@@ -1512,7 +1727,18 @@ export const MediaView: React.FC = () => {
                             onClick={() => setVideoMode('ingredients')}
                             className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors font-normal ${videoMode === 'ingredients' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
                           >
-                            <FlaskConical size={14} strokeWidth={2} />
+                            <svg 
+                              xmlns="http://www.w3.org/2000/svg" 
+                              viewBox="0 0 100 100" 
+                              className="w-3.5 h-3.5"
+                            >
+                              <path d="M 26 20 L 42 20 A 8 8 0 0 0 58 20 L 74 20 A 6 6 0 0 1 80 26 L 80 42 A 8 8 0 0 1 80 58 L 80 74 A 6 6 0 0 1 74 80 L 26 80 A 6 6 0 0 1 20 74 L 20 58 A 8 8 0 0 0 20 42 L 20 26 A 6 6 0 0 1 26 20 Z" 
+                                    fill="none" 
+                                    stroke="currentColor" 
+                                    strokeWidth="7.5" 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round" />
+                            </svg>
                             <span className="text-[12px]">Ingredients</span>
                           </button>
                         </motion.div>
