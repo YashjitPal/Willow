@@ -160,25 +160,94 @@ type MediaItem = {
 const TileContent = React.memo(({ 
   item, 
   isMenuOpen, 
-  onMenuOpenChange 
+  onMenuOpenChange,
+  isHovered
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
   onMenuOpenChange: (open: boolean) => void; 
+  isHovered: boolean;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({
+    right: 0,
+    top: '100%',
+    bottom: 'auto',
+    marginTop: '-3px',
+    marginBottom: 'auto',
+    transformOrigin: 'top right'
+  });
 
   React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+    const handleClose = (event: Event) => {
+      if (event.type === 'scroll') {
+        onMenuOpenChange(false);
+        return;
+      }
+      
+      const mouseEvent = event as MouseEvent;
+      const clickedOutsideMenu = menuRef.current && !menuRef.current.contains(mouseEvent.target as Node);
+      const clickedOutsideDropdown = dropdownRef.current && !dropdownRef.current.contains(mouseEvent.target as Node);
+      
+      if (clickedOutsideMenu && clickedOutsideDropdown) {
         onMenuOpenChange(false);
       }
     };
+
     if (isMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClose);
+      document.addEventListener('scroll', handleClose, { capture: true, passive: true });
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClose);
+      document.removeEventListener('scroll', handleClose, { capture: true });
+    };
   }, [isMenuOpen, onMenuOpenChange]);
+
+  React.useLayoutEffect(() => {
+    if (!isMenuOpen || !menuRef.current) return;
+
+    const updatePosition = () => {
+      if (!menuRef.current) return;
+      const triggerRect = menuRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const dropdownWidth = 190;
+      const dropdownHeight = 342; // exact height of the menu with current button padding and dividers
+
+      const centerRightOffset = (dropdownWidth - triggerRect.width) / 2;
+      const spaceOnRight = viewportWidth - triggerRect.right;
+      let rightOffset = centerRightOffset;
+      if (spaceOnRight < centerRightOffset + 12) {
+        rightOffset = Math.max(0, spaceOnRight - 12);
+      }
+      
+      const fixedRight = spaceOnRight - rightOffset;
+
+      // Compute actual bottom of dropdown when opening downwards (with 3px overlap/margin)
+      const actualDropdownBottom = triggerRect.bottom + dropdownHeight - 3;
+
+      // The only time it should appear up is when there is no space on the screen below
+      const openUp = actualDropdownBottom > (viewportHeight - 8);
+
+      setMenuStyle({
+        position: 'fixed',
+        right: `${fixedRight}px`,
+        top: openUp ? 'auto' : `${triggerRect.bottom - 3}px`,
+        bottom: openUp ? `${viewportHeight - triggerRect.top - 3}px` : 'auto',
+        width: `${dropdownWidth}px`,
+        zIndex: 9999,
+        transformOrigin: `${openUp ? 'bottom' : 'top'} ${rightOffset === 0 ? 'right' : 'center'}`,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [isMenuOpen]);
 
   return (
   <>
@@ -221,78 +290,109 @@ const TileContent = React.memo(({
       <>
         {/* Top-right menu */}
         <div className={`absolute top-3 right-3 opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 pointer-events-none z-30 ${isMenuOpen ? '!opacity-100 !translate-y-0 !transition-none' : ''}`}>
-          <div className="flex items-center gap-3.5 bg-white/70 backdrop-blur-[80px] rounded-[10px] px-3 py-2.5 shadow-xl pointer-events-auto" ref={menuRef}>
-            <button className="hover:opacity-70 transition-opacity outline-none">
-               <Heart size={18} className="text-[#1a1a1a]" strokeWidth={2.5} />
+          <div className="flex items-center gap-1 bg-white/70 backdrop-blur-[80px] rounded-[12px] p-1 shadow-xl pointer-events-auto" ref={menuRef}>
+            <button className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none">
+               <Heart size={18} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
-            <button className="hover:opacity-70 transition-opacity outline-none">
-               <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2.5} />
+            <button className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none">
+               <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
             <button 
-              className="hover:opacity-70 transition-opacity outline-none"
+              className={`w-[30px] h-[30px] flex items-center justify-center rounded-[8px] transition-colors duration-200 outline-none ${isMenuOpen ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onMenuOpenChange(!isMenuOpen);
               }}
             >
-               <MoreVertical size={18} className="text-[#1a1a1a]" strokeWidth={2.5} />
+               <MoreVertical size={18} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
           </div>
 
           {/* Dropdown Menu */}
-          <AnimatePresence>
-            {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                className="absolute top-full right-0 mt-2 w-[190px] bg-[#1a1a1a] rounded-[16px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
-              >
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Sparkles size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Animate</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Add to prompt</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Download</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Rename</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Share</span>
-                </button>
-                
-                <div className="w-full h-[1px] bg-white/10 my-1" />
-                
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Set project cover</span>
-                </button>
-                
-                <div className="w-full h-[1px] bg-white/10 my-1" />
-                
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                  <Flag size={18} strokeWidth={2.5} className="text-zinc-100" />
-                  <span>Flag output</span>
-                </button>
-                
-                <div className="w-full h-[1px] bg-white/10 my-1" />
-                
-                <button className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]">
-                  <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
-                  <span>Move to trash</span>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {createPortal(
+            <AnimatePresence>
+              {isMenuOpen && (
+                <motion.div
+                  ref={dropdownRef}
+                  initial={{ opacity: 0, y: menuStyle.bottom !== 'auto' ? -8 : 8 }}
+                  animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 650, damping: 38 } }}
+                  exit={{ 
+                    opacity: 0, 
+                    y: isHovered ? (menuStyle.bottom !== 'auto' ? 8 : -8) : -8, 
+                    transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
+                  }}
+                  style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
+                  className="fixed w-[190px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
+                >
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      viewBox="25 0 100 50" 
+                      className="w-[20px] h-[20px] text-zinc-100" 
+                      fill="currentColor"
+                    >
+                      <defs>
+                        <mask id="inner-hole" maskUnits="userSpaceOnUse" x="0" y="0" width="150" height="50">
+                          <rect x="0" y="0" width="150" height="50" fill="white" />
+                          <circle cx="100" cy="25" r="15" fill="black" />
+                        </mask>
+                      </defs>
+                      <g fill="currentColor" mask="url(#inner-hole)">
+                        <circle cx="100" cy="25" r="25" />
+                        <rect x="35" y="0" width="65" height="10" />
+                        <rect x="25" y="20" width="10" height="10" />
+                        <rect x="45" y="20" width="55" height="10" />
+                        <rect x="27" y="40" width="8" height="10" />
+                        <rect x="45" y="40" width="55" height="10" />
+                      </g>
+                    </svg>
+                    <span>Animate</span>
+                  </button>
+                  
+                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+                  
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Add to prompt</span>
+                  </button>
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Download</span>
+                  </button>
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Rename</span>
+                  </button>
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Share</span>
+                  </button>
+                  
+                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+                  
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Set project cover</span>
+                  </button>
+                  
+                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+                  
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                    <Flag size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Flag output</span>
+                  </button>
+                  
+                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+                  
+                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]">
+                    <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
+                    <span>Move to trash</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>,
+            document.body
+          )}
         </div>
         
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-5 flex items-end justify-between pointer-events-none rounded-[18px]">
@@ -326,6 +426,7 @@ export const MediaView: React.FC = () => {
   const [isTopFaded, setIsTopFaded] = React.useState(false);
   const [isBottomFaded, setIsBottomFaded] = React.useState(false);
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
+  const [hoveredTileId, setHoveredTileId] = React.useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // Model Menu State
@@ -705,7 +806,7 @@ export const MediaView: React.FC = () => {
     >
       
       {/* Top Header */}
-      <header className="flex items-center justify-between px-4 h-16 shrink-0">
+      <header className="flex items-center justify-between px-4 h-16 shrink-0 relative z-30">
         
         {/* Left Section */}
         <div className="flex items-center gap-4 w-[300px]">
@@ -861,11 +962,17 @@ export const MediaView: React.FC = () => {
                       className={`gallery-tile relative group rounded-[18px] border border-white/5 bg-[#0c0c0c] shadow-2xl ${
                         activeMenuId === item.id ? 'overflow-visible z-40' : 'overflow-hidden z-10'
                       }`}
+                      onMouseEnter={() => setHoveredTileId(item.id)}
+                      onMouseLeave={() => {
+                        setHoveredTileId(null);
+                        if (activeMenuId === item.id) setActiveMenuId(null);
+                      }}
                     >
                       <TileContent 
                         item={item} 
                         isMenuOpen={activeMenuId === item.id} 
                         onMenuOpenChange={(open) => setActiveMenuId(open ? item.id : null)} 
+                        isHovered={hoveredTileId === item.id}
                       />
                     </motion.div>
                   );
@@ -910,7 +1017,7 @@ export const MediaView: React.FC = () => {
             }
           }}
         />
-        <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[24px] pt-4 pb-3 px-3 flex flex-col gap-3 shadow-2xl border border-white/5">
+        <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-2 flex flex-col gap-2.5 shadow-2xl border border-white/5">
           
           <style>{`
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -968,7 +1075,7 @@ export const MediaView: React.FC = () => {
               }}
               rows={1}
               placeholder="What do you want to create?" 
-              className={`bg-transparent border-none outline-none text-[16px] font-medium text-white placeholder-[#606060] w-full pl-1 py-0.5 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
+              className={`bg-transparent border-none outline-none text-[14px] font-medium text-white placeholder-[#606060] w-full pl-1 py-0.5 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
                 isTopFaded && isBottomFaded ? 'both-fade' : 
                 isTopFaded ? 'top-fade' : 
                 isBottomFaded ? 'bottom-fade' : ''
@@ -989,39 +1096,39 @@ export const MediaView: React.FC = () => {
           <div className="flex items-center justify-between">
             
             {/* Left Controls */}
-            <div className="flex items-center gap-3 relative">
-              <button 
+            <div className="flex items-center gap-2.5 relative">
+              <button
                 ref={assetMenuPlusRef}
                 onClick={() => setIsAssetMenuOpen(!isAssetMenuOpen)}
-                className="text-[#a0a0a0] hover:text-white transition-colors ml-2 cursor-pointer outline-none"
+                className="text-[#a0a0a0] hover:text-white transition-colors ml-1.5 cursor-pointer outline-none"
               >
-                <Plus size={26} strokeWidth={1.5} />
+                <Plus size={22} strokeWidth={1.5} />
               </button>
-              <button className="flex items-center justify-center bg-[#27282b]/90 hover:bg-[#33343a]/90 backdrop-blur-xl transition-colors rounded-[16px] px-5 py-2 border border-transparent">
-                <span className="text-[13px] font-semibold text-[#d0d0d0] tracking-wide">Agent</span>
+              <button className="flex items-center justify-center h-9 bg-[#27282b]/90 hover:bg-[#33343a]/90 backdrop-blur-xl transition-colors rounded-full px-4 border border-transparent">
+                <span className="text-[11px] font-semibold text-[#d0d0d0] tracking-wide">Agent</span>
               </button>
             </div>
-            
+
             {/* Right Controls */}
-            <div className="flex items-center gap-3 relative">
+            <div className="flex items-center gap-2.5 relative">
               <div className="relative" ref={menuRef}>
                 <button
                   onClick={() => (isModelMenuOpen ? setIsModelMenuOpen(false) : openModelMenu())}
-                  className={`flex items-center backdrop-blur-xl transition-colors rounded-[16px] px-4 py-2 gap-2 border border-transparent ${isModelMenuOpen ? 'bg-[#33343a]/90' : 'bg-[#27282b]/90 hover:bg-[#33343a]/90'}`}
+                  className={`flex items-center h-9 backdrop-blur-xl transition-colors rounded-full px-3.5 gap-1.5 border border-transparent ${isModelMenuOpen ? 'bg-[#33343a]/90' : 'bg-[#27282b]/90 hover:bg-[#33343a]/90'}`}
                 >
                   {(() => {
                     const activeName = modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
                     return activeName.toLowerCase().includes('banana') ? (
-                      <span className="text-[13px]">🍌</span>
+                      <span className="text-[11px]">🍌</span>
                     ) : null;
                   })()}
-                  <span className="text-[13px] font-semibold text-[#d0d0d0]">
+                  <span className="text-[11px] font-semibold text-[#d0d0d0]">
                     {modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel)}
                   </span>
                   <div className="text-[#888888] flex items-center justify-center">
-                    <RatioIcon ratio={modelMode === 'image' ? imageRatio : videoRatio} className="w-3.5 h-3.5" />
+                    <RatioIcon ratio={modelMode === 'image' ? imageRatio : videoRatio} className="w-3 h-3" />
                   </div>
-                  <span className="text-[13px] font-bold text-[#888888]">
+                  <span className="text-[11px] font-bold text-[#888888]">
                     {modelMode === 'image' ? imageBatch : videoBatch}
                   </span>
                 </button>
@@ -1049,24 +1156,24 @@ export const MediaView: React.FC = () => {
                       originX: 1,
                       willChange: 'transform, height, opacity',
                     }}
-                    className="w-[300px] bg-[#141517]/90 backdrop-blur-xl rounded-[24px] p-2 flex flex-col gap-2 shadow-2xl border border-white/5 z-50 overflow-hidden"
+                    className="w-[270px] bg-[#141517]/90 backdrop-blur-xl rounded-[22px] p-1.5 flex flex-col gap-1.5 shadow-2xl border border-white/5 z-50 overflow-hidden"
                   >
 
                     {/* Top Tabs */}
-                    <motion.div layout className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
-                      <button 
+                    <motion.div layout className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                      <button
                         onClick={() => setModelMode('image')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[12px] transition-colors font-normal ${modelMode === 'image' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] transition-colors font-normal ${modelMode === 'image' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                       >
-                        <ImageIcon size={16} strokeWidth={2} />
-                        <span className="text-[14px]">Image</span>
+                        <ImageIcon size={14} strokeWidth={2} />
+                        <span className="text-[13px]">Image</span>
                       </button>
-                      <button 
+                      <button
                         onClick={() => setModelMode('video')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[12px] transition-colors font-normal ${modelMode === 'video' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] transition-colors font-normal ${modelMode === 'video' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                       >
-                        <PlayCircle size={16} strokeWidth={2} />
-                        <span className="text-[14px]">Video</span>
+                        <PlayCircle size={14} strokeWidth={2} />
+                        <span className="text-[13px]">Video</span>
                       </button>
                     </motion.div>
 
@@ -1089,29 +1196,29 @@ export const MediaView: React.FC = () => {
                             transition: { staggerChildren: 0.02, staggerDirection: -1 },
                           },
                         }}
-                        className="flex flex-col gap-2"
+                        className="flex flex-col gap-1.5"
                       >
                         {/* Image Aspect Ratios */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1 justify-between">
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1 justify-between">
                           {['16:9', '4:3', '1:1', '3:4', '9:16'].map(ratio => (
                             <button
                               key={ratio}
                               onClick={() => setImageRatio(ratio)}
-                              className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors ${imageRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
+                              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-[10px] transition-colors ${imageRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
                             >
-                              <RatioIcon ratio={ratio} />
-                              <span className={`text-[12px] font-normal text-white`}>{ratio}</span>
+                              <RatioIcon ratio={ratio} className="w-4 h-4" />
+                              <span className={`text-[11px] font-normal text-white`}>{ratio}</span>
                             </button>
                           ))}
                         </motion.div>
 
                         {/* Image Multipliers */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
                           {['1x', 'x2', 'x3', 'x4'].map(batch => (
                             <button
                               key={batch}
                               onClick={() => setImageBatch(batch)}
-                              className={`flex-1 py-2.5 rounded-[12px] text-[13px] font-normal transition-colors ${imageBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                              className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                             >
                               {batch}
                             </button>
@@ -1124,17 +1231,17 @@ export const MediaView: React.FC = () => {
                             type="button"
                             ref={imageModelButtonRef}
                             onClick={toggleImageModelDropdown}
-                            className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[16px] px-4 py-3.5"
+                            className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[14px] px-3 py-3"
                           >
-                            <span className="text-[14px] font-normal text-white">{getImageModelName(imageModel)}</span>
+                            <span className="text-[13px] font-normal text-white">{getImageModelName(imageModel)}</span>
                             <ChevronDown
-                              size={18}
+                              size={16}
                               className={`text-[#a0a0a0] transition-transform duration-200 ${isImageModelDropdownOpen ? 'rotate-180' : ''}`}
                             />
                           </button>
 
                           {isImageModelDropdownOpen && (
-                            <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[16px] p-1 flex flex-col shadow-2xl z-50`}>
+                            <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-50`}>
                               {[
                                 { id: 'gemini-3-pro-image-preview' as ImageModelId, name: 'Nano Banana Pro' },
                                 { id: 'gemini-3.1-flash-image-preview' as ImageModelId, name: 'Nano Banana 2' },
@@ -1146,7 +1253,7 @@ export const MediaView: React.FC = () => {
                                     setImageModel(modelOpt.id);
                                     setIsImageModelDropdownOpen(false);
                                   }}
-                                  className={`w-full text-left px-4 py-2.5 rounded-[12px] text-[13px] font-normal transition-colors ${imageModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                  className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                                 >
                                   {modelOpt.name}
                                 </button>
@@ -1173,47 +1280,47 @@ export const MediaView: React.FC = () => {
                             transition: { staggerChildren: 0.02, staggerDirection: -1 },
                           },
                         }}
-                        className="flex flex-col gap-2"
+                        className="flex flex-col gap-1.5"
                       >
                         {/* Video Tabs */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
-                          <button 
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <button
                             onClick={() => setVideoMode('frames')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-[14px] transition-colors font-normal ${videoMode === 'frames' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors font-normal ${videoMode === 'frames' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
                           >
-                            <Scan size={16} strokeWidth={2} />
-                            <span className="text-[13px]">Frames</span>
+                            <Scan size={14} strokeWidth={2} />
+                            <span className="text-[12px]">Frames</span>
                           </button>
-                          <button 
+                          <button
                             onClick={() => setVideoMode('ingredients')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-[14px] transition-colors font-normal ${videoMode === 'ingredients' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors font-normal ${videoMode === 'ingredients' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
                           >
-                            <FlaskConical size={16} strokeWidth={2} />
-                            <span>Ingredients</span>
+                            <FlaskConical size={14} strokeWidth={2} />
+                            <span className="text-[12px]">Ingredients</span>
                           </button>
                         </motion.div>
 
                         {/* Video Aspect Ratios */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
                            {['9:16', '16:9'].map(ratio => (
                              <button
                                key={ratio}
                                onClick={() => setVideoRatio(ratio)}
-                               className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-[12px] transition-colors ${videoRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
+                               className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-[10px] transition-colors ${videoRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
                              >
-                               <RatioIcon ratio={ratio} className={videoRatio === ratio ? "text-white w-4 h-4" : "text-[#a0a0a0] w-4 h-4"} />
-                               <span className={`text-[12px] font-normal ${videoRatio === ratio ? 'text-white' : 'text-[#a0a0a0]'}`}>{ratio}</span>
+                               <RatioIcon ratio={ratio} className={videoRatio === ratio ? "text-white w-3.5 h-3.5" : "text-[#a0a0a0] w-3.5 h-3.5"} />
+                               <span className={`text-[11px] font-normal ${videoRatio === ratio ? 'text-white' : 'text-[#a0a0a0]'}`}>{ratio}</span>
                              </button>
                            ))}
                         </motion.div>
 
                         {/* Video Multipliers */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
                           {['1x', 'x2', 'x3', 'x4'].map(batch => (
                             <button
                               key={batch}
                               onClick={() => setVideoBatch(batch)}
-                              className={`flex-1 py-2.5 rounded-[12px] text-[13px] font-normal transition-colors ${videoBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                              className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                             >
                               {batch}
                             </button>
@@ -1226,17 +1333,17 @@ export const MediaView: React.FC = () => {
                             type="button"
                             ref={videoModelButtonRef}
                             onClick={toggleVideoModelDropdown}
-                            className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[16px] px-4 py-3.5"
+                            className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[14px] px-3 py-3"
                           >
-                            <span className="text-[14px] font-normal text-white">{getVideoModelName(videoModel)}</span>
+                            <span className="text-[13px] font-normal text-white">{getVideoModelName(videoModel)}</span>
                             <ChevronDown
-                              size={18}
+                              size={16}
                               className={`text-[#a0a0a0] transition-transform duration-200 ${isVideoModelDropdownOpen ? 'rotate-180' : ''}`}
                             />
                           </button>
 
                           {isVideoModelDropdownOpen && (
-                            <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[16px] p-1 flex flex-col shadow-2xl z-50`}>
+                            <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-50`}>
                               {VIDEO_MODELS.map(modelOpt => (
                                 <button
                                   key={modelOpt.id}
@@ -1245,7 +1352,7 @@ export const MediaView: React.FC = () => {
                                     setVideoModel(modelOpt.id);
                                     setIsVideoModelDropdownOpen(false);
                                   }}
-                                  className={`w-full text-left px-4 py-2.5 rounded-[12px] text-[13px] font-normal transition-colors ${videoModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                  className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                                 >
                                   {modelOpt.name}
                                 </button>
@@ -1255,12 +1362,12 @@ export const MediaView: React.FC = () => {
                         </motion.div>
 
                         {/* Video Duration */}
-                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[16px] p-1">
+                        <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
                           {['4s', '6s', '8s', '10s'].map(dur => (
                             <button
                               key={dur}
                               onClick={() => setVideoDuration(dur)}
-                              className={`flex-1 py-2.5 rounded-[12px] text-[13px] font-normal transition-colors ${videoDuration === dur ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                              className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoDuration === dur ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
                             >
                               {dur}
                             </button>
@@ -1276,16 +1383,16 @@ export const MediaView: React.FC = () => {
                 )}
               </div>
               
-              <button 
+              <button
                 onClick={handleGenerate}
                 disabled={!prompt.trim()}
-                className={`flex items-center justify-center w-10 h-10 rounded-full transition-all border border-transparent ${
+                className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border border-transparent ${
                   !prompt.trim()
                     ? 'bg-[#27282b]/90 cursor-not-allowed'
                     : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
                 }`}
               >
-                <ArrowRight size={18} strokeWidth={2.5} className={!prompt.trim() ? "text-white" : "text-black"} />
+                <ArrowRight size={16} strokeWidth={2.5} className={!prompt.trim() ? "text-white" : "text-black"} />
               </button>
             </div>
 
