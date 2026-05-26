@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import './SearchModal.css';
 import { useAuth } from '../context/AuthContext';
+import { Avatar } from './ui/Avatar';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -99,13 +100,12 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
                          </span>
                     </div>
                     <div className="flex items-center gap-2">
-                        {userProfile?.photoURL ? (
-                            <img src={userProfile.photoURL} className={`w-4 h-4 rounded-full border object-cover ${selectedId === 'melody-maker' ? 'border-white/30' : 'border-white/10'}`} alt="User" />
-                        ) : (
-                            <div className={`w-4 h-4 rounded-full border bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white text-[8px] font-medium ${selectedId === 'melody-maker' ? 'border-white/30' : 'border-white/10'}`}>
-                                {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
-                            </div>
-                        )}
+                        <Avatar
+                            src={userProfile?.photoURL}
+                            name={userProfile?.displayName || user?.email}
+                            size={16}
+                            className={selectedId === 'melody-maker' ? 'border-white/30' : 'border-white/10'}
+                        />
                         <span className={`text-[12px] font-medium truncate ${selectedId === 'melody-maker' ? 'text-zinc-500' : 'text-zinc-500'}`}>
                           {user?.email || 'unknown'}
                         </span>

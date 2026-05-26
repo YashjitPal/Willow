@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { 
   Paperclip, Image as ImageIcon, Lightbulb, Telescope, MoreHorizontal, 
   ChevronRight, Globe, BookOpen, SquarePen, Github, Copy, ImagePlus
@@ -18,6 +18,7 @@ export const PlusDropdownMenu: React.FC<{
   onToolSelect: (toolId: string) => void;
 }> = ({ isOpen, onClose, onFileSelect, buttonRef, onToolSelect }) => {
   const [isMoreHovered, setIsMoreHovered] = useState(false);
+  const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const menuRef = useRef<HTMLDivElement>(null);
   const moreMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -27,6 +28,27 @@ export const PlusDropdownMenu: React.FC<{
       setIsMoreHovered(false);
     }
   }, [isOpen]);
+
+  // Flip above/below the trigger depending on available viewport space.
+  // Runs on open and on resize so a bottom-docked InputBar opens the menu upward.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const recompute = () => {
+      const btn = buttonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const menuH = menuRef.current?.offsetHeight ?? 260;
+      const gap = 8;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setSide(
+        spaceBelow < menuH + gap && spaceAbove > spaceBelow ? 'top' : 'bottom'
+      );
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [isOpen, buttonRef]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -77,9 +99,11 @@ export const PlusDropdownMenu: React.FC<{
   };
 
   return (
-    <div 
+    <div
       ref={menuRef}
-      className="absolute top-[calc(100%+8px)] left-0 w-[230px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[100] border border-white/5"
+      className={`absolute ${
+        side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
+      } left-0 w-[230px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[100] border border-white/5`}
     >
       <div 
         onClick={() => { onFileSelect(); onClose(); }}
@@ -112,8 +136,10 @@ export const PlusDropdownMenu: React.FC<{
         </div>
 
         {isMoreHovered && (
-          <div 
-            className="absolute top-[-8px] left-[calc(100%+4px)] w-[200px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[110] border border-white/5"
+          <div
+            className={`absolute ${
+              side === 'top' ? 'bottom-[-8px]' : 'top-[-8px]'
+            } left-[calc(100%+4px)] w-[200px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[110] border border-white/5`}
           >
             <MenuItem icon={Globe} label="Web search" toolId="web" />
             <MenuItem icon={BookOpen} label="Study and learn" toolId="learn" />

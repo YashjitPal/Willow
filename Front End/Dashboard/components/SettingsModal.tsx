@@ -637,11 +637,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         hasNone: false,
         levelLabels: { 1: 'Low Reasoning', 2: 'High Reasoning' }
     },
+        { 
+        id: 'gemini-3.5-flash', 
+        name: 'Gemini 3.5 Flash', 
+        maxLevels: 3,
+        hasNone: true,
+        noneLabel: 'None',
+        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
+    },
     { 
         id: 'gemini-3.1-pro-preview', 
         name: 'Gemini 3.1 Pro', 
         maxLevels: 3, // 1: low, 2: medium, 3: high
         hasNone: false,
+        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
+    },
+    { 
+        id: 'gemini-3.1-flash-lite', 
+        name: 'Gemini 3.1 Flash Lite', 
+        maxLevels: 3,
+        hasNone: true,
+        noneLabel: 'None',
+        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
+    },
+    { 
+        id: 'gemini-3.1-flash-lite-preview', 
+        name: 'Gemini 3.1 Flash Lite (Preview)', 
+        maxLevels: 3,
+        hasNone: true,
+        noneLabel: 'None',
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 

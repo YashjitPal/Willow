@@ -15,11 +15,33 @@ export interface ChatMessage {
   attachments?: Attachment[];
 }
 
+/**
+ * Coarse-grained lifecycle phases surfaced to the UI so the "Thinking" shimmer
+ * can change label ("Searching", "Running code") instead of prematurely
+ * flipping to "Thought for Ns" the moment a non-text (tool) chunk arrives.
+ *
+ *   thinking   – waiting on the model (default / between tool calls)
+ *   searching  – Gemini invoked the native Google Search grounding tool
+ *   executing  – Gemini invoked the native Code Execution tool
+ *   responding – first real text token is about to stream
+ */
+export type StreamPhase = 'thinking' | 'searching' | 'executing' | 'responding';
+
 export interface AiOptions {
   provider: 'gemini' | 'openai' | 'anthropic';
   model: string;
   apiKey: string;
   thinkingLevel?: number;
+  /**
+   * Enable Gemini's native Google Search grounding tool. Defaults to `true`.
+   * Only applies when `provider === 'gemini'`; ignored for other providers.
+   */
+  enableSearch?: boolean;
+  /**
+   * Enable Gemini's native Code Execution tool (server-side Python sandbox).
+   * Defaults to `false`. Only applies when `provider === 'gemini'`.
+   */
+  enableCodeExecution?: boolean;
 }
 
 // ============ CLIENT CACHING FOR FASTER COLD STARTS ============
@@ -164,7 +186,8 @@ export const streamChat = async (
   options: AiOptions,
   onToken: (token: string) => void,
   onStart: () => void,
-  systemPrompt?: string
+  systemPrompt?: string,
+  onPhase?: (phase: StreamPhase) => void
 ) => {
   const { provider, model, apiKey } = options;
 
@@ -197,9 +220,23 @@ export const streamChat = async (
     }
     console.log(`[AI] Gemini model: ${model}, thinkingLevel: ${options.thinkingLevel} -> "${geminiThinkingLevel}"`);
 
-    const geminiModel = genAI.getGenerativeModel({ 
+    // Native tools. Gemini 2.0+/3.x use `googleSearch`; legacy 1.5 models used
+    // `googleSearchRetrieval`. Code execution is the server-side Python sandbox.
+    // Both are *offered* to the model — it decides per-prompt whether to call them.
+    const searchEnabled = options.enableSearch !== false;
+    const codeExecEnabled = options.enableCodeExecution === true;
+    const tools: any[] = [];
+    if (searchEnabled) {
+      tools.push(model.includes('1.5') ? { googleSearchRetrieval: {} } : { googleSearch: {} });
+    }
+    if (codeExecEnabled) {
+      tools.push({ codeExecution: {} });
+    }
+
+    const geminiModel = genAI.getGenerativeModel({
       model,
       ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
+      ...(tools.length > 0 ? { tools } : {}),
       // Strictly matching Gemini 3 Developer Guide
       generationConfig: {
         // @ts-ignore
@@ -207,7 +244,7 @@ export const streamChat = async (
           thinkingLevel: geminiThinkingLevel
         }
       }
-    });
+    } as any);
 
     const chat = geminiModel.startChat({
       history: await Promise.all(messages.slice(0, -1).map(async m => {
@@ -245,19 +282,78 @@ export const streamChat = async (
 
     const result = await chat.sendMessageStream(parts);
 
+    // Track phase transitions so we only emit each signal once per contiguous
+    // run and never flip to "Thought for Ns" on an empty/tool-only chunk.
+    let currentPhase: StreamPhase = 'thinking';
+    let hasEmittedText = false;
+    const setPhase = (p: StreamPhase) => {
+      if (p !== currentPhase) {
+        currentPhase = p;
+        onPhase?.(p);
+      }
+    };
+
     for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      onToken(chunkText);
+      const cand: any = (chunk as any).candidates?.[0];
+
+      // Grounding metadata (Google Search). The SDK surfaces the queries it
+      // ran here; when present before any text, the model is/was searching.
+      if (!hasEmittedText && cand?.groundingMetadata?.webSearchQueries?.length) {
+        setPhase('searching');
+      }
+
+      const chunkParts: any[] = cand?.content?.parts ?? [];
+      for (const part of chunkParts) {
+        // --- Code execution tool ---------------------------------------------
+        if (part?.executableCode) {
+          setPhase('executing');
+          const lang = (part.executableCode.language || 'python').toLowerCase();
+          const code = part.executableCode.code ?? '';
+          // Surface the executed code inline so the user sees what ran.
+          if (code) {
+            if (!hasEmittedText) { hasEmittedText = true; onPhase?.('responding'); }
+            onToken(`\n\`\`\`${lang}\n${code}\n\`\`\`\n`);
+          }
+          continue;
+        }
+        if (part?.codeExecutionResult) {
+          const out = part.codeExecutionResult.output ?? '';
+          if (out) {
+            if (!hasEmittedText) { hasEmittedText = true; onPhase?.('responding'); }
+            onToken(`\n\`\`\`text\n${out}\n\`\`\`\n`);
+          }
+          // After a tool result the model typically resumes reasoning before
+          // the final answer — show the shimmer again until real text arrives.
+          if (!hasEmittedText) setPhase('thinking');
+          continue;
+        }
+
+        // --- Plain text ------------------------------------------------------
+        if (typeof part?.text === 'string' && part.text.length > 0) {
+          if (!hasEmittedText) {
+            hasEmittedText = true;
+            onPhase?.('responding');
+          }
+          onToken(part.text);
+        }
+      }
+
+      // Some chunks carry *only* groundingMetadata / finishReason with no parts.
+      // We intentionally do NOT call onToken('') for those — that was the bug
+      // that made the UI drop the "Thinking" shimmer the instant search fired.
     }
   } else if (provider === 'openai') {
     const openai = getOpenAIClient(apiKey);
 
-    // Map 1, 2, 3 to low, medium, high for o1/o3 models
-    const reasoningEffortMap: Record<number, "low" | "medium" | "high"> = {
+    // Map UI thinking levels to OpenAI reasoning_effort values.
+    const reasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "xhigh"> = {
+        0: "none",
         1: "low",
         2: "medium",
-        3: "high"
+        3: "high",
+        4: "xhigh"
     };
+    const reasoningEffort = reasoningEffortMap[options.thinkingLevel ?? 1] ?? "medium";
 
     const formattedMessages = messages.map(m => {
         if (!m.attachments || m.attachments.length === 0) {
@@ -281,20 +377,79 @@ export const streamChat = async (
         return { role: m.role, content: contentParts };
     });
 
+    const responseInput = messages.map(m => {
+        let text = m.content;
+        const imageParts: any[] = [];
+
+        m.attachments?.forEach(att => {
+            if (att.type === 'image') {
+                imageParts.push({
+                    type: "input_image",
+                    image_url: `data:${att.mimeType};base64,${att.data}`,
+                    detail: "auto",
+                });
+            } else {
+                const label = att.name || att.mimeType;
+                text += `\n\n[Attachment: ${label}]\n${att.data}`;
+            }
+        });
+
+        if (imageParts.length === 0) {
+            return { role: m.role, content: text };
+        }
+
+        return {
+            role: m.role,
+            content: [{ type: "input_text", text }, ...imageParts],
+        };
+    });
+
     const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
 
-    const stream = await openai.chat.completions.create({
+    const chatCompletionParams = {
       model,
       // @ts-ignore
       messages: [...systemMessages, ...formattedMessages],
-      // @ts-ignore - reasoning_effort is used for o1 series
-      reasoning_effort: options.thinkingLevel ? reasoningEffortMap[options.thinkingLevel] : "low",
-      stream: true,
-    });
+      reasoning_effort: reasoningEffort,
+    } as any;
 
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || "";
+    if (model === "gpt-5.5-pro") {
+      let response = await openai.responses.create({
+        model,
+        input: responseInput,
+        ...(systemPrompt ? { instructions: systemPrompt } : {}),
+        reasoning: { effort: reasoningEffort },
+        background: true,
+      } as any);
+
+      const startedAt = Date.now();
+      const maxWaitMs = 10 * 60 * 1000;
+      while (response.status === "queued" || response.status === "in_progress") {
+        if (Date.now() - startedAt > maxWaitMs) {
+          throw new Error("GPT 5.5 Pro background response timed out.");
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        response = await openai.responses.retrieve(response.id);
+      }
+
+      if (response.status !== "completed") {
+        const message = response.error?.message || response.incomplete_details?.reason || response.status;
+        throw new Error(`GPT 5.5 Pro response did not complete: ${message}`);
+      }
+
+      const content = response.output_text || "";
       if (content) onToken(content);
+    } else {
+      const stream = await openai.chat.completions.create({
+        ...chatCompletionParams,
+        stream: true,
+      });
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || "";
+        if (content) onToken(content);
+      }
     }
   } else if (provider === 'anthropic') {
     const anthropic = getAnthropicClient(apiKey);

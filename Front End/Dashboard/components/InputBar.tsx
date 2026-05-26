@@ -15,6 +15,7 @@ import {
   Globe,
   X,
   Mic,
+  Square,
   Lightbulb,
   ImagePlus,
   Telescope,
@@ -560,7 +561,16 @@ export const InputBar: React.FC<{
   isAuthenticated?: boolean;
   agentSwarmEnabled?: boolean;
   onSwarmToggle?: (enabled: boolean) => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle }) => {
+  /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
+   *  to use mode="chat". Used by the standalone Dashboard chat view. */
+  chatVariant?: boolean;
+  /** Chat live-voice session wiring. When `liveActive`, the empty-state send
+   *  button becomes a stop control; otherwise it starts the session. Only
+   *  consulted in `chatVariant` — Develop / Staging input is untouched. */
+  liveActive?: boolean;
+  onStartLive?: () => void;
+  onStopLive?: () => void;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, chatVariant = false, liveActive = false, onStartLive, onStopLive }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -574,6 +584,7 @@ export const InputBar: React.FC<{
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+  const hasActiveAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -649,7 +660,7 @@ export const InputBar: React.FC<{
   // Submit prompt internally
   const handleSubmit = () => {
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
-      onSubmit?.(promptText.trim(), currentMode, attachments);
+      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, attachments);
       setPromptText("");
       setAttachments([]);
       setSelectedTool(null);
@@ -718,9 +729,13 @@ export const InputBar: React.FC<{
           const baseHeight = isSolid ? 24 : 48;
           
           if (isSolid) {
+            // Disable padding transition during measurement so scrollHeight reads are exact
+            textareaRef.current.style.transition = 'none';
+
+            const paddingRightVal = chatVariant ? '148px' : '76px';
             // Force narrow padding for measurement to see if it wraps inline
             textareaRef.current.style.paddingLeft = '38px';
-            textareaRef.current.style.paddingRight = '76px';
+            textareaRef.current.style.paddingRight = paddingRightVal;
             textareaRef.current.style.height = `${baseHeight}px`;
             
             const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
@@ -731,7 +746,7 @@ export const InputBar: React.FC<{
             // To prevent height glitch before React re-renders, 
             // force the target padding before calculating final height
             textareaRef.current.style.paddingLeft = shouldExpand ? '0px' : '38px';
-            textareaRef.current.style.paddingRight = shouldExpand ? '0px' : '76px';
+            textareaRef.current.style.paddingRight = shouldExpand ? '0px' : paddingRightVal;
             
             textareaRef.current.style.height = `${baseHeight}px`;
             const scrollHeight = textareaRef.current.scrollHeight;
@@ -744,6 +759,9 @@ export const InputBar: React.FC<{
             // Clean up inline styles so Tailwind classes take over smoothly
             textareaRef.current.style.paddingLeft = '';
             textareaRef.current.style.paddingRight = '';
+            // Re-enable transition (reflow first so the class padding is the "from" frame)
+            void textareaRef.current.offsetHeight;
+            textareaRef.current.style.transition = '';
           } else {
             textareaRef.current.style.height = `${baseHeight}px`;
             const scrollHeight = textareaRef.current.scrollHeight;
@@ -769,7 +787,14 @@ export const InputBar: React.FC<{
     ? 'bg-[#18181b]/70' 
     : 'bg-[#18181b]';
   
-  const hasContent = promptText.trim() || attachments.length > 0 || selectedTool;
+  const hasContent = promptText.trim() || hasActiveAttachments || selectedTool;
+
+  // Synchronous expand flag for the LEFT CLUSTER ONLY: when a tool is picked, the
+  // chip mounts in the same render, so the left group's bottom/py must flip now
+  // (not 1 frame later via useEffect) or the taller chip shoves Plus upward.
+  // Container pb + textarea padding intentionally stay on isSolidExpanded so the
+  // RAF sets them next frame and the 38→0 padding transition still plays.
+  const solidExpanded = isSolidExpanded || !!selectedTool;
 
   if (effectiveBackground === 'solid') {
     return (
@@ -777,7 +802,7 @@ export const InputBar: React.FC<{
         <div className="w-full bg-[#2a2a2a] rounded-[28px] pl-4 pr-3 flex flex-col justify-center transition-all duration-200">
           
           {/* Attachments Area */}
-          <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="overflow-hidden">
               <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-1 pt-4 px-1`}>
                 {attachments.map((att) => (
@@ -850,7 +875,7 @@ export const InputBar: React.FC<{
               }}
               placeholder="Ask anything" 
               style={{ height: '24px', minHeight: '24px', scrollbarGutter: 'stable' }}
-              className={`w-full bg-transparent text-white placeholder-[#8e8e8e] outline-none text-[15.5px] font-normal resize-none overflow-y-auto ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : 'pl-[38px] pr-[76px]'}`}
+              className={`w-full bg-transparent text-white placeholder-[#8e8e8e] outline-none text-[15.5px] font-normal resize-none overflow-y-auto transition-[padding] duration-200 ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : `pl-[38px] ${chatVariant ? 'pr-[148px]' : 'pr-[76px]'}`}`}
             />
 
             <input 
@@ -860,8 +885,8 @@ export const InputBar: React.FC<{
               ref={fileInputRef} 
               onChange={handleFileSelect} 
             />
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${isSolidExpanded ? 'bottom-[10px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
-              <div className={`w-[30px] flex items-center justify-center ${isSolidExpanded ? 'py-2.5' : ''}`}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded ? 'bottom-[6px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
+              <div className={`w-[30px] flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -878,26 +903,66 @@ export const InputBar: React.FC<{
                 />
               </div>
               {selectedTool && (
-                <div className="mt-[1px]">
+                <div className="mt-[1px] animate-in fade-in zoom-in-95 duration-200">
                   <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
                 </div>
               )}
             </div>
             
-            <div className={`absolute flex items-center gap-3 shrink-0 transition-all duration-200 ${isSolidExpanded ? 'bottom-[10px] right-[0px]' : 'bottom-[12px] right-[0px]'}`}>
+            <div className={`absolute flex items-center gap-3 shrink-0 transition-all duration-200 ${solidExpanded ? 'bottom-[10px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+              {chatVariant && (
+                <div className="relative flex items-center shrink-0">
+                  <button
+                    ref={modelButtonRef}
+                    onClick={() => setIsModelsOpen(!isModelsOpen)}
+                    className="flex items-center gap-1.5 text-[14px] font-medium text-[#a0a0a0] hover:text-white transition-colors outline-none cursor-pointer"
+                  >
+                    <span>{activeModel ? getShortName(activeModel.name) : "Model"}</span>
+                    <ChevronDown size={14} className={`stroke-[2.5] transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isModelsOpen && (
+                    <ModelsMenu
+                      triggerRef={modelButtonRef}
+                      onClose={() => setIsModelsOpen(false)}
+                      modelConfig={modelConfig}
+                      selectedId={selectedModelId}
+                      onSelect={setSelectedModelId}
+                      onAuthRequired={onAuthRequired}
+                      agentSwarmEnabled={agentSwarmEnabled}
+                      onSwarmToggle={onSwarmToggle}
+                    />
+                  )}
+                </div>
+              )}
               <button className="text-[#a0a0a0] hover:text-white transition-colors outline-none flex items-center justify-center mr-[2px]">
                 <Mic size={20} className="stroke-[2.5]" />
               </button>
-              <button 
-                onClick={(e) => hasContent ? handleSubmit() : undefined} 
+              <button
+                onClick={() => {
+                  if (hasContent) return handleSubmit();
+                  if (!chatVariant) return;
+                  // Empty input in chat → the AudioLines button is the Live
+                  // toggle. Same 34×34 circle so footer height is unchanged
+                  // and the Chat spacing math stays valid.
+                  liveActive ? onStopLive?.() : onStartLive?.();
+                }}
+                title={
+                  hasContent
+                    ? undefined
+                    : chatVariant
+                      ? liveActive ? 'Stop live mode' : 'Start live voice chat'
+                      : undefined
+                }
                 className={`w-[34px] h-[34px] rounded-full flex items-center justify-center shrink-0 transition-colors shadow-sm outline-none cursor-pointer ${
-                  hasContent 
-                    ? "bg-white hover:bg-zinc-200" 
-                    : "bg-white hover:bg-zinc-200"
+                  !hasContent && chatVariant && liveActive
+                    ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
+                    : 'bg-white hover:bg-zinc-200'
                 }`}
               >
                 {hasContent ? (
                   <ArrowUp size={18} className="text-black stroke-[3]" />
+                ) : chatVariant && liveActive ? (
+                  <Square size={14} className="text-black fill-black" />
                 ) : (
                   <AudioLines size={16} className="text-black stroke-[2.5]" />
                 )}
@@ -1024,7 +1089,8 @@ export const InputBar: React.FC<{
               )}
             </div>
 
-            {/* Modes Selector Button */}
+            {/* Modes Selector Button (hidden in standalone chat variant) */}
+            {!chatVariant && (
             <div className="relative">
               <button
                 ref={modeButtonRef}
@@ -1068,6 +1134,7 @@ export const InputBar: React.FC<{
                 />
               )}
             </div>
+            )}
 
             {/* Theme Selector Button */}
             <div className="relative">
@@ -1170,16 +1237,39 @@ export const InputBar: React.FC<{
               <AudioLines size={20} strokeWidth={2} />
             </button>
             <button
-              onClick={handleSubmit}
+              onClick={() => {
+                if (promptText.trim() || attachments.length > 0) return handleSubmit();
+                if (!chatVariant) return;
+                liveActive ? onStopLive?.() : onStartLive?.();
+              }}
+              title={
+                !promptText.trim() && attachments.length === 0 && chatVariant
+                  ? liveActive ? 'Stop live mode' : 'Start live voice chat'
+                  : undefined
+              }
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg
                       ${
                         promptText.trim() || attachments.length > 0
                           ? "bg-zinc-200 hover:bg-white text-black cursor-pointer"
-                          : "bg-zinc-600 text-zinc-400 cursor-not-allowed"
+                          : chatVariant
+                            ? liveActive
+                              ? "bg-zinc-200 hover:bg-white text-black cursor-pointer ring-2 ring-white/20 animate-pulse"
+                              : "bg-zinc-200 hover:bg-white text-black cursor-pointer"
+                            : "bg-zinc-600 text-zinc-400 cursor-not-allowed"
                       }`}
-              disabled={!promptText.trim() && attachments.length === 0}
+              disabled={!chatVariant && !promptText.trim() && attachments.length === 0}
             >
-              <ArrowUp size={20} strokeWidth={3} />
+              {promptText.trim() || attachments.length > 0 ? (
+                <ArrowUp size={20} strokeWidth={3} />
+              ) : chatVariant ? (
+                liveActive ? (
+                  <Square size={14} className="fill-current" />
+                ) : (
+                  <AudioLines size={18} strokeWidth={2.2} />
+                )
+              ) : (
+                <ArrowUp size={20} strokeWidth={3} />
+              )}
             </button>
           </div>
         </div>

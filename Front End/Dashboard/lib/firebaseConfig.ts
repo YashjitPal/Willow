@@ -2,6 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCLL8xcMqnkpm5nLc2k89j13jurbn1oiZ8",
@@ -37,5 +38,8 @@ driveProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // Firestore instance
 export const db = getFirestore(app);
+
+// Storage instance (avatars, uploads)
+export const storage = getStorage(app);
 
 export default app;

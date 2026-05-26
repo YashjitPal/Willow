@@ -14,14 +14,24 @@ export const HeroSection: React.FC<{
   isAuthenticated?: boolean;
   agentSwarmEnabled?: boolean;
   onSwarmToggle?: (enabled: boolean) => void;
-}> = ({ onPromptSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle }) => {
+  initialMode?: Mode;
+  /** Chat-mode live-voice toggle. Only provided by DashboardChat; Develop leaves it undefined. */
+  onStartLive?: () => void;
+  dashboardMode?: 'develop' | 'media';
+}> = ({ onPromptSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, initialMode = 'ship', onStartLive, dashboardMode }) => {
   const { userProfile } = useAuth();
-  const [mode, setMode] = useState<Mode>('ship');
+  const [mode, setMode] = useState<Mode>(initialMode);
 
   // Get user's first name
   const firstName = userProfile?.displayName?.split(' ')[0] || 'there';
 
   const getHeadingText = () => {
+    if (dashboardMode === 'media') {
+      return isAuthenticated
+        ? `Time to create media, ${firstName}`
+        : 'Time to create media';
+    }
+
     // Show generic text when not authenticated
     if (!isAuthenticated) {
       switch (mode) {
@@ -74,6 +84,8 @@ export const HeroSection: React.FC<{
         isAuthenticated={isAuthenticated}
         agentSwarmEnabled={agentSwarmEnabled}
         onSwarmToggle={onSwarmToggle}
+        chatVariant={initialMode === 'chat'}
+        onStartLive={onStartLive}
       />
     </div>
   );

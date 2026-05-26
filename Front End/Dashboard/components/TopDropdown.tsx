@@ -1,12 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check, Sparkles, Command } from 'lucide-react';
+import { ChevronDown, Check, Sparkles, Command, SquarePen, Film } from 'lucide-react';
 
-export const TopDropdown: React.FC = () => {
+export const TopDropdown: React.FC<{
+  selected?: 'chat' | 'develop' | 'media';
+  onSelect?: (mode: 'chat' | 'develop' | 'media') => void;
+  showNewChat?: boolean;
+  onNewChat?: () => void;
+}> = ({ selected: selectedProp = 'chat', onSelect, showNewChat = false, onNewChat }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [selected, setSelected] = useState<'chat' | 'develop'>('chat');
+  const [selected, setSelected] = useState<'chat' | 'develop' | 'media'>(selectedProp);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep internal state in sync with controlled prop
+  useEffect(() => {
+    setSelected(selectedProp);
+  }, [selectedProp]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -21,38 +30,38 @@ export const TopDropdown: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const handleMouseEnter = () => {
-    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-    setIsOpen(true);
-  };
-
-  const handleMouseLeave = () => {
-    closeTimeoutRef.current = setTimeout(() => setIsOpen(false), 200);
-  };
-
-  const handleSelect = (option: 'chat' | 'develop') => {
+  const handleSelect = (option: 'chat' | 'develop' | 'media') => {
     setSelected(option);
     setIsOpen(false);
+    onSelect?.(option);
   };
 
   return (
-    <div 
+    <div
       className="absolute top-4 left-4 z-[100] flex items-center"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
     >
       <button 
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`flex items-center gap-2 px-3 py-1.5 text-[18px] font-medium tracking-tight text-white/80 hover:text-white rounded-xl transition-colors ${isOpen ? 'text-white' : ''}`}
       >
-        <span>{selected === 'chat' ? 'Chat' : 'Develop'}</span>
-        <ChevronDown 
-          size={16} 
-          className={`text-white/50 transition-transform duration-200 mt-0.5 ${isOpen ? 'rotate-180' : ''}`} 
+        <span>{selected === 'chat' ? 'Chat' : selected === 'develop' ? 'Develop' : 'Media'}</span>
+        <ChevronDown
+          size={16}
+          className={`text-white/50 transition-transform duration-200 mt-0.5 ${isOpen ? 'rotate-180' : ''}`}
           strokeWidth={2.5}
         />
       </button>
+
+      {showNewChat && (
+        <button
+          onClick={onNewChat}
+          title="New chat"
+          className="ml-1 p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+        >
+          <SquarePen size={17} strokeWidth={2} />
+        </button>
+      )}
 
       {isOpen && (
         <div 
@@ -67,7 +76,7 @@ export const TopDropdown: React.FC = () => {
               <Sparkles size={20} className="text-white" strokeWidth={1.5} />
               <div className="flex flex-col items-start leading-tight text-left">
                 <span className="text-[15px] font-medium text-white group-hover:text-white mt-0.5">Develop</span>
-                <span className="text-[13px] text-[#a0a0a0] mt-0.5">Our smartest model & more</span>
+                <span className="text-[13px] text-[#a0a0a0] mt-0.5">Build, preview, and ship web applications</span>
               </div>
             </div>
             {selected === 'develop' && <Check size={18} className="text-white" strokeWidth={2.5} />}
@@ -81,10 +90,24 @@ export const TopDropdown: React.FC = () => {
               <Command size={20} className="text-white" strokeWidth={1.5} />
               <div className="flex flex-col items-start leading-tight text-left">
                 <span className="text-[15px] font-medium text-white group-hover:text-white mt-0.5">Chat</span>
-                <span className="text-[13px] text-[#a0a0a0] mt-0.5">Great for everyday tasks</span>
+                <span className="text-[13px] text-[#a0a0a0] mt-0.5">Conversational partner for everyday tasks</span>
               </div>
             </div>
             {selected === 'chat' && <Check size={18} className="text-white" strokeWidth={2.5} />}
+          </button>
+
+          <button 
+            onClick={() => handleSelect('media')}
+            className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors hover:bg-white/5 cursor-pointer group mt-1`}
+          >
+            <div className="flex items-center gap-3">
+              <Film size={20} className="text-white" strokeWidth={1.5} />
+              <div className="flex flex-col items-start leading-tight text-left">
+                <span className="text-[15px] font-medium text-white group-hover:text-white mt-0.5">Media</span>
+                <span className="text-[13px] text-[#a0a0a0] mt-0.5">Create, generate, and edit rich multimedia</span>
+              </div>
+            </div>
+            {selected === 'media' && <Check size={18} className="text-white" strokeWidth={2.5} />}
           </button>
         </div>
       )}

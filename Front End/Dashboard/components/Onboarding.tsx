@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { uploadAvatar } from '../lib/uploadAvatar';
 import logo from '../src/assets/logo.png';
 
 // Utility function for classnames
@@ -40,7 +41,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  // `avatar` holds a preview URL (Google photoURL or a temporary blob: URL).
+  // `avatarFile` holds the actual File to upload on confirm — we never persist
+  // blob: URLs because they break after page reload.
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Pre-populate with Google account data
@@ -72,18 +77,35 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const imageUrl = URL.createObjectURL(file);
-      setAvatar(imageUrl);
+      // Revoke any previous in-memory preview to avoid leaking object URLs.
+      if (avatar?.startsWith('blob:')) URL.revokeObjectURL(avatar);
+      setAvatar(URL.createObjectURL(file));
+      setAvatarFile(file);
     }
   };
 
+  const handleAvatarRemove = () => {
+    if (avatar?.startsWith('blob:')) URL.revokeObjectURL(avatar);
+    setAvatar(null);
+    setAvatarFile(null);
+  };
+
   const handleConfirm = async () => {
-    if (!selectedRole || !name.trim()) return;
-    
+    if (!selectedRole || !name.trim() || !user) return;
+
     setIsSubmitting(true);
     try {
-      // For now, we store the blob URL. In production, you'd upload to Firebase Storage first.
-      await completeOnboarding(name.trim(), selectedRole, avatar);
+      // Resolve a *persistable* photoURL:
+      //  - If the user uploaded a file, push it to Firebase Storage first.
+      //  - Otherwise use whatever non-blob URL we have (Google photoURL) or null.
+      let persistedPhotoURL: string | null = null;
+      if (avatarFile) {
+        persistedPhotoURL = await uploadAvatar(user.uid, avatarFile);
+      } else if (avatar && !avatar.startsWith('blob:')) {
+        persistedPhotoURL = avatar;
+      }
+
+      await completeOnboarding(name.trim(), selectedRole, persistedPhotoURL);
       onComplete();
     } catch (err) {
       console.error('Error completing onboarding:', err);
@@ -267,10 +289,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 )}>
                   {avatar ? (
                     <>
-                      <img src={avatar} alt="Profile" className="w-full h-full object-cover" />
+                      <img src={avatar} alt="Profile" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                       {/* Delete Overlay */}
-                      <button 
-                        onClick={() => setAvatar(null)}
+                      <button
+                        onClick={handleAvatarRemove}
                         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 cursor-pointer border-none"
                         title="Remove photo"
                       >
@@ -346,7 +368,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                   {/* Avatar box */}
                   <div className="w-28 h-28 rounded-full mb-6 relative shadow-2xl overflow-hidden ring-1 ring-white/10 flex items-center justify-center">
                      {avatar ? (
-                        <img src={avatar} alt="Profile" className="w-full h-full object-cover" />
+                        <img src={avatar} alt="Profile" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center">
                            <User size={48} strokeWidth={1.5} className="text-white/90 drop-shadow-lg opacity-90" />

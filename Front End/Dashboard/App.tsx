@@ -13,12 +13,15 @@ import { RainbowButton } from './components/ui/rainbow-button';
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
 import { TopDropdown } from './components/TopDropdown';
+import { DashboardChat } from './components/DashboardChat';
+import { SquarePen } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
 
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
+const MediaView = React.lazy(() => import('./components/media/MediaView'));
 
 // Dynamic background renderer based on context
 const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
@@ -64,7 +67,10 @@ const DashboardLayout: React.FC<{
   children: React.ReactNode;
   onSettingsClick: () => void;
   isAuthenticated: boolean;
-}> = ({ isSearchOpen, setIsSearchOpen, currentView, setCurrentView, children, onSettingsClick, isAuthenticated }) => {
+  dashboardMode: 'develop' | 'chat' | 'media';
+  onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
+  onNewChat: () => void;
+}> = ({ isSearchOpen, setIsSearchOpen, currentView, setCurrentView, children, onSettingsClick, isAuthenticated, dashboardMode, onModeChange, onNewChat }) => {
   const { background } = useBackground();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -101,7 +107,15 @@ const DashboardLayout: React.FC<{
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
-        <TopDropdown />
+        {/* Top-left: mode dropdown (always visible on home). Pen icon appears beside it in Chat mode */}
+        {currentView === 'home' && (
+          <TopDropdown
+            selected={dashboardMode}
+            onSelect={onModeChange}
+            showNewChat={dashboardMode === 'chat'}
+            onNewChat={onNewChat}
+          />
+        )}
         {/* Background rendered in content area for lines only (solid is just plain color) */}
         {currentView === 'home' && effectiveBackground === 'lines' && (
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -111,7 +125,13 @@ const DashboardLayout: React.FC<{
           </div>
         )}
         {/* Solid background: No overlays, just plain color from parent */}
-        <main className="flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col">
+        <main
+          className="flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col"
+          /* Reserve scrollbar gutter so centered content (e.g. InputBar) doesn't
+             shift horizontally when the main scrollbar appears/disappears
+             between Develop hero, Chat hero, and Chat thread views. */
+          style={{ scrollbarGutter: 'stable' }}
+        >
              {children}
         </main>
       </div>
@@ -169,29 +189,75 @@ const App: React.FC = () => {
   const [settingsInitialConnector, setSettingsInitialConnector] = useState<string | null | undefined>(undefined);
   const [currentView, setCurrentView] = useState<ViewType>('home');
 
-  // Model Config State - Lifted for synchronization
-  const [modelConfig, setModelConfig] = React.useState({
-    gemini: { 
-        model: 'gemini-3-flash-preview', 
+  // Model Config State - Lifted for synchronization.
+  // Persisted to localStorage so saved model presets & selection survive reload
+  // (local-only, same policy as API keys — never sent to Willow servers).
+  const DEFAULT_MODEL_CONFIG = {
+    gemini: {
+        model: 'gemini-3-flash-preview',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
         savedModels: [
-          { id: 'default-flash-high', name: 'Gemini 3 Flash', thinkingLevel: 3, modelId: 'gemini-3-flash-preview' }
-        ] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }> 
+          { id: 'default-flash-high', name: 'Gemini 3 Flash', thinkingLevel: 3, modelId: 'gemini-3-flash-preview' },
+          { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, modelId: 'gemini-3.1-pro-preview' }
+        ] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
     },
-    openai: { 
+    openai: {
         model: 'gpt-5.2-thinking',
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
     },
-    anthropic: { 
+    anthropic: {
         model: 'claude-sonnet-4.5',
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
     }
+  };
+
+  const [modelConfig, setModelConfig] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem('modelConfig');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Merge per-provider so new fields/defaults aren't lost if the stored
+        // shape is older than the current code.
+        return {
+          gemini: { ...DEFAULT_MODEL_CONFIG.gemini, ...parsed.gemini },
+          openai: { ...DEFAULT_MODEL_CONFIG.openai, ...parsed.openai },
+          anthropic: { ...DEFAULT_MODEL_CONFIG.anthropic, ...parsed.anthropic },
+        };
+      }
+    } catch { /* fall through */ }
+    return DEFAULT_MODEL_CONFIG;
   });
 
-  const [selectedModelId, setSelectedModelId] = useState("");
+  const [selectedModelId, setSelectedModelId] = useState(() => {
+    try {
+      return localStorage.getItem('selectedModelId') || "";
+    } catch {
+      return "";
+    }
+  });
   const [agentSwarmEnabled, setAgentSwarmEnabled] = useState(false);
+
+  // Persist model config + selection on every change.
+  React.useEffect(() => {
+    try { localStorage.setItem('modelConfig', JSON.stringify(modelConfig)); } catch { /* ignore */ }
+  }, [modelConfig]);
+  React.useEffect(() => {
+    try { localStorage.setItem('selectedModelId', selectedModelId); } catch { /* ignore */ }
+  }, [selectedModelId]);
+
+  // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
+  const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>('chat');
+  const [chatResetKey, setChatResetKey] = useState(0);
+
+  const handleDashboardModeChange = (mode: 'develop' | 'chat' | 'media') => {
+    setDashboardMode(mode);
+  };
+
+  const handleNewChat = () => {
+    setChatResetKey((k) => k + 1);
+  };
 
   const navigate = useNavigate();
   const { user, userProfile, loading } = useAuth();
@@ -259,33 +325,79 @@ const App: React.FC = () => {
               initialTab={settingsInitialTab}
               initialConnector={settingsInitialConnector}
             />
-            <DashboardLayout 
-              isSearchOpen={isSearchOpen} 
-              setIsSearchOpen={setIsSearchOpen} 
-              currentView={currentView} 
+            <DashboardLayout
+              isSearchOpen={isSearchOpen}
+              setIsSearchOpen={setIsSearchOpen}
+              currentView={currentView}
               setCurrentView={setCurrentView}
               onSettingsClick={() => setIsSettingsOpen(true)}
               isAuthenticated={!!user}
+              dashboardMode={dashboardMode}
+              onModeChange={handleDashboardModeChange}
+              onNewChat={handleNewChat}
             >
               {currentView === 'home' ? (
-                <div className="flex flex-col min-h-full">
-                  <HeroSection
-                    onPromptSubmit={handlePromptSubmit}
+                dashboardMode === 'chat' ? (
+                  <DashboardChat
+                    key={chatResetKey}
                     modelConfig={modelConfig}
                     selectedModelId={selectedModelId}
                     setSelectedModelId={setSelectedModelId}
-                    onAuthRequired={!user ? () => navigate('/login') : undefined}
                     isAuthenticated={!!user}
+                    onAuthRequired={!user ? () => navigate('/login') : undefined}
                     agentSwarmEnabled={agentSwarmEnabled}
                     onSwarmToggle={setAgentSwarmEnabled}
+                    onOpenDriveSettings={openDriveSettings}
                   />
-                  {/* Only show BottomPanel (projects showcase) when authenticated */}
-                  {user && (
-                    <div className="pb-20">
-                      <BottomPanel onOpenDriveSettings={openDriveSettings} />
-                    </div>
-                  )}
-                </div>
+                ) : dashboardMode === 'media' ? (
+                  <div className="flex flex-col min-h-full" key="media">
+                    <HeroSection
+                      initialMode="design"
+                      onPromptSubmit={(prompt) => {
+                        if (!user) {
+                          navigate('/login');
+                          return;
+                        }
+                        sessionStorage.setItem('staging-nav', 'true');
+                        navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                      }}
+                      modelConfig={modelConfig}
+                      selectedModelId={selectedModelId}
+                      setSelectedModelId={setSelectedModelId}
+                      onAuthRequired={!user ? () => navigate('/login') : undefined}
+                      isAuthenticated={!!user}
+                      agentSwarmEnabled={agentSwarmEnabled}
+                      onSwarmToggle={setAgentSwarmEnabled}
+                      dashboardMode="media"
+                    />
+                    {/* Only show BottomPanel (projects showcase) when authenticated */}
+                    {user && (
+                      <div className="pb-20">
+                        <BottomPanel onOpenDriveSettings={openDriveSettings} />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col min-h-full" key="develop">
+                    <HeroSection
+                      onPromptSubmit={handlePromptSubmit}
+                      modelConfig={modelConfig}
+                      selectedModelId={selectedModelId}
+                      setSelectedModelId={setSelectedModelId}
+                      onAuthRequired={!user ? () => navigate('/login') : undefined}
+                      isAuthenticated={!!user}
+                      agentSwarmEnabled={agentSwarmEnabled}
+                      onSwarmToggle={setAgentSwarmEnabled}
+                      dashboardMode="develop"
+                    />
+                    {/* Only show BottomPanel (projects showcase) when authenticated */}
+                    {user && (
+                      <div className="pb-20">
+                        <BottomPanel onOpenDriveSettings={openDriveSettings} />
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
               )}
@@ -316,6 +428,16 @@ const App: React.FC = () => {
                   agentSwarmEnabled={agentSwarmEnabled}
                   onSwarmToggle={setAgentSwarmEnabled}
                 />
+              </Suspense>
+            </div>
+          </StagingRouteGuard>
+        } />
+
+        <Route path="/media" element={
+          <StagingRouteGuard>
+            <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
+              <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
+                <MediaView />
               </Suspense>
             </div>
           </StagingRouteGuard>
