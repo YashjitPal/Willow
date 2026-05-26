@@ -170,6 +170,17 @@ const TileContent = React.memo(({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  React.useEffect(() => {
+    if (item.kind !== 'video' || !videoRef.current) return;
+    const video = videoRef.current;
+    if (isHovered) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [isHovered, item.kind]);
 
   const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({
     right: 0,
@@ -252,22 +263,187 @@ const TileContent = React.memo(({
   return (
   <>
     {item.status === 'generating' && (
-      <div className="absolute inset-0 flex items-center justify-center rounded-[18px]">
-        <div className="absolute inset-0 bg-[linear-gradient(110deg,#0c0c0c_30%,#1f1f1f_50%,#0c0c0c_70%)] bg-[length:200%_100%] animate-[shimmer_1.8s_linear_infinite] rounded-[18px]" />
-        <div className="relative w-9 h-9 border-2 border-white/10 border-t-white rounded-full animate-spin" />
+      <div className="mesh-container-generating">
+        <style dangerouslySetInnerHTML={{ __html: `
+          .mesh-container-generating {
+            position: absolute;
+            inset: 0;
+            border-radius: 18px;
+            background-color: #1a1b1f;
+            overflow: hidden;
+          }
+
+          .mesh-container-generating::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            pointer-events: none;
+            z-index: 30;
+          }
+
+          /* Soft, highly blurred blobs for liquid blending */
+          .mesh-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(45px); 
+            opacity: 0.85;
+            will-change: transform;
+          }
+
+          /* Lighter top-left highlight sweeping */
+          .blob-1 {
+            top: -20%;
+            left: -20%;
+            width: 80%;
+            height: 80%;
+            background-color: #a3a8b5; /* Changed to a much lighter silvery gray */
+            animation: move1 8s infinite ease-in-out; /* Drastically faster */
+          }
+
+          /* Mid-tone gray */
+          .blob-2 {
+            bottom: -20%;
+            right: -20%;
+            width: 70%;
+            height: 70%;
+            background-color: #757a87; /* Changed to a medium-light gray */
+            animation: move2 9s infinite ease-in-out; /* Drastically faster */
+          }
+
+          /* Deep shadow block 1 - Sweeping organically */
+          .blob-3 {
+            top: -15%;
+            left: -15%;
+            width: 65%;
+            height: 65%;
+            background-color: #12141a; /* Adjusted to a deep dark gray */
+            animation: move3 13s infinite ease-in-out; 
+          }
+
+          /* Secondary highlight acting as a separator */
+          .blob-4 {
+            bottom: 10%;
+            left: 10%;
+            width: 60%;
+            height: 60%;
+            background-color: #c2c6d1; /* Brightest light gray highlight */
+            animation: move4 15s infinite ease-in-out; /* Changed timing */
+            z-index: 2;
+          }
+
+          /* Deep shadow block 2 - Sweeping organically */
+          .blob-5 {
+            bottom: -15%;
+            right: -15%;
+            width: 70%;
+            height: 70%;
+            background-color: #0d0f14; /* Adjusted to a deep dark gray */
+            animation: move5 17s infinite ease-in-out; 
+          }
+
+          /* * Continuous looping keyframes (0% matches 100%)
+           * This prevents the "bounce" of alternate keyframes and stops blobs from clumping.
+           */
+          @keyframes move1 {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(25%, 15%) scale(1.05); }
+            66% { transform: translate(-10%, 25%) scale(0.95); }
+            100% { transform: translate(0, 0) scale(1); }
+          }
+          
+          @keyframes move2 {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(-25%, -15%) scale(0.95); }
+            66% { transform: translate(15%, -25%) scale(1.05); }
+            100% { transform: translate(0, 0) scale(1); }
+          }
+          
+          /* Dark Ridge 1 takes a wider, more erratic path */
+          @keyframes move3 {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(70%, 20%) scale(1.15); } /* Sweeps far right */
+            66% { transform: translate(20%, 70%) scale(0.85); } /* Drops low */
+            100% { transform: translate(0, 0) scale(1); }
+          }
+          
+          @keyframes move4 {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(-20%, 20%) scale(1.1); }
+            66% { transform: translate(30%, -15%) scale(0.9); }
+            100% { transform: translate(0, 0) scale(1); }
+          }
+
+          /* Dark Ridge 2 takes an independent, overlapping path */
+          @keyframes move5 {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(-80%, -30%) scale(1.1); } /* Sweeps far left */
+            66% { transform: translate(-10%, -80%) scale(0.9); } /* Rises high */
+            100% { transform: translate(0, 0) scale(1); }
+          }
+
+          /* Fine grain texture overlay just like the video */
+          .noise-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            opacity: 0.045;
+            mix-blend-mode: overlay;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+          }
+        `}} />
+
+        {/* Animated fluid mesh background layers */}
+        <div className="mesh-blob blob-1"></div>
+        <div className="mesh-blob blob-2"></div>
+        <div className="mesh-blob blob-3"></div>
+        <div className="mesh-blob blob-4"></div>
+        <div className="mesh-blob blob-5"></div>
+
+        {/* Subtle noise overlay for premium cinematic texture */}
+        <div className="noise-layer"></div>
+
+        {/* Foreground Content */}
+        <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/50 to-transparent px-5 pb-4 flex items-end pointer-events-none z-30">
+          <div className="flex items-center gap-2.5 w-full min-w-0">
+            {item.kind === 'image' ? (
+              <ImagesIcon className="text-white/90 w-[17px] h-[17px] shrink-0" />
+            ) : (
+              <VideoIcon className="text-white/90 w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
+            )}
+            <span className="text-[14px] font-normal text-white/90 truncate max-w-full">
+              {item.prompt}
+            </span>
+          </div>
+        </div>
       </div>
     )}
-
+ 
     {item.status === 'completed' && item.url && (
       item.kind === 'video' ? (
-        <video
-          src={item.url}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-cover rounded-[18px]"
-        />
+        <>
+          <video
+            ref={videoRef}
+            src={item.url}
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover rounded-[18px]"
+          />
+          <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
+            <svg viewBox="0 0 26 26" className="w-[22px] h-[22px] text-white fill-current">
+              <defs>
+                <mask id={`play-cutout-${item.id}`}>
+                  <rect x="0" y="0" width="26" height="26" fill="white" />
+                  <path d="M10.5 9v8l7-4z" fill="black" />
+                </mask>
+              </defs>
+              <circle cx="13" cy="13" r="12" mask={`url(#play-cutout-${item.id})`} />
+            </svg>
+          </div>
+        </>
       ) : (
         <img
           src={item.url}
@@ -276,7 +452,7 @@ const TileContent = React.memo(({
         />
       )
     )}
-
+ 
     {item.status === 'failed' && (
       <div className="absolute inset-0 flex flex-col items-center justify-center p-5 text-center bg-[#0c0c0c] rounded-[18px]">
         <div className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center mb-3">
@@ -285,7 +461,7 @@ const TileContent = React.memo(({
         <span className="text-[11px] text-red-300/90 leading-relaxed line-clamp-4">{item.error}</span>
       </div>
     )}
-
+ 
     {item.status === 'completed' && item.url && (
       <>
         {/* Top-right menu */}
@@ -307,7 +483,7 @@ const TileContent = React.memo(({
                <MoreVertical size={18} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
           </div>
-
+ 
           {/* Dropdown Menu */}
           {createPortal(
             <AnimatePresence>
@@ -395,22 +571,18 @@ const TileContent = React.memo(({
           )}
         </div>
         
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-5 flex items-end justify-between pointer-events-none rounded-[18px]">
-          <div className="flex flex-col">
-          <span className="text-xs font-semibold text-white tracking-wide">{item.modelName}</span>
-          <span className="text-[10px] text-zinc-400 mt-1">{item.ratio} · {item.kind}</span>
+        <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/45 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 px-5 pb-4 flex items-end pointer-events-none rounded-b-[18px]">
+          <div className="flex items-center gap-2.5 w-full min-w-0">
+            {item.kind === 'image' ? (
+              <ImagesIcon className="text-white w-[17px] h-[17px] shrink-0" />
+            ) : (
+              <VideoIcon className="text-white w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
+            )}
+            <span className="text-[14px] font-normal text-white truncate max-w-full">
+              {item.prompt}
+            </span>
+          </div>
         </div>
-        <a
-          href={item.url}
-          download={`${item.kind === 'video' ? 'video' : 'image'}-${item.timestamp}.${item.kind === 'video' ? 'mp4' : 'jpg'}`}
-          className="pointer-events-auto p-2.5 bg-white text-black hover:bg-zinc-200 rounded-full shadow-lg transition-all transform translate-y-2 group-hover:translate-y-0 duration-300"
-          title="Download"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-        </a>
-      </div>
       </>
     )}
   </>
@@ -639,6 +811,51 @@ export const MediaView: React.FC = () => {
     ratio: string,
     apiKey: string,
   ) => {
+    // In parallel, rephrase the prompt using Gemini 3.1 Flash Lite
+    void (async () => {
+      try {
+        const fetchRephrase = async (model: string) => {
+          return await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [{
+                    text: `You are a creative helper. Rephrase this image generation prompt into a very concise and descriptive title/name (maximum 6 to 8 words). Return only the rephrased title itself, without any punctuation, quotes, introduction, or explanations.\n\nPrompt: ${activePrompt}`
+                  }]
+                }]
+              })
+            }
+          );
+        };
+
+        let rephraseResp = await fetchRephrase('gemini-3.1-flash-lite');
+        if (!rephraseResp.ok) {
+          rephraseResp = await fetchRephrase('gemini-3.1-flash-lite-preview');
+        }
+        if (!rephraseResp.ok) {
+          rephraseResp = await fetchRephrase('gemini-1.5-flash');
+        }
+        
+        if (rephraseResp.ok) {
+          const rephraseData = await rephraseResp.json();
+          let text = rephraseData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (text) {
+            text = text.replace(/^["'`\s]+|["'`\s]+$/g, '');
+            if (text) {
+              setMediaItems(prev =>
+                prev.map(m => (m.id === item.id ? { ...m, prompt: text } : m)),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to rephrase prompt with Gemini 3.1 Flash Lite:', e);
+      }
+    })();
+
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
