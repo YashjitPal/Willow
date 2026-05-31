@@ -8,7 +8,7 @@ import { useBackground } from '../context/BackgroundContext';
 interface AssetMenuModalProps {
   isOpen: boolean;
   onClose: () => void;
-  buttonRef: React.RefObject<HTMLButtonElement>;
+  buttonRef: React.RefObject<any>;
   onAddPrompt?: (assetId: string, assetUrl?: string, assetTitle?: string) => void;
   onFileSelect?: () => void;
   projectName?: string;
@@ -19,6 +19,7 @@ interface AssetMenuModalProps {
     url?: string;
     prompt: string;
   }>;
+  openedFrom?: 'main' | 'sidebar' | 'instruction-reference';
 }
 
 type Asset = { id: string; title: string; type: string; url: string };
@@ -43,6 +44,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
   onFileSelect,
   projectName = 'May 25, 05:55 AM',
   mediaItems,
+  openedFrom = 'main',
 }) => {
   const [sketches, setSketches] = useState<Asset[]>([]);
 
@@ -112,6 +114,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const [maxHeight, setMaxHeight] = useState<number>(600);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [sidebarPromptPos, setSidebarPromptPos] = useState({ bottom: 0, right: 0 });
 
   // Mount/show state machine — drives a pure-CSS transition (smoother than
   // framer-motion for elements with backdrop-filter, because the browser can
@@ -140,20 +143,69 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
   
   useLayoutEffect(() => {
     if (!isOpen) return;
+
+    // Instruction-reference: screen-centered, simple height cap
+    if (openedFrom === 'instruction-reference') {
+      const recomputeCentered = () => {
+        setMaxHeight(Math.min(600, window.innerHeight - 80));
+      };
+      recomputeCentered();
+      window.addEventListener('resize', recomputeCentered);
+      return () => window.removeEventListener('resize', recomputeCentered);
+    }
+
+    // Sidebar prompt-box: anchor above the sidebar prompt, right-aligned
+    if (openedFrom === 'sidebar') {
+      const recomputeSidebar = () => {
+        const btn = buttonRef.current;
+        if (!btn) return;
+        const promptBox = btn.closest('[class*="rounded-[24px]"]') as HTMLElement | null;
+        const anchorRect = (promptBox || btn).getBoundingClientRect();
+        const gap = 8;
+        setSidebarPromptPos({
+          bottom: window.innerHeight - anchorRect.top + gap,
+          right: window.innerWidth - anchorRect.right,
+        });
+        setMaxHeight(Math.max(250, Math.min(600, anchorRect.top - gap - 16)));
+      };
+      recomputeSidebar();
+      window.addEventListener('resize', recomputeSidebar);
+      const promptBox = buttonRef.current?.closest('[class*="rounded-[24px]"]') as HTMLElement | null;
+      let resizeObs: ResizeObserver | undefined;
+      if (promptBox) {
+        resizeObs = new ResizeObserver(recomputeSidebar);
+        resizeObs.observe(promptBox);
+      }
+      return () => {
+        window.removeEventListener('resize', recomputeSidebar);
+        resizeObs?.disconnect();
+      };
+    }
+
+    // Main prompt-box: anchor above the main prompt container
     const recompute = () => {
       const btn = buttonRef.current;
       if (!btn) return;
       const rect = btn.getBoundingClientRect();
       const gap = 8;
-      // The menu appears slightly above the prompt box (always top side)
-      const spaceAbove = rect.top;
+      const promptBox = btn.closest('[class*="rounded-[22px]"]') as HTMLElement | null;
+      const spaceAbove = promptBox ? promptBox.getBoundingClientRect().top : rect.top;
       const availableSpace = spaceAbove - gap;
-      setMaxHeight(Math.max(250, Math.min(600, availableSpace - 8))); // min 250, max 600
+      setMaxHeight(Math.max(250, Math.min(600, availableSpace - 8)));
     };
     recompute();
     window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
-  }, [isOpen, buttonRef]);
+    const promptBox = buttonRef.current?.closest('[class*="rounded-[22px]"]') as HTMLElement | null;
+    let resizeObs: ResizeObserver | undefined;
+    if (promptBox) {
+      resizeObs = new ResizeObserver(recompute);
+      resizeObs.observe(promptBox);
+    }
+    return () => {
+      window.removeEventListener('resize', recompute);
+      resizeObs?.disconnect();
+    };
+  }, [isOpen, buttonRef, openedFrom]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -225,29 +277,60 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
     return assets;
   }, [assetsList, selectedCategory, searchQuery, sortBy]);
 
+  const isScreenCentered = openedFrom === 'instruction-reference';
+  const isSidebarPrompt = openedFrom === 'sidebar';
   const modalBg = 'bg-[#141517]/90 backdrop-blur-[80px]';
 
   return (
     isMounted ? (
-      <div
-        ref={menuRef}
-        style={{
-          height: maxHeight,
-          transformOrigin: 'bottom center',
-          transform: isShown
-            ? 'translateX(-50%) translateY(0px) scale(1)'
-            : 'translateX(-50%) translateY(8px) scale(0.96)',
-          opacity: isShown ? 1 : 0,
-          transition:
-            'transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.16s ease-out',
-          willChange: 'transform, opacity',
-          isolation: 'isolate',
-          contain: 'layout paint',
-          backfaceVisibility: 'hidden',
-          pointerEvents: isShown ? 'auto' : 'none',
-        }}
-        className={`absolute bottom-[calc(100%+6px)] left-1/2 w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden`}
-      >
+      <>
+        {openedFrom === 'instruction-reference' && (
+          <div
+            onClick={onClose}
+            style={{
+              opacity: isShown ? 1 : 0,
+              transition: 'opacity 0.22s ease-out',
+              pointerEvents: isShown ? 'auto' : 'none',
+            }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-[4px] z-[99]"
+          />
+        )}
+        <div
+          ref={menuRef}
+          style={{
+            height: maxHeight,
+            ...(isScreenCentered ? {
+              top: '50%',
+              bottom: 'auto',
+              transformOrigin: 'center center',
+              transform: isShown
+                ? 'translate(-50%, -50%) scale(1)'
+                : 'translate(-50%, -48%) scale(0.96)',
+            } : isSidebarPrompt ? {
+              bottom: `${sidebarPromptPos.bottom}px`,
+              right: `${sidebarPromptPos.right}px`,
+              transformOrigin: 'bottom right',
+              transform: isShown
+                ? 'scale(1)'
+                : 'translateY(8px) scale(0.96)',
+            } : {
+              bottom: 'calc(100% + 6px)',
+              transformOrigin: 'bottom center',
+              transform: isShown
+                ? 'translateX(-50%) translateY(0px) scale(1)'
+                : 'translateX(-50%) translateY(8px) scale(0.96)',
+            }),
+            opacity: isShown ? 1 : 0,
+            transition:
+              'transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.16s ease-out',
+            willChange: 'transform, opacity',
+            isolation: 'isolate',
+            contain: 'layout paint',
+            backfaceVisibility: 'hidden',
+            pointerEvents: isShown ? 'auto' : 'none',
+          }}
+          className={`${isScreenCentered ? 'fixed left-1/2' : isSidebarPrompt ? 'fixed' : 'absolute left-1/2'} w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden`}
+        >
       {/* Left Sidebar */}
       <div className="w-[160px] shrink-0 flex flex-col">
         <div className="pl-3 pr-1.5 pt-3 pb-3">
@@ -391,7 +474,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 overflow-y-auto">
           {/* Middle Column: Asset List */}
           {!isSketchMode && (
             <div className="w-[260px] shrink-0 flex flex-col">
@@ -468,6 +551,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
         </div>
       </div>
       </div>
+      </>
     ) : null
   );
 };

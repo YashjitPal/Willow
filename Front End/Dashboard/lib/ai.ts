@@ -493,3 +493,39 @@ export const streamChat = async (
     }
   }
 };
+
+/**
+ * Fast session title generator using gemini-3.1-flash-lite
+ * with minimal thinking effort.
+ */
+export const generateSessionTitle = async (firstPrompt: string, apiKey: string): Promise<string> => {
+  if (!apiKey) return 'Untitled session';
+  try {
+    const genAI = getGeminiClient(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-3.1-flash-lite',
+      generationConfig: {
+        // @ts-ignore
+        thinkingConfig: {
+          thinkingLevel: 'minimal'
+        }
+      }
+    } as any);
+
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: `You are a session titling bot. Generate a short, punchy 2-4 word title for a chat session based on this first user prompt. Respond ONLY with the title itself, no quotes, no markdown, no punctuation at the end, and no other text.
+Prompt: "${firstPrompt}"`
+        }]
+      }]
+    });
+
+    const text = result.response.text().trim().replace(/^["']|["']$/g, '');
+    return text || 'Untitled session';
+  } catch (e) {
+    console.error('Failed to generate session title:', e);
+    return 'Untitled session';
+  }
+};
