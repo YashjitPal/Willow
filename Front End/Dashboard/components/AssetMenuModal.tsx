@@ -9,7 +9,7 @@ interface AssetMenuModalProps {
   isOpen: boolean;
   onClose: () => void;
   buttonRef: React.RefObject<any>;
-  onAddPrompt?: (assetId: string, assetUrl?: string, assetTitle?: string) => void;
+  onAddPrompt?: (assetId: string, assetUrl?: string, assetTitle?: string, assetKind?: 'image' | 'video') => void;
   onFileSelect?: () => void;
   projectName?: string;
   mediaItems?: Array<{
@@ -532,7 +532,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
                   <div className="pt-3 shrink-0">
                     <button
                       onClick={() => {
-                        if (onAddPrompt) onAddPrompt(selectedAsset.id, selectedAsset.url, selectedAsset.title);
+                        if (onAddPrompt) onAddPrompt(selectedAsset.id, selectedAsset.url, selectedAsset.title, selectedAsset.type.toLowerCase() === 'video' ? 'video' : 'image');
                         onClose();
                       }}
                       className="w-full bg-white hover:bg-gray-100 text-black py-2 rounded-xl font-semibold text-[13px] transition-colors shadow-lg"

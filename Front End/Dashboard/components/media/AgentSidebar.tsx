@@ -11,6 +11,7 @@ interface ImageAttachment {
   url: string;
   name: string;
   file?: File;
+  kind?: 'image' | 'video';
 }
 
 export interface AgentInstruction {
@@ -190,6 +191,7 @@ interface AgentSidebarProps {
   onClose: () => void;
   isOpen: boolean;
   isHeaderVisible: boolean;
+  sidebarTransition?: string;
   prompt: string;
   setPrompt: React.Dispatch<React.SetStateAction<string>>;
   attachments: ImageAttachment[];
@@ -234,6 +236,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   onClose, 
   isOpen, 
   isHeaderVisible,
+  sidebarTransition = '0.5s cubic-bezier(0.16, 1, 0.3, 1)',
   prompt,
   setPrompt,
   attachments,
@@ -268,6 +271,38 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   setInstructions
 }) => {
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+  const [hoveredAttachmentUrl, setHoveredAttachmentUrl] = useState<string | null>(null);
+  const [hoveredAttachmentRect, setHoveredAttachmentRect] = useState<{ left: number; width: number } | null>(null);
+  const hoverTimeoutRef = useRef<any>(null);
+  const closeTimeoutRef = useRef<any>(null);
+
+  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string) => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.closest('.prompt-container-box');
+    const leftOffset = parent ? rect.left - parent.getBoundingClientRect().left : 0;
+    const width = rect.width;
+    
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredAttachmentRect({
+        left: leftOffset,
+        width: width
+      });
+      setHoveredAttachmentUrl(url);
+    }, 330);
+  };
+
+  const handleAttachmentMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    
+    closeTimeoutRef.current = setTimeout(() => {
+      setHoveredAttachmentUrl(null);
+      setHoveredAttachmentRect(null);
+    }, 200);
+  };
+
   const sidebarTextareaRef = useRef<HTMLTextAreaElement>(null);
   const sidebarFileInputRef = useRef<HTMLInputElement>(null);
   const sidebarPlusButtonRef = useRef<HTMLButtonElement>(null);
@@ -586,6 +621,11 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   };
 
   const removeAttachment = (id: string) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    setHoveredAttachmentUrl(null);
+    setHoveredAttachmentRect(null);
+
     setRemovingIds(prev => new Set(prev).add(id));
     setTimeout(() => {
       setAttachments(prev => prev.filter(att => att.id !== id));
@@ -599,12 +639,12 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
 
   return (
     <div 
-      className="fixed right-2 w-[340px] bg-[#171719] rounded-[18px] shadow-2xl z-50 flex flex-col overflow-hidden"
+      className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden"
       style={{
         top: isHeaderVisible ? '72px' : '16px',
         bottom: '8px',
         transform: isOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
-        transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.5s',
+        transition: `transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top ${sidebarTransition}, visibility 0.5s`,
         visibility: isOpen ? 'visible' : 'hidden'
       }}
     >
@@ -799,6 +839,15 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
 
           {/* Bottom Input Area */}
           <div className="p-3 mt-auto mb-0 shrink-0">
+            <style>{`
+              @keyframes quickFadeIn {
+                0% { opacity: 0; }
+                100% { opacity: 1; }
+              }
+              .preview-fade-in {
+                animation: quickFadeIn 230ms ease-out forwards;
+              }
+            `}</style>
             <input 
               type="file" 
               multiple 
@@ -807,20 +856,54 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
               ref={sidebarFileInputRef} 
               onChange={handleFileSelect} 
             />
-            <div className="bg-transparent border border-white/[0.08] hover:border-white/[0.12] transition-colors rounded-[24px] px-3 pt-1.5 pb-2.5 flex flex-col gap-1.5">
+            <div className="bg-transparent border border-white/[0.08] hover:border-white/[0.12] transition-colors rounded-[24px] px-3 pt-1.5 pb-2.5 flex flex-col gap-1.5 relative prompt-container-box">
+              {hoveredAttachmentUrl && hoveredAttachmentRect && (
+                <div 
+                  style={{
+                    left: `${hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2}px`,
+                    transform: 'translate(-50%, 0)'
+                  }}
+                  className="absolute bottom-full z-50 pointer-events-auto pb-0"
+                  onMouseEnter={() => {
+                    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredAttachmentUrl(null);
+                    setHoveredAttachmentRect(null);
+                  }}
+                >
+                  <div className="shadow-2xl overflow-hidden preview-fade-in">
+                    <img 
+                      src={hoveredAttachmentUrl} 
+                      className="max-h-[220px] max-w-[280px] object-contain rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]" 
+                    />
+                  </div>
+                  {/* Invisible bridge to cover prompt box padding gap */}
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-12 h-[24px] bg-transparent" />
+                </div>
+              )}
               
               {/* Attachments Area */}
               <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                 <div className="overflow-hidden">
                   <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 pt-1.5 pl-0 pr-1.5 w-full">
                     {attachments.map((att) => (
-                      <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
-                          <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                      <div 
+                        key={att.id} 
+                        onMouseEnter={(e) => handleAttachmentMouseEnter(e, att.url)}
+                        onMouseLeave={handleAttachmentMouseLeave}
+                        className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                      >
+                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                          {att.kind === 'video' ? (
+                            <video src={att.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                          ) : (
+                            <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                          )}
                         </div>
                         <button 
                           onClick={() => removeAttachment(att.id)}
-                          className="absolute -top-1 -right-1 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-0.5 shadow-xl cursor-pointer z-10"
+                          className="absolute -top-1 -right-1 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-0.5 shadow-xl cursor-pointer z-[60]"
                         >
                           <X size={10} />
                         </button>

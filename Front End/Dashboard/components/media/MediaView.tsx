@@ -28,8 +28,11 @@ import {
   Trash2,
   Crop,
   Info,
+  AlertTriangle,
   Eye,
-  EyeOff
+  EyeOff,
+  Check,
+  Copy
 } from 'lucide-react';
 import logoG from '../../src/assets/logog.png'; // Fallback avatar
 import { useAuth } from '../../context/AuthContext';
@@ -150,6 +153,14 @@ const CollapseIcon = ({ className }: { className?: string }) => (
 
 
 
+interface ImageAttachment {
+  id: string;
+  url: string;
+  name: string;
+  file?: File;
+  kind?: 'image' | 'video';
+}
+
 type MediaKind = 'image' | 'video';
 type MediaStatus = 'generating' | 'completed' | 'failed';
 type MediaItem = {
@@ -159,26 +170,115 @@ type MediaItem = {
   url?: string;
   error?: string;
   prompt: string;
+  shortenedPrompt?: string;
   modelId: string;
   modelName: string;
   ratio: string;
   timestamp: number;
+  attachments?: ImageAttachment[];
 };
 
 const TileContent = React.memo(({ 
   item, 
   isMenuOpen, 
   onMenuOpenChange,
-  isHovered
+  isHovered,
+  onCancel,
+  onRefresh,
+  onRePrompt,
+  onDelete,
+  onRename,
+  isRenaming,
+  setIsRenaming,
+  onAddToPrompt,
+  onAnimate
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
   onMenuOpenChange: (open: boolean) => void; 
   isHovered: boolean;
+  onCancel?: (id: string) => void;
+  onRefresh?: (item: MediaItem) => void;
+  onRePrompt?: (item: MediaItem) => void;
+  onDelete?: (id: string) => void;
+  onRename?: (id: string, newName: string) => void;
+  isRenaming?: boolean;
+  setIsRenaming?: (renaming: boolean) => void;
+  onAddToPrompt?: (item: MediaItem) => void;
+  onAnimate?: (item: MediaItem) => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const [progress, setProgress] = React.useState(0);
+  const [renameValue, setRenameValue] = React.useState(item.shortenedPrompt || item.prompt);
+  const [boxPosition, setBoxPosition] = React.useState<'bottom' | 'top'>('bottom');
+
+  React.useLayoutEffect(() => {
+    if (isRenaming && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      
+      // If the bottom of the card is within 160px of the viewport bottom, position it at the top
+      if (viewportHeight - rect.bottom < 160) {
+        setBoxPosition('top');
+      } else {
+        setBoxPosition('bottom');
+      }
+    }
+  }, [isRenaming]);
+
+  React.useEffect(() => {
+    if (!isRenaming) {
+      setRenameValue(item.shortenedPrompt || item.prompt);
+    }
+  }, [item.shortenedPrompt, item.prompt, isRenaming]);
+
+  const handleSave = () => {
+    if (onRename && renameValue.trim()) {
+      onRename(item.id, renameValue.trim());
+    }
+    if (setIsRenaming) {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (setIsRenaming) {
+      setIsRenaming(false);
+    }
+    setRenameValue(item.shortenedPrompt || item.prompt);
+  };
+
+  React.useEffect(() => {
+    if (item.status !== 'generating') return;
+    
+    const getEstimatedDuration = (modelId: string, kind: 'image' | 'video') => {
+      if (kind === 'image') {
+        if (modelId === 'gemini-3-pro-image-preview') return 7000;
+        return 5000;
+      } else {
+        if (modelId === 'veo-3.1-fast') return 25000;
+        if (modelId === 'veo-3.1') return 55000;
+        if (modelId === 'veo-3.1-lite') return 30000;
+        if (modelId === 'omni-flash') return 18000;
+        return 35000;
+      }
+    };
+
+    const duration = getEstimatedDuration(item.modelId || '', item.kind);
+    const startTime = item.timestamp || Date.now();
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(99, Math.floor((elapsed / duration) * 100));
+      setProgress(pct);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [item.status, item.timestamp, item.modelId, item.kind]);
 
   React.useEffect(() => {
     if (item.kind !== 'video' || !videoRef.current) return;
@@ -286,7 +386,6 @@ const TileContent = React.memo(({
             position: absolute;
             inset: 0;
             border-radius: 18px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
             pointer-events: none;
             z-index: 30;
           }
@@ -414,87 +513,199 @@ const TileContent = React.memo(({
         <div className="noise-layer"></div>
 
         {/* Foreground Content */}
-        <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/50 to-transparent px-5 pb-4 flex items-end pointer-events-none z-30">
-          <div className="flex items-center gap-2.5 w-full min-w-0">
-            {item.kind === 'image' ? (
-              <ImagesIcon className="text-white/90 w-[17px] h-[17px] shrink-0" />
-            ) : (
-              <VideoIcon className="text-white/90 w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
-            )}
-            <span className="text-[14px] font-normal text-white/90 truncate max-w-full">
-              {item.prompt}
-            </span>
+        <div className="absolute top-4 left-4 pointer-events-none z-30 select-none">
+          {item.kind === 'image' ? (
+            <ImagesIcon className="text-zinc-400 w-[20px] h-[20px] shrink-0" />
+          ) : (
+            <VideoIcon className="text-zinc-400 w-[20px] h-[20px] shrink-0 translate-y-[0.5px]" />
+          )}
+        </div>
+
+        <div className="absolute top-4 right-4 pointer-events-none z-30 select-none">
+          <span className="text-[15px] font-normal text-zinc-400 leading-none">
+            {progress}%
+          </span>
+        </div>
+
+        <div className="absolute bottom-3.5 left-3.5 right-[60px] flex items-center pointer-events-none z-30 min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out">
+          <span className="text-[12px] font-normal text-white/80 truncate max-w-full leading-normal">
+            {item.prompt}
+          </span>
+        </div>
+
+        {/* Lower Right Re-prompt Button */}
+        <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out pointer-events-none group-hover:pointer-events-auto z-30">
+          <div className="bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onRePrompt) onRePrompt(item);
+              }}
+              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
+              title="Use prompt again"
+            >
+              <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2.5} style={{ transform: 'scaleY(-1)' }} />
+            </button>
           </div>
         </div>
       </div>
     )}
  
     {item.status === 'completed' && item.url && (
-      item.kind === 'video' ? (
-        <>
-          <video
-            ref={videoRef}
+      <div ref={containerRef} className="w-full h-full relative">
+        {item.kind === 'video' ? (
+          <>
+            <video
+              ref={videoRef}
+              src={item.url}
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover rounded-[18px]"
+              draggable="false"
+            />
+            <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
+              <svg viewBox="0 0 26 26" className="w-[22px] h-[22px] text-white fill-current">
+                <defs>
+                  <mask id={`play-cutout-${item.id}`}>
+                    <rect x="0" y="0" width="26" height="26" fill="white" />
+                    <path d="M10.5 9v8l7-4z" fill="black" />
+                  </mask>
+                </defs>
+                <circle cx="13" cy="13" r="12" mask={`url(#play-cutout-${item.id})`} />
+              </svg>
+            </div>
+          </>
+        ) : (
+          <img
             src={item.url}
-            loop
-            muted
-            playsInline
+            alt={item.shortenedPrompt || item.prompt}
             className="w-full h-full object-cover rounded-[18px]"
+            draggable="false"
           />
-          <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
-            <svg viewBox="0 0 26 26" className="w-[22px] h-[22px] text-white fill-current">
-              <defs>
-                <mask id={`play-cutout-${item.id}`}>
-                  <rect x="0" y="0" width="26" height="26" fill="white" />
-                  <path d="M10.5 9v8l7-4z" fill="black" />
-                </mask>
-              </defs>
-              <circle cx="13" cy="13" r="12" mask={`url(#play-cutout-${item.id})`} />
-            </svg>
-          </div>
-        </>
-      ) : (
-        <img
-          src={item.url}
-          alt={item.prompt}
-          className="w-full h-full object-cover rounded-[18px]"
-        />
-      )
+        )}
+      </div>
     )}
  
     {item.status === 'failed' && (
-      <div className="absolute inset-0 flex flex-col items-center justify-center p-5 text-center bg-[#0c0c0c] rounded-[18px]">
-        <div className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center mb-3">
-          <X size={18} className="text-red-400" strokeWidth={2.5} />
+      <div className="absolute inset-0 flex flex-col items-start p-4 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[18px] select-text">
+        {/* Steep Sharp Warning Triangle */}
+        <svg 
+          viewBox="0 0 24 24" 
+          width="14" 
+          height="14" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2" 
+          strokeLinecap="square" 
+          strokeLinejoin="miter" 
+          className="text-zinc-200 shrink-0"
+        >
+          <path d="M12 2 L22 21 H2 Z" />
+          <line x1="12" y1="8" x2="12" y2="14" />
+          <line x1="12" y1="17.5" x2="12" y2="18" strokeWidth="2.5" />
+        </svg>
+
+        <h3 className="text-[12px] font-semibold text-zinc-200 mt-1.5 leading-none">Failed</h3>
+        <p className="text-[12px] font-normal text-zinc-200 mt-1 leading-relaxed line-clamp-5 max-w-full">
+          {item.error ? (
+            item.error.includes('policies') ? (
+              <>
+                {item.error.split('policies')[0]}
+                <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>
+                {item.error.split('policies')[1]}
+              </>
+            ) : (
+              item.error
+            )
+          ) : (
+            <>
+              This prompt might violate our{' '}
+              <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>{' '}
+              about generating prominent people. Please try a different prompt or send feedback.
+            </>
+          )}
+        </p>
+
+        {/* Lower Right Action Buttons */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-[6px] z-30 select-none">
+          {/* Refresh/Redo */}
+          <div className="bg-white/10 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onRefresh) onRefresh(item);
+              }}
+              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white/10 transition-colors duration-200 outline-none cursor-pointer"
+              title="Retry generation"
+            >
+              <RotateCcw size={18} className="text-white" strokeWidth={2.5} />
+            </button>
+          </div>
+
+          {/* Re-prompt */}
+          <div className="bg-white/10 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onRePrompt) onRePrompt(item);
+              }}
+              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white/10 transition-colors duration-200 outline-none cursor-pointer"
+              title="Use prompt again"
+            >
+              <Undo2 size={18} className="text-white" strokeWidth={2.5} style={{ transform: 'scaleY(-1)' }} />
+            </button>
+          </div>
+
+          {/* Delete */}
+          <div className="bg-white/10 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onDelete) onDelete(item.id);
+              }}
+              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white/10 transition-colors duration-200 outline-none cursor-pointer"
+              title="Delete card"
+            >
+              <Trash2 size={18} className="text-white" strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
-        <span className="text-[11px] text-red-300/90 leading-relaxed line-clamp-4">{item.error}</span>
       </div>
     )}
  
     {item.status === 'completed' && item.url && (
       <>
-        {/* Top-right menu */}
-        <div className={`absolute top-3 right-3 opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 pointer-events-none z-30 ${isMenuOpen ? '!opacity-100 !translate-y-0 !transition-none' : ''}`}>
-          <div className="flex items-center gap-1 bg-white/70 backdrop-blur-[80px] rounded-[12px] p-1 shadow-xl pointer-events-auto" ref={menuRef}>
+        <div className={`absolute top-3 right-3 transition-all duration-300 z-30 ${
+          isRenaming 
+            ? 'opacity-0 -translate-y-2 pointer-events-none' 
+            : `opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto ${isMenuOpen ? '!opacity-100 !translate-y-0 !transition-none' : ''}`
+        }`}>
+          <div className="flex items-center gap-[3.5px] bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[3.5px] shadow-xl pointer-events-auto" ref={menuRef}>
             <button 
               onClick={(e) => e.stopPropagation()}
-              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none"
+              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none"
             >
-               <Heart size={18} className="text-[#1a1a1a]" strokeWidth={2} />
+               <Heart size={17} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
             <button 
-              onClick={(e) => e.stopPropagation()}
-              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onRePrompt) onRePrompt(item);
+              }}
+              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
+              title="Use prompt again"
             >
-               <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2} />
+               <Undo2 size={17} className="text-[#1a1a1a]" strokeWidth={2} style={{ transform: 'scaleY(-1)' }} />
             </button>
             <button 
-              className={`w-[30px] h-[30px] flex items-center justify-center rounded-[8px] transition-colors duration-200 outline-none ${isMenuOpen ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
+              className={`w-[28px] h-[28px] flex items-center justify-center rounded-[7px] transition-colors duration-200 outline-none ${isMenuOpen ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onMenuOpenChange(!isMenuOpen);
               }}
             >
-               <MoreVertical size={18} className="text-[#1a1a1a]" strokeWidth={2} />
+               <MoreVertical size={17} className="text-[#1a1a1a]" strokeWidth={2} />
             </button>
           </div>
  
@@ -514,7 +725,14 @@ const TileContent = React.memo(({
                   style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
                   className="fixed w-[190px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
                 >
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (onAnimate) onAnimate(item);
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
                     <svg 
                       xmlns="http://www.w3.org/2000/svg" 
                       viewBox="25 0 100 50" 
@@ -541,18 +759,135 @@ const TileContent = React.memo(({
                   
                   <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
                   
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (onAddToPrompt) onAddToPrompt(item);
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
                     <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
                     <span>Add to prompt</span>
                   </button>
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                  <button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (item.url) {
+                        const name = item.shortenedPrompt || item.prompt;
+                        const ext = item.kind === 'video' ? 'mp4' : 'png';
+                        const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+                        const filename = `${cleanName}.${ext}`;
+                        try {
+                          const response = await fetch(item.url);
+                          const blob = await response.blob();
+                          const blobUrl = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = blobUrl;
+                          a.download = filename;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(blobUrl);
+                        } catch (err) {
+                          const a = document.createElement('a');
+                          a.href = item.url;
+                          a.download = filename;
+                          a.target = '_blank';
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                        }
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
                     <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
                     <span>Download</span>
                   </button>
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (setIsRenaming) {
+                        setIsRenaming(true);
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
                     <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
                     <span>Rename</span>
                   </button>
+                  <button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (item.url) {
+                        if (item.kind === 'video') {
+                          if (!item.url.startsWith('data:')) {
+                            await navigator.clipboard.writeText(item.url);
+                          }
+                          return;
+                        }
+                        
+                        try {
+                          // To copy any image to clipboard reliably across all browsers,
+                          // we load it into an Image, paint it to canvas, and write as 'image/png'.
+                          // This bypasses browser restrictions on copying raw JPEG/WebP or base64 data strings.
+                          const img = new Image();
+                          img.crossOrigin = 'anonymous';
+                          img.onload = () => {
+                            try {
+                              const canvas = document.createElement('canvas');
+                              canvas.width = img.naturalWidth;
+                              canvas.height = img.naturalHeight;
+                              const ctx = canvas.getContext('2d');
+                              if (ctx) {
+                                ctx.drawImage(img, 0, 0);
+                                canvas.toBlob(async (pngBlob) => {
+                                  if (pngBlob) {
+                                    try {
+                                      await navigator.clipboard.write([
+                                        new ClipboardItem({
+                                          'image/png': pngBlob
+                                        })
+                                      ]);
+                                    } catch (err) {
+                                      if (!item.url.startsWith('data:')) {
+                                        await navigator.clipboard.writeText(item.url);
+                                      }
+                                    }
+                                  }
+                                }, 'image/png');
+                              }
+                            } catch (err) {
+                              if (!item.url.startsWith('data:')) {
+                                navigator.clipboard.writeText(item.url).catch(() => {});
+                              }
+                            }
+                          };
+                          img.onerror = () => {
+                            if (!item.url.startsWith('data:')) {
+                              navigator.clipboard.writeText(item.url).catch(() => {});
+                            }
+                          };
+                          img.src = item.url;
+                        } catch (err) {
+                          if (!item.url.startsWith('data:')) {
+                            await navigator.clipboard.writeText(item.url);
+                          }
+                        }
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
+                    <Copy size={18} strokeWidth={2.5} className="text-zinc-100" />
+                    <span>Copy</span>
+                  </button>
+                  
+                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+                  
                   <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
                     <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
                     <span>Share</span>
@@ -563,13 +898,6 @@ const TileContent = React.memo(({
                   <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
                     <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
                     <span>Set project cover</span>
-                  </button>
-                  
-                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-                  
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                    <Flag size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Flag output</span>
                   </button>
                   
                   <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
@@ -585,18 +913,71 @@ const TileContent = React.memo(({
           )}
         </div>
         
-        <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/45 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 px-5 pb-4 flex items-end pointer-events-none rounded-b-[18px]">
-          <div className="flex items-center gap-2.5 w-full min-w-0">
-            {item.kind === 'image' ? (
-              <ImagesIcon className="text-white w-[17px] h-[17px] shrink-0" />
-            ) : (
-              <VideoIcon className="text-white w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
-            )}
-            <span className="text-[14px] font-normal text-white truncate max-w-full">
-              {item.prompt}
-            </span>
+        {isRenaming && (
+          <div 
+            style={{ border: 'none', outline: 'none' }}
+            className={`absolute left-1/2 -translate-x-1/2 z-30 bg-[#121214] rounded-[16px] px-4 py-[15px] flex items-center justify-between gap-2 shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-auto cursor-default w-[78%] ${
+              boxPosition === 'top' ? 'top-[-32px]' : 'bottom-[-32px]'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+          >
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                  handleSave();
+                } else if (e.key === 'Escape') {
+                  handleCancel();
+                }
+              }}
+              autoFocus
+              style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
+              className="bg-transparent border-none outline-none text-white/90 text-[14.5px] font-medium flex-1 min-w-0 py-1 focus:outline-none focus:ring-0 focus:border-none focus-visible:outline-none focus-visible:ring-0"
+            />
+            <div className="flex items-center gap-2 shrink-0 select-none">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSave();
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white/10 active:bg-white/20 transition-colors text-white/90 cursor-pointer shrink-0"
+                title="Save name"
+              >
+                <Check size={16} strokeWidth={2.5} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCancel();
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white/10 active:bg-white/20 transition-colors text-white/90 cursor-pointer shrink-0"
+                title="Cancel renaming"
+              >
+                <X size={16} strokeWidth={2.5} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+        
+        {!isRenaming && (
+          <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/45 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 px-5 pb-4 flex items-end pointer-events-none rounded-b-[18px]">
+            <div className="flex items-center gap-2.5 w-full min-w-0">
+              {item.kind === 'image' ? (
+                <ImagesIcon className="text-white w-[17px] h-[17px] shrink-0" />
+              ) : (
+                <VideoIcon className="text-white w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
+              )}
+              <span className="text-[14px] font-normal text-white truncate max-w-full">
+                {item.shortenedPrompt || item.prompt}
+              </span>
+            </div>
+          </div>
+        )}
       </>
     )}
   </>
@@ -642,6 +1023,90 @@ export const MediaView: React.FC = () => {
   }, [chatMessages]);
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
   const [hoveredTileId, setHoveredTileId] = React.useState<string | null>(null);
+  const [draggingItemId, setDraggingItemId] = React.useState<string | null>(null);
+  const [dragMousePos, setDragMousePos] = React.useState({ x: 0, y: 0 });
+  const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
+  const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
+
+  React.useEffect(() => {
+    if (!draggingItemId) {
+      setDraggedOverZone(null);
+    }
+  }, [draggingItemId]);
+
+  const blankDragImage = React.useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const img = new Image();
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    return img;
+  }, []);
+
+  React.useEffect(() => {
+    if (!draggingItemId) return;
+    
+    const handleDragOver = (e: DragEvent) => {
+      setDragMousePos({ x: e.clientX, y: e.clientY });
+    };
+    
+    window.addEventListener('dragover', handleDragOver);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+    };
+  }, [draggingItemId]);
+
+  React.useEffect(() => {
+    if (!draggingItemId) return;
+
+    let animationFrameId: number;
+    
+    const scrollLoop = () => {
+      const el = mainRef.current;
+      if (!el) {
+        animationFrameId = requestAnimationFrame(scrollLoop);
+        return;
+      }
+      
+      const rect = el.getBoundingClientRect();
+      const mouseY = dragMousePos.y;
+      
+      const threshold = 100;
+      const topBoundary = rect.top + threshold;
+      const bottomBoundary = rect.bottom - threshold;
+      
+      if (mouseY < topBoundary && mouseY > rect.top) {
+        const distance = topBoundary - mouseY;
+        const speed = Math.min(15, (distance / threshold) * 15);
+        el.scrollTop -= speed;
+      } else if (mouseY > bottomBoundary && mouseY < rect.bottom) {
+        const distance = mouseY - bottomBoundary;
+        const speed = Math.min(15, (distance / threshold) * 15);
+        el.scrollTop += speed;
+      }
+      
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+    
+    animationFrameId = requestAnimationFrame(scrollLoop);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [draggingItemId, dragMousePos]);
+
+  React.useEffect(() => {
+    if (!draggingItemId) return;
+    
+    const handleWheel = (e: WheelEvent) => {
+      const el = mainRef.current;
+      if (!el) return;
+      el.scrollTop += e.deltaY;
+    };
+    
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+    };
+  }, [draggingItemId]);
+
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // Full-screen Image viewer modal states
@@ -894,7 +1359,7 @@ export const MediaView: React.FC = () => {
 
   const svgRef = React.useRef<SVGSVGElement>(null);
 
-  const getCoordinates = (e: React.MouseEvent<SVGSVGElement>) => {
+  const getCoordinates = (e: React.MouseEvent<SVGSVGElement> | MouseEvent) => {
     if (!svgRef.current) return null;
     const rect = svgRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -903,6 +1368,9 @@ export const MediaView: React.FC = () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    // Only allow starting drawings or selections with the primary (left) mouse button
+    if (e.button !== 0) return;
+
     if (activeTool !== 'pen' && activeTool !== 'select') return;
 
     // Auto-close any open tool menu when using the tool
@@ -972,7 +1440,15 @@ export const MediaView: React.FC = () => {
     setRedoStack([]);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement> | MouseEvent) => {
+    // If a drawing is active but the left mouse button is not pressed (e.g. missed MouseUp event),
+    // save the current drawing and release the state to prevent accidental hover painting.
+    if (currentAnnotation && (e.buttons & 1) === 0) {
+      setAnnotations([...annotations, currentAnnotation]);
+      setCurrentAnnotation(null);
+      return;
+    }
+
     if (!currentAnnotation) return;
     const coords = getCoordinates(e);
     if (!coords) return;
@@ -998,6 +1474,26 @@ export const MediaView: React.FC = () => {
     setAnnotations([...annotations, currentAnnotation]);
     setCurrentAnnotation(null);
   };
+
+  React.useEffect(() => {
+    if (!currentAnnotation) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      handleMouseMove(e);
+    };
+
+    const handleWindowMouseUp = () => {
+      handleMouseUp();
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [currentAnnotation, annotations]);
 
   const handleUndo = () => {
     if (annotations.length === 0) return;
@@ -1064,38 +1560,94 @@ export const MediaView: React.FC = () => {
   const [isHeaderVisible, setIsHeaderVisible] = React.useState(true);
   const [isAtTop, setIsAtTop] = React.useState(true);
   const lastScrollTop = React.useRef(0);
+  const maxScrollTop = React.useRef(0);
+
+  // Unified transition timing used by both left sidebar and right agent sidebar
+  const sidebarShowTransition = '0.78s cubic-bezier(0.16, 1, 0.3, 1)';
+  const sidebarHideTransition = '1.0s cubic-bezier(0.25, 1, 0.5, 1) 80ms';
+  const currentSidebarTransitionTiming = isHeaderVisible ? sidebarShowTransition : sidebarHideTransition;
 
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop <= 10) {
       setIsHeaderVisible(true);
       setIsAtTop(true);
+      maxScrollTop.current = scrollTop;
     } else {
       setIsAtTop(false);
       if (scrollTop > lastScrollTop.current) {
         setIsHeaderVisible(false);
+        maxScrollTop.current = scrollTop;
       } else if (scrollTop < lastScrollTop.current) {
-        setIsHeaderVisible(true);
+        // Reappear only after scrolling up a small distance (45px) from the peak scroll position
+        if (maxScrollTop.current - scrollTop >= 45) {
+          setIsHeaderVisible(true);
+        }
       }
     }
     lastScrollTop.current = scrollTop;
   };
 
-  interface ImageAttachment {
-    id: string;
-    url: string;
-    name: string;
-    file?: File;
-  }
   const [attachments, setAttachments] = React.useState<ImageAttachment[]>([]);
+  const [hoveredAttachmentUrl, setHoveredAttachmentUrl] = React.useState<string | null>(null);
+  const [hoveredAttachmentRect, setHoveredAttachmentRect] = React.useState<{ left: number; width: number } | null>(null);
+  const hoverTimeoutRef = React.useRef<any>(null);
+  const closeTimeoutRef = React.useRef<any>(null);
+  
+  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string) => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.closest('.prompt-container-box');
+    const leftOffset = parent ? rect.left - parent.getBoundingClientRect().left : 0;
+    const width = rect.width;
+    
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredAttachmentRect({
+        left: leftOffset,
+        width: width
+      });
+      setHoveredAttachmentUrl(url);
+    }, 330);
+  };
+
+  const handleAttachmentMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    
+    closeTimeoutRef.current = setTimeout(() => {
+      setHoveredAttachmentUrl(null);
+      setHoveredAttachmentRect(null);
+    }, 200);
+  };
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [removingIds, setRemovingIds] = React.useState<Set<string>>(new Set());
-  const hasActiveAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
+  const hasActiveAttachments = attachments.filter(Boolean).length > 0 && !attachments.filter(Boolean).every(att => removingIds.has(att.id));
 
   const removeAttachment = (id: string) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    setHoveredAttachmentUrl(null);
+    setHoveredAttachmentRect(null);
+
+    if (modelMode === 'video' && videoMode === 'frames') {
+      setAttachments(prev => {
+        const next = [...prev];
+        const idx = next.findIndex(att => att && att.id === id);
+        if (idx !== -1) {
+          next[idx] = undefined as any;
+        }
+        if (!next[0] && !next[1]) {
+          return [];
+        }
+        return next;
+      });
+      return;
+    }
     setRemovingIds(prev => new Set(prev).add(id));
     setTimeout(() => {
-      setAttachments(prev => prev.filter(att => att.id !== id));
+      setAttachments(prev => prev.filter(att => att && att.id !== id));
       setRemovingIds(prev => {
         const next = new Set(prev);
         next.delete(id);
@@ -1112,9 +1664,13 @@ export const MediaView: React.FC = () => {
         id: Math.random().toString(36).substring(7),
         url: URL.createObjectURL(file),
         name: file.name,
-        file
+        file,
+        kind: 'image'
       }));
-    setAttachments(prev => [...prev, ...newAttachments]);
+    setAttachments(prev => {
+      const next = [...prev, ...newAttachments];
+      return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
+    });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -1122,6 +1678,7 @@ export const MediaView: React.FC = () => {
   const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
+  const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
   type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
   const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
   const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
@@ -1275,6 +1832,31 @@ export const MediaView: React.FC = () => {
   const [videoBatch, setVideoBatch] = React.useState('x4');
   const [videoDuration, setVideoDuration] = React.useState('10s');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
+
+  const [showFramesPlaceholders, setShowFramesPlaceholders] = React.useState(false);
+  const isFramesMode = modelMode === 'video' && videoMode === 'frames';
+
+  React.useEffect(() => {
+    if (isFramesMode) {
+      setShowFramesPlaceholders(true);
+      // Automatically slice attachments to a max of 2 when entering Frames mode
+      setAttachments(prev => {
+        if (prev.length > 2) {
+          return prev.slice(0, 2);
+        }
+        return prev;
+      });
+    } else {
+      if (!hasActiveAttachments) {
+        const timer = setTimeout(() => {
+          setShowFramesPlaceholders(false);
+        }, 250);
+        return () => clearTimeout(timer);
+      } else {
+        setShowFramesPlaceholders(false);
+      }
+    }
+  }, [isFramesMode, hasActiveAttachments]);
 
 
   const mainRef = React.useRef<HTMLElement>(null);
@@ -1548,7 +2130,7 @@ export const MediaView: React.FC = () => {
             text = text.replace(/^["'`\s]+|["'`\s]+$/g, '');
             if (text) {
               setMediaItems(prev =>
-                prev.map(m => (m.id === item.id ? { ...m, prompt: text } : m)),
+                prev.map(m => (m.id === item.id ? { ...m, shortenedPrompt: text } : m)),
               );
             }
           }
@@ -1583,14 +2165,38 @@ export const MediaView: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `API error (${response.status})`);
+        const status = response.status;
+        const msg = errData?.error?.message || '';
+        
+        if (status === 400 && msg.toLowerCase().includes('key')) {
+          throw new Error('Invalid API Key. Please check your workspace configuration in the Settings panel.');
+        } else if (status === 403) {
+          throw new Error('Access forbidden. Please check your API key permissions and region restrictions.');
+        } else if (status === 429) {
+          throw new Error('Rate limit exceeded. Too many requests. Please wait a moment and try again.');
+        } else if (status === 503 || status === 504) {
+          throw new Error('The generation service is currently overloaded. Please wait a few seconds and try again.');
+        }
+        
+        throw new Error(msg || `API error (${status})`);
       }
 
       const data = await response.json();
+      
+      if (data?.promptFeedback?.blockReason === 'SAFETY') {
+        throw new Error('This prompt might violate our safety policies. Please try a different prompt or send feedback.');
+      }
+      if (data?.candidates?.[0]?.finishReason === 'SAFETY') {
+        throw new Error('This prompt might violate our safety policies. Please try a different prompt or send feedback.');
+      }
+      if (data?.candidates?.[0]?.finishReason === 'RECITATION') {
+        throw new Error('Blocked due to copyright or recitation policies. Please try a different prompt.');
+      }
+
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
       if (!imagePart?.inlineData?.data) {
-        throw new Error('No image returned. Try refining your prompt.');
+        throw new Error('The model was unable to generate an image from this prompt. Try adding more descriptive details.');
       }
       const url = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
       setMediaItems(prev =>
@@ -1648,7 +2254,20 @@ export const MediaView: React.FC = () => {
 
       if (!startResp.ok) {
         const errData = await startResp.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `API error (${startResp.status})`);
+        const status = startResp.status;
+        const msg = errData?.error?.message || '';
+        
+        if (status === 400 && msg.toLowerCase().includes('key')) {
+          throw new Error('Invalid API Key. Please check your workspace configuration in the Settings panel.');
+        } else if (status === 403) {
+          throw new Error('Access forbidden. Please check your API key permissions and region restrictions.');
+        } else if (status === 429) {
+          throw new Error('Rate limit exceeded. Too many requests. Please wait a moment and try again.');
+        } else if (status === 503 || status === 504) {
+          throw new Error('The generation service is currently overloaded. Please wait a few seconds and try again.');
+        }
+        
+        throw new Error(msg || `API error (${status})`);
       }
 
       const startData = await startResp.json();
@@ -1668,7 +2287,11 @@ export const MediaView: React.FC = () => {
         if (pollData?.done) {
           done = true;
           if (pollData.error) {
-            throw new Error(pollData.error.message || 'Video generation failed.');
+            const msg = pollData.error.message || '';
+            if (msg.toLowerCase().includes('safety')) {
+              throw new Error('This prompt might violate our safety policies. Please try a different prompt or send feedback.');
+            }
+            throw new Error(msg || 'Video generation failed.');
           }
           videoUri =
             pollData?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ??
@@ -1677,7 +2300,7 @@ export const MediaView: React.FC = () => {
         }
       }
 
-      if (!videoUri) throw new Error('Video generation timed out.');
+      if (!videoUri) throw new Error('Video generation request timed out after polling.');
 
       const sep = videoUri.includes('?') ? '&' : '?';
       const url = `${videoUri}${sep}key=${apiKey}`;
@@ -1699,8 +2322,8 @@ export const MediaView: React.FC = () => {
     if (!text.trim() && attachments.length === 0) return;
     if (isAgentGenerating) return;
 
-    const activeAttachments = [...attachments];
-    const attachmentIds = attachments.map(att => att.id);
+    const activeAttachments = attachments.filter(Boolean);
+    const attachmentIds = activeAttachments.map(att => att.id);
 
     if (attachmentIds.length > 0) {
       setRemovingIds(prev => {
@@ -1912,8 +2535,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
     setGenerationError(null);
 
-    const activeAttachments = [...attachments];
-    const attachmentIds = attachments.map(att => att.id);
+    const activeAttachments = attachments.filter(Boolean);
+    const attachmentIds = activeAttachments.map(att => att.id);
     if (attachmentIds.length > 0) {
       setRemovingIds(prev => {
         const next = new Set(prev);
@@ -1959,6 +2582,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelName: activeModelName,
       ratio: activeRatio,
       timestamp: Date.now(),
+      attachments: activeAttachments,
     }));
 
     setMediaItems(prev => [...newItems, ...prev]);
@@ -1970,6 +2594,52 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         void generateSingleVideo(item, activePrompt, item.modelId as VideoModelId, item.ratio, videoDuration, apiKey, activeAttachments);
       }
     });
+  };
+
+  const handleRefreshItem = (targetItem: MediaItem) => {
+    const apiKey = apiKeys?.gemini?.[0];
+    if (!apiKey) return;
+    
+    const newItem: MediaItem = {
+      id: `${Date.now()}-0-${Math.random().toString(36).slice(2, 8)}`,
+      kind: targetItem.kind,
+      status: 'generating',
+      prompt: targetItem.prompt,
+      modelId: targetItem.modelId,
+      modelName: targetItem.modelName,
+      ratio: targetItem.ratio,
+      timestamp: Date.now(),
+      attachments: targetItem.attachments,
+    };
+    
+    setMediaItems(prev => [newItem, ...prev]);
+    
+    if (targetItem.kind === 'image') {
+      void generateSingleImage(newItem, newItem.prompt, newItem.modelId, newItem.ratio, apiKey, newItem.attachments || []);
+    } else {
+      void generateSingleVideo(newItem, newItem.prompt, newItem.modelId as VideoModelId, newItem.ratio, videoDuration, apiKey, newItem.attachments || []);
+    }
+  };
+
+  const handleRePromptItem = (targetItem: MediaItem) => {
+    // 1. Restore the mode (Image vs. Video)
+    setModelMode(targetItem.kind);
+
+    // 2. Restore the specific model and aspect ratio used
+    if (targetItem.kind === 'image') {
+      setImageModel(targetItem.modelId as ImageModelId);
+      setImageRatio(targetItem.ratio);
+    } else {
+      setVideoModel(targetItem.modelId as VideoModelId);
+      setVideoRatio(targetItem.ratio);
+    }
+
+    // 3. Restore the text prompt and attachments
+    setPrompt(targetItem.prompt);
+    setAttachments(targetItem.attachments || []);
+
+    // 4. Focus the prompt input area
+    textareaRef.current?.focus();
   };
 
   const completedItems = React.useMemo(() => {
@@ -2067,6 +2737,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   };
 
   const removeViewerAttachment = (id: string) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    setHoveredAttachmentUrl(null);
+    setHoveredAttachmentRect(null);
+
     setViewerRemovingIds(prev => {
       const next = new Set(prev);
       next.add(id);
@@ -2170,7 +2845,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       }
     });
 
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (match) {
       return {
@@ -2218,7 +2893,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       return "The user is editing this image. Please edit the image to match the user's request.";
     }
 
-    return `The user is editing this image. Details about the user's annotations/selections:\n${segments.join('\n')}\nModify the image based on these inputs and the user request.`;
+    return `The user is editing this image. Details about the user's annotations/selections:\n${segments.join('\n')}\nModify the image based on these inputs and the user request. IMPORTANT: The user's drawings, selections, and annotations are guiding masks/inputs only. Do NOT include, reproduce, or show the actual drawn outlines, brush strokes, text annotations, colors, or selections themselves in the final generated image output.`;
   };
 
   const handleViewerGenerate = async () => {
@@ -2284,7 +2959,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       
       {/* Fading Backdrop Blur & Dark Gradient Strip */}
       <div 
-        className="absolute inset-x-0 top-0 h-32 pointer-events-none z-20"
+        className="absolute inset-x-0 top-0 h-32 pointer-events-none z-[55]"
         style={{
           background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
           backdropFilter: 'blur(12px)',
@@ -2293,19 +2968,21 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           WebkitMaskImage: 'linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.9) 35%, rgba(0, 0, 0, 0.3) 70%, transparent 100%)',
           transform: (isHeaderVisible && !isAtTop) ? 'translateY(0)' : 'translateY(-56px)',
           opacity: (isHeaderVisible && !isAtTop) ? 1 : 0,
-          transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
+          transition: isHeaderVisible
+            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.78s cubic-bezier(0.16, 1, 0.3, 1)'
+            : 'transform 0.68s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.68s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       />
 
       {/* Top Header */}
       <header 
-        className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-40 bg-transparent pointer-events-none"
+        className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[60] bg-transparent pointer-events-none"
         style={{
           transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
           opacity: isHeaderVisible ? 1 : 0,
           transition: isHeaderVisible
-            ? 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
-            : 'opacity 0.1s ease-out, transform 0s'
+            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.78s cubic-bezier(0.16, 1, 0.3, 1)'
+            : 'transform 0.68s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.68s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
         
@@ -2382,12 +3059,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Sidebar */}
-        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-[72px] pb-2 px-3 shrink-0 relative z-30`}>
+        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-[72px] pb-2 px-3 shrink-0 relative z-[70]`}>
           <nav 
             className="flex flex-col gap-1"
             style={{
               transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
-              transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
+              transition: `transform ${currentSidebarTransitionTiming}`
             }}
           >
             <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 bg-[#373737] rounded-2xl text-white`}>
@@ -2442,19 +3119,28 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         <main 
           ref={mainRef} 
           onScroll={handleScroll} 
-          className="flex-1 bg-[#000000] relative overflow-y-auto no-scrollbar transition-[margin-right]"
-          style={{ 
-            marginRight: isAgentSidebarOpen ? '348px' : '0px',
-            transitionDuration: '0.5s',
-            transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)'
-          }}
+          className={`flex-1 bg-[#000000] relative sleek-scrollbar ${
+            isAgentSidebarOpen ? 'hide-scrollbar-thumb' : ''
+          } ${
+            renamingItemId ? 'overflow-hidden' : 'overflow-y-auto'
+          }`}
         >
+          {renamingItemId && (
+            <div 
+              className="fixed inset-0 bg-transparent z-40 cursor-default pointer-events-auto"
+              onClick={() => setRenamingItemId(null)}
+            />
+          )}
           {mediaItems.length > 0 && (
             <div
-              className="flex flex-wrap gap-3 pt-[72px] pr-3 pb-44 w-full"
-              style={{ ['--th' as any]: isSidebarCollapsed ? '230px' : '270px' }}
+              className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full transition-[padding-right]"
+              style={{ 
+                ['--th' as any]: isSidebarCollapsed ? '230px' : '270px',
+                paddingRight: isAgentSidebarOpen ? '358px' : '12px',
+                transitionDuration: '0.5s',
+                transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)'
+              }}
             >
-              <AnimatePresence mode="popLayout">
                 {mediaItems.map((item) => {
                   const ratio = item.ratio;
                   let ar = 16 / 9;
@@ -2466,32 +3152,60 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   const targetH = isSidebarCollapsed ? 230 : 270;
                   const gap = 12;
                   const naturalW = targetH * ar;
-                  const itemsPerRow = canvasInnerWidth > 0
-                    ? Math.max(1, Math.floor((canvasInnerWidth + gap) / (naturalW + gap)))
+                  const visibleWidth = isAgentSidebarOpen ? canvasInnerWidth - 346 : canvasInnerWidth;
+                  const itemsPerRow = visibleWidth > 0
+                    ? Math.max(1, Math.floor((visibleWidth + gap) / (naturalW + gap)))
                     : 0;
                   const maxW = itemsPerRow > 0
-                    ? (canvasInnerWidth - (itemsPerRow - 1) * gap) / itemsPerRow
+                    ? (visibleWidth - (itemsPerRow - 1) * gap) / itemsPerRow
                     : 0;
 
                   return (
-                    <motion.div
+                    <div
                       key={item.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.9, y: 16 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.18 } }}
-                      transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+                      draggable={!renamingItemId && activeMenuId === null}
+                      onDragStart={(e) => {
+                        setHoveredTileId(null);
+                        setActiveMenuId(null);
+                        setDragMousePos({ x: e.clientX, y: e.clientY });
+                        
+                        if (blankDragImage) {
+                          e.dataTransfer.setDragImage(blankDragImage, 0, 0);
+                        }
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggingItemId(item.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingItemId(null);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                      }}
                       style={{
                         flexGrow: ar,
                         flexBasis: `calc(var(--th) * ${ar})`,
                         minWidth: `calc(var(--th) * ${ar} * 0.75)`,
                         maxWidth: maxW > 0 ? `${maxW}px` : undefined,
                         aspectRatio: ar,
+                        borderWidth: item.status === 'completed' ? '0.5px' : '0px',
+                        borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
+                        cursor: renamingItemId === item.id ? 'default' : draggingItemId === item.id ? 'grabbing' : 'grab',
                       }}
-                      className={`gallery-tile relative group rounded-[18px] border border-white/5 bg-[#0c0c0c] shadow-2xl cursor-zoom-in ${
-                        activeMenuId === item.id ? 'overflow-visible z-40' : 'overflow-hidden z-10'
+                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
+                        draggingItemId ? '' : 'group'
+                      } ${
+                        item.status === 'completed' ? 'border' : 'border-none'
+                      } ${
+                        renamingItemId === item.id 
+                          ? 'overflow-visible z-50' 
+                          : activeMenuId === item.id 
+                            ? 'overflow-visible z-40' 
+                            : draggingItemId === item.id
+                              ? 'overflow-visible z-50'
+                              : 'overflow-hidden z-10'
                       }`}
                       onClick={() => {
+                        if (renamingItemId === item.id) return;
                         if (item.status === 'completed' && item.url) {
                           setSelectedItem(item);
                         }
@@ -2507,11 +3221,61 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         isMenuOpen={activeMenuId === item.id} 
                         onMenuOpenChange={(open) => setActiveMenuId(open ? item.id : null)} 
                         isHovered={hoveredTileId === item.id}
+                        onCancel={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
+                        onRefresh={handleRefreshItem}
+                        onRePrompt={handleRePromptItem}
+                        onDelete={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
+                        onRename={(id, newName) => {
+                          setMediaItems(prev => prev.map(m => m.id === id ? { ...m, shortenedPrompt: newName } : m));
+                        }}
+                        isRenaming={renamingItemId === item.id}
+                        setIsRenaming={(renaming) => setRenamingItemId(renaming ? item.id : null)}
+                        onAddToPrompt={(targetItem) => {
+                          if (targetItem.url) {
+                            setAttachments(prev => {
+                              if (prev.some(att => att && att.url === targetItem.url)) return prev;
+                              return [...prev, {
+                                id: targetItem.id,
+                                url: targetItem.url,
+                                name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
+                                kind: targetItem.kind
+                              }];
+                            });
+                            setTimeout(() => {
+                              textareaRef.current?.focus();
+                            }, 50);
+                          }
+                        }}
+                        onAnimate={(targetItem) => {
+                          setModelMode('video');
+                          setVideoMode('frames');
+                          if (targetItem.url) {
+                            setAttachments(prev => {
+                              if (prev.some(att => att && att.url === targetItem.url)) return prev;
+                              const next = [...prev, {
+                                id: targetItem.id,
+                                url: targetItem.url,
+                                name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
+                                kind: targetItem.kind
+                              }];
+                              return next.slice(0, 2);
+                            });
+                            setTimeout(() => {
+                              textareaRef.current?.focus();
+                            }, 50);
+                          }
+                        }}
                       />
-                    </motion.div>
+                      
+                      {/* Smooth fading local dark overlay for all other images/videos */}
+                      <div 
+                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[300ms] ease-out ${
+                          (renamingItemId && renamingItemId !== item.id) || (draggingItemId && draggingItemId !== item.id) ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                    </div>
                   );
                 })}
-              </AnimatePresence>
             </div>
           )}
         </main>
@@ -2519,7 +3283,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Centered Flower Empty State */}
       {mediaItems.length === 0 && (
-        <div className="absolute top-[48%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center pointer-events-none z-10">
+        <div 
+          className="absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
+          style={{
+            left: isAgentSidebarOpen ? 'calc(50% - 178px)' : '50%',
+            transform: 'translate(-50%, -50%)',
+            transitionDuration: '0.5s',
+            transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)'
+          }}
+        >
           <div className="relative mb-5 text-gray-500/20 w-[110px] h-[149px] flex items-center justify-center overflow-visible">
             <div
               style={{
@@ -2557,15 +3329,17 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           projectName={projectName}
           mediaItems={mediaItems}
           onFileSelect={() => fileInputRef.current?.click()}
-          onAddPrompt={(assetId, assetUrl, assetTitle) => {
+          onAddPrompt={(assetId, assetUrl, assetTitle, assetKind) => {
             if (assetUrl) {
               setAttachments(prev => {
-                if (prev.some(att => att.url === assetUrl)) return prev;
-                return [...prev, {
+                if (prev.some(att => att && att.url === assetUrl)) return prev;
+                const next = [...prev, {
                   id: assetId,
                   url: assetUrl,
-                  name: assetTitle || 'Attached Image'
+                  name: assetTitle || 'Attached Image',
+                  kind: assetKind || 'image'
                 }];
+                return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
               });
             } else if (assetTitle) {
               setPrompt(prev => {
@@ -2575,7 +3349,195 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }
           }}
         />
-        <div className="relative bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 flex flex-col shadow-2xl border border-white/5 transition-all duration-300">
+        <div 
+          className={`relative rounded-[22px] flex flex-col prompt-container-box ${
+            (draggingItemId && isFramesMode)
+              ? 'bg-transparent border-none shadow-none p-0'
+              : 'bg-[#141517]/90 backdrop-blur-[80px] pt-3 pb-2 px-3 shadow-2xl border'
+          } ${
+            (draggingItemId && !isFramesMode) ? 'transition-all duration-300' : ''
+          }`}
+          style={{
+            transform: (isDragOverPrompt && !isFramesMode) ? 'scale(1.015)' : 'scale(1)',
+            transition: (draggingItemId && !isFramesMode) ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+            borderWidth: (isDragOverPrompt && !isFramesMode) ? '1.5px' : ((draggingItemId && isFramesMode) ? '0px' : '1px'),
+            borderColor: (isDragOverPrompt && !isFramesMode) ? 'rgba(255, 255, 255, 0.9)' : ((draggingItemId && isFramesMode) ? 'transparent' : 'rgba(255, 255, 255, 0.05)')
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            if (draggingItemId) setIsDragOverPrompt(true);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragOverPrompt(false);
+            if (isFramesMode) {
+              setDraggedOverZone(null);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOverPrompt(false);
+            if (isFramesMode) {
+              setDraggedOverZone(null);
+            }
+            if (draggingItemId) {
+              const draggedItem = mediaItems.find(m => m.id === draggingItemId);
+              if (draggedItem && draggedItem.url) {
+                setAttachments(prev => {
+                  if (prev.some(att => att && att.url === draggedItem.url)) return prev;
+                  return [...prev, {
+                    id: draggedItem.id,
+                    url: draggedItem.url,
+                    name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
+                    kind: draggedItem.kind
+                  }];
+                });
+              }
+              setDraggingItemId(null);
+            }
+          }}
+        >
+          {draggingItemId !== null ? (
+            isFramesMode ? (
+              <div className="flex gap-3 w-full h-[96px]" onMouseLeave={() => setDraggedOverZone(null)}>
+                {/* Start Frame Dropzone */}
+                <div
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone('start');
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone('start');
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDraggedOverZone(null);
+                    setIsDragOverPrompt(false);
+                    if (draggingItemId) {
+                      const draggedItem = mediaItems.find(m => m.id === draggingItemId);
+                      if (draggedItem && draggedItem.url) {
+                        setAttachments(prev => {
+                          const next = [...prev];
+                          next[0] = {
+                            id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
+                            url: draggedItem.url,
+                            name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
+                            kind: draggedItem.kind
+                          };
+                          return next;
+                        });
+                      }
+                      setDraggingItemId(null);
+                    }
+                  }}
+                  style={{
+                    transform: draggedOverZone === 'start' ? 'scale(1.015)' : 'scale(1)',
+                    borderWidth: draggedOverZone === 'start' ? '1.5px' : '1px',
+                    borderColor: draggedOverZone === 'start' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.05)',
+                    transition: draggingItemId ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                  }}
+                  className="flex-1 flex items-center justify-center bg-[#18191b] rounded-[22px] select-none cursor-pointer border border-solid"
+                >
+                  <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none flex items-center gap-1.5">
+                    <span className="text-[17px] font-light leading-none pointer-events-none">+</span> Add start frame
+                  </span>
+                </div>
+
+                {/* End Frame Dropzone */}
+                <div
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone('end');
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone('end');
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDraggedOverZone(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDraggedOverZone(null);
+                    setIsDragOverPrompt(false);
+                    if (draggingItemId) {
+                      const draggedItem = mediaItems.find(m => m.id === draggingItemId);
+                      if (draggedItem && draggedItem.url) {
+                        setAttachments(prev => {
+                          const next = [...prev];
+                          next[1] = {
+                            id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
+                            url: draggedItem.url,
+                            name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
+                            kind: draggedItem.kind
+                          };
+                          return next;
+                        });
+                      }
+                      setDraggingItemId(null);
+                    }
+                  }}
+                  style={{
+                    transform: draggedOverZone === 'end' ? 'scale(1.015)' : 'scale(1)',
+                    borderWidth: draggedOverZone === 'end' ? '1.5px' : '1px',
+                    borderColor: draggedOverZone === 'end' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.05)',
+                    transition: draggingItemId ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                  }}
+                  className="flex-1 flex items-center justify-center bg-[#18191b] rounded-[22px] select-none cursor-pointer border border-solid"
+                >
+                  <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none flex items-center gap-1.5">
+                    <span className="text-[17px] font-light leading-none pointer-events-none">+</span> Add end frame
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div 
+                className="flex items-center justify-center w-full select-none pointer-events-none"
+                style={{ height: '76px' }}
+              >
+                <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none">
+                  + Add Ingredient
+                </span>
+              </div>
+            )
+          ) : (
+            <>
+          {hoveredAttachmentUrl && hoveredAttachmentRect && (
+            <div 
+              style={{
+                left: `${hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2}px`,
+                transform: 'translate(-50%, 0)'
+              }}
+              className="absolute bottom-full z-50 pointer-events-auto pb-0"
+              onMouseEnter={() => {
+                if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+              }}
+              onMouseLeave={() => {
+                setHoveredAttachmentUrl(null);
+                setHoveredAttachmentRect(null);
+              }}
+            >
+              <div className="shadow-2xl overflow-hidden preview-fade-in">
+                <img 
+                  src={hoveredAttachmentUrl} 
+                  className="max-h-[320px] max-w-[400px] object-contain rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]" 
+                />
+              </div>
+              {/* Invisible bridge to cover prompt box padding gap */}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 w-16 h-[24px] bg-transparent" />
+            </div>
+          )}
         {(isAgentActive && agentAnimationKey > 0) && (
           <div 
             key={`toggle-${agentAnimationKey}`}
@@ -2634,25 +3596,126 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           />
 
           {/* Attachments Area */}
-          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
+          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[250ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
             <div className="overflow-hidden">
-              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2.5 px-2 pt-2">
-                {attachments.map((att) => (
-                  <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                    <div className="relative">
-                      <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
-                        <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+              {showFramesPlaceholders ? (
+                <div className="flex items-center gap-2 px-2 pt-2 pb-2.5">
+                  {/* Start Frame */}
+                  {attachments[0] ? (
+                    <div 
+                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, attachments[0].url)}
+                      onMouseLeave={handleAttachmentMouseLeave}
+                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[0].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                    >
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                          {attachments[0].kind === 'video' ? (
+                            <video src={attachments[0].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                          ) : (
+                            <img src={attachments[0].url} alt={attachments[0].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </div>
+                        <button 
+                          onClick={() => removeAttachment(attachments[0].id)}
+                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
+                            hoveredAttachmentUrl === attachments[0].url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
+                          }`}
+                        >
+                          <X size={12} />
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => removeAttachment(att.id)}
-                        className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
-                      >
-                        <X size={12} />
-                      </button>
                     </div>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAssetMenuSource('main');
+                        setIsAssetMenuOpen(true);
+                      }}
+                      className="w-16 h-16 flex items-center justify-center rounded-2xl border border-dashed border-white/20 bg-transparent hover:bg-white/[0.02] hover:border-white/35 transition-all duration-200 cursor-pointer outline-none group"
+                    >
+                      <span className="text-[12px] font-semibold text-[#909398] group-hover:text-white transition-colors select-none">Start</span>
+                    </button>
+                  )}
+
+                   {/* Arrow Icon ⇆ */}
+                  <div className="flex items-center justify-center select-none text-[#505050] shrink-0">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                      {/* Top arrow pointing right (distinctly shifted right) */}
+                      <path d="M 7,5.5 H 16 V 2.5 L 23,7 L 16,11.5 V 8.5 H 7 Z" />
+                      {/* Bottom arrow pointing left (distinctly shifted left) */}
+                      <path d="M 17,15.5 H 8 V 12.5 L 1,17 L 8,21.5 V 18.5 H 17 Z" />
+                    </svg>
                   </div>
-                ))}
-              </div>
+
+                  {/* End Frame */}
+                  {attachments[1] ? (
+                    <div 
+                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, attachments[1].url)}
+                      onMouseLeave={handleAttachmentMouseLeave}
+                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[1].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                    >
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                          {attachments[1].kind === 'video' ? (
+                            <video src={attachments[1].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                          ) : (
+                            <img src={attachments[1].url} alt={attachments[1].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </div>
+                        <button 
+                          onClick={() => removeAttachment(attachments[1].id)}
+                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
+                            hoveredAttachmentUrl === attachments[1].url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
+                          }`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAssetMenuSource('main');
+                        setIsAssetMenuOpen(true);
+                      }}
+                      className="w-16 h-16 flex items-center justify-center rounded-2xl border border-dashed border-white/20 bg-transparent hover:bg-white/[0.02] hover:border-white/35 transition-all duration-200 cursor-pointer outline-none group"
+                    >
+                      <span className="text-[12px] font-semibold text-[#909398] group-hover:text-white transition-colors select-none">End</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2.5 px-2 pt-2">
+                  {attachments.filter(Boolean).map((att) => (
+                    <div 
+                      key={att.id} 
+                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, att.url)}
+                      onMouseLeave={handleAttachmentMouseLeave}
+                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                    >
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                          {att.kind === 'video' ? (
+                            <video src={att.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                          ) : (
+                            <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </div>
+                        <button 
+                          onClick={() => removeAttachment(att.id)}
+                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
+                            hoveredAttachmentUrl === att.url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
+                          }`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2660,6 +3723,37 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
             .no-scrollbar::-webkit-scrollbar {
               display: none;
+            }
+            .sleek-scrollbar::-webkit-scrollbar {
+              width: 8px;
+              height: 8px;
+            }
+            .sleek-scrollbar::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .sleek-scrollbar::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.12);
+              border-radius: 99px;
+              border: 2px solid transparent;
+              background-clip: padding-box;
+            }
+            .sleek-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.25);
+              border: 2px solid transparent;
+              background-clip: padding-box;
+            }
+            .sleek-scrollbar.hide-scrollbar-thumb::-webkit-scrollbar-thumb {
+              background: transparent !important;
+            }
+            .sleek-scrollbar.hide-scrollbar-thumb::-webkit-scrollbar-thumb:hover {
+              background: transparent !important;
+            }
+            @keyframes quickFadeIn {
+              0% { opacity: 0; }
+              100% { opacity: 1; }
+            }
+            .preview-fade-in {
+              animation: quickFadeIn 230ms ease-out forwards;
             }
             @keyframes shimmer {
               0% { background-position: 200% 0; }
@@ -2786,7 +3880,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
                       file
                     }));
-                    setAttachments(prev => [...prev, ...newAttachments]);
+                    setAttachments(prev => {
+                      const next = [...prev, ...newAttachments];
+                      return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
+                    });
                   }
                 }}
                 rows={1}
@@ -3244,7 +4341,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </div>
 
           </div>
-
+            </>
+          )}
         </div>
       </div>
 
@@ -3255,12 +4353,18 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="fixed inset-0 bg-black z-50 flex flex-col overflow-hidden text-white select-none"
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[100] flex flex-col overflow-hidden text-white select-none"
             style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
           >
             {/* Top Bar */}
-            <div className="h-16 flex items-center justify-between px-6 shrink-0 z-10 bg-transparent">
+            <motion.div 
+              initial={{ y: -15, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -15, opacity: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="h-16 flex items-center justify-between px-6 shrink-0 z-10 bg-transparent"
+            >
               {/* Left controls */}
               <div className="flex items-center gap-4 w-[380px]">
                 <button 
@@ -3271,7 +4375,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <ArrowLeft size={20} strokeWidth={2.5} />
                 </button>
                 <span className="text-[14px] font-semibold text-white tracking-wide truncate max-w-[200px]">
-                  {selectedItem.prompt}
+                  {selectedItem.shortenedPrompt || selectedItem.prompt}
                 </span>
                 <button className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white">
                   <Info size={18} strokeWidth={2.5} />
@@ -3370,13 +4474,33 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <Heart size={20} strokeWidth={2} />
                 </button>
                 <button 
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
                     if (selectedItem.url) {
-                      const a = document.createElement('a');
-                      a.href = selectedItem.url;
-                      a.download = `imagen-${selectedItem.id}.png`;
-                      a.click();
+                      const name = selectedItem.shortenedPrompt || selectedItem.prompt;
+                      const ext = selectedItem.kind === 'video' ? 'mp4' : 'png';
+                      const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+                      const filename = `${cleanName}.${ext}`;
+                      try {
+                        const response = await fetch(selectedItem.url);
+                        const blob = await response.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(blobUrl);
+                      } catch (err) {
+                        const a = document.createElement('a');
+                        a.href = selectedItem.url;
+                        a.download = filename;
+                        a.target = '_blank';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                      }
                     }
                   }}
                   className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white"
@@ -3403,12 +4527,19 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <span className="text-[12px]">Done</span>
                 </button>
               </div>
-            </div>
+            </motion.div>
 
             {/* Main Area */}
             <div className="flex-1 min-h-0 flex items-center justify-between px-8 pt-6 pb-0 overflow-visible relative">
               {/* Left Toolbar */}
-              <div ref={toolbarRef} className="-ml-3 flex flex-col gap-3 shrink-0 select-none z-30 relative">
+              <motion.div 
+                ref={toolbarRef} 
+                initial={{ x: -20, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -20, opacity: 0 }}
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="-ml-3 flex flex-col gap-3 shrink-0 select-none z-30 relative"
+              >
                 <button 
                   onClick={() => handleToolSwitch('crop')}
                   className={`w-11 h-11 flex items-center justify-center rounded-full text-white transition-all ${
@@ -3799,10 +4930,16 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+              </motion.div>
 
               {/* Centered Image */}
-              <div className={`flex-1 h-full min-h-0 flex items-center justify-center relative select-none pl-5 ${showHistory ? 'pr-4' : 'pr-13'}`}>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+                className={`flex-1 h-full min-h-0 flex items-center justify-center relative select-none pl-5 ${showHistory ? 'pr-4' : 'pr-13'}`}
+              >
                 {(() => {
                   const ratio = selectedItem.ratio;
                   let ar = "16 / 9";
@@ -3813,10 +4950,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   
                   return (
                     <div 
-                      className={`relative max-w-full max-h-full overflow-hidden shadow-2xl border border-white/5 bg-[#141517]/40 flex items-center justify-center ${
+                      className={`relative max-w-full max-h-full overflow-hidden shadow-2xl border bg-[#141517]/40 flex items-center justify-center ${
                         activeTool === 'crop' ? 'rounded-none' : 'rounded-[32px]'
                       }`}
-                      style={{ aspectRatio: ar }}
+                      style={{ aspectRatio: ar, borderWidth: '0.5px', borderColor: '#0e0e10', borderStyle: 'solid' }}
                     >
                       {selectedItem.kind === 'video' ? (
                         <video
@@ -3829,7 +4966,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       ) : (
                         <img
                           src={selectedItem.url}
-                          alt={selectedItem.prompt}
+                          alt={selectedItem.shortenedPrompt || selectedItem.prompt}
                           className="w-full h-full object-cover pointer-events-none"
                         />
                       )}
@@ -3895,9 +5032,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           preserveAspectRatio="none"
                           className="absolute inset-0 w-full h-full pointer-events-auto cursor-crosshair select-none z-10"
                           onMouseDown={handleMouseDown}
-                          onMouseMove={handleMouseMove}
-                          onMouseUp={handleMouseUp}
-                          onMouseLeave={handleMouseUp}
                           style={{ touchAction: 'none' }}
                         >
                           {/* Render existing annotations */}
@@ -4141,17 +5275,17 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     </div>
                   );
                 })()}
-              </div>
+              </motion.div>
 
               {/* Right Sidebar - History panel */}
               <AnimatePresence>
                 {showHistory && (
                   <motion.div
-                    initial={{ width: 0, opacity: 0, marginLeft: 0 }}
-                    animate={{ width: 220, opacity: 1, marginLeft: 24 }}
-                    exit={{ width: 0, opacity: 0, marginLeft: 0 }}
-                    transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                    className="h-full flex flex-col justify-end shrink-0 select-none"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    className="h-full flex flex-col justify-end shrink-0 select-none ml-6"
                   >
                     <div ref={setHistoryRail} className="w-[220px] flex flex-col items-start">
                       {(() => {
@@ -4184,7 +5318,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </div>
 
             {/* Bottom Area */}
-            <div className="shrink-0 flex flex-col items-center justify-end relative select-none pt-3 pb-8">
+            <motion.div 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="shrink-0 flex flex-col items-center justify-end relative select-none pt-3 pb-8"
+            >
 
 
               {activeTool === 'crop' ? (
@@ -4231,14 +5371,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   projectName={projectName}
                   mediaItems={mediaItems}
                   onFileSelect={() => viewerFileInputRef.current?.click()}
-                  onAddPrompt={(assetId, assetUrl, assetTitle) => {
+                  onAddPrompt={(assetId, assetUrl, assetTitle, assetKind) => {
                     if (assetUrl) {
                       setViewerAttachments(prev => {
-                        if (prev.some(att => att.url === assetUrl)) return prev;
+                        if (prev.some(att => att && att.url === assetUrl)) return prev;
                         return [...prev, {
                           id: assetId,
                           url: assetUrl,
-                          name: assetTitle || 'Attached Image'
+                          name: assetTitle || 'Attached Image',
+                          kind: assetKind || 'image'
                         }];
                       });
                     } else if (assetTitle) {
@@ -4277,7 +5418,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                   </div>
                                   <button 
                                     onClick={() => removeViewerAttachment(att.id)}
-                                    className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
+                                    className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-all duration-200 shadow-xl z-[60]"
                                   >
                                     <X size={12} />
                                   </button>
@@ -4428,7 +5569,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 </div>
                 </div>
               )}
-            </div>
+            </motion.div>
 
             {/* Warning popup overlay */}
             {pendingTool !== null && (
@@ -4508,9 +5649,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         isOpen={isAgentSidebarOpen} 
         onClose={() => setIsAgentSidebarOpen(false)} 
         isHeaderVisible={isHeaderVisible}
+        sidebarTransition={currentSidebarTransitionTiming}
         prompt={prompt}
         setPrompt={setPrompt}
-        attachments={attachments}
+        attachments={attachments.filter(Boolean)}
         setAttachments={setAttachments}
         chatMessages={chatMessages}
         setChatMessages={setChatMessages}
@@ -4561,7 +5703,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         projectName={projectName}
         mediaItems={mediaItems}
         onFileSelect={() => fileInputRef.current?.click()}
-        onAddPrompt={(assetId, assetUrl, assetTitle) => {
+        onAddPrompt={(assetId, assetUrl, assetTitle, assetKind) => {
           if (assetMenuSource === 'instruction-reference') {
             if (activeInstructionId) {
               setInstructions(prev => prev.map(inst => 
@@ -4576,11 +5718,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
           if (assetUrl) {
             setAttachments(prev => {
-              if (prev.some(att => att.url === assetUrl)) return prev;
+              if (prev.some(att => att && att.url === assetUrl)) return prev;
               return [...prev, {
                 id: assetId,
                 url: assetUrl,
-                name: assetTitle || 'Attached Image'
+                name: assetTitle || 'Attached Image',
+                kind: assetKind || 'image'
               }];
             });
           } else if (assetTitle) {
@@ -4591,6 +5734,59 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           }
         }}
       />
+      
+      {/* Custom floating ghost drag image with 100% full opacity, no border, and larger size */}
+      {draggingItemId && (() => {
+        const item = mediaItems.find(m => m.id === draggingItemId);
+        if (!item || !item.url) return null;
+        
+        const ratio = item.ratio;
+        let ar = 16 / 9;
+        if (ratio === '4:3') ar = 4 / 3;
+        else if (ratio === '1:1') ar = 1;
+        else if (ratio === '3:4') ar = 3 / 4;
+        else if (ratio === '9:16') ar = 9 / 16;
+        
+        const ghostWidth = 250; // Increased size slightly more!
+        const ghostHeight = ghostWidth / ar;
+        
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              left: `${dragMousePos.x - ghostWidth / 2}px`,
+              top: `${dragMousePos.y - ghostHeight / 2}px`,
+              width: `${ghostWidth}px`,
+              height: `${ghostHeight}px`,
+              pointerEvents: 'none',
+              zIndex: 99999,
+              opacity: 1, // 100% full opacity
+              borderRadius: '18px',
+              overflow: 'hidden',
+              boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.8)',
+              backgroundColor: '#0c0c0c',
+              border: 'none', // No border
+            }}
+          >
+            {item.kind === 'video' ? (
+              <video
+                src={item.url}
+                loop
+                muted
+                autoPlay
+                playsInline
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
+              />
+            ) : (
+              <img
+                src={item.url}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
+                alt=""
+              />
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };
