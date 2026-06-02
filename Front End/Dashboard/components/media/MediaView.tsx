@@ -1007,6 +1007,12 @@ export const MediaView: React.FC = () => {
   const [isBottomFaded, setIsBottomFaded] = React.useState(false);
   const [isAgentActive, setIsAgentActive] = React.useState(false);
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = React.useState(false);
+  const prevIsAgentSidebarOpen = React.useRef(isAgentSidebarOpen);
+  const isRightSidebarToggling = prevIsAgentSidebarOpen.current !== isAgentSidebarOpen;
+  
+  React.useEffect(() => {
+    prevIsAgentSidebarOpen.current = isAgentSidebarOpen;
+  }, [isAgentSidebarOpen]);
   const [agentAnimationKey, setAgentAnimationKey] = React.useState(0);
 
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
@@ -1556,6 +1562,8 @@ export const MediaView: React.FC = () => {
     }
   };
 
+  const mainRef = React.useRef<HTMLElement>(null);
+  
   // Scroll direction header show/hide state
   const [isHeaderVisible, setIsHeaderVisible] = React.useState(true);
   const [isAtTop, setIsAtTop] = React.useState(true);
@@ -1567,7 +1575,75 @@ export const MediaView: React.FC = () => {
   const sidebarHideTransition = '1.0s cubic-bezier(0.25, 1, 0.5, 1) 80ms';
   const currentSidebarTransitionTiming = isHeaderVisible ? sidebarShowTransition : sidebarHideTransition;
 
+  const customScrollbarThumbRef = React.useRef<HTMLDivElement>(null);
+  
+  const updateCustomScrollbar = React.useCallback((el: HTMLElement) => {
+    const thumbEl = customScrollbarThumbRef.current;
+    if (!el || !thumbEl) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight) {
+      thumbEl.style.opacity = '0';
+      thumbEl.style.pointerEvents = 'none';
+      return;
+    }
+    
+    thumbEl.style.opacity = '1';
+    thumbEl.style.pointerEvents = 'auto';
+    
+    const scrollRatio = clientHeight / scrollHeight;
+    const thumbHeight = Math.max(scrollRatio * clientHeight, 40);
+    const maxThumbTop = clientHeight - thumbHeight;
+    const scrollPercent = scrollTop / (scrollHeight - clientHeight);
+    const thumbTop = scrollPercent * maxThumbTop;
+    
+    thumbEl.style.height = `${thumbHeight}px`;
+    thumbEl.style.transform = `translateY(${thumbTop}px)`;
+  }, []);
+
+  const isDraggingThumb = React.useRef(false);
+  const startDragY = React.useRef(0);
+  const startScrollTop = React.useRef(0);
+
+  const handleThumbMouseDown = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!mainRef.current) return;
+    
+    isDraggingThumb.current = true;
+    startDragY.current = e.clientY;
+    startScrollTop.current = mainRef.current.scrollTop;
+    
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingThumb.current || !mainRef.current) return;
+      
+      const { scrollHeight, clientHeight } = mainRef.current;
+      const scrollRatio = clientHeight / scrollHeight;
+      const thumbHeight = Math.max(scrollRatio * clientHeight, 40);
+      const trackDistance = clientHeight - thumbHeight;
+      const scrollableDistance = scrollHeight - clientHeight;
+      
+      const deltaY = moveEvent.clientY - startDragY.current;
+      const scrollDelta = (deltaY / trackDistance) * scrollableDistance;
+      
+      mainRef.current.scrollTop = startScrollTop.current + scrollDelta;
+    };
+    
+    const handleMouseUp = () => {
+      isDraggingThumb.current = false;
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, []);
+
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
+    updateCustomScrollbar(e.currentTarget);
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop <= 10) {
       setIsHeaderVisible(true);
@@ -1832,11 +1908,22 @@ export const MediaView: React.FC = () => {
   const [videoBatch, setVideoBatch] = React.useState('x4');
   const [videoDuration, setVideoDuration] = React.useState('10s');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
+  const [isLayoutSuppressing, setIsLayoutSuppressing] = React.useState(false);
+  
+  const handleToggleLeftSidebar = () => {
+    setIsLayoutSuppressing(true);
+    setIsSidebarCollapsed(c => !c);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
+  };
 
   const [showFramesPlaceholders, setShowFramesPlaceholders] = React.useState(false);
+  const [prevIsFramesMode, setPrevIsFramesMode] = React.useState(false);
   const isFramesMode = modelMode === 'video' && videoMode === 'frames';
 
-  React.useEffect(() => {
+  if (isFramesMode !== prevIsFramesMode) {
+    setPrevIsFramesMode(isFramesMode);
     if (isFramesMode) {
       setShowFramesPlaceholders(true);
       // Automatically slice attachments to a max of 2 when entering Frames mode
@@ -1846,11 +1933,15 @@ export const MediaView: React.FC = () => {
         }
         return prev;
       });
-    } else {
+    }
+  }
+
+  React.useEffect(() => {
+    if (!isFramesMode) {
       if (!hasActiveAttachments) {
         const timer = setTimeout(() => {
           setShowFramesPlaceholders(false);
-        }, 250);
+        }, 350);
         return () => clearTimeout(timer);
       } else {
         setShowFramesPlaceholders(false);
@@ -1859,13 +1950,17 @@ export const MediaView: React.FC = () => {
   }, [isFramesMode, hasActiveAttachments]);
 
 
-  const mainRef = React.useRef<HTMLElement>(null);
-
   const [canvasInnerWidth, setCanvasInnerWidth] = React.useState(0);
+  const [scrollbarWidth, setScrollbarWidth] = React.useState(0);
   React.useLayoutEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    const update = () => setCanvasInnerWidth(el.clientWidth - 12);
+    const update = () => {
+      setCanvasInnerWidth(el.clientWidth - 12);
+      // Determine OS scrollbar width (e.g. ~17px on Windows, 0px on macOS overlay)
+      setScrollbarWidth(el.offsetWidth - el.clientWidth);
+      updateCustomScrollbar(el);
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -2585,7 +2680,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       attachments: activeAttachments,
     }));
 
+    setIsLayoutSuppressing(true);
     setMediaItems(prev => [...newItems, ...prev]);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
 
     newItems.forEach(item => {
       if (item.kind === 'image') {
@@ -2612,7 +2711,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       attachments: targetItem.attachments,
     };
     
+    setIsLayoutSuppressing(true);
     setMediaItems(prev => [newItem, ...prev]);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
     
     if (targetItem.kind === 'image') {
       void generateSingleImage(newItem, newItem.prompt, newItem.modelId, newItem.ratio, apiKey, newItem.attachments || []);
@@ -2925,7 +3028,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       timestamp: Date.now(),
     };
 
+    setIsLayoutSuppressing(true);
     setMediaItems(prev => [newItem, ...prev]);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
 
     const selectedInlinePart = await getAnnotatedImageBase64();
     const attachments: ImageAttachment[] = [];
@@ -2950,6 +3057,101 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     setViewerAttachments([]);
     setViewerRemovingIds(new Set());
   };
+
+  let galleryLayoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean}> = [];
+  
+  if (mediaItems.length > 0) {
+    const targetH = isSidebarCollapsed ? 230 : 270;
+    const gap = 12;
+    // Sidebar left edge is 356px from screen edge. We want a 12px gap to images.
+    // So total distance from screen edge to images should be 368px.
+    // Since scrollbar takes up `scrollbarWidth` space, padding needs to be 368 - scrollbarWidth.
+    const activePaddingRight = Math.max(12, 368 - scrollbarWidth);
+    const visibleWidth = isAgentSidebarOpen ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth);
+    
+    // We bias the target height up by 20% for layout calculations.
+    // This perfectly tunes the algorithm's distance check to match your exact preferred rhythm:
+    // It naturally wraps to exactly 2 items when the left sidebar is open, 3 items when full width,
+    // and correctly scales them down to fit 2 items when both sidebars are open!
+    const layoutTargetH = targetH * 1.2;
+    
+    const rows: Array<{ items: Array<{item: MediaItem, ar: number}>, sumAR: number, isLast: boolean, height: number }> = [];
+    let currentRow: Array<{item: MediaItem, ar: number}> = [];
+    let currentRowSumAR = 0;
+
+    const getRowHeight = (sumAR: number, count: number) => {
+      if (count === 0) return 0;
+      return (visibleWidth - (count - 1) * gap) / sumAR;
+    };
+    
+    // We penalize the difference between the resulting height and our tuned ideal height
+    const getDiff = (h: number) => Math.abs(h - layoutTargetH);
+
+    mediaItems.forEach((item) => {
+      const ratio = item.ratio;
+      let ar = 16 / 9;
+      if (ratio === '4:3') ar = 4 / 3;
+      else if (ratio === '1:1') ar = 1;
+      else if (ratio === '3:4') ar = 3 / 4;
+      else if (ratio === '9:16') ar = 9 / 16;
+      
+      const arWithItem = currentRowSumAR + ar;
+      const countWithItem = currentRow.length + 1;
+      const heightWithItem = getRowHeight(arWithItem, countWithItem);
+      
+      if (currentRow.length === 0) {
+        currentRow.push({ item, ar });
+        currentRowSumAR = ar;
+      } else {
+        const heightWithoutItem = getRowHeight(currentRowSumAR, currentRow.length);
+        if (getDiff(heightWithItem) <= getDiff(heightWithoutItem)) {
+          currentRow.push({ item, ar });
+          currentRowSumAR = arWithItem;
+        } else {
+          rows.push({ items: currentRow, height: heightWithoutItem, sumAR: currentRowSumAR, isLast: false });
+          currentRow = [{ item, ar }];
+          currentRowSumAR = ar;
+        }
+      }
+    });
+    
+    if (currentRow.length > 0) {
+      rows.push({ items: currentRow, height: getRowHeight(currentRowSumAR, currentRow.length), sumAR: currentRowSumAR, isLast: true });
+    }
+
+    let sumHeights = 0;
+    let fullRowsCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (!rows[i].isLast) {
+        sumHeights += rows[i].height;
+        fullRowsCount++;
+      }
+    }
+    const averageFullRowHeight = fullRowsCount > 0 ? sumHeights / fullRowsCount : layoutTargetH;
+
+    const layoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean}> = [];
+    rows.forEach((row) => {
+      let finalRowHeight = row.height;
+      let isCapped = false;
+      if (row.isLast) {
+        const capHeight = fullRowsCount > 0 ? averageFullRowHeight : layoutTargetH;
+        if (finalRowHeight > capHeight * 1.5) {
+          finalRowHeight = capHeight;
+          isCapped = true;
+        }
+      }
+      row.items.forEach(cell => {
+        layoutItems.push({
+          item: cell.item,
+          ar: cell.ar,
+          finalHeight: finalRowHeight,
+          finalWidth: finalRowHeight * cell.ar,
+          isCapped
+        });
+      });
+    });
+    galleryLayoutItems = layoutItems;
+  }
 
   return (
     <div
@@ -3106,7 +3308,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Trash</span>}
             </button>
             <button
-              onClick={() => setIsSidebarCollapsed(c => !c)}
+              onClick={handleToggleLeftSidebar}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}
             >
               <CollapseIcon className="text-gray-200 group-hover:text-white transition-colors" />
@@ -3119,12 +3321,20 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         <main 
           ref={mainRef} 
           onScroll={handleScroll} 
-          className={`flex-1 bg-[#000000] relative sleek-scrollbar ${
-            isAgentSidebarOpen ? 'hide-scrollbar-thumb' : ''
-          } ${
-            renamingItemId ? 'overflow-hidden' : 'overflow-y-auto'
+          className={`flex-1 bg-[#000000] relative no-scrollbar ${
+            renamingItemId ? 'overflow-hidden' : 'overflow-y-scroll'
           }`}
         >
+          {/* Custom Overlay Scrollbar */}
+          <div className="fixed top-0 bottom-0 right-0 w-[4px] z-[100] overflow-visible pointer-events-none">
+            <div 
+              ref={customScrollbarThumbRef}
+              onMouseDown={handleThumbMouseDown}
+              className="absolute right-0 w-[4px] bg-white/10 hover:bg-white/25 rounded-full pointer-events-auto transition-colors duration-150"
+              style={{ opacity: 0, height: 0, transform: 'translateY(0px)' }}
+            />
+          </div>
+
           {renamingItemId && (
             <div 
               className="fixed inset-0 bg-transparent z-40 cursor-default pointer-events-auto"
@@ -3133,35 +3343,19 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           )}
           {mediaItems.length > 0 && (
             <div
-              className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full transition-[padding-right]"
+              className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
               style={{ 
-                ['--th' as any]: isSidebarCollapsed ? '230px' : '270px',
-                paddingRight: isAgentSidebarOpen ? '358px' : '12px',
-                transitionDuration: '0.5s',
-                transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)'
+                paddingRight: isAgentSidebarOpen ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
               }}
             >
-                {mediaItems.map((item) => {
-                  const ratio = item.ratio;
-                  let ar = 16 / 9;
-                  if (ratio === '4:3') ar = 4 / 3;
-                  else if (ratio === '1:1') ar = 1;
-                  else if (ratio === '3:4') ar = 3 / 4;
-                  else if (ratio === '9:16') ar = 9 / 16;
-
-                  const targetH = isSidebarCollapsed ? 230 : 270;
-                  const gap = 12;
-                  const naturalW = targetH * ar;
-                  const visibleWidth = isAgentSidebarOpen ? canvasInnerWidth - 346 : canvasInnerWidth;
-                  const itemsPerRow = visibleWidth > 0
-                    ? Math.max(1, Math.floor((visibleWidth + gap) / (naturalW + gap)))
-                    : 0;
-                  const maxW = itemsPerRow > 0
-                    ? (visibleWidth - (itemsPerRow - 1) * gap) / itemsPerRow
-                    : 0;
-
-                  return (
-                    <div
+              {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped }) => {
+                return (
+                    <motion.div
+                      layout
+                      transition={{ 
+                        duration: isRightSidebarToggling ? 0.78 : 0, 
+                        ease: [0.16, 1, 0.3, 1] 
+                      }}
                       key={item.id}
                       draggable={!renamingItemId && activeMenuId === null}
                       onDragStart={(e) => {
@@ -3182,11 +3376,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         e.preventDefault();
                       }}
                       style={{
-                        flexGrow: ar,
-                        flexBasis: `calc(var(--th) * ${ar})`,
-                        minWidth: `calc(var(--th) * ${ar} * 0.75)`,
-                        maxWidth: maxW > 0 ? `${maxW}px` : undefined,
-                        aspectRatio: ar,
+                        flexGrow: isCapped ? 0 : ar,
+                        flexBasis: `${finalWidth}px`,
+                        height: `${finalHeight}px`,
                         borderWidth: item.status === 'completed' ? '0.5px' : '0px',
                         borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
                         cursor: renamingItemId === item.id ? 'default' : draggingItemId === item.id ? 'grabbing' : 'grab',
@@ -3210,9 +3402,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           setSelectedItem(item);
                         }
                       }}
-                      onMouseEnter={() => setHoveredTileId(item.id)}
+                      onMouseEnter={() => {
+                        if (isModelMenuOpen || isAssetMenuOpen) return;
+                        setHoveredTileId(item.id);
+                      }}
                       onMouseLeave={() => {
-                        setHoveredTileId(null);
+                        if (hoveredTileId === item.id) setHoveredTileId(null);
                         if (activeMenuId === item.id) setActiveMenuId(null);
                       }}
                     >
@@ -3269,11 +3464,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       
                       {/* Smooth fading local dark overlay for all other images/videos */}
                       <div 
-                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[300ms] ease-out ${
+                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none ${
                           (renamingItemId && renamingItemId !== item.id) || (draggingItemId && draggingItemId !== item.id) ? 'opacity-100' : 'opacity-0'
                         }`}
                       />
-                    </div>
+                    </motion.div>
                   );
                 })}
             </div>
@@ -3596,14 +3791,17 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           />
 
           {/* Attachments Area */}
-          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[250ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
+          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[350ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
             <div className="overflow-hidden">
               {showFramesPlaceholders ? (
                 <div className="flex items-center gap-2 px-2 pt-2 pb-2.5">
                   {/* Start Frame */}
                   {attachments[0] ? (
                     <div 
-                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, attachments[0].url)}
+                      onMouseEnter={(e) => {
+                        if (isModelMenuOpen || isAssetMenuOpen) return;
+                        handleAttachmentMouseEnter(e, attachments[0].url);
+                      }}
                       onMouseLeave={handleAttachmentMouseLeave}
                       className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[0].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
@@ -3651,7 +3849,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   {/* End Frame */}
                   {attachments[1] ? (
                     <div 
-                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, attachments[1].url)}
+                      onMouseEnter={(e) => {
+                        if (isModelMenuOpen || isAssetMenuOpen) return;
+                        handleAttachmentMouseEnter(e, attachments[1].url);
+                      }}
                       onMouseLeave={handleAttachmentMouseLeave}
                       className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[1].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
@@ -3691,7 +3892,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   {attachments.filter(Boolean).map((att) => (
                     <div 
                       key={att.id} 
-                      onMouseEnter={(e) => handleAttachmentMouseEnter(e, att.url)}
+                      onMouseEnter={(e) => {
+                        if (isModelMenuOpen || isAssetMenuOpen) return;
+                        handleAttachmentMouseEnter(e, att.url);
+                      }}
                       onMouseLeave={handleAttachmentMouseLeave}
                       className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >

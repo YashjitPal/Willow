@@ -271,37 +271,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   setInstructions
 }) => {
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
-  const [hoveredAttachmentUrl, setHoveredAttachmentUrl] = useState<string | null>(null);
-  const [hoveredAttachmentRect, setHoveredAttachmentRect] = useState<{ left: number; width: number } | null>(null);
-  const hoverTimeoutRef = useRef<any>(null);
-  const closeTimeoutRef = useRef<any>(null);
 
-  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string) => {
-    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    
-    const rect = e.currentTarget.getBoundingClientRect();
-    const parent = e.currentTarget.closest('.prompt-container-box');
-    const leftOffset = parent ? rect.left - parent.getBoundingClientRect().left : 0;
-    const width = rect.width;
-    
-    hoverTimeoutRef.current = setTimeout(() => {
-      setHoveredAttachmentRect({
-        left: leftOffset,
-        width: width
-      });
-      setHoveredAttachmentUrl(url);
-    }, 330);
-  };
-
-  const handleAttachmentMouseLeave = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    
-    closeTimeoutRef.current = setTimeout(() => {
-      setHoveredAttachmentUrl(null);
-      setHoveredAttachmentRect(null);
-    }, 200);
-  };
 
   const sidebarTextareaRef = useRef<HTMLTextAreaElement>(null);
   const sidebarFileInputRef = useRef<HTMLInputElement>(null);
@@ -621,10 +591,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   };
 
   const removeAttachment = (id: string) => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-    setHoveredAttachmentUrl(null);
-    setHoveredAttachmentRect(null);
+
 
     setRemovingIds(prev => new Set(prev).add(id));
     setTimeout(() => {
@@ -694,7 +661,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}
-                className="absolute inset-0 flex flex-col items-center justify-center p-6 pb-12 select-none"
+                className="absolute inset-0 flex flex-col items-center justify-start p-6 pt-[136px] select-none"
               >
                 <div className="text-center space-y-4 mb-8" style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
                   <h2 className="text-[#8c8c8c] text-[22px] font-medium tracking-tight">Hi Yashjit</h2>
@@ -838,7 +805,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
           </div>
 
           {/* Bottom Input Area */}
-          <div className="p-3 mt-auto mb-0 shrink-0">
+          <div className="p-3 mt-auto mb-0 shrink-0 relative z-20 bg-[#171719]">
             <style>{`
               @keyframes quickFadeIn {
                 0% { opacity: 0; }
@@ -857,32 +824,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
               onChange={handleFileSelect} 
             />
             <div className="bg-transparent border border-white/[0.08] hover:border-white/[0.12] transition-colors rounded-[24px] px-3 pt-1.5 pb-2.5 flex flex-col gap-1.5 relative prompt-container-box">
-              {hoveredAttachmentUrl && hoveredAttachmentRect && (
-                <div 
-                  style={{
-                    left: `${hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2}px`,
-                    transform: 'translate(-50%, 0)'
-                  }}
-                  className="absolute bottom-full z-50 pointer-events-auto pb-0"
-                  onMouseEnter={() => {
-                    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredAttachmentUrl(null);
-                    setHoveredAttachmentRect(null);
-                  }}
-                >
-                  <div className="shadow-2xl overflow-hidden preview-fade-in">
-                    <img 
-                      src={hoveredAttachmentUrl} 
-                      className="max-h-[220px] max-w-[280px] object-contain rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]" 
-                    />
-                  </div>
-                  {/* Invisible bridge to cover prompt box padding gap */}
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-12 h-[24px] bg-transparent" />
-                </div>
-              )}
-              
+
               {/* Attachments Area */}
               <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                 <div className="overflow-hidden">
@@ -890,23 +832,23 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                     {attachments.map((att) => (
                       <div 
                         key={att.id} 
-                        onMouseEnter={(e) => handleAttachmentMouseEnter(e, att.url)}
-                        onMouseLeave={handleAttachmentMouseLeave}
                         className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                       >
-                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
-                          {att.kind === 'video' ? (
-                            <video src={att.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
-                          ) : (
-                            <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                          )}
+                        <div className="relative">
+                          <div className="w-12 h-12 rounded-xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                            {att.kind === 'video' ? (
+                              <video src={att.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                            ) : (
+                              <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => removeAttachment(att.id)}
+                            className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-0.5 shadow-xl cursor-pointer z-[60]"
+                          >
+                            <X size={10} />
+                          </button>
                         </div>
-                        <button 
-                          onClick={() => removeAttachment(att.id)}
-                          className="absolute -top-1 -right-1 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-0.5 shadow-xl cursor-pointer z-[60]"
-                        >
-                          <X size={10} />
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -918,6 +860,27 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items;
+                  if (!items) return;
+                  const imageFiles: File[] = [];
+                  for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.startsWith('image/')) {
+                      const file = items[i].getAsFile();
+                      if (file) imageFiles.push(file);
+                    }
+                  }
+                  if (imageFiles.length > 0) {
+                    e.preventDefault();
+                    const newAttachments = imageFiles.map(file => ({
+                      id: Math.random().toString(36).substring(7),
+                      url: URL.createObjectURL(file),
+                      name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
+                      file
+                    }));
+                    setAttachments(prev => [...prev, ...newAttachments]);
+                  }
+                }}
                 placeholder="What do you want to create?"
                 rows={1}
                 className="bg-transparent border-none outline-none text-[#e2e2e2] text-[14px] font-medium placeholder-[#606060] w-full px-2 pt-0.5 pb-1.5 resize-none overflow-y-auto no-scrollbar"
