@@ -7,3 +7,7 @@ build/
 *.log
 .DS_Store
 .claude/worktrees/
+target/
+.agents/
+fun_facts_about_antigravity.txt
+nul
