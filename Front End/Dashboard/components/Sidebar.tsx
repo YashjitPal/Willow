@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, 
   Search, 
+  SquarePen,
+  Glasses,
   LayoutGrid, 
   Star, 
   Users, 
@@ -24,11 +26,23 @@ import {
   Zap,
   Check,
   Plus,
-  LogIn
+  LogIn,
+  Terminal,
+  Clapperboard,
+  History,
+  Clock,
+  MessageSquare,
+  MoreVertical,
+  Share2,
+  Pin,
+  Pencil,
+  BookOpen,
+  Trash2
 } from 'lucide-react';
 import logo from '../src/assets/logo.png';
 import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
+import { useLocalFS } from '../context/LocalFSContext';
 
 const DiscordIcon = ({ size = 18, strokeWidth = 1.2, ...props }: any) => (
   <svg 
@@ -47,30 +61,53 @@ const DiscordIcon = ({ size = 18, strokeWidth = 1.2, ...props }: any) => (
 );
 
 const SidebarItem: React.FC<{ 
-  icon: React.ElementType; 
+  icon?: React.ElementType; 
   label: string; 
+  customLabel?: React.ReactNode;
   active?: boolean; 
   isCollapsed: boolean;
   onClick?: () => void;
   href?: string;
-}> = ({ icon: Icon, label, active, isCollapsed, onClick, href }) => (
+  actions?: React.ReactNode;
+  keepActionsVisible?: boolean;
+}> = ({ icon: Icon, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
   <div className="px-[14px]">
-    <button 
+    <div 
+      role="button"
+      tabIndex={0}
       onClick={href ? () => window.open(href, '_blank') : onClick}
-      className={`relative flex items-center h-[36px] w-full transition-colors duration-150 group/item overflow-hidden 
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (href) window.open(href, '_blank');
+          else if (onClick) onClick();
+        }
+      }}
+      className={`relative flex items-center h-[36px] w-full transition-colors duration-150 group/item overflow-hidden cursor-pointer outline-none
         ${active ? 'bg-[#1f1f1f] text-white' : 'text-white hover:bg-[#272729] hover:text-white'}
         rounded-xl`}
     >
-      <div className="flex items-center justify-center w-[36px] shrink-0">
-        <Icon size={18} strokeWidth={active ? 2.2 : 2} className="transition-transform duration-200 group-active/item:scale-90" />
-      </div>
-      <span className={`whitespace-nowrap text-[13.5px] font-medium tracking-tight transition-opacity duration-200 ease-linear ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
-        {!isCollapsed && label}
+      {Icon ? (
+        <div className="flex items-center justify-center w-[36px] shrink-0">
+          <Icon size={18} strokeWidth={active ? 2.2 : 2} className="transition-transform duration-200 group-active/item:scale-90" />
+        </div>
+      ) : (
+        <div className="w-[9px] shrink-0" />
+      )}
+      <span className={`whitespace-nowrap text-[13.5px] font-medium tracking-tight transition-opacity duration-200 ease-linear ${isCollapsed ? 'opacity-0' : 'opacity-100'} flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        {!isCollapsed && (customLabel || label)}
       </span>
       
       {href && !isCollapsed && (
-        <div className="ml-auto pr-3 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="ml-auto pr-3 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center shrink-0">
           <ArrowUpRight size={16} strokeWidth={1.5} className="text-zinc-400 group-hover/item:text-white" />
+        </div>
+      )}
+
+      {actions && !isCollapsed && (
+        <div className={`ml-auto pr-2 transition-opacity flex items-center justify-center shrink-0 ${
+          keepActionsVisible ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+        }`}>
+          {actions}
         </div>
       )}
 
@@ -79,9 +116,24 @@ const SidebarItem: React.FC<{
           {label}
         </div>
       )}
-    </button>
+    </div>
   </div>
 );
+
+const SidebarSkeleton: React.FC<{ isCollapsed: boolean }> = ({ isCollapsed }) => {
+  return (
+    <div className="px-[14px]">
+      <div className="sidebar-skeleton">
+        <div className="sidebar-skeleton-shimmer" />
+        {isCollapsed && (
+          <div className="sidebar-skeleton-tooltip">
+            Renaming...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const SectionHeader: React.FC<{ title: string; isCollapsed: boolean }> = ({ title, isCollapsed }) => (
   <div className="h-[36px] mt-4 mb-0.5 flex items-center overflow-hidden" style={{ paddingLeft: '23px' }}>
@@ -93,7 +145,7 @@ const SectionHeader: React.FC<{ title: string; isCollapsed: boolean }> = ({ titl
 
 import { useBackground, BackgroundType } from '../context/BackgroundContext';
 
-const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMounted?: boolean }> = ({ onClose, isClosing, isMounted }) => {
+const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMounted?: boolean; backgroundType?: string }> = ({ onClose, isClosing, isMounted, backgroundType }) => {
   const [theme, setTheme] = useState('system');
   const { background, setBackground } = useBackground();
 
@@ -142,9 +194,18 @@ const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMou
     return 'opacity-0 translate-x-[-8px]'; // Initial state before mounting animation
   };
 
+  const sidebarBgClass = backgroundType === 'waves' 
+    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
+    : backgroundType === 'solid'
+      ? 'bg-[#181818]'
+      : 'bg-[#0d0d0d]';
+
   return (
     <div 
-      className={`absolute top-0 left-[calc(100%+12px)] w-[200px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl py-2 z-[70] transition-all duration-150
+      style={{ 
+        boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
+      }}
+      className={`absolute top-0 left-[calc(100%+12px)] w-[200px] ${sidebarBgClass} rounded-xl shadow-2xl py-2 z-[70] transition-all duration-150
         before:absolute before:-left-6 before:top-0 before:bottom-0 before:w-6 before:content-['']
         ${getAnimationClass()}`}
     >
@@ -193,7 +254,7 @@ const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMou
 };
 
 
-const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollapsed: boolean; onSettingsClick?: () => void }> = ({ isOpen, onClose, isCollapsed, onSettingsClick }) => {
+const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollapsed: boolean; onSettingsClick?: () => void; backgroundType?: string }> = ({ isOpen, onClose, isCollapsed, onSettingsClick, backgroundType }) => {
   const { user, signInWithGoogle, signOut } = useAuth();
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
@@ -253,10 +314,19 @@ const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollapsed: bo
 
   if (!shouldRender) return null;
 
+  const sidebarBgClass = backgroundType === 'waves' 
+    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
+    : backgroundType === 'solid'
+      ? 'bg-[#181818]'
+      : 'bg-[#0d0d0d]';
+
   return (
     <div 
       ref={menuRef}
-      className={`absolute bottom-[46px] left-0 w-[200px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl py-2 z-[60] origin-bottom-left ${isClosing ? 'menu-fade-out' : 'menu-fade-in'}`}
+      style={{ 
+        boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
+      }}
+      className={`absolute bottom-[46px] left-0 w-[200px] ${sidebarBgClass} rounded-xl shadow-2xl py-2 z-[60] origin-bottom-left ${isClosing ? 'menu-fade-out' : 'menu-fade-in'}`}
     >
       <div className="px-3.5 py-2.5 flex items-center gap-2.5 border-b border-white/5 mb-1.5">
         {user ? (
@@ -320,7 +390,7 @@ const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollapsed: bo
           </button>
           
           {shouldRenderAppearance && (
-            <AppearanceMenu onClose={() => setShowAppearance(false)} isClosing={isAppearanceClosing} isMounted={isAppearanceMounted} />
+            <AppearanceMenu onClose={() => setShowAppearance(false)} isClosing={isAppearanceClosing} isMounted={isAppearanceMounted} backgroundType={backgroundType} />
           )}
         </div>
 
@@ -496,39 +566,281 @@ const WorkspaceMenu: React.FC<{ isOpen: boolean; onClose: () => void; onSettings
   );
 };
 
+const InboxMenu: React.FC<{ isOpen: boolean; onClose: () => void; triggerRef?: React.RefObject<HTMLButtonElement>; backgroundType?: string }> = ({ isOpen, onClose, triggerRef, backgroundType }) => {
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isClosing, setIsClosing] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsClosing(false);
+    } else if (shouldRender) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsClosing(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (triggerRef?.current?.contains(event.target as Node)) {
+        return;
+      }
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose, triggerRef]);
+
+  if (!shouldRender) return null;
+
+  const sidebarBgClass = backgroundType === 'waves' 
+    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
+    : backgroundType === 'solid'
+      ? 'bg-[#181818]'
+      : 'bg-[#0d0d0d]';
+
+  return (
+    <div 
+      ref={menuRef}
+      style={{ 
+        left: '-3px',
+        boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
+      }}
+      className={`absolute bottom-[38px] w-[250px] ${sidebarBgClass} py-3 z-[60] origin-bottom rounded-2xl ${isClosing ? 'menu-fade-out' : 'menu-fade-in'}`}
+    >
+      <div className="px-2 space-y-0.5">
+        <button className="w-full flex items-center gap-3 px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors">
+          <History size={18} strokeWidth={2} className="text-zinc-300" />
+          <span>Activity</span>
+        </button>
+        <button className="w-full flex items-center gap-3 px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors">
+          <Activity size={18} strokeWidth={2} className="text-zinc-300" />
+          <span>Workflows</span>
+        </button>
+        <button className="w-full flex items-center gap-3 px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors">
+          <Compass size={18} strokeWidth={2} className="text-zinc-300" />
+          <span>Quota</span>
+        </button>
+        <button className="w-full flex items-center gap-3 px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors">
+          <Clock size={18} strokeWidth={2} className="text-zinc-300" />
+          <span>Scheduled actions</span>
+        </button>
+        
+        <div className="h-[1px] bg-white/10 my-2 mx-3" />
+        
+        <button onClick={() => window.open('https://discord.gg/7TEtRfxGtP', '_blank')} className="w-full flex items-center gap-3 px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors">
+          <DiscordIcon size={18} strokeWidth={1.5} className="text-zinc-300" />
+          <span>Discord Community</span>
+        </button>
+        <button className="w-full flex items-center justify-between px-3 h-[36px] text-[14px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors group">
+          <div className="flex items-center gap-3">
+            <CircleHelp size={18} strokeWidth={2} className="text-zinc-300" />
+            <span>Help</span>
+          </div>
+          <ChevronRight size={14} className="text-zinc-500 group-hover:text-white" />
+        </button>
+      </div>
+
+      <div className="mt-2 pt-3 pb-1 px-5 border-t border-white/10 flex items-start gap-3">
+        <div className="w-[6px] h-[6px] rounded-full bg-zinc-500 mt-1.5 shrink-0" />
+        <div className="flex flex-col text-[13px] gap-0.5">
+          <span className="text-blue-400 hover:underline cursor-pointer">Tokyo, Japan</span>
+          <span className="text-zinc-400 text-[12px]">From your IP address</span>
+          <span className="text-white hover:underline cursor-pointer mt-0.5">Update location</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export type ViewType = 'home' | 'projects' | 'staging' | 'starred' | 'shared';
 
 interface SidebarProps {
   onSearchClick?: () => void;
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
+  dashboardMode?: 'chat' | 'develop' | 'media';
+  onModeChange?: (mode: 'chat' | 'develop' | 'media') => void;
   onSettingsClick?: () => void;
   backgroundType?: 'waves' | 'lines' | 'solid';
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  hasActiveChat?: boolean;
+  onNewChat?: () => void;
+  isIncognito?: boolean;
+  onIncognitoChat?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   onSearchClick, 
   currentView, 
   onViewChange, 
+  dashboardMode,
+  onModeChange,
   onSettingsClick, 
   backgroundType,
   isCollapsed,
-  onToggleCollapse
+  onToggleCollapse,
+  hasActiveChat = false,
+  onNewChat,
+  isIncognito = false,
+  onIncognitoChat
 }) => {
   const { user, userProfile } = useAuth();
+  const { 
+    localChats, 
+    activeChatId, 
+    selectLocalFSInboxChat, 
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    authorizeLocalFolder,
+    deleteLocalFSChat,
+    renameLocalFSChat,
+    getChatTimestamp
+  } = useLocalFS();
+
+  const isChatOngoing = !!activeChatId || hasActiveChat;
+
+  const [isScrolled, setIsScrolled] = useState(false);
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setIsScrolled(e.currentTarget.scrollTop > 5);
+  };
+
+  // Pinned chats persistence
+  const [pinnedChats, setPinnedChats] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('willow_pinned_chats');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const togglePinChat = (chatId: string) => {
+    const next = pinnedChats.includes(chatId)
+      ? pinnedChats.filter((c) => c !== chatId)
+      : [...pinnedChats, chatId];
+    setPinnedChats(next);
+    localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
+  };
+
+  // Three-dot menu state
+  const [menuActiveChat, setMenuActiveChat] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; isAbove: boolean } | null>(null);
+  const [shouldRenderMenu, setShouldRenderMenu] = useState(false);
+  const [isMenuClosing, setIsMenuClosing] = useState(false);
+
+  // Inline renaming state
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  // Delete chat confirmation state
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+  const [shouldRenderDelete, setShouldRenderDelete] = useState(false);
+  const [isDeleteClosing, setIsDeleteClosing] = useState(false);
+
+  const handleMenuClick = (e: React.MouseEvent, chat: string) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuHeight = 180;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const isAbove = spaceBelow < menuHeight;
+
+    setMenuPosition({
+      top: isAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
+      left: rect.left,
+      isAbove,
+    });
+    setMenuActiveChat(chat);
+    setShouldRenderMenu(true);
+    setIsMenuClosing(false);
+  };
+
+  const triggerCloseMenu = () => {
+    setIsMenuClosing(true);
+    setTimeout(() => {
+      setShouldRenderMenu(false);
+      setIsMenuClosing(false);
+      setMenuActiveChat(null);
+      setMenuPosition(null);
+    }, 150);
+  };
+
+  const handleRenameSave = async () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== editingChatId) {
+      if (localChats.includes(trimmed)) {
+        alert("A chat with this name already exists.");
+        setEditingChatId(null);
+        return;
+      }
+      const success = await renameLocalFSChat(editingChatId!, trimmed);
+      if (!success) {
+        alert("Failed to rename chat file.");
+      }
+    }
+    setEditingChatId(null);
+  };
+
+  const handleDeleteChat = (chat: string) => {
+    setChatToDelete(chat);
+    setShouldRenderDelete(true);
+    setIsDeleteClosing(false);
+    triggerCloseMenu(); // Close the 3-dot menu when deleting
+  };
+
+  const triggerCloseDelete = () => {
+    setIsDeleteClosing(true);
+    setTimeout(() => {
+      setShouldRenderDelete(false);
+      setIsDeleteClosing(false);
+      setChatToDelete(null);
+    }, 150);
+  };
+
+  const confirmDeleteChat = async () => {
+    if (chatToDelete) {
+      const success = await deleteLocalFSChat(chatToDelete);
+      if (!success) {
+        alert("Failed to delete chat file.");
+      }
+      triggerCloseDelete();
+    }
+  };
+
+  useEffect(() => {
+    const handleClose = () => {
+      if (shouldRenderMenu && !isMenuClosing) {
+        triggerCloseMenu();
+      }
+    };
+    window.addEventListener('click', handleClose);
+    return () => window.removeEventListener('click', handleClose);
+  }, [shouldRenderMenu, isMenuClosing]);
   const navigate = useNavigate();
   // const [isCollapsed, setIsCollapsed] = useState(false); // LIFTED UP
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isInboxMenuOpen, setIsInboxMenuOpen] = useState(false);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
+  const inboxButtonRef = useRef<HTMLButtonElement>(null);
 
   // const toggleSidebar = () => setIsCollapsed(!isCollapsed); // LIFTED UP
 
   const handleUserMenuToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsUserMenuOpen(!isUserMenuOpen);
+    setIsInboxMenuOpen(false);
+    setIsWorkspaceMenuOpen(false);
   };
 
   // Workspace color mapping
@@ -563,6 +875,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : backgroundType === 'solid'
       ? 'bg-[#181818]'
       : 'bg-[#0d0d0d]';
+
+  const glowGradient = backgroundType === 'solid'
+    ? 'linear-gradient(to bottom, #181818 15%, rgba(24, 24, 24, 0))'
+    : backgroundType === 'waves'
+      ? 'linear-gradient(to bottom, rgba(13, 13, 13, 0.9) 15%, rgba(13, 13, 13, 0))'
+      : 'linear-gradient(to bottom, #0d0d0d 15%, rgba(13, 13, 13, 0))';
 
   return (
     <aside 
@@ -612,6 +930,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={(e) => {
               e.stopPropagation();
               setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen);
+              setIsUserMenuOpen(false);
+              setIsInboxMenuOpen(false);
             }}
             className={`relative flex items-center h-[36px] w-full rounded-xl bg-[#1b1b1b] hover:bg-[#27272a] text-white transition-all duration-200 ease-linear group/ws overflow-hidden active:scale-[0.98] ring-1 ring-inset ${isCollapsed ? 'ring-transparent' : 'ring-white/5'}`}
           >
@@ -638,63 +958,199 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto pt-2">
-        <div className="space-y-0.5">
+      {/* Fixed top-level navigation: Home & Search */}
+      <div className="pt-2 space-y-0.5 shrink-0">
+        <SidebarItem 
+          icon={isChatOngoing ? SquarePen : Home} 
+          label={isChatOngoing ? "New chat" : "Home"} 
+          isCollapsed={isCollapsed} 
+          active={currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing}
+          onClick={() => {
+            if (isChatOngoing) {
+              selectLocalFSInboxChat(null);
+              if (onNewChat) {
+                onNewChat();
+              }
+            }
+            onViewChange('home');
+            onModeChange?.('chat');
+          }}
+        />
+        {user && (
           <SidebarItem 
-            icon={Home} 
-            label="Home" 
+            icon={Search} 
+            label="Search" 
             isCollapsed={isCollapsed} 
-            onClick={() => onViewChange('home')}
+            onClick={onSearchClick}
           />
-          {user && (
+        )}
+      </div>
+
+      {/* Scrollable lower navigation wrapper */}
+      <div className="flex-1 relative min-h-0">
+        {/* Scrollable lower navigation: Code, Media, Projects, Chats */}
+        <div 
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto pt-0.5 pb-4 scrollbar-thin"
+        >
+          <div className="space-y-0.5">
             <SidebarItem 
-              icon={Search} 
-              label="Search" 
+              icon={Terminal} 
+              label="Code" 
               isCollapsed={isCollapsed} 
-              onClick={onSearchClick}
+              active={currentView === 'home' && dashboardMode === 'develop'}
+              onClick={() => {
+                onViewChange('home');
+                onModeChange?.('develop');
+              }}
             />
+            <SidebarItem 
+              icon={Clapperboard} 
+              label="Media" 
+              isCollapsed={isCollapsed} 
+              active={currentView === 'home' && dashboardMode === 'media'}
+              onClick={() => {
+                onViewChange('home');
+                onModeChange?.('media');
+              }}
+            />
+          </div>
+
+          {user && (
+            <>
+              <SectionHeader title="Projects" isCollapsed={isCollapsed} />
+              <div className="space-y-0.5">
+                <SidebarItem 
+                  icon={LayoutGrid} 
+                  label="All projects" 
+                  isCollapsed={isCollapsed} 
+                  active={currentView === 'projects'}
+                  onClick={() => onViewChange('projects')}
+                />
+                <SidebarItem 
+                  icon={Star} 
+                  label="Starred" 
+                  isCollapsed={isCollapsed} 
+                  active={currentView === 'starred'}
+                  onClick={() => onViewChange('starred')} 
+                />
+                <SidebarItem 
+                  icon={Users} 
+                  label="Shared with me" 
+                  isCollapsed={isCollapsed} 
+                  active={currentView === 'shared'}
+                  onClick={() => onViewChange('shared')} 
+                />
+              </div>
+
+              {isLocalFolderConnected && (
+                <>
+                  <div className="flex items-center justify-between pr-[23px]">
+                    <SectionHeader title="Chats" isCollapsed={isCollapsed} />
+                    {!isLocalFolderAuthorized && !isCollapsed && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void authorizeLocalFolder();
+                        }}
+                        className="mt-4 text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold px-2 py-0.5 rounded border border-amber-500/20 transition-colors cursor-pointer"
+                        title="Authorize local folder access to sync chats"
+                      >
+                        Authorize Sync
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    {localChats.length === 0 ? null : (
+                      (() => {
+                        const sortedChats = [...localChats].sort((a, b) => {
+                          const aPinned = pinnedChats.includes(a);
+                          const bPinned = pinnedChats.includes(b);
+                          if (aPinned && !bPinned) return -1;
+                          if (!aPinned && bPinned) return 1;
+                          
+                          const tA = getChatTimestamp(a);
+                          const tB = getChatTimestamp(b);
+                          if (tB !== tA) {
+                            return tB - tA;
+                          }
+                          return a.localeCompare(b);
+                        });
+                        return sortedChats.map((chat) => {
+                          const isTemp = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chat);
+                          if (isTemp) {
+                            if (activeChatId === chat) {
+                              return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
+                            }
+                            return null;
+                          }
+
+                          return (
+                            <SidebarItem 
+                              key={chat}
+                              label={chat} 
+                              customLabel={
+                                editingChatId === chat ? (
+                                  <input
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={handleRenameSave}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameSave();
+                                      if (e.key === 'Escape') setEditingChatId(null);
+                                    }}
+                                    autoFocus
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full bg-transparent border-b border-white/20 text-white font-medium text-[13.5px] outline-none px-1 py-0.5 min-w-0"
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-1.5 min-w-0 w-full">
+                                    <span className="truncate flex-1">{chat}</span>
+                                    {pinnedChats.includes(chat) && (
+                                      <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />
+                                    )}
+                                  </div>
+                                )
+                              }
+                              isCollapsed={isCollapsed} 
+                              active={currentView === 'home' && dashboardMode === 'chat' && activeChatId === chat}
+                              onClick={() => {
+                                onViewChange('home');
+                                onModeChange?.('chat');
+                                selectLocalFSInboxChat(chat);
+                              }}
+                              keepActionsVisible={menuActiveChat === chat}
+                              actions={
+                                <button
+                                  onClick={(e) => handleMenuClick(e, chat)}
+                                  className={`p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-white transition-colors shrink-0 ${
+                                    menuActiveChat === chat ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+                                  }`}
+                                >
+                                  <MoreVertical size={14} />
+                                </button>
+                              }
+                            />
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
+                </>
+              )}
+            </>
           )}
         </div>
 
-        {user && (
-          <>
-            <SectionHeader title="Projects" isCollapsed={isCollapsed} />
-            <div className="space-y-0.5">
-              <SidebarItem 
-                icon={LayoutGrid} 
-                label="All projects" 
-                isCollapsed={isCollapsed} 
-                onClick={() => onViewChange('projects')}
-              />
-              <SidebarItem 
-                icon={Star} 
-                label="Starred" 
-                isCollapsed={isCollapsed} 
-                active={currentView === 'starred'}
-                onClick={() => onViewChange('starred')} 
-              />
-              <SidebarItem 
-                icon={Users} 
-                label="Shared with me" 
-                isCollapsed={isCollapsed} 
-                active={currentView === 'shared'}
-                onClick={() => onViewChange('shared')} 
-              />
-            </div>
-
-            <SectionHeader title="Resources" isCollapsed={isCollapsed} />
-            <div className="space-y-0.5">
-              <SidebarItem icon={Compass} label="Quota" isCollapsed={isCollapsed} />
-              <SidebarItem icon={Activity} label="Workflows" isCollapsed={isCollapsed} />
-              <SidebarItem 
-                icon={DiscordIcon} 
-                label="Discord" 
-                isCollapsed={isCollapsed} 
-                href="https://discord.gg/7TEtRfxGtP"
-              />
-            </div>
-          </>
-        )}
+        {/* Fancy top glow overlay matching sidebar background under Search tab */}
+        <div 
+          className="absolute top-0 left-0 right-0 pointer-events-none z-10 transition-opacity duration-200"
+          style={{
+            background: glowGradient,
+            height: '12px', // Reduced height intensity for an extremely subtle, clean look
+            opacity: isScrolled ? 1 : 0
+          }}
+        />
       </div>
 
       <div className={`flex items-center transition-all duration-200 ease-linear h-16 relative border-t border-white/5 mt-auto`}>
@@ -706,6 +1162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     isCollapsed={isCollapsed} 
                     onClose={() => setIsUserMenuOpen(false)} 
                     onSettingsClick={onSettingsClick} 
+                    backgroundType={backgroundType}
                   />
                   
                   <div className={`absolute -inset-2 rounded-full pointer-events-none ${isUserMenuOpen ? 'opacity-0' : 'group-hover/profile:bg-white/5'}`}></div>
@@ -744,9 +1201,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {!isCollapsed && (
           <div className="flex-1 flex items-center justify-end pr-4 transition-opacity duration-300">
              {user && (
-               <button className="flex items-center justify-center w-8 h-8 text-white hover:bg-[#1f1f1f] rounded-xl transition-all active:scale-90">
-                  <Inbox size={19} />
-               </button>
+               <div className="relative">
+                 <button 
+                   ref={inboxButtonRef}
+                   onClick={() => {
+                     setIsInboxMenuOpen(!isInboxMenuOpen);
+                     setIsUserMenuOpen(false);
+                     setIsWorkspaceMenuOpen(false);
+                   }}
+                   className="flex items-center justify-center w-8 h-8 text-white hover:bg-[#1f1f1f] rounded-xl transition-all active:scale-90"
+                 >
+                    <Inbox size={19} />
+                 </button>
+                 <InboxMenu 
+                   isOpen={isInboxMenuOpen}
+                   onClose={() => setIsInboxMenuOpen(false)}
+                   triggerRef={inboxButtonRef}
+                   backgroundType={backgroundType}
+                 />
+               </div>
              )}
              {!user && (
                <button 
@@ -770,6 +1243,125 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
       </div>
+
+      {shouldRenderMenu && menuActiveChat && menuPosition && (
+        <div 
+          className={`fixed z-[9999] w-[185px] ${sidebarBgClass} py-2 ${
+            menuPosition.isAbove ? 'origin-bottom' : 'origin-top'
+          } rounded-2xl border border-white/5 ${
+            isMenuClosing ? 'menu-fade-out' : 'menu-fade-in'
+          }`}
+          style={{ 
+            top: `${menuPosition.top}px`, 
+            left: `${menuPosition.left}px`,
+            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-1.5 space-y-0.5">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerCloseMenu();
+                alert("Sharing conversation link: " + window.location.origin + "/chat/" + menuActiveChat);
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+            >
+              <Share2 size={15} strokeWidth={2} className="text-zinc-300" />
+              <span>Share conversation</span>
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePinChat(menuActiveChat);
+                triggerCloseMenu();
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+            >
+              <Pin size={15} strokeWidth={2} className={pinnedChats.includes(menuActiveChat) ? "text-amber-400 fill-amber-400" : "text-zinc-300"} />
+              <span>{pinnedChats.includes(menuActiveChat) ? 'Unpin' : 'Pin'}</span>
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingChatId(menuActiveChat);
+                setEditValue(menuActiveChat);
+                triggerCloseMenu();
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+            >
+              <Pencil size={15} strokeWidth={2} className="text-zinc-300" />
+              <span>Rename</span>
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerCloseMenu();
+                alert(`Added "${menuActiveChat}" to Notebook.`);
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+            >
+              <BookOpen size={15} strokeWidth={2} className="text-zinc-300" />
+              <span>Add to notebook</span>
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const chatToDelete = menuActiveChat;
+                triggerCloseMenu();
+                handleDeleteChat(chatToDelete);
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+            >
+              <Trash2 size={15} strokeWidth={2} className="text-zinc-300" />
+              <span>Delete</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Chat Confirmation Dialog */}
+      {shouldRenderDelete && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center px-4">
+          {/* Backdrop */}
+          <div 
+            className={`absolute inset-0 bg-black/60 ${isDeleteClosing ? 'backdrop-fade-out' : 'backdrop-fade-in'}`} 
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerCloseDelete();
+            }}
+          />
+          
+          <div className={`relative bg-[#1e1f20] rounded-[28px] p-6 max-w-[500px] w-full shadow-2xl ${isDeleteClosing ? 'modal-scale-out' : 'modal-scale-in'}`}>
+            <h2 className="text-[22px] font-medium text-[#e3e3e3] mb-4">Delete chat?</h2>
+            
+            <p className="text-[15px] text-[#c4c7c5] leading-relaxed mb-8">
+              This will permanently delete this conversation and its history. This action cannot be undone.
+            </p>
+            
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  triggerCloseDelete();
+                }}
+                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirmDeleteChat();
+                }}
+                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 };

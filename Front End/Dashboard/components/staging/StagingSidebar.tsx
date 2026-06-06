@@ -75,6 +75,7 @@ import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
 import { newChatSignal } from '../../lib/stores/chat-store';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
+import { useLocalFS } from '../../context/LocalFSContext';
 
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
@@ -1914,6 +1915,74 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   // Design mode (canvas-screens) — separate chat state
   const [designMessages, setDesignMessages] = useState<ChatMessage[]>([]);
   const [designStreamingResponse, setDesignStreamingResponse] = useState('');
+
+  // Session IDs for local file system auto-saving
+  const [codeChatSessionId] = useState(() => {
+    const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
+    return `${dateStr}_${Math.random().toString(36).slice(2, 8)}`;
+  });
+  const [designChatSessionId] = useState(() => {
+    const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
+    return `${dateStr}_${Math.random().toString(36).slice(2, 8)}`;
+  });
+
+  const [codeChatTitle, setCodeChatTitle] = useState<string | null>(null);
+  const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
+
+  const { isLocalFolderConnected, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+
+  // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Code Chat)
+  useEffect(() => {
+    if (isLocalFolderConnected && messages.length >= 2 && !codeChatTitle) {
+      const userMsg = messages[0].content;
+      const assistantMsg = messages[1].content;
+      
+      const fetchTitle = async () => {
+        try {
+          const title = await generateChatTitle(userMsg, assistantMsg);
+          if (title) {
+            setCodeChatTitle(title);
+          }
+        } catch {}
+      };
+      void fetchTitle();
+    }
+  }, [messages, codeChatTitle, isLocalFolderConnected, generateChatTitle]);
+
+  // Auto-save code chat sessions
+  useEffect(() => {
+    if (isLocalFolderConnected && messages.length > 0 && projectName) {
+      const activeId = codeChatTitle || codeChatSessionId;
+      void saveLocalFSProjectChat(projectName, activeId, messages, codeChatTitle ? codeChatSessionId : null);
+    }
+  }, [messages, codeChatTitle, codeChatSessionId, isLocalFolderConnected, projectName, saveLocalFSProjectChat]);
+
+  // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Design Chat)
+  useEffect(() => {
+    if (isLocalFolderConnected && designMessages.length >= 2 && !designChatTitle) {
+      const userMsg = designMessages[0].content;
+      const assistantMsg = designMessages[1].content;
+      
+      const fetchTitle = async () => {
+        try {
+          const title = await generateChatTitle(userMsg, assistantMsg);
+          if (title) {
+            setDesignChatTitle(title);
+          }
+        } catch {}
+      };
+      void fetchTitle();
+    }
+  }, [designMessages, designChatTitle, isLocalFolderConnected, generateChatTitle]);
+
+  // Auto-save design chat sessions
+  useEffect(() => {
+    if (isLocalFolderConnected && designMessages.length > 0 && projectName) {
+      const activeId = designChatTitle || designChatSessionId;
+      void saveLocalFSProjectChat(projectName, activeId, designMessages, designChatTitle ? designChatSessionId : null);
+    }
+  }, [designMessages, designChatTitle, designChatSessionId, isLocalFolderConnected, projectName, saveLocalFSProjectChat]);
+
   const [currentThinkingTime, setCurrentThinkingTime] = useState(0);
   const thinkingTimeRef = useRef(0); // Ref to capture accurate final thinking time
   const thinkingStartTimeRef = useRef<number | null>(null); // Timestamp when thinking started

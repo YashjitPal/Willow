@@ -8,6 +8,7 @@ import logoG from '../../src/assets/logog.png';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { useAuth } from '../../context/AuthContext';
 import { useUserDataContext } from '../../context/UserDataContext';
+import { useLocalFS } from '../../context/LocalFSContext';
 import { testStore } from '../../lib/test-store';
 import { MessageLoading } from '../ui/message-loading';
 import { PROJECT_NAME_MODEL } from '@models';
@@ -74,8 +75,9 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
     generateProjectName();
   }, [prompt, apiKeys.gemini]);
 
-  // Auto-save to Google Drive when user is logged in and has access token
-  const { isSaving, saveNow } = useAutoSave(projectName || 'Untitled', !!accessToken);
+  // Auto-save when logged in (Google Drive) or when local folder is connected
+  const { isLocalFolderConnected } = useLocalFS();
+  const { isSaving, saveNow } = useAutoSave(projectName || 'Untitled', !!accessToken || isLocalFolderConnected);
 
   // Initialize chat mode if URL mode is 'chat'
   const [isChatMode, setIsChatMode] = useState(urlMode === 'chat');

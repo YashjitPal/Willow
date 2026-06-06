@@ -1,4 +1,6 @@
 import React, { useState, useRef } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -38,6 +40,7 @@ import logoG from '../../src/assets/logog.png'; // Fallback avatar
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../ui/Avatar';
 import { useUserDataContext } from '../../context/UserDataContext';
+import { useLocalFS } from '../../context/LocalFSContext';
 import { AssetMenuModal } from '../AssetMenuModal';
 import { AgentSidebar, AgentInstruction } from './AgentSidebar';
 import { streamChat, ChatMessage, StreamPhase } from '../../lib/ai';
@@ -191,7 +194,9 @@ const TileContent = React.memo(({
   isRenaming,
   setIsRenaming,
   onAddToPrompt,
-  onAnimate
+  onAnimate,
+  projectName = 'Default',
+  onSetAsCover
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
@@ -206,11 +211,14 @@ const TileContent = React.memo(({
   setIsRenaming?: (renaming: boolean) => void;
   onAddToPrompt?: (item: MediaItem) => void;
   onAnimate?: (item: MediaItem) => void;
+  projectName?: string;
+  onSetAsCover?: (url: string) => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia } = useLocalFS();
 
   const [progress, setProgress] = React.useState(0);
   const [renameValue, setRenameValue] = React.useState(item.shortenedPrompt || item.prompt);
@@ -782,6 +790,15 @@ const TileContent = React.memo(({
                         try {
                           const response = await fetch(item.url);
                           const blob = await response.blob();
+                          if (isLocalFolderConnected) {
+                            let authorized = isLocalFolderAuthorized;
+                            if (!authorized) {
+                              authorized = await authorizeLocalFolder();
+                            }
+                            if (authorized) {
+                              void saveLocalFSMedia(projectName, item.kind, filename, blob);
+                            }
+                          }
                           const blobUrl = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = blobUrl;
@@ -895,9 +912,18 @@ const TileContent = React.memo(({
                   
                   <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
                   
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMenuOpenChange(false);
+                      if (item.url && onSetAsCover) {
+                        onSetAsCover(item.url);
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                  >
                     <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Set project cover</span>
+                    <span>Set as cover</span>
                   </button>
                   
                   <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
@@ -1001,8 +1027,115 @@ const SUNFLOWER_BOX_SHADOW: string = "160px 42px #cacaca, 120px 50px #9e9e9e, 12
 export const MediaView: React.FC = () => {
   const { user, userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const [prompt, setPrompt] = React.useState('');
-  const [projectName, setProjectName] = React.useState('May 25, 05:55 AM');
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia } = useLocalFS();
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const projectId = searchParams.get('projectId') || '';
+
+  const [prompt, setPrompt] = React.useState(() => {
+    return searchParams.get('prompt') || '';
+  });
+  const [projectName, setProjectName] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlProjectId = urlParams.get('projectId');
+      if (urlProjectId) {
+        const stored = localStorage.getItem('willow_projects_list');
+        if (stored) {
+          try {
+            const projects = JSON.parse(stored);
+            const match = projects.find((p: any) => p.id === urlProjectId);
+            if (match) return match.name;
+          } catch (e) {}
+        }
+      }
+    }
+    return 'Default Project';
+  });
+
+  const projectNameRef = React.useRef(projectName);
+  React.useEffect(() => {
+    projectNameRef.current = projectName;
+  }, [projectName]);
+
+  // Redirect to first project if projectId is missing
+  React.useEffect(() => {
+    if (!projectId) {
+      const stored = localStorage.getItem('willow_projects_list');
+      let projects = [];
+      if (stored) {
+        try {
+          projects = JSON.parse(stored);
+        } catch (e) {}
+      }
+      if (projects.length === 0) {
+        projects = [
+          { id: '#4829', name: 'Project #4829' },
+          { id: '#8193', name: 'Project #8193' },
+          { id: '#1047', name: 'Project #1047' },
+          { id: '#5923', name: 'Project #5923' },
+          { id: '#7741', name: 'Project #7741' },
+          { id: '#2189', name: 'Project #2189' }
+        ];
+        localStorage.setItem('willow_projects_list', JSON.stringify(projects));
+      }
+      const firstId = projects[0].id;
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('projectId', firstId);
+        return next;
+      }, { replace: true });
+    }
+  }, [projectId, setSearchParams]);
+
+  // Sync project name
+  React.useEffect(() => {
+    if (!projectId) return;
+    const stored = localStorage.getItem('willow_projects_list');
+    if (stored) {
+      try {
+        const projects = JSON.parse(stored);
+        const match = projects.find((p: any) => p.id === projectId);
+        if (match) {
+          setProjectName(match.name);
+        }
+      } catch (e) {}
+    }
+  }, [projectId]);
+
+  // Parse prompt from URL search parameters if passed
+  React.useEffect(() => {
+    const urlPrompt = searchParams.get('prompt');
+    if (urlPrompt) {
+      setPrompt(urlPrompt);
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('prompt');
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const saveGeneratedMedia = React.useCallback(async (item: MediaItem, url: string) => {
+    if (!isLocalFolderConnected) return;
+    try {
+      const currentProjectName = projectNameRef.current;
+      const name = item.shortenedPrompt || item.prompt;
+      const ext = item.kind === 'video' ? 'mp4' : 'png';
+      const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+      const filename = `${cleanName}.${ext}`;
+      
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const success = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob);
+      if (success) {
+        setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true } : m));
+      }
+    } catch (err) {
+      // Ignored to prevent debugging logs in production
+    }
+  }, [isLocalFolderConnected, saveLocalFSMedia]);
   const [isTopFaded, setIsTopFaded] = React.useState(false);
   const [isBottomFaded, setIsBottomFaded] = React.useState(false);
   const [isAgentActive, setIsAgentActive] = React.useState(false);
@@ -1075,7 +1208,7 @@ export const MediaView: React.FC = () => {
       const rect = el.getBoundingClientRect();
       const mouseY = dragMousePos.y;
       
-      const threshold = 100;
+      const threshold = 30;
       const topBoundary = rect.top + threshold;
       const bottomBoundary = rect.bottom - threshold;
       
@@ -1572,7 +1705,7 @@ export const MediaView: React.FC = () => {
 
   // Unified transition timing used by both left sidebar and right agent sidebar
   const sidebarShowTransition = '0.78s cubic-bezier(0.16, 1, 0.3, 1)';
-  const sidebarHideTransition = '1.0s cubic-bezier(0.25, 1, 0.5, 1) 80ms';
+  const sidebarHideTransition = '0.92s cubic-bezier(0.25, 1, 0.5, 1) 120ms';
   const currentSidebarTransitionTiming = isHeaderVisible ? sidebarShowTransition : sidebarHideTransition;
 
   const customScrollbarThumbRef = React.useRef<HTMLDivElement>(null);
@@ -1754,6 +1887,114 @@ export const MediaView: React.FC = () => {
   const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
+  const mediaLoadedRef = React.useRef(false);
+
+  // Load media items on projectId change with IndexedDB
+  React.useEffect(() => {
+    mediaLoadedRef.current = false;
+    if (!projectId) {
+      setMediaItems([]);
+      return;
+    }
+    let active = true;
+    loadProjectMedia(projectId).then(items => {
+      if (active) {
+        setMediaItems(items || []);
+        mediaLoadedRef.current = true;
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  // Save media items on changes with IndexedDB — only after initial load completes
+  React.useEffect(() => {
+    if (!projectId || !mediaLoadedRef.current) return;
+    saveProjectMedia(projectId, mediaItems);
+  }, [projectId, mediaItems]);
+
+  // Auto-sync completed items to disk once folder gets authorized
+  React.useEffect(() => {
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized || mediaItems.length === 0) return;
+
+    const unsaved = mediaItems.filter(m => m.status === 'completed' && m.url && !m.isSavedToFS);
+    if (unsaved.length === 0) return;
+
+    const syncUnsaved = async () => {
+      for (const item of unsaved) {
+        if (!item.url) continue;
+        try {
+          const name = item.shortenedPrompt || item.prompt;
+          const ext = item.kind === 'video' ? 'mp4' : 'png';
+          const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+          const filename = `${cleanName}.${ext}`;
+
+          const response = await fetch(item.url);
+          const blob = await response.blob();
+          const success = await saveLocalFSMedia(projectName, item.kind, filename, blob);
+          if (success) {
+            setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true } : m));
+          }
+        } catch (e) {
+          // Ignore write lock issues
+        }
+      }
+    };
+
+    void syncUnsaved();
+  }, [isLocalFolderConnected, isLocalFolderAuthorized, mediaItems, projectName, saveLocalFSMedia]);
+
+  // Auto-set first generated completed image as project cover if no cover is set
+  React.useEffect(() => {
+    if (!projectId || mediaItems.length === 0) return;
+    const stored = localStorage.getItem('willow_projects_list');
+    if (!stored) return;
+    try {
+      const projects = JSON.parse(stored);
+      const projIndex = projects.findIndex((p: any) => p.id === projectId);
+      if (projIndex !== -1 && !projects[projIndex].hasCover) {
+        const completedImages = mediaItems.filter(m => m.kind === 'image' && m.status === 'completed' && m.url);
+        if (completedImages.length > 0) {
+          // The oldest completed image is at the end of the array because new items are prepended
+          const firstImage = completedImages[completedImages.length - 1];
+          if (firstImage && firstImage.url) {
+            // Save heavy base64 cover into IndexedDB, keep localStorage lightweight
+            saveProjectCover(projectId, firstImage.url);
+            projects[projIndex].hasCover = true;
+            delete projects[projIndex].coverUrl; // clean legacy field
+            try {
+              localStorage.setItem('willow_projects_list', JSON.stringify(projects));
+            } catch (err) {}
+          }
+        }
+      }
+    } catch (e) {}
+  }, [projectId, mediaItems]);
+
+  // Manual set cover handler
+  const handleSetAsCover = React.useCallback((url: string) => {
+    if (!projectId) return;
+    // Save to IndexedDB (no quota issues)
+    saveProjectCover(projectId, url);
+    // Mark hasCover in localStorage project list
+    const stored = localStorage.getItem('willow_projects_list');
+    if (stored) {
+      try {
+        const projects = JSON.parse(stored);
+        const updated = projects.map((p: any) => {
+          if (p.id === projectId) {
+            const { coverUrl, ...rest } = p; // strip legacy field
+            return { ...rest, hasCover: true };
+          }
+          return p;
+        });
+        try {
+          localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        } catch (err) {}
+      } catch (e) {}
+    }
+  }, [projectId]);
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
   type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
   const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
@@ -2182,6 +2423,50 @@ export const MediaView: React.FC = () => {
     }
   };
 
+  const rephrasePromptForItems = async (itemIds: string[], activePrompt: string, apiKey: string) => {
+    try {
+      const fetchRephrase = async (model: string) => {
+        return await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: `You are a creative helper. Rephrase this image generation prompt into a very concise and descriptive title/name (maximum 6 to 8 words). Return only the rephrased title itself, without any punctuation, quotes, introduction, or explanations.\n\nPrompt: ${activePrompt}`
+                }]
+              }]
+            })
+          }
+        );
+      };
+
+      let rephraseResp = await fetchRephrase('gemini-3.1-flash-lite');
+      if (!rephraseResp.ok) {
+        rephraseResp = await fetchRephrase('gemini-3.1-flash-lite-preview');
+      }
+      if (!rephraseResp.ok) {
+        rephraseResp = await fetchRephrase('gemini-1.5-flash');
+      }
+      
+      if (rephraseResp.ok) {
+        const rephraseData = await rephraseResp.json();
+        let text = rephraseData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (text) {
+          text = text.replace(/^["'`\s]+|["'`\s]+$/g, '');
+          if (text) {
+            setMediaItems(prev =>
+              prev.map(m => (itemIds.includes(m.id) ? { ...m, shortenedPrompt: text } : m)),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      // Fail silently
+    }
+  };
+
   const generateSingleImage = async (
     item: MediaItem,
     activePrompt: string,
@@ -2190,51 +2475,6 @@ export const MediaView: React.FC = () => {
     apiKey: string,
     activeAttachments: ImageAttachment[],
   ) => {
-    // In parallel, rephrase the prompt using Gemini 3.1 Flash Lite
-    void (async () => {
-      try {
-        const fetchRephrase = async (model: string) => {
-          return await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [{
-                    text: `You are a creative helper. Rephrase this image generation prompt into a very concise and descriptive title/name (maximum 6 to 8 words). Return only the rephrased title itself, without any punctuation, quotes, introduction, or explanations.\n\nPrompt: ${activePrompt}`
-                  }]
-                }]
-              })
-            }
-          );
-        };
-
-        let rephraseResp = await fetchRephrase('gemini-3.1-flash-lite');
-        if (!rephraseResp.ok) {
-          rephraseResp = await fetchRephrase('gemini-3.1-flash-lite-preview');
-        }
-        if (!rephraseResp.ok) {
-          rephraseResp = await fetchRephrase('gemini-1.5-flash');
-        }
-        
-        if (rephraseResp.ok) {
-          const rephraseData = await rephraseResp.json();
-          let text = rephraseData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (text) {
-            text = text.replace(/^["'`\s]+|["'`\s]+$/g, '');
-            if (text) {
-              setMediaItems(prev =>
-                prev.map(m => (m.id === item.id ? { ...m, shortenedPrompt: text } : m)),
-              );
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Failed to rephrase prompt with Gemini 3.1 Flash Lite:', e);
-      }
-    })();
-
     try {
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
 
@@ -2297,6 +2537,9 @@ export const MediaView: React.FC = () => {
       setMediaItems(prev =>
         prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url } : m)),
       );
+      if (isLocalFolderConnected) {
+        void saveGeneratedMedia({ ...item, url }, url);
+      }
     } catch (err: any) {
       console.error(`[image ${item.id}] failed:`, err);
       setMediaItems(prev =>
@@ -2403,6 +2646,9 @@ export const MediaView: React.FC = () => {
       setMediaItems(prev =>
         prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url } : m)),
       );
+      if (isLocalFolderConnected) {
+        void saveGeneratedMedia({ ...item, url }, url);
+      }
     } catch (err: any) {
       console.error(`[video ${item.id}] failed:`, err);
       setMediaItems(prev =>
@@ -2623,6 +2869,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const activePrompt = prompt.trim();
     if (!activePrompt) return;
 
+    if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+      await authorizeLocalFolder();
+    }
+
     if (isAgentActive) {
       void handleAgentSend(activePrompt);
       return;
@@ -2686,6 +2936,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       setIsLayoutSuppressing(false);
     }, 150);
 
+    const itemIds = newItems.map(item => item.id);
+    void rephrasePromptForItems(itemIds, activePrompt, apiKey);
+
     newItems.forEach(item => {
       if (item.kind === 'image') {
         void generateSingleImage(item, activePrompt, item.modelId, item.ratio, apiKey, activeAttachments);
@@ -2695,9 +2948,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     });
   };
 
-  const handleRefreshItem = (targetItem: MediaItem) => {
+  const handleRefreshItem = async (targetItem: MediaItem) => {
     const apiKey = apiKeys?.gemini?.[0];
     if (!apiKey) return;
+
+    if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+      await authorizeLocalFolder();
+    }
     
     const newItem: MediaItem = {
       id: `${Date.now()}-0-${Math.random().toString(36).slice(2, 8)}`,
@@ -2717,6 +2974,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       setIsLayoutSuppressing(false);
     }, 150);
     
+    void rephrasePromptForItems([newItem.id], newItem.prompt, apiKey);
+
     if (targetItem.kind === 'image') {
       void generateSingleImage(newItem, newItem.prompt, newItem.modelId, newItem.ratio, apiKey, newItem.attachments || []);
     } else {
@@ -3047,6 +3306,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const activeViewerAttachments = viewerAttachments.filter(att => !viewerRemovingIds.has(att.id));
     attachments.push(...activeViewerAttachments);
 
+    void rephrasePromptForItems([newItem.id], fullPrompt, apiKey);
+
     if (isImage) {
       void generateSingleImage(newItem, fullPrompt, newModelId, selectedItem.ratio, apiKey, attachments);
     } else {
@@ -3190,7 +3451,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         
         {/* Left Section */}
         <div className={`flex items-center gap-4 w-[300px] ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          <button className="p-2.5 hover:bg-white/10 rounded-full transition-colors">
+          <button 
+            onClick={() => navigate('/')}
+            className="p-2.5 hover:bg-white/10 rounded-full transition-colors"
+          >
             <ArrowLeft size={22} className="text-white" />
           </button>
           <span className="text-sm font-medium text-white tracking-wide">
@@ -3413,6 +3677,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     >
                       <TileContent 
                         item={item} 
+                        projectName={projectName}
                         isMenuOpen={activeMenuId === item.id} 
                         onMenuOpenChange={(open) => setActiveMenuId(open ? item.id : null)} 
                         isHovered={hoveredTileId === item.id}
@@ -3421,10 +3686,20 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         onRePrompt={handleRePromptItem}
                         onDelete={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
                         onRename={(id, newName) => {
-                          setMediaItems(prev => prev.map(m => m.id === id ? { ...m, shortenedPrompt: newName } : m));
+                          setMediaItems(prev => {
+                            const baseName = newName.trim();
+                            let uniqueName = baseName;
+                            let counter = 1;
+                            while (prev.some(m => m.id !== id && (m.shortenedPrompt || m.prompt || '').toLowerCase() === uniqueName.toLowerCase())) {
+                              uniqueName = `${baseName} (${counter})`;
+                              counter++;
+                            }
+                            return prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName } : m);
+                          });
                         }}
                         isRenaming={renamingItemId === item.id}
                         setIsRenaming={(renaming) => setRenamingItemId(renaming ? item.id : null)}
+                        onSetAsCover={handleSetAsCover}
                         onAddToPrompt={(targetItem) => {
                           if (targetItem.url) {
                             setAttachments(prev => {
@@ -3509,7 +3784,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Bottom Prompt Bar */}
       <div 
-        className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-50 transition-all duration-300 ease-in-out"
+        className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out"
         style={{
           opacity: isAgentSidebarOpen ? 0 : 1,
           transform: 'translate(-50%, 0px)',
@@ -4278,7 +4553,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         originX: 1,
                         willChange: 'transform, height, opacity',
                       }}
-                      className="w-[270px] bg-[#141517]/90 backdrop-blur-xl rounded-[22px] p-1.5 flex flex-col gap-1.5 shadow-2xl border border-white/5 z-50 overflow-hidden"
+                      className="w-[270px] bg-[#141517]/90 backdrop-blur-xl rounded-[22px] p-1.5 flex flex-col gap-1.5 shadow-2xl border border-white/5 z-[110] overflow-hidden"
                     >
 
                       {/* Top Tabs */}
@@ -4372,7 +4647,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             </button>
 
                             {isImageModelDropdownOpen && (
-                              <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-50`}>
+                              <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-[120]`}>
                                 {[
                                   { id: 'gemini-3-pro-image-preview' as ImageModelId, name: 'Nano Banana Pro' },
                                   { id: 'gemini-3.1-flash-image-preview' as ImageModelId, name: 'Nano Banana 2' },
@@ -4485,7 +4760,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             </button>
 
                             {isVideoModelDropdownOpen && (
-                              <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-50`}>
+                              <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-[120]`}>
                                 {VIDEO_MODELS.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
@@ -4688,6 +4963,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       try {
                         const response = await fetch(selectedItem.url);
                         const blob = await response.blob();
+                        if (isLocalFolderConnected) {
+                          void saveLocalFSMedia(projectName, selectedItem.kind, filename, blob);
+                        }
                         const blobUrl = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = blobUrl;

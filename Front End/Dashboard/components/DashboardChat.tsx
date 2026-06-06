@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { motion } from 'framer-motion';
-import { Lightbulb, ThumbsUp, ThumbsDown, Copy, Check, Search, Terminal } from 'lucide-react';
+import { Lightbulb, ThumbsUp, ThumbsDown, Copy, Check, Search, Terminal, Glasses } from 'lucide-react';
 import { InputBar } from './InputBar';
 import { HeroSection } from './HeroSection';
 import { BottomPanel } from './BottomPanel';
@@ -17,6 +17,7 @@ import {
 } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
 import { useBackground } from '../context/BackgroundContext';
+import { useLocalFS } from '../context/LocalFSContext';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -34,6 +35,8 @@ interface ChatMsg {
   isLive?: boolean;
   /** Live reply cut short by user barge-in — rendered without the action row. */
   wasInterrupted?: boolean;
+  /** Whether this message was newly sent in the current session (should animate in). */
+  isNew?: boolean;
 }
 
 interface DashboardChatProps {
@@ -45,6 +48,8 @@ interface DashboardChatProps {
   agentSwarmEnabled?: boolean;
   onSwarmToggle?: (enabled: boolean) => void;
   onOpenDriveSettings?: () => void;
+  isIncognito?: boolean;
+  onChatStartedChange?: (started: boolean) => void;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -70,15 +75,110 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   agentSwarmEnabled,
   onSwarmToggle,
   onOpenDriveSettings,
+  isIncognito = false,
+  onChatStartedChange,
 }) => {
   const { apiKeys } = useUserDataContext();
   const { background } = useBackground();
+  const { isLocalFolderConnected, saveLocalFSChat, generateChatTitle, activeChatId, loadLocalFSChat } = useLocalFS();
+
+  // Unique session ID for auto-saving chats locally
+  const [chatSessionId, setChatSessionId] = useState(() => {
+    const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
+    return `${dateStr}_${Math.random().toString(36).slice(2, 8)}`;
+  });
+
+  const [chatTitle, setChatTitle] = useState<string | null>(null);
 
   const effectiveBackground = isAuthenticated ? background : 'lines';
   const bgColor = effectiveBackground === 'solid' ? '#212121' : '#1c1c1c';
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+
+  // Listen to activeChatId and load the chat when it changes
+  useEffect(() => {
+    if (isLocalFolderConnected && activeChatId) {
+      // Prevent reloading and overwriting if the selected chat is already active in memory
+      if (activeChatId === chatTitle || activeChatId === chatSessionId) {
+        return;
+      }
+      isFirstScrollRef.current = true;
+
+      const loadChat = async () => {
+        try {
+          const msgs = await loadLocalFSChat(activeChatId);
+          if (msgs && msgs.length > 0) {
+            // Strip runtime-only flags that should never be persisted.
+            // If a save happened mid-generation, the assistant placeholder
+            // will have isGenerating:true and empty content — drop those.
+            const sanitized: ChatMsg[] = msgs
+              .map((m: any) => ({
+                id: m.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+                role: m.role,
+                content: m.content || '',
+                thinkingTime: m.thinkingTime,
+                isError: m.isError,
+                // Clear all runtime flags
+                isGenerating: false,
+                isTranscribing: false,
+                isLive: false,
+                wasInterrupted: m.wasInterrupted,
+              }))
+              .filter((m: ChatMsg) => m.content.trim().length > 0);
+
+            if (sanitized.length > 0) {
+              setMessages(sanitized);
+              setChatTitle(activeChatId);
+              setChatSessionId(activeChatId);
+              return;
+            }
+          }
+        } catch {}
+        isFirstScrollRef.current = false;
+      };
+      void loadChat();
+    }
+  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId]);
+
+  // Generate chat title using Gemini 3.1 Flash Lite once we have the first user prompt.
+  // Instantly renames the chat session from its temporary ID to the new title.
+  useEffect(() => {
+    if (isIncognito) return;
+    if (isLocalFolderConnected && messages.length >= 2 && !chatTitle) {
+      const userMsg = messages[0].content;
+      const assistantMsg = messages[1].content;
+      
+      const fetchTitle = async () => {
+        let title = '';
+        try {
+          title = await generateChatTitle(userMsg, assistantMsg);
+        } catch (err) {
+          // Fallback handled below
+        }
+
+        // Fallback: If Gemini naming is slow, fails, or has no key, use the first 5 words of the user prompt
+        if (!title) {
+          const words = userMsg.trim().split(/\s+/);
+          const rawFallback = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+          title = rawFallback.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
+        }
+
+        if (title) {
+          setChatTitle(title);
+          // Save and rename immediately so the skeleton loader in the sidebar is replaced by the title instantly
+          const strippedUserMsg = {
+            id: messages[0].id,
+            role: messages[0].role,
+            content: messages[0].content,
+          };
+          void saveLocalFSChat(title, [strippedUserMsg], chatSessionId);
+        }
+      };
+      void fetchTitle();
+    }
+  }, [messages, chatTitle, chatSessionId, isLocalFolderConnected, generateChatTitle, saveLocalFSChat, isIncognito]);
+
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -90,6 +190,20 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const [reactions, setReactions] = useState<Record<string, 'like' | 'dislike' | null>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Auto-save chat history locally in real-time when messages change.
+  // Skip saving while generating — partial messages have empty content that
+  // would corrupt the stored file. The final save fires once isGenerating
+  // flips to false (which triggers a setMessages → re-render → this effect).
+  useEffect(() => {
+    if (isIncognito) return;
+    if (isLocalFolderConnected && messages.length > 0 && !isGenerating) {
+      const activeId = chatTitle || chatSessionId;
+      // Strip runtime flags before persisting
+      const toSave = messages.map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }) => rest);
+      void saveLocalFSChat(activeId, toSave, chatTitle ? chatSessionId : null);
+    }
+  }, [messages, chatTitle, chatSessionId, isLocalFolderConnected, saveLocalFSChat, isGenerating, isIncognito]);
+
   // ── Live voice mode (Gemini Live API) ──────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const liveSessionRef = useRef<GeminiLiveSession | null>(null);
@@ -99,6 +213,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const liveTurnRef = useRef<{ userId: string; assistantId: string; acc: string } | null>(null);
 
   const hasStarted = messages.length > 0 || isGenerating || isLive;
+
+  useEffect(() => {
+    onChatStartedChange?.(hasStarted);
+  }, [hasStarted, onChatStartedChange]);
 
   // ── Scroll-to-top + dynamic response-area sizing (ported from Staging) ─────
   // When you send, your bubble animates to `TARGET_VISUAL_OFFSET` from the top
@@ -117,6 +235,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const lastAssistantContentRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledUserId = useRef<string | null>(null);
   const scrollAnimRaf = useRef<number | null>(null);
+  const isFirstScrollRef = useRef(false);
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
   const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
@@ -214,6 +333,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       // Animate from the CURRENT scroll position — never snap — so nothing
       // teleports; the bubble simply rises from exactly where it appeared.
       const targetScrollTop = Math.max(0, msgEl.offsetTop - TARGET_VISUAL_OFFSET);
+      
+      const N = 4;
+      if (isFirstScrollRef.current && messages.length > N) {
+        const targetIndex = messages.length - 1 - N;
+        const jumpMessage = messages[targetIndex];
+        const jumpEl = jumpMessage ? messageRefs.current[jumpMessage.id] : null;
+        if (jumpEl) {
+          c.scrollTop = Math.max(0, jumpEl.offsetTop - TARGET_VISUAL_OFFSET);
+        }
+      }
+      isFirstScrollRef.current = false;
+
       const animStart = Math.min(c.scrollTop, targetScrollTop);
       // Animate the FULL distance (no instant-jump) so the bubble visibly
       // rises from the prompt box to the top.
@@ -333,7 +464,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       if (!trimmed || isGenerating) return;
       if (!isAuthenticated) { onAuthRequired?.(); return; }
 
-      const userMsg: ChatMsg = { id: newId(), role: 'user', content: trimmed };
+      const userMsg: ChatMsg = { id: newId(), role: 'user', content: trimmed, isNew: true };
       const assistantId = newId();
       const assistantPlaceholder: ChatMsg = {
         id: assistantId,
@@ -343,9 +474,12 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       };
 
       const prevMessages = messages;
-      // Push user + assistant placeholder in one update so the assistant block
-      // mounts once and never remounts (prevents completion flicker).
       setMessages((prev) => [...prev, userMsg, assistantPlaceholder]);
+
+      if (!isIncognito && isLocalFolderConnected && prevMessages.length === 0) {
+        // Initialize the local chat with the temporary ID so it shows up as a skeleton loader in the sidebar immediately!
+        void saveLocalFSChat(chatSessionId, [userMsg], null);
+      }
 
       setIsGenerating(true);
       setIsThinking(true);
@@ -438,7 +572,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
     setMessages((prev) => [
       ...prev,
-      { id: userId, role: 'user', content: '', isTranscribing: true },
+      { id: userId, role: 'user', content: '', isTranscribing: true, isNew: true },
       { id: assistantId, role: 'assistant', content: '', isGenerating: true, isLive: true },
     ]);
 
@@ -531,7 +665,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       const aId = newId();
       setMessages((prev) => [
         ...prev,
-        { id: uId, role: 'user', content: 'Start live voice chat' },
+        { id: uId, role: 'user', content: 'Start live voice chat', isNew: true },
         {
           id: aId,
           role: 'assistant',
@@ -603,7 +737,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           const aId = newId();
           setMessages((prev) => [
             ...prev,
-            { id: uId, role: 'user', content: 'Start live voice chat' },
+            { id: uId, role: 'user', content: 'Start live voice chat', isNew: true },
             {
               id: aId,
               role: 'assistant',
@@ -667,6 +801,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           isAuthenticated={isAuthenticated}
           agentSwarmEnabled={agentSwarmEnabled}
           onSwarmToggle={onSwarmToggle}
+          isIncognito={isIncognito}
         />
         {isAuthenticated && (
           <div className="pb-20">
@@ -700,13 +835,19 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               responseAreaMinHeight !== undefined && !needsScrollPadding ? 0 : footerH,
           }}
         >
+          {isIncognito && (
+            <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white/5 border border-white/5 text-zinc-400 text-[12px] font-medium rounded-full w-fit mx-auto select-none backdrop-blur-md">
+              <Glasses size={13} className="text-zinc-400" />
+              <span>Incognito Mode — Temporary Session</span>
+            </div>
+          )}
           {messages.map((msg) => {
             if (msg.role === 'user') {
               return (
                 <motion.div
                   key={msg.id}
                   ref={(el) => { messageRefs.current[msg.id] = el; }}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={msg.isNew ? { opacity: 0, y: 8 } : false}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
                   className="flex justify-end"
@@ -797,7 +938,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                 <StreamingMarkdown
                   text={bodyText}
                   isStreaming={generating}
-                  animate={!msg.isError}
+                  animate={generating && !msg.isError}
                 />
 
                 {/* Action row — fades in only after completion to avoid layout jump */}

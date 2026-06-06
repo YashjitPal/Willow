@@ -12,12 +12,12 @@ import { ProjectsPage } from './components/ProjectsPage';
 import { RainbowButton } from './components/ui/rainbow-button';
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
-import { TopDropdown } from './components/TopDropdown';
 import { DashboardChat } from './components/DashboardChat';
-import { SquarePen } from 'lucide-react';
+import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
+import { LocalFSProvider, useLocalFS } from './context/LocalFSContext';
 
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
@@ -70,10 +70,32 @@ const DashboardLayout: React.FC<{
   dashboardMode: 'develop' | 'chat' | 'media';
   onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
   onNewChat: () => void;
-}> = ({ isSearchOpen, setIsSearchOpen, currentView, setCurrentView, children, onSettingsClick, isAuthenticated, dashboardMode, onModeChange, onNewChat }) => {
+  hasActiveChat: boolean;
+  isIncognito: boolean;
+  onIncognitoChat: () => void;
+  isSidebarCollapsed: boolean;
+  setIsSidebarCollapsed: (collapsed: boolean) => void;
+}> = ({
+  isSearchOpen,
+  setIsSearchOpen,
+  currentView,
+  setCurrentView,
+  children,
+  onSettingsClick,
+  isAuthenticated,
+  dashboardMode,
+  onModeChange,
+  onNewChat,
+  hasActiveChat,
+  isIncognito,
+  onIncognitoChat,
+  isSidebarCollapsed,
+  setIsSidebarCollapsed
+}) => {
   const { background } = useBackground();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { selectLocalFSInboxChat, activeChatId } = useLocalFS();
 
+  const isChatOngoing = !!activeChatId || hasActiveChat;
   // Calculate effective background (non-authenticated users get 'lines')
   const effectiveBackground = isAuthenticated ? background : 'lines';
   
@@ -94,10 +116,19 @@ const DashboardLayout: React.FC<{
           onSearchClick={() => setIsSearchOpen(true)} 
           currentView={currentView}
           onViewChange={setCurrentView}
+          dashboardMode={dashboardMode}
+          onModeChange={onModeChange}
           onSettingsClick={onSettingsClick}
           backgroundType={effectiveBackground}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          hasActiveChat={isChatOngoing}
+          onNewChat={() => {
+            selectLocalFSInboxChat(null);
+            onNewChat();
+          }}
+          isIncognito={isIncognito}
+          onIncognitoChat={onIncognitoChat}
         />
       )}
       
@@ -107,14 +138,48 @@ const DashboardLayout: React.FC<{
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
-        {/* Top-left: mode dropdown (always visible on home). Pen icon appears beside it in Chat mode */}
-        {currentView === 'home' && (
-          <TopDropdown
-            selected={dashboardMode}
-            onSelect={onModeChange}
-            showNewChat={dashboardMode === 'chat'}
-            onNewChat={onNewChat}
-          />
+        {/* Top-right: Incognito Chat button in Chat mode */}
+        {currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing && (
+          <div className="absolute top-4 right-4 z-30 flex items-center">
+            <button
+              onClick={() => {
+                selectLocalFSInboxChat(null);
+                if (isIncognito) {
+                  onNewChat(); // Toggle back to normal chat mode
+                } else {
+                  onIncognitoChat(); // Toggle to incognito chat mode
+                }
+              }}
+              title={isIncognito ? "Exit incognito chat" : "Incognito chat"}
+              className={`p-1.5 rounded-lg transition-colors ${
+                isIncognito 
+                  ? 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10' 
+                  : 'text-white/60 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-[22px] h-[22px]"
+              >
+                {/* Fedora Hat Brim */}
+                <path d="M3 14h18" />
+                {/* Fedora Hat Crown */}
+                <path d="M6 14l1.2-6.5C7.4 6.2 8.5 5.5 9.7 5.5h4.6c1.2 0 2.3 0.7 2.5 2l1.2 6.5" />
+                {/* Hat ribbon */}
+                <path d="M6.5 12h11" strokeWidth="1.5" />
+                {/* Classic circular glasses */}
+                <circle cx="8" cy="19.5" r="2" />
+                <circle cx="16" cy="19.5" r="2" />
+                {/* Glasses Bridge */}
+                <path d="M10 19.5a2 2 0 0 1 4 0" />
+              </svg>
+            </button>
+          </div>
         )}
         {/* Background rendered in content area for lines only (solid is just plain color) */}
         {currentView === 'home' && effectiveBackground === 'lines' && (
@@ -248,8 +313,11 @@ const App: React.FC = () => {
   }, [selectedModelId]);
 
   // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>('chat');
   const [chatResetKey, setChatResetKey] = useState(0);
+  const [hasActiveChat, setHasActiveChat] = useState(false);
+  const [isIncognito, setIsIncognito] = useState(false);
 
   const handleDashboardModeChange = (mode: 'develop' | 'chat' | 'media') => {
     setDashboardMode(mode);
@@ -257,6 +325,14 @@ const App: React.FC = () => {
 
   const handleNewChat = () => {
     setChatResetKey((k) => k + 1);
+    setHasActiveChat(false);
+    setIsIncognito(false);
+  };
+
+  const handleIncognitoChat = () => {
+    setChatResetKey((k) => k + 1);
+    setHasActiveChat(false);
+    setIsIncognito(true);
   };
 
   const navigate = useNavigate();
@@ -314,7 +390,8 @@ const App: React.FC = () => {
   return (
     <BackgroundProvider>
       <UserDataProvider>
-        <Routes>
+        <LocalFSProvider>
+          <Routes>
           <Route path="/" element={
           <>
             <SettingsModal 
@@ -335,6 +412,11 @@ const App: React.FC = () => {
               dashboardMode={dashboardMode}
               onModeChange={handleDashboardModeChange}
               onNewChat={handleNewChat}
+              hasActiveChat={hasActiveChat}
+              isIncognito={isIncognito}
+              onIncognitoChat={handleIncognitoChat}
+              isSidebarCollapsed={isSidebarCollapsed}
+              setIsSidebarCollapsed={setIsSidebarCollapsed}
             >
               {currentView === 'home' ? (
                 dashboardMode === 'chat' ? (
@@ -348,6 +430,8 @@ const App: React.FC = () => {
                     agentSwarmEnabled={agentSwarmEnabled}
                     onSwarmToggle={setAgentSwarmEnabled}
                     onOpenDriveSettings={openDriveSettings}
+                    isIncognito={isIncognito}
+                    onChatStartedChange={setHasActiveChat}
                   />
                 ) : dashboardMode === 'media' ? (
                   <div className="flex flex-col min-h-full" key="media">
@@ -355,11 +439,19 @@ const App: React.FC = () => {
                       initialMode="design"
                       onPromptSubmit={(prompt) => {
                         if (!user) {
-                          navigate('/login');
-                          return;
+                           navigate('/login');
+                           return;
                         }
                         sessionStorage.setItem('staging-nav', 'true');
                         navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                      }}
+                      onProjectSelect={(projectId) => {
+                        if (!user) {
+                           navigate('/login');
+                           return;
+                        }
+                        sessionStorage.setItem('staging-nav', 'true');
+                        navigate(`/media?projectId=${encodeURIComponent(projectId)}`);
                       }}
                       modelConfig={modelConfig}
                       selectedModelId={selectedModelId}
@@ -369,6 +461,7 @@ const App: React.FC = () => {
                       agentSwarmEnabled={agentSwarmEnabled}
                       onSwarmToggle={setAgentSwarmEnabled}
                       dashboardMode="media"
+                      isSidebarCollapsed={isSidebarCollapsed}
                     />
                     {/* Only show BottomPanel (projects showcase) when authenticated */}
                     {user && (
@@ -389,6 +482,7 @@ const App: React.FC = () => {
                       agentSwarmEnabled={agentSwarmEnabled}
                       onSwarmToggle={setAgentSwarmEnabled}
                       dashboardMode="develop"
+                      isSidebarCollapsed={isSidebarCollapsed}
                     />
                     {/* Only show BottomPanel (projects showcase) when authenticated */}
                     {user && (
@@ -445,6 +539,7 @@ const App: React.FC = () => {
 
         <Route path="/login" element={<LoginPage />} />
         </Routes>
+        </LocalFSProvider>
       </UserDataProvider>
     </BackgroundProvider>
   );

@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive } from 'lucide-react';
+import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen } from 'lucide-react';
 import './SettingsModal.css'; // Assuming we can import a CSS file or add a style tag
 import { useAuth } from '../context/AuthContext';
+import { useLocalFS } from '../context/LocalFSContext';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebaseConfig';
 
@@ -112,6 +113,13 @@ const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, modelConfig, setModelConfig, initialTab, initialConnector }) => {
   const { user, userProfile, updateUserProfile, signOut, isDriveConnected, connectDrive, disconnectDrive } = useAuth();
+  const {
+    isSupported: isLocalFSSupported,
+    isLocalFolderConnected,
+    localFolderName,
+    connectLocalFolder,
+    disconnectLocalFolder
+  } = useLocalFS();
   const [profileName, setProfileName] = useState('');
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isClosing, setIsClosing] = React.useState(false);
@@ -2342,6 +2350,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     </div>
                                     <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
                                 </div>
+
+                                {/* Local Folder Sync (if connected) */}
+                                {isLocalFolderConnected && (
+                                    <div 
+                                        onClick={() => setActiveConnector('localfs')}
+                                        className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors animate-[fadeIn_150ms_ease-out]"
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                                <FolderOpen size={20} className="text-white" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                    <span className="text-[14px] font-bold text-white">Local Folder</span>
+                                                    <span className="text-[11px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5 rounded">Enabled</span>
+                                                </div>
+                                                <div className="text-[13px] text-zinc-400 truncate max-w-[200px]">Synced to: {localFolderName}</div>
+                                            </div>
+                                        </div>
+                                        <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -2390,6 +2420,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                         Set up
                                     </button>
                                 </div>
+
+                                {/* Local Folder Sync (if not connected) */}
+                                {!isLocalFolderConnected && (
+                                    <div 
+                                        onClick={() => setActiveConnector('localfs')}
+                                        className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                                <FolderOpen size={20} className="text-white" />
+                                            </div>
+                                            <div>
+                                                <div className="text-[14px] font-bold text-white mb-0.5">Local Folder</div>
+                                                <div className="text-[13px] text-zinc-400">Save projects & chats locally</div>
+                                            </div>
+                                        </div>
+                                        <button className="px-3 py-1.5 bg-[#1c1c1c] hover:bg-white/5 border border-white/10 rounded-lg text-white text-[12px] font-medium transition-colors">
+                                            Set up
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -2558,6 +2609,118 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     Save Configuration
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                ) : activeConnector === 'localfs' ? (
+                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
+                        <button 
+                            onClick={() => setActiveConnector(null)}
+                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
+                        >
+                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
+                            <span>Connectors</span>
+                        </button>
+
+                         <div className="flex items-center justify-center mb-10">
+                             <div className="flex flex-col items-center gap-4 text-center">
+                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                    <FolderOpen size={32} className="text-white" />
+                                </div>
+                                <div>
+                                     <div className="flex items-center justify-center gap-3 mb-1">
+                                        <h1 className="text-[24px] font-bold text-white">Local Folder Sync</h1>
+                                        {isLocalFolderConnected && (
+                                            <span className="text-[12px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded">Connected</span>
+                                        )}
+                                    </div>
+                                    <p className="text-[16px] text-zinc-400">Save your projects, chats, and media directly on your device</p>
+                                </div>
+                             </div>
+                        </div>
+
+                        <div className="max-w-xl mx-auto space-y-8">
+                            {/* Overview */}
+                            <div>
+                                <h2 className="text-[18px] font-bold text-white mb-3">Overview</h2>
+                                <p className="text-[14px] leading-relaxed text-zinc-400">
+                                    Synchronize your chats, media generations, and vibecoded apps directly to a folder on your computer. 
+                                    Once set up, the application will write checkpoints and files in real-time.
+                                </p>
+                            </div>
+
+                            {/* FSAA Browser Support check */}
+                            {!isLocalFSSupported ? (
+                                <div className="bg-red-900/20 border border-red-900/30 rounded-xl p-4 flex items-start gap-3">
+                                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={18} />
+                                    <div>
+                                        <h4 className="text-[14px] font-bold text-white mb-1">Not Supported</h4>
+                                        <p className="text-[13px] text-zinc-300">
+                                            Your browser does not support the File System Access API. Please use a modern Chromium-based browser (e.g. Chrome, Edge, Brave, or Opera).
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Connection Status & Action */}
+                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-6">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isLocalFolderConnected ? 'bg-[#4ade80]/10' : 'bg-[#1c1c1c]'} border border-white/5`}>
+                                                    {isLocalFolderConnected ? (
+                                                        <Check size={24} className="text-[#4ade80]" />
+                                                    ) : (
+                                                        <FolderOpen size={24} className="text-zinc-500" />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-[15px] font-bold text-white mb-0.5">
+                                                        {isLocalFolderConnected ? 'Local Folder Connected' : 'Local Folder'}
+                                                    </h3>
+                                                    <p className="text-[13px] text-zinc-400">
+                                                        {isLocalFolderConnected 
+                                                            ? `Synced to: ${localFolderName}` 
+                                                            : 'Connect a folder on your hard drive'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            
+                                            {isLocalFolderConnected ? (
+                                                <button 
+                                                    onClick={disconnectLocalFolder}
+                                                    className="px-4 py-2 bg-[#1c1c1c] text-zinc-400 text-[13px] font-medium rounded-lg hover:bg-[#2a2a2a] hover:text-white transition-colors border border-white/10"
+                                                >
+                                                    Disconnect
+                                                </button>
+                                            ) : (
+                                                <button 
+                                                    onClick={async () => {
+                                                        await connectLocalFolder();
+                                                    }}
+                                                    className="px-5 py-2.5 bg-white text-black text-[13px] font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5 flex items-center gap-2"
+                                                >
+                                                    Select Folder
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Permissions Information Box */}
+                                    <div className="bg-blue-900/10 border border-blue-900/20 rounded-xl p-5 text-zinc-300">
+                                        <h3 className="text-[14px] font-bold text-white mb-2 flex items-center gap-2">
+                                            <Shield size={16} className="text-blue-400" />
+                                            Bypassing Permission Prompts
+                                        </h3>
+                                        <p className="text-[13px] leading-relaxed mb-3">
+                                            For security, your browser resets local folder permissions when you reload the page, requiring you to grant access again. To prevent this and allow silent auto-saving:
+                                        </p>
+                                        <ol className="text-[13px] list-decimal list-inside space-y-1 ml-1 text-zinc-400">
+                                            <li>Click the <strong className="text-white">lock/settings icon</strong> to the left of the URL in your browser's address bar.</li>
+                                            <li>Find the <strong className="text-white">File System</strong> or <strong className="text-white">Edit files on your device</strong> setting.</li>
+                                            <li>Change its value to <strong className="text-white">Allow</strong>.</li>
+                                        </ol>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
                 ) : activeConnector === 'drive' ? (

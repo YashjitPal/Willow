@@ -44,15 +44,15 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center px-4 ${isClosing ? 'search-fade-out' : 'search-fade-in'}`}>
+    <div className="fixed inset-0 z-[500] flex items-center justify-center px-4">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+        className={`absolute inset-0 bg-black/60 ${isClosing ? 'backdrop-fade-out' : 'backdrop-fade-in'}`} 
         onClick={onClose}
       />
 
       {/* Modal Content */}
-      <div className="relative w-full max-w-[640px] bg-[#1c1c1c] rounded-2xl shadow-2xl border border-white/10 overflow-hidden">
+      <div className={`relative w-full max-w-[640px] bg-[#1c1c1c] rounded-2xl shadow-2xl border border-white/10 overflow-hidden ${isClosing ? 'modal-scale-out' : 'modal-scale-in'}`}>
         
         {/* Search Header */}
         <div className="flex items-center px-4 h-[60px] border-b border-white/5 gap-3">
