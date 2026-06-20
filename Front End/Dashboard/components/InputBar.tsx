@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { PlusDropdownMenu } from './PlusDropdownMenu';
+import { GeminiLiveSession, primeLiveChimes, playLiveChime } from '../lib/live';
+import { useUserDataContext } from '../context/UserDataContext';
 import {
   Plus,
   FileText,
@@ -575,6 +577,68 @@ export const InputBar: React.FC<{
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
+  const { apiKeys } = useUserDataContext();
+  const [isDictating, setIsDictating] = useState(false);
+  const dictationSessionRef = useRef<GeminiLiveSession | null>(null);
+  const dictationPrevPromptRef = useRef<string>("");
+  const promptTextRef = useRef(promptText);
+
+  useEffect(() => {
+    promptTextRef.current = promptText;
+  }, [promptText]);
+
+  useEffect(() => {
+    return () => {
+      dictationSessionRef.current?.stop();
+    };
+  }, []);
+
+  const handleToggleDictation = () => {
+    if (isDictating) {
+      dictationSessionRef.current?.stop();
+      dictationSessionRef.current = null;
+      setIsDictating(false);
+    } else {
+      if (!isAuthenticated) {
+        onAuthRequired?.();
+        return;
+      }
+      const apiKey = apiKeys?.gemini?.[0];
+      if (!apiKey) {
+        alert("A Gemini API key is required for voice dictation. Please add one in Settings → Models.");
+        return;
+      }
+
+      setIsDictating(true);
+      dictationPrevPromptRef.current = promptText;
+
+      const session = new GeminiLiveSession({
+        apiKey,
+        model: 'gemini-3.1-flash-live-preview',
+        transcribeOnly: true,
+        onUserTranscript: (full) => {
+          const separator = dictationPrevPromptRef.current.trim() ? " " : "";
+          setPromptText(dictationPrevPromptRef.current + separator + full);
+        },
+        onTurnComplete: () => {
+          dictationPrevPromptRef.current = promptTextRef.current;
+        },
+        onError: (err) => {
+          // eslint-disable-next-line no-console
+          console.error('[InputBar] Dictation error', err);
+          setIsDictating(false);
+          dictationSessionRef.current = null;
+        },
+        onClose: () => {
+          setIsDictating(false);
+          dictationSessionRef.current = null;
+        }
+      });
+
+      dictationSessionRef.current = session;
+      void session.start();
+    }
+  };
   const [isSolidExpanded, setIsSolidExpanded] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
@@ -934,8 +998,16 @@ export const InputBar: React.FC<{
                   )}
                 </div>
               )}
-              <button className="text-[#a0a0a0] hover:text-white transition-colors outline-none flex items-center justify-center mr-[2px]">
-                <Mic size={20} className="stroke-[2.5]" />
+              <button 
+                onClick={handleToggleDictation}
+                title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
+                className={`transition-colors outline-none flex items-center justify-center mr-[2px] w-8 h-8 rounded-full cursor-pointer ${
+                  isDictating 
+                    ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse' 
+                    : 'text-[#a0a0a0] hover:text-white'
+                }`}
+              >
+                <Mic size={20} strokeWidth={1.8} />
               </button>
               <button
                 onClick={() => {

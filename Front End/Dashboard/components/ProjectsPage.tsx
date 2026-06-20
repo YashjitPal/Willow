@@ -1,4 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+const isCoverVideo = (url: string): boolean => {
+  if (!url) return false;
+  // For data: URLs trust ONLY the MIME type. Never substring-match the base64
+  // payload — random base64 routinely contains "veo"/"/video"/etc., which would
+  // mis-render image covers inside a <video> tag (they appear blank/gray).
+  if (url.startsWith('data:')) return url.startsWith('data:video');
+  const lowercaseUrl = url.toLowerCase();
+  return (
+    lowercaseUrl.endsWith('.mp4') ||
+    lowercaseUrl.endsWith('.webm') ||
+    lowercaseUrl.includes('/video') ||
+    lowercaseUrl.includes('generatevideo') ||
+    lowercaseUrl.includes('veo')
+  );
+};
 import { ViewType } from './Sidebar';
 import { 
   Search, 
@@ -20,6 +37,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
+import { loadAllProjectCovers, deleteProjectData } from '../lib/mediaStorage';
+import { useLocalFS } from '../context/LocalFSContext';
 
 interface ProjectCardProps {
   id: string;
@@ -33,77 +52,7 @@ interface ProjectCardProps {
   isShared?: boolean;
 }
 
-const PROJECT_DATA: ProjectCardProps[] = [
-  {
-    id: 'p1',
-    title: "Image to SVG Canvas",
-    edited: "Edited 33 minutes ago",
-    createdAt: "9 hours ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop", 
-  },
-  {
-    id: 'p2',
-    title: "My Little Helper",
-    edited: "Edited 2 hours ago",
-    createdAt: "2 hours ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?q=80&w=1000&auto=format&fit=crop", 
-    hasChat: true
-  },
-  {
-    id: 'p3',
-    title: "Melody Maker Studio",
-    edited: "Edited 2 days ago",
-    createdAt: "2 days ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1614149162883-504ce4d13909?q=80&w=1000&auto=format&fit=crop", 
-    isStarred: true
-  },
-  {
-    id: 'p4',
-    title: "persona-write",
-    edited: "Edited 5 months ago",
-    createdAt: "5 months ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1555421689-491a97ff2040?q=80&w=1000&auto=format&fit=crop" 
-  },
-  {
-    id: 'p5',
-    title: "portfolioyashjit",
-    edited: "Edited 5 months ago",
-    createdAt: "5 months ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1000&auto=format&fit=crop", 
-    isStarred: true
-  },
-  {
-    id: 'p6',
-    title: "youtube-gem-parse",
-    edited: "Edited 5 months ago",
-    createdAt: "5 months ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1000&auto=format&fit=crop" 
-  },
-  {
-    id: 'p7',
-    title: "secret-archive-countdown",
-    edited: "Edited 5 months ago",
-    createdAt: "5 months ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=1000&auto=format&fit=crop",
-    isShared: true
-  },
-  {
-    id: 'p8',
-    title: "radiant-habit",
-    edited: "Edited 5 months ago",
-    createdAt: "5 months ago",
-    creator: "redacted@example.com",
-    thumbnail: "https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?q=80&w=1000&auto=format&fit=crop",
-    isShared: true
-  }
-];
+// Removed static PROJECT_DATA. It will be loaded dynamically.
 
 const SortMenu: React.FC<{
   sortBy: string;
@@ -285,7 +234,7 @@ const CreatorMenu: React.FC<{
   );
 };
 
-const ProjectMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const ProjectMenu: React.FC<{ onClose: () => void; onDelete?: () => void }> = ({ onClose, onDelete }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
 
@@ -301,25 +250,29 @@ const ProjectMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  const menuItems = [
+  const menuItems: { label: string; icon: any; variant?: string; onClick?: () => void }[] = [
     { label: 'Select', icon: SquareDashed },
     { label: 'Move to folder', icon: Folder },
     { label: 'Remix', icon: RotateCcw },
     { label: 'Rename', icon: Pencil },
     { label: 'Settings', icon: Settings },
-    { label: 'Delete', icon: Trash2, variant: 'danger' },
+    { label: 'Delete', icon: Trash2, variant: 'danger', onClick: onDelete },
   ];
 
   return (
-    <div 
+    <div
       ref={menuRef}
       onMouseDown={(e) => e.stopPropagation()}
       className={`absolute right-0 w-fit min-w-[150px] bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl py-1.5 z-[100]
         ${position === 'bottom' ? 'top-[50px]' : 'bottom-[50px]'}`}
     >
       {menuItems.map((item, idx) => (
-        <button 
+        <button
           key={idx}
+          onClick={() => {
+            if (item.onClick) item.onClick();
+            onClose();
+          }}
           className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-medium hover:bg-white/5 first:rounded-t-xl last:rounded-b-xl whitespace-nowrap
             ${item.variant === 'danger' ? 'text-[#ef4444]' : 'text-white/90'}`}
         >
@@ -378,8 +331,100 @@ const FilterButton: React.FC<{
 export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () => void }> = ({ view = 'projects', onOpenDriveSettings }) => {
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
+  const { deleteLocalFSProject } = useLocalFS();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
-  const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set(PROJECT_DATA.filter(p => p.isStarred).map(p => p.id)));
+  const [projectsData, setProjectsData] = useState<ProjectCardProps[]>([]);
+  const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
+
+  const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
+  const navigate = useNavigate();
+
+  // Permanently delete a project across all storage layers (IndexedDB media +
+  // cover, disk folder, and the localStorage registry).
+  const handleDeleteProject = async (id: string, title: string) => {
+    const ok = window.confirm(`Delete "${title}"? This permanently removes it from this device.`);
+    if (!ok) return;
+    try {
+      await deleteProjectData(id);
+      await deleteLocalFSProject(id, title);
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        const list = JSON.parse(stored);
+        const updated = list.filter((p: any) => p.id !== id);
+        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        window.dispatchEvent(new Event('willow_projects_updated'));
+      }
+      setProjectsData(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Failed to delete project', err);
+    }
+  };
+
+  const formatProjectDate = (date: Date): string => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const hoursStr = String(hours).padStart(2, '0');
+    return `${month} ${day}, ${hoursStr}:${minutes} ${ampm}`;
+  };
+
+  const handleCreateNewProject = () => {
+    const tempId = `temp_#${Math.floor(1000 + Math.random() * 9000)}`;
+    const dateName = formatProjectDate(new Date());
+    
+    const stored = localStorage.getItem('willow_projects_list');
+    let existingProjects: any[] = [];
+    if (stored) {
+      try {
+        existingProjects = JSON.parse(stored);
+      } catch (e) {}
+    }
+    
+    let uniqueName = dateName;
+    let counter = 1;
+    while (existingProjects.some(p => p.name.toLowerCase() === uniqueName.toLowerCase())) {
+      uniqueName = `${dateName} (${counter})`;
+      counter++;
+    }
+    
+    sessionStorage.setItem('staging-nav', 'true');
+    navigate(`/media?projectId=${encodeURIComponent(tempId)}&tempName=${encodeURIComponent(uniqueName)}`);
+  };
+
+  useEffect(() => {
+    const loadProjects = () => {
+      try {
+        const stored = localStorage.getItem('willow_projects_list');
+        if (stored) {
+          const list = JSON.parse(stored);
+          
+          loadAllProjectCovers().then(covers => {
+            setCoverUrls(covers);
+            const mapped = list.map((p: any, index: number) => ({
+              id: p.id,
+              title: p.name,
+              edited: 'Edited recently',
+              createdAt: 'Recently',
+              creator: 'redacted@example.com',
+              thumbnail: covers[p.id] || p.coverUrl || '',
+              hasChat: true,
+              isStarred: p.isStarred
+            }));
+            setProjectsData(mapped);
+            setStarredProjects(new Set(mapped.filter((p: any) => p.isStarred).map((p: any) => p.id)));
+          });
+        }
+      } catch (e) {}
+    };
+    loadProjects();
+    window.addEventListener('willow_projects_updated', loadProjects);
+    return () => window.removeEventListener('willow_projects_updated', loadProjects);
+  }, []);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
 
@@ -429,10 +474,10 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   };
 
   const displayedProjects = view === 'starred' 
-    ? PROJECT_DATA.filter(p => starredProjects.has(p.id))
+    ? projectsData.filter(p => starredProjects.has(p.id))
     : view === 'shared'
-      ? PROJECT_DATA.filter(p => p.isShared)
-      : PROJECT_DATA;
+      ? projectsData.filter(p => p.isShared)
+      : projectsData;
 
   const toggleStar = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -445,6 +490,18 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
       setTimeout(() => setAnimatingStar(null), 300);
     }
     setStarredProjects(newStarred);
+
+    // Persist the starred flag into the project registry so it survives reloads
+    // and stays in sync across surfaces (e.g. the BottomPanel).
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        const list = JSON.parse(stored);
+        const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
+        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        window.dispatchEvent(new Event('willow_projects_updated'));
+      }
+    } catch {}
   };
 
   const toggleMenu = (e: React.MouseEvent, id: string) => {
@@ -555,7 +612,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
 
           {layoutMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-14 pb-24">
-              <div className="group cursor-pointer">
+              <div className="group cursor-pointer" onClick={handleCreateNewProject}>
                 <button className="w-full aspect-[16/9] rounded-xl border-2 border-dashed border-white/10 hover:border-white/20 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 cursor-pointer">
                   <div className="w-12 h-12 flex items-center justify-center text-zinc-600 group-hover:text-white group-hover:scale-110 transition-all duration-300">
                     <Plus size={36} strokeWidth={1.5} />
@@ -573,12 +630,27 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
 
                 return (
                   <div key={project.id} className="group cursor-pointer">
-                      <div className="relative aspect-[16/9] bg-[#1a1a1a] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
-                          <img 
-                            src={project.thumbnail} 
-                            className="w-full h-full object-cover opacity-90" 
-                            alt={project.title} 
-                          />
+                      <div className="relative aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
+                          {project.thumbnail ? (
+                            isCoverVideo(project.thumbnail) ? (
+                              <video 
+                                src={project.thumbnail} 
+                                className="w-full h-full object-cover opacity-90" 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline 
+                              />
+                            ) : (
+                              <img 
+                                src={project.thumbnail} 
+                                className="w-full h-full object-cover opacity-90" 
+                                alt={project.title} 
+                              />
+                            )
+                          ) : (
+                            <div className="w-full h-full bg-[#2c2c2e]" />
+                          )}
                           
                           <div className="absolute top-3 right-3">
                             <button 
@@ -630,7 +702,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                             </button>
                             
                             {isMenuOpen && (
-                              <ProjectMenu onClose={() => setOpenMenuId(null)} />
+                              <ProjectMenu onClose={() => setOpenMenuId(null)} onDelete={() => handleDeleteProject(project.id, project.title)} />
                             )}
                           </div>
                       </div>
@@ -659,13 +731,22 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                       className="grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-6 border-b border-white/5 items-center group/row hover:bg-white/[0.02] transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-6 min-w-0">
-                        <div className="relative w-[130px] aspect-[16/9] rounded-xl overflow-hidden border border-white/5 bg-[#1a1a1a] shrink-0 shadow-lg">
+                        <div className="relative w-[130px] aspect-[16/9] rounded-xl overflow-hidden border border-white/5 bg-[#2c2c2e] shrink-0 shadow-lg">
                            {project.thumbnail ? (
-                             <img src={project.thumbnail} className="w-full h-full object-cover opacity-90 group-hover/row:opacity-100 transition-opacity" alt="" />
+                             isCoverVideo(project.thumbnail) ? (
+                               <video 
+                                 src={project.thumbnail} 
+                                 className="w-full h-full object-cover opacity-90 group-hover/row:opacity-100 transition-opacity" 
+                                 autoPlay 
+                                 loop 
+                                 muted 
+                                 playsInline 
+                               />
+                             ) : (
+                               <img src={project.thumbnail} className="w-full h-full object-cover opacity-90 group-hover/row:opacity-100 transition-opacity" alt="" />
+                             )
                            ) : (
-                             <div className="w-full h-full flex items-center justify-center text-zinc-700">
-                               <ImageIcon size={32} />
-                             </div>
+                             <div className="w-full h-full bg-[#2c2c2e]" />
                            )}
                            {project.hasChat && (
                             <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-xl px-2 py-1 rounded border border-white/10 flex items-center shadow-xl">
@@ -723,7 +804,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                           </button>
                           
                           {isMenuOpen && (
-                            <ProjectMenu onClose={() => setOpenMenuId(null)} />
+                            <ProjectMenu onClose={() => setOpenMenuId(null)} onDelete={() => handleDeleteProject(project.id, project.title)} />
                           )}
                         </div>
                       </div>

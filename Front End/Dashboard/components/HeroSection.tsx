@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { InputBar } from './InputBar';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
-import { loadAllProjectCovers } from '../lib/mediaStorage';
+import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
+import { useLocalFS } from '../context/LocalFSContext';
 
 // @ts-ignore
 import willSmithVideo from '../../Content/Will smith.mp4';
@@ -19,9 +20,25 @@ import iceCreamVideo from '../../Content/Ice Cream.mp4';
 
 export type Mode = 'ship' | 'design' | 'proto' | 'chat';
 
+const isCoverVideo = (url: string): boolean => {
+  if (!url) return false;
+  // For data: URLs trust ONLY the MIME type. Never substring-match the base64
+  // payload — random base64 routinely contains "veo"/"/video"/etc., which would
+  // mis-render image covers inside a <video> tag (they appear blank/gray).
+  if (url.startsWith('data:')) return url.startsWith('data:video');
+  const lowercaseUrl = url.toLowerCase();
+  return (
+    lowercaseUrl.endsWith('.mp4') ||
+    lowercaseUrl.endsWith('.webm') ||
+    lowercaseUrl.includes('/video') ||
+    lowercaseUrl.includes('generatevideo') ||
+    lowercaseUrl.includes('veo')
+  );
+};
+
 export const HeroSection: React.FC<{
   onPromptSubmit?: (prompt: string, mode: string) => void;
-  onProjectSelect?: (projectId: string) => void;
+  onProjectSelect?: (projectId: string, tempName?: string) => void;
   modelConfig: any;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
@@ -37,6 +54,7 @@ export const HeroSection: React.FC<{
   isSidebarCollapsed?: boolean;
 }> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false }) => {
   const { userProfile } = useAuth();
+  const { deleteLocalFSProject, renameLocalFSProject } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
 
   // Sequential media playlist for the Media tab with slide-specific branding
@@ -90,23 +108,24 @@ export const HeroSection: React.FC<{
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const [isFading, setIsFading] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
-  const [projectsList, setProjectsList] = React.useState<{ id: string; name: string; hasCover?: boolean }[]>(() => {
+  const [projectsList, setProjectsList] = React.useState<{ id: string; name: string; hasCover?: boolean; kind?: 'media' | 'code' }[]>(() => {
     const stored = localStorage.getItem('willow_projects_list');
     if (stored) {
       try {
-        return JSON.parse(stored);
+        const allProjects = JSON.parse(stored);
+        // Media tab shows projects tagged 'media' OR any project that actually
+        // has media (per the realtime media index) — so media you generated into
+        // a 'code' project still appears here.
+        if (dashboardMode === 'media') {
+          const idx = getMediaIndex();
+          return allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0);
+        }
+        return allProjects;
       } catch (e) {
         /* ignore fallback */
       }
     }
-    const initial = [
-      { id: '#4829', name: 'Project #4829' },
-      { id: '#8193', name: 'Project #8193' },
-      { id: '#1047', name: 'Project #1047' },
-      { id: '#5923', name: 'Project #5923' },
-      { id: '#7741', name: 'Project #7741' },
-      { id: '#2189', name: 'Project #2189' }
-    ];
+    const initial: any[] = [];
     try {
       localStorage.setItem('willow_projects_list', JSON.stringify(initial));
     } catch (e) {}
@@ -121,10 +140,60 @@ export const HeroSection: React.FC<{
   }, [projectsList]);
 
   React.useEffect(() => {
+    const handleUpdate = () => {
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        try {
+          const allProjects = JSON.parse(stored);
+          // Media tab shows 'media'-tagged projects OR any project that has media.
+          if (dashboardMode === 'media') {
+            const idx = getMediaIndex();
+            setProjectsList(allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0));
+          } else {
+            setProjectsList(allProjects);
+          }
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('willow_projects_updated', handleUpdate);
+    // The media index updates in realtime as media is generated/deleted — refresh
+    // the Media grid when it changes so "has media" projects appear/disappear live.
+    window.addEventListener('willow_media_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('willow_projects_updated', handleUpdate);
+      window.removeEventListener('willow_media_updated', handleUpdate);
+    };
+  }, [dashboardMode]);
+
+  // NOTE: We deliberately do NOT write `projectsList` back to localStorage here.
+  // In Media mode `projectsList` is FILTERED to media-only, so persisting it would
+  // wipe code projects from the registry. All mutations (create/rename/delete)
+  // operate on the FULL localStorage list directly and then dispatch
+  // `willow_projects_updated`, which refreshes the filtered display below.
+  const persistProjectRename = React.useCallback((projectId: string, rawName: string) => {
+    const baseName = rawName.trim();
+    if (!baseName) return;
     try {
-      localStorage.setItem('willow_projects_list', JSON.stringify(projectsList));
-    } catch (e) {}
-  }, [projectsList]);
+      const stored = localStorage.getItem('willow_projects_list');
+      const list = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(list)) return;
+      const oldName = list.find((p: any) => p.id === projectId)?.name;
+      // Dedup against the FULL list (not the filtered display list)
+      let uniqueName = baseName;
+      let counter = 1;
+      while (list.some((p: any) => p.id !== projectId && p.name.toLowerCase() === uniqueName.toLowerCase())) {
+        uniqueName = `${baseName} (${counter})`;
+        counter++;
+      }
+      if (oldName === uniqueName) return;
+      const updated = list.map((p: any) => (p.id === projectId ? { ...p, name: uniqueName } : p));
+      localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+      window.dispatchEvent(new Event('willow_projects_updated'));
+      // Keep the disk folder in lock-step so the disk-authoritative reconciler
+      // doesn't revert the rename (and so saves target the right folder).
+      if (oldName) void renameLocalFSProject(oldName, uniqueName);
+    } catch {}
+  }, [renameLocalFSProject]);
 
   const formatProjectDate = (date: Date): string => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -140,23 +209,18 @@ export const HeroSection: React.FC<{
   };
 
   const handleCreateNewProject = () => {
-    const newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    const tempId = `temp_#${Math.floor(1000 + Math.random() * 9000)}`;
     const dateName = formatProjectDate(new Date());
-    setProjectsList(prev => {
-      let uniqueName = dateName;
-      let counter = 1;
-      while (prev.some(p => p.name.toLowerCase() === uniqueName.toLowerCase())) {
-        uniqueName = `${dateName} (${counter})`;
-        counter++;
-      }
-      const newProj = { id: newId, name: uniqueName };
-      const updated = [...prev, newProj];
-      try {
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
-    onProjectSelect?.(newId);
+    
+    // We check against the current projectsList to ensure a unique name is proposed
+    let uniqueName = dateName;
+    let counter = 1;
+    while (projectsList.some(p => p.name.toLowerCase() === uniqueName.toLowerCase())) {
+      uniqueName = `${dateName} (${counter})`;
+      counter++;
+    }
+    
+    onProjectSelect?.(tempId, uniqueName);
   };
 
   const [editingProjectId, setEditingProjectId] = React.useState<string | null>(null);
@@ -543,25 +607,26 @@ export const HeroSection: React.FC<{
               return (
                 <div key={proj.id} onClick={() => onProjectSelect?.(proj.id)} className="flex flex-col group cursor-pointer relative">
                   {/* 16:9 Image placeholder container with independent rounded-[18px], border-white/10, and high z-index */}
-                  <div className="w-full aspect-video rounded-[18px] border border-white/10 bg-gradient-to-br from-[#1b1c1e] to-[#0f1011] overflow-hidden relative z-10 flex items-center justify-center transition-all duration-300 shadow-md">
-                    {coverUrls[proj.id] ? (
-                      <img 
-                        src={coverUrls[proj.id]} 
-                        className="w-full h-full object-cover" 
-                        alt={proj.name} 
-                      />
+                  <div className="w-full aspect-video rounded-[18px] border border-white/10 bg-[#2c2c2e] overflow-hidden relative z-10 flex items-center justify-center transition-all duration-300 shadow-md">
+                    {(coverUrls[proj.id] || proj.coverUrl) ? (
+                      isCoverVideo(coverUrls[proj.id] || proj.coverUrl) ? (
+                        <video 
+                          src={coverUrls[proj.id] || proj.coverUrl} 
+                          className="w-full h-full object-cover" 
+                          autoPlay 
+                          loop 
+                          muted 
+                          playsInline 
+                        />
+                      ) : (
+                        <img 
+                          src={coverUrls[proj.id] || proj.coverUrl} 
+                          className="w-full h-full object-cover" 
+                          alt={proj.name} 
+                        />
+                      )
                     ) : (
-                      <>
-                        {/* Elegant subtle dotted accent */}
-                        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '12px 12px' }} />
-                        
-                        {/* Media icon logo placeholder (remains static and subtle on hover) */}
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-8 h-8 text-white/10">
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <polyline points="21 15 16 10 5 21" />
-                        </svg>
-                      </>
+                      <div className="w-full h-full bg-[#2c2c2e]" />
                     )}
                   </div>
                   
@@ -577,16 +642,7 @@ export const HeroSection: React.FC<{
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 if (editingValue.trim()) {
-                                  setProjectsList(prev => {
-                                    const baseName = editingValue.trim();
-                                    let uniqueName = baseName;
-                                    let counter = 1;
-                                    while (prev.some(p => p.id !== proj.id && p.name.toLowerCase() === uniqueName.toLowerCase())) {
-                                      uniqueName = `${baseName} (${counter})`;
-                                      counter++;
-                                    }
-                                    return prev.map(p => p.id === proj.id ? { ...p, name: uniqueName } : p);
-                                  });
+                                  persistProjectRename(proj.id, editingValue);
                                 }
                                 setEditingProjectId(null);
                               } else if (e.key === 'Escape') {
@@ -598,20 +654,11 @@ export const HeroSection: React.FC<{
                           />
                           
                           {/* Checkmark Save Button (circle appears on hover) */}
-                          <button 
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               if (editingValue.trim()) {
-                                setProjectsList(prev => {
-                                  const baseName = editingValue.trim();
-                                  let uniqueName = baseName;
-                                  let counter = 1;
-                                  while (prev.some(p => p.id !== proj.id && p.name.toLowerCase() === uniqueName.toLowerCase())) {
-                                    uniqueName = `${baseName} (${counter})`;
-                                    counter++;
-                                  }
-                                  return prev.map(p => p.id === proj.id ? { ...p, name: uniqueName } : p);
-                                });
+                                persistProjectRename(proj.id, editingValue);
                               }
                               setEditingProjectId(null);
                             }}
@@ -655,9 +702,26 @@ export const HeroSection: React.FC<{
                           </button>
 
                           {/* Trash Bin Delete Icon (only visible on hover, aligned far right, circle appears on button hover) */}
-                          <button 
-                            onClick={(e) => {
+                          <button
+                            onClick={async (e) => {
                               e.stopPropagation();
+
+                              // 1. Delete from IndexedDB (media items + covers)
+                              await deleteProjectData(proj.id);
+
+                              // 2. Delete from file system (if connected)
+                              await deleteLocalFSProject(proj.id, proj.name);
+
+                              // 3. Delete from localStorage and update UI
+                              const stored = localStorage.getItem('willow_projects_list');
+                              if (stored) {
+                                const list = JSON.parse(stored);
+                                const updated = list.filter((p: any) => p.id !== proj.id);
+                                localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+                                window.dispatchEvent(new Event('willow_projects_updated'));
+                              }
+
+                              // 4. Update local component state
                               setProjectsList(prev => prev.filter(p => p.id !== proj.id));
                             }}
                             className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ml-auto border-none outline-none cursor-pointer"

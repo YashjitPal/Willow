@@ -52,7 +52,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
       />
 
       {/* Modal Content */}
-      <div className={`relative w-full max-w-[640px] bg-[#1c1c1c] rounded-2xl shadow-2xl border border-white/10 overflow-hidden ${isClosing ? 'modal-scale-out' : 'modal-scale-in'}`}>
+      <div className={`relative w-full max-w-[640px] bg-[#1e1f20] rounded-2xl shadow-2xl overflow-hidden ${isClosing ? 'modal-scale-out' : 'modal-scale-in'}`}>
         
         {/* Search Header */}
         <div className="flex items-center px-4 h-[60px] border-b border-white/5 gap-3">
@@ -61,6 +61,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
             type="text"
             placeholder="Search projects"
             className="flex-1 bg-transparent border-none outline-none text-[16px] text-white placeholder-zinc-500 h-full font-normal"
+            style={{ fontFamily: 'inherit' }}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             autoFocus
@@ -76,7 +77,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
         {/* Content Area */}
         <div className="p-3 h-[320px] overflow-y-auto">
             <div className="px-3 pt-2 pb-3 text-[10.5px] font-bold text-zinc-500 uppercase tracking-widest">
-              RECENT PROJECTS
+              RECENTS
             </div>
             
             <div 
@@ -92,7 +93,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                         <span className={`text-[14.5px] font-bold leading-tight ${selectedId === 'melody-maker' ? 'text-white' : 'text-white'}`}>
+                         <span className={`text-[14.5px] font-semibold leading-tight ${selectedId === 'melody-maker' ? 'text-white' : 'text-white'}`}>
                            Melody Maker Studio
                          </span>
                          <span className={`text-[12px] font-medium ${selectedId === 'melody-maker' ? 'text-zinc-500' : 'text-zinc-500'}`}>

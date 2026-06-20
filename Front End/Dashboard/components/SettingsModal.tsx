@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen } from 'lucide-react';
+import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen, Link, Github } from 'lucide-react';
 import './SettingsModal.css'; // Assuming we can import a CSS file or add a style tag
 import { useAuth } from '../context/AuthContext';
 import { useLocalFS } from '../context/LocalFSContext';
@@ -285,12 +285,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   }, [isOpen, initialTab, initialConnector]);
   
   // Custom dropdown states
+  const geminiRef = useRef<HTMLDivElement>(null);
+  const openaiRef = useRef<HTMLDivElement>(null);
+  const anthropicRef = useRef<HTMLDivElement>(null);
+
   const [geminiDropdownOpen, setGeminiDropdownOpen] = useState(false);
   const [geminiDropdownClosing, setGeminiDropdownClosing] = useState(false);
+  const [geminiDirection, setGeminiDirection] = useState<'down' | 'up'>('down');
+
   const [openaiDropdownOpen, setOpenaiDropdownOpen] = useState(false);
   const [openaiDropdownClosing, setOpenaiDropdownClosing] = useState(false);
+  const [openaiDirection, setOpenaiDirection] = useState<'down' | 'up'>('down');
+
   const [anthropicDropdownOpen, setAnthropicDropdownOpen] = useState(false);
   const [anthropicDropdownClosing, setAnthropicDropdownClosing] = useState(false);
+  const [anthropicDirection, setAnthropicDirection] = useState<'down' | 'up'>('down');
+
+  const determineDirection = (ref: React.RefObject<HTMLDivElement>) => {
+    if (!ref.current) return 'down';
+    const rect = ref.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    // We assume a safe dropdown height of about 220px.
+    // If space below is less than 220px, and we have more space above than below, we open upwards.
+    const dropdownHeight = 220; 
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      return 'up';
+    }
+    return 'down';
+  };
   
   // Helper functions to close dropdowns with animation
   const closeGeminiDropdown = () => {
@@ -334,6 +358,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [geminiDropdownOpen, geminiDropdownClosing, openaiDropdownOpen, openaiDropdownClosing, anthropicDropdownOpen, anthropicDropdownClosing]);
+
+  // Close dropdowns on scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      if (geminiDropdownOpen && !geminiDropdownClosing) closeGeminiDropdown();
+      if (openaiDropdownOpen && !openaiDropdownClosing) closeOpenaiDropdown();
+      if (anthropicDropdownOpen && !anthropicDropdownClosing) closeAnthropicDropdown();
+    };
+
+    window.addEventListener('scroll', handleScroll, true);
+    return () => window.removeEventListener('scroll', handleScroll, true);
+  }, [geminiDropdownOpen, geminiDropdownClosing, openaiDropdownOpen, openaiDropdownClosing, anthropicDropdownOpen, anthropicDropdownClosing]);
   
   // Track when we exit manage keys view
   const handleExitManageKeys = () => {
@@ -368,20 +404,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   }, [isOpen, shouldRender]);
   
   // Models & API State
-  type ApiKey = { id: string; key: string; name: string; isActive: boolean; createdAt: number };
-  type ProviderParams = {
-    geminiKeys: ApiKey[];
-    openaiKeys: ApiKey[];
-    anthropicKeys: ApiKey[];
-    activeProvider: 'gemini' | 'openai' | 'anthropic';
-  };
+  type ProviderConfig = { apiKey: string; baseUrl: string };
+    type ProviderParams = {
+      gemini: ProviderConfig;
+      openai: ProviderConfig;
+      anthropic: ProviderConfig;
+    };
 
-  const defaultProviderState: ProviderParams = {
-    geminiKeys: [],
-    openaiKeys: [],
-    anthropicKeys: [],
-    activeProvider: 'gemini'
-  };
+    const defaultProviderState: ProviderParams = {
+      gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com' },
+      openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1' },
+      anthropic: { apiKey: '', baseUrl: 'https://api.anthropic.com' }
+    };
 
   const [providerState, setProviderState] = React.useState<ProviderParams>(defaultProviderState);
   const [isLoadingKeys, setIsLoadingKeys] = React.useState(true);
@@ -416,22 +450,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
           if (data.fields?.providerState?.mapValue?.fields) {
             const ps = data.fields.providerState.mapValue.fields;
             
-            // Parse the Firestore REST API format back to our format
-            const parseKeys = (arr: any) => {
-              if (!arr?.arrayValue?.values) return [];
-              return arr.arrayValue.values.map((v: any) => ({
-                id: v.mapValue.fields.id.stringValue,
-                key: v.mapValue.fields.key.stringValue,
-                name: v.mapValue.fields.name.stringValue,
-                isActive: v.mapValue.fields.isActive.booleanValue,
-                createdAt: parseInt(v.mapValue.fields.createdAt.integerValue)
-              }));
+            // Fallback for old schema to ensure user doesn't lose their keys during transition
+            const extractOldKey = (arr: any) => {
+              if (!arr?.arrayValue?.values || arr.arrayValue.values.length === 0) return '';
+              const activeKey = arr.arrayValue.values.find((v: any) => v.mapValue.fields.isActive?.booleanValue);
+              const keyToUse = activeKey || arr.arrayValue.values[0];
+              return keyToUse.mapValue.fields.key?.stringValue || '';
+            };
+            
+            const extractNewConfig = (field: any, oldKeysField: any, defaultBaseUrl: string): ProviderConfig => {
+              if (field?.mapValue?.fields) {
+                return {
+                  apiKey: field.mapValue.fields.apiKey?.stringValue || '',
+                  baseUrl: field.mapValue.fields.baseUrl?.stringValue || defaultBaseUrl
+                };
+              }
+              // Fallback to extracting from the old geminiKeys format
+              return { apiKey: extractOldKey(oldKeysField), baseUrl: defaultBaseUrl };
             };
             
             const loadedState: ProviderParams = {
-              geminiKeys: parseKeys(ps.geminiKeys),
-              openaiKeys: parseKeys(ps.openaiKeys),
-              anthropicKeys: parseKeys(ps.anthropicKeys),
+              gemini: extractNewConfig(ps.gemini, ps.geminiKeys, 'https://generativelanguage.googleapis.com'),
+              openai: extractNewConfig(ps.openai, ps.openaiKeys, 'https://api.openai.com/v1'),
+              anthropic: extractNewConfig(ps.anthropic, ps.anthropicKeys, 'https://api.anthropic.com'),
               activeProvider: ps.activeProvider?.stringValue || 'gemini'
             };
             
@@ -470,7 +511,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     if (!user) return;
     
     console.log('[DEBUG] Saving API keys for user:', user.uid);
-    console.log('[DEBUG] Keys to save:', JSON.stringify(providerState.geminiKeys));
+    console.log('[DEBUG] Keys to save:', JSON.stringify(providerState.gemini));
     
     const saveToFirestore = async () => {
       try {
@@ -511,9 +552,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
             providerState: {
               mapValue: {
                 fields: {
-                  geminiKeys: { arrayValue: { values: newState.geminiKeys.map(k => ({ mapValue: { fields: { id: { stringValue: k.id }, key: { stringValue: k.key }, name: { stringValue: k.name }, isActive: { booleanValue: k.isActive }, createdAt: { integerValue: k.createdAt.toString() } } } })) } },
-                  openaiKeys: { arrayValue: { values: newState.openaiKeys.map(k => ({ mapValue: { fields: { id: { stringValue: k.id }, key: { stringValue: k.key }, name: { stringValue: k.name }, isActive: { booleanValue: k.isActive }, createdAt: { integerValue: k.createdAt.toString() } } } })) } },
-                  anthropicKeys: { arrayValue: { values: newState.anthropicKeys.map(k => ({ mapValue: { fields: { id: { stringValue: k.id }, key: { stringValue: k.key }, name: { stringValue: k.name }, isActive: { booleanValue: k.isActive }, createdAt: { integerValue: k.createdAt.toString() } } } })) } },
+                  gemini: { mapValue: { fields: { apiKey: { stringValue: newState.gemini.apiKey }, baseUrl: { stringValue: newState.gemini.baseUrl } } } },
+                  openai: { mapValue: { fields: { apiKey: { stringValue: newState.openai.apiKey }, baseUrl: { stringValue: newState.openai.baseUrl } } } },
+                  anthropic: { mapValue: { fields: { apiKey: { stringValue: newState.anthropic.apiKey }, baseUrl: { stringValue: newState.anthropic.baseUrl } } } },
                   activeProvider: { stringValue: newState.activeProvider }
                 }
               }
@@ -533,66 +574,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     }
   };
 
-  const handleAddKey = async (provider: 'gemini' | 'openai' | 'anthropic') => {
-    if (!tempKeyInput.trim()) return;
-    
-    const keysKey = `${provider}Keys` as keyof ProviderParams;
-    const currentKeys = providerState[keysKey] as ApiKey[];
-    
-    if (currentKeys.length >= 10) return; // Limit 10
-
-    const newKey: ApiKey = {
-      id: Math.random().toString(36).substr(2, 9),
-      key: tempKeyInput,
-      name: `${provider.charAt(0).toUpperCase() + provider.slice(1)} Key ${currentKeys.length + 1}`,
-      isActive: currentKeys.length === 0, // Auto-activate if first
-      createdAt: Date.now()
-    };
-
+  const handleUpdateConfig = async (provider: 'gemini' | 'openai' | 'anthropic', config: ProviderConfig) => {
     const newState = {
       ...providerState,
-      [keysKey]: [...currentKeys, newKey]
+      [provider]: config
     };
     
     setProviderState(newState);
-    setTempKeyInput('');
     
     // Save to Firestore immediately
     await saveProviderStateToFirestore(newState);
-    
-    // Simulate fetch if Gemini
-    if (provider === 'gemini') {
-        setIsFetchingInfo(true);
-        setTimeout(() => setIsFetchingInfo(false), 1000);
-    }
-  };
-
-  const toggleKey = (provider: 'gemini' | 'openai' | 'anthropic', id: string) => {
-    setProviderState(prev => {
-        const keysKey = `${provider}Keys` as keyof ProviderParams;
-        // logic: if toggling ON, disable others. If toggling OFF, just disable.
-        const currentKeys = prev[keysKey] as ApiKey[];
-        const updatedKeys = currentKeys.map(k => {
-             if (k.id === id) return { ...k, isActive: !k.isActive };
-             // If we want single active key enforcement:
-             // if (k.id === id) return { ...k, isActive: !k.isActive }; // Single toggle logic?
-             // usually for API keys, you pick ONE to use. let's enforce single active.
-             return { ...k, isActive: k.id === id ? !k.isActive : false }; 
-        });
-        
-        // If the toggled key became active, set this provider as active global provider?
-        // Maybe user manually selects active provider.
-        
-        return { ...prev, [keysKey]: updatedKeys };
-    });
-  };
-
-  const deleteKey = (provider: 'gemini' | 'openai' | 'anthropic', id: string) => {
-      setProviderState(prev => {
-          const keysKey = `${provider}Keys` as keyof ProviderParams;
-          const currentKeys = prev[keysKey] as ApiKey[];
-          return { ...prev, [keysKey]: currentKeys.filter(k => k.id !== id) };
-      });
   };
 
   // Delete account handler
@@ -758,22 +749,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
               </div>
 
              <SettingsSectionTitle title="Connectors" />
-             <div 
-                onClick={() => setActiveTab('connectors')}
-                className={`px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'connectors' ? 'bg-[#1f1f1f] text-white' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'}`}
-             >
-                <div className="w-5 h-5 flex items-center justify-center">
-                    {/* Simple geometric icon for Connectors */}
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 16a5 5 0 0 1-5-5"/><path d="M12 2a10 10 0 0 0 0 20"/></svg>
-                </div>
-                <span>Connectors</span>
-             </div>
-             <SettingsSidebarItem icon={({ size, ...props }) => (
-                 <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-                    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36.5-8 3C6.77 6.5 6.73 6.1 4 4c-1 0-3 .5-3 1.5.28 1.15.28 2.35 0 3.5A5.403 5.403 0 0 0 4 12.5c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/>
-                    <path d="M9 18c-4.51 2-5-2-7-2"/>
-                 </svg>
-             )} label="GitHub" active={activeTab === 'github'} onClick={() => setActiveTab('github')} />
+             <SettingsSidebarItem icon={Link} label="Connectors" active={activeTab === 'connectors'} onClick={() => setActiveTab('connectors')} />
+             <SettingsSidebarItem icon={Github} label="GitHub" active={activeTab === 'github'} onClick={() => setActiveTab('github')} />
 
         </div>
 
@@ -942,7 +919,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                 </button>
                             )}
                             <h1 className="text-[24px] font-bold text-white">
-                                {managingProvider ? `Manage ${managingProvider.charAt(0).toUpperCase() + managingProvider.slice(1)} Keys` : 'Models & API'}
+                                {managingProvider ? `Manage ${managingProvider.charAt(0).toUpperCase() + managingProvider.slice(1)}` : 'Models & API'}
                             </h1>
                         </div>
                     </div>
@@ -957,214 +934,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                     {/* Manage Keys View */}
                     {managingProvider ? (
-                        <div className="animate-[fadeIn_150ms_ease-out] flex flex-col h-full">
-                            <div className="bg-[#1c1c1c] border border-white/5 rounded-xl p-6 mb-6">
-                                <h3 className="text-[14px] font-bold text-white mb-4">Add New Key</h3>
-                                <div className="flex gap-3">
-                                    <input 
-                                        type="text" 
-                                        placeholder={`Enter ${managingProvider} API Key...`}
-                                        className="flex-1 bg-[#272729] border border-white/10 rounded-lg px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors"
-                                        value={tempKeyInput}
-                                        onChange={(e) => setTempKeyInput(e.target.value)}
-                                    />
-                                    <button 
-                                        onClick={() => handleAddKey(managingProvider!)}
-                                        disabled={!tempKeyInput || (providerState[`${managingProvider}Keys` as keyof ProviderParams] as ApiKey[]).length >= 10}
-                                        className="px-6 bg-white text-black text-[13px] font-bold rounded-lg hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        Add
-                                    </button>
+                        <div className="animate-[fadeIn_150ms_ease-out] flex flex-col space-y-6 mt-8">
+                            <div className="bg-[#1c1c1c] border border-white/5 rounded-xl p-6">
+                                <h3 className="text-[14px] font-bold text-white mb-4">API Configuration</h3>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[12px] font-semibold text-zinc-400">API Key</label>
+                                        <input 
+                                            type="password" 
+                                            placeholder={`Enter ${managingProvider.charAt(0).toUpperCase() + managingProvider.slice(1)} API Key...`}
+                                            className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors shadow-inner"
+                                            value={providerState[managingProvider].apiKey}
+                                            onChange={(e) => handleUpdateConfig(managingProvider, { ...providerState[managingProvider], apiKey: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[12px] font-semibold text-zinc-400">Base URL (Optional)</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="e.g., https://api.openai.com/v1"
+                                            className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors shadow-inner"
+                                            value={providerState[managingProvider].baseUrl}
+                                            onChange={(e) => handleUpdateConfig(managingProvider, { ...providerState[managingProvider], baseUrl: e.target.value })}
+                                        />
+                                    </div>
                                 </div>
-                                <p className="text-[12px] text-zinc-500 mt-2">
-                                    {(providerState[`${managingProvider}Keys` as keyof ProviderParams] as ApiKey[]).length >= 10 
-                                        ? "Maximum limit of 10 keys reached." 
-                                        : "Keys are stored locally in your browser session for security."}
+                                <p className="text-[12px] text-zinc-500 mt-4">
+                                    Keys are stored locally in your browser session for security and synced securely via Firestore.
                                 </p>
                             </div>
 
-                            <div className="flex-1 flex flex-col">
-                                <h3 className="text-[14px] font-bold text-white mb-2">Saved Keys</h3>
-                                {(providerState[`${managingProvider}Keys` as keyof ProviderParams] as ApiKey[]).length === 0 ? (
-                                    <div className="flex-1 flex items-center justify-center text-center border border-dashed border-white/10 rounded-xl text-zinc-500 text-[13px]" style={{ minHeight: 'calc(100vh - 450px)' }}>
-                                        No keys added yet. Add one above to get started.
-                                    </div>
-                                ) : (
-                                    (providerState[`${managingProvider}Keys` as keyof ProviderParams] as ApiKey[]).map((keyItem) => (
-                                        <div key={keyItem.id} className="bg-[#1c1c1c] border border-white/5 rounded-xl px-5 py-4 flex items-center justify-between group hover:border-white/10 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-2.5 h-2.5 rounded-full transition-all ${keyItem.isActive ? 'bg-white shadow-[0_0_10px_rgba(255,255,255,0.4)]' : 'bg-zinc-600'}`} />
-                                                <div className="space-y-1">
-                                                    <div className="text-[14px] font-semibold text-white tracking-tight">{keyItem.name}</div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-[12px] font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded">
-                                                            {keyItem.key.slice(0, 4)}····{keyItem.key.slice(-4)}
-                                                        </span>
-                                                        <span className="text-[11px] text-zinc-500">
-                                                            Added {new Date(keyItem.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {new Date(keyItem.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                 <button 
-                                                    onClick={() => toggleKey(managingProvider!, keyItem.id)}
-                                                    className={`
-                                                        w-10 h-6 rounded-full p-1 transition-colors relative
-                                                        ${keyItem.isActive ? 'bg-white' : 'bg-zinc-700'}
-                                                    `}
-                                                >
-                                                    <div className={`
-                                                        w-4 h-4 rounded-full transition-transform
-                                                        ${keyItem.isActive ? 'translate-x-4 bg-black' : 'translate-x-0 bg-white'}
-                                                    `} />
-                                                </button>
-                                                <button 
-                                                    onClick={() => deleteKey(managingProvider!, keyItem.id)}
-                                                    className="p-2 text-zinc-500 hover:text-red-400 transition-colors"
-                                                >
-                                                    <X size={16} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        // Overview Mode
-                        <div className={`space-y-10 ${wasManagingKeys ? 'animate-[fadeIn_150ms_ease-out]' : ''}`}>
-                            
-                            {/* Provider Cards */}
-                            <div className="grid grid-cols-3 gap-4">
-                                {/* Gemini Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.activeProvider === 'gemini' ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setProviderState(prev => ({ ...prev, activeProvider: 'gemini' }))}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
-                                            {/* Gemini Logo */}
-                                            <svg width="24" height="24" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-                                                <path d="M256 0C256 0 292 200 512 256C292 312 256 512 256 512C256 512 220 312 0 256C220 200 256 0 256 0Z"/>
-                                            </svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('gemini'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage Keys
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Google Gemini</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.geminiKeys.some(k => k.isActive) ? 'Active' : 'Not configured'} • {providerState.geminiKeys.length} keys
-                                        </p>
-                                    </div>
-                                    {providerState.activeProvider === 'gemini' && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-
-                                {/* OpenAI Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.activeProvider === 'openai' ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setProviderState(prev => ({ ...prev, activeProvider: 'openai' }))}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
-                                             <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.896zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('openai'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage Keys
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">OpenAI</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.openaiKeys.some(k => k.isActive) ? 'Active' : 'Not configured'} • {providerState.openaiKeys.length} keys
-                                        </p>
-                                    </div>
-                                    {providerState.activeProvider === 'openai' && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-
-                                {/* Anthropic Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.activeProvider === 'anthropic' ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setProviderState(prev => ({ ...prev, activeProvider: 'anthropic' }))}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
-                                            {/* Anthropic Logo */}
-                                            <svg viewBox="0 0 512 509.64" fill="currentColor" className="w-6 h-6">
-                                                <path fillRule="nonzero" d="M142.27 316.619l73.655-41.326 1.238-3.589-1.238-1.996-3.589-.001-12.31-.759-42.084-1.138-36.498-1.516-35.361-1.896-8.897-1.895-8.34-10.995.859-5.484 7.482-5.03 10.717.935 23.683 1.617 35.537 2.452 25.782 1.517 38.193 3.968h6.064l.86-2.451-2.073-1.517-1.618-1.517-36.776-24.922-39.81-26.338-20.852-15.166-11.273-7.683-5.687-7.204-2.451-15.721 10.237-11.273 13.75.935 3.513.936 13.928 10.716 29.749 23.027 38.848 28.612 5.687 4.727 2.275-1.617.278-1.138-2.553-4.271-21.13-38.193-22.546-38.848-10.035-16.101-2.654-9.655c-.935-3.968-1.617-7.304-1.617-11.374l11.652-15.823 6.445-2.073 15.545 2.073 6.547 5.687 9.655 22.092 15.646 34.78 24.265 47.291 7.103 14.028 3.791 12.992 1.416 3.968 2.449-.001v-2.275l1.997-26.641 3.69-32.707 3.589-42.084 1.239-11.854 5.863-14.206 11.652-7.683 9.099 4.348 7.482 10.716-1.036 6.926-4.449 28.915-8.72 45.294-5.687 30.331h3.313l3.792-3.791 15.342-20.372 25.782-32.227 11.374-12.789 13.27-14.129 8.517-6.724 16.1-.001 11.854 17.617-5.307 18.199-16.581 21.029-13.75 17.819-19.716 26.54-12.309 21.231 1.138 1.694 2.932-.278 44.536-9.479 24.062-4.347 28.714-4.928 12.992 6.066 1.416 6.167-5.106 12.613-30.71 7.583-36.018 7.204-53.636 12.689-.657.48.758.935 24.164 2.275 10.337.556h25.301l47.114 3.514 12.309 8.139 7.381 9.959-1.238 7.583-18.957 9.655-25.579-6.066-59.702-14.205-20.474-5.106-2.83-.001v1.694l17.061 16.682 31.266 28.233 39.152 36.397 1.997 8.999-5.03 7.102-5.307-.758-34.401-25.883-13.27-11.651-30.053-25.302-1.996-.001v2.654l6.926 10.136 36.574 54.975 1.895 16.859-2.653 5.485-9.479 3.311-10.414-1.895-21.408-30.054-22.092-33.844-17.819-30.331-2.173 1.238-10.515 113.261-4.929 5.788-11.374 4.348-9.478-7.204-5.03-11.652 5.03-23.027 6.066-30.052 4.928-23.886 4.449-29.674 2.654-9.858-.177-.657-2.173.278-22.37 30.71-34.021 45.977-26.919 28.815-6.445 2.553-11.173-5.789 1.037-10.337 6.243-9.2 37.257-47.392 22.47-29.371 14.508-16.961-.101-2.451h-.859l-98.954 64.251-17.618 2.275-7.583-7.103.936-11.652 3.589-3.791 29.749-20.474-.101.102.024.101z"/>
-                                            </svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('anthropic'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage Keys
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Anthropic</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.anthropicKeys.some(k => k.isActive) ? 'Active' : 'Not configured'} • {providerState.anthropicKeys.length} keys
-                                        </p>
-                                    </div>
-                                    {providerState.activeProvider === 'anthropic' && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-                            </div>
-
                             {/* Active Provider Config */}
-                            <div className="pt-8 border-t border-white/5">
+                            <div className="pt-8">
+                                <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
+                                    <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                                        <defs>
+                                            <pattern id="wave-pattern" width="32" height="12" patternUnits="userSpaceOnUse">
+                                                <path 
+                                                    d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
+                                                    fill="none" 
+                                                    stroke="currentColor" 
+                                                    strokeWidth="1.5" 
+                                                    strokeLinecap="round" 
+                                                />
+                                            </pattern>
+                                        </defs>
+                                        <rect width="100%" height="100%" fill="url(#wave-pattern)" />
+                                    </svg>
+                                </div>
                                 <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                    {providerState.activeProvider === 'gemini' && "Gemini Settings"}
-                                    {providerState.activeProvider === 'openai' && "OpenAI Settings"}
-                                    {providerState.activeProvider === 'anthropic' && "Anthropic Settings"}
+                                    {managingProvider === 'gemini' && "Gemini Settings"}
+                                    {managingProvider === 'openai' && "OpenAI Settings"}
+                                    {managingProvider === 'anthropic' && "Anthropic Settings"}
                                 </h2>
 
-                                <div className="bg-[#141414] border border-white/5 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
+                                <div className="bg-[#141414] border border-white/5 rounded-xl shadow-2xl shadow-black/50">
                                     {/* Unified Panel Content */}
-                                    {providerState.activeProvider === 'gemini' && (
+                                    {managingProvider === 'gemini' && (
                                         <div className="p-6 space-y-6">
                                             {/* Model Selection */}
                                             <div className="space-y-3">
                                                 <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" data-dropdown="gemini">
-                                                    {/* Custom Dropdown Trigger */}
-                                                    <button
-                                                        onClick={() => geminiDropdownOpen ? closeGeminiDropdown() : setGeminiDropdownOpen(true)}
-                                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                    >
-                                                        <span>{GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.name || 'Select model'}</span>
-                                                        <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
-                                                    </button>
-                                                    
-                                                    {/* Custom Dropdown Menu */}
-                                                    {geminiDropdownOpen && (
-                                                        <div className={`absolute top-full left-0 right-0 mt-2 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden origin-top ${geminiDropdownClosing ? 'animate-dropdownClose' : 'animate-dropdownOpen'}`}>
+                                                <div className="relative" ref={geminiRef} data-dropdown="gemini">
+                                                     {/* Custom Dropdown Trigger */}
+                                                     <button
+                                                         onClick={() => {
+                                                             if (geminiDropdownOpen) {
+                                                                 closeGeminiDropdown();
+                                                             } else {
+                                                                 setGeminiDirection(determineDirection(geminiRef));
+                                                                 setGeminiDropdownOpen(true);
+                                                             }
+                                                         }}
+                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                                                     >
+                                                         <span>{GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.name || 'Select model'}</span>
+                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
+                                                     </button>
+                                                     
+                                                     {/* Custom Dropdown Menu */}
+                                                     {geminiDropdownOpen && (
+                                                         <div className={`absolute ${geminiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${geminiDropdownClosing ? (geminiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (geminiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
                                                                 {/* Corner Border Glow Effects */}
                                                                 <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
                                                                 <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
@@ -1288,31 +1138,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                         </div>
                                     )}
 
-                                    {providerState.activeProvider === 'openai' && (
+                                    {managingProvider === 'openai' && (
                                         <div className="p-6 space-y-6">
                                             {/* Model Selection */}
                                             <div className="space-y-3">
                                                 <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" data-dropdown="openai">
-                                                    {/* Custom Dropdown Trigger */}
-                                                    <button
-                                                        onClick={() => openaiDropdownOpen ? closeOpenaiDropdown() : setOpenaiDropdownOpen(true)}
-                                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                    >
-                                                        <span>{
-                                                            {
-                                                                'gpt-5.2-thinking': 'GPT 5.2 Thinking',
-                                                                'gpt-5.2-pro': 'GPT 5.2 Pro',
-                                                                'gpt-5.1-codex-high-max': 'GPT 5.1 Codex High Max',
-                                                                'gpt-5.2-codex': 'GPT 5.2 CODEX'
-                                                            }[modelConfig.openai.model] || 'Select model'
-                                                        }</span>
-                                                        <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
-                                                    </button>
-                                                    
-                                                    {/* Custom Dropdown Menu */}
-                                                    {openaiDropdownOpen && (
-                                                        <div className={`absolute top-full left-0 right-0 mt-2 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden origin-top ${openaiDropdownClosing ? 'animate-dropdownClose' : 'animate-dropdownOpen'}`}>
+                                                <div className="relative" ref={openaiRef} data-dropdown="openai">
+                                                     {/* Custom Dropdown Trigger */}
+                                                     <button
+                                                         onClick={() => {
+                                                             if (openaiDropdownOpen) {
+                                                                 closeOpenaiDropdown();
+                                                             } else {
+                                                                 setOpenaiDirection(determineDirection(openaiRef));
+                                                                 setOpenaiDropdownOpen(true);
+                                                             }
+                                                         }}
+                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                                                     >
+                                                         <span>{
+                                                             {
+                                                                 'gpt-5.2-thinking': 'GPT 5.2 Thinking',
+                                                                 'gpt-5.2-pro': 'GPT 5.2 Pro',
+                                                                 'gpt-5.1-codex-high-max': 'GPT 5.1 Codex High Max',
+                                                                 'gpt-5.2-codex': 'GPT 5.2 CODEX'
+                                                             }[modelConfig.openai.model] || 'Select model'
+                                                         }</span>
+                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
+                                                     </button>
+                                                     
+                                                     {/* Custom Dropdown Menu */}
+                                                     {openaiDropdownOpen && (
+                                                         <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
                                                                 {/* Corner Border Glow Effects */}
                                                                 <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
                                                                 <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
@@ -1405,30 +1262,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                         </div>
                                     )}
 
-                                    {providerState.activeProvider === 'anthropic' && (
+                                    {managingProvider === 'anthropic' && (
                                         <div className="p-6 space-y-6">
                                             {/* Model Selection */}
                                             <div className="space-y-3">
                                                 <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" data-dropdown="anthropic">
-                                                    {/* Custom Dropdown Trigger */}
-                                                    <button
-                                                        onClick={() => anthropicDropdownOpen ? closeAnthropicDropdown() : setAnthropicDropdownOpen(true)}
-                                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                    >
-                                                        <span>{
-                                                            {
-                                                                'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet (New)',
-                                                                'claude-3-opus-20240229': 'Claude 3 Opus',
-                                                                'claude-3-haiku-20240307': 'Claude 3 Haiku'
-                                                            }[modelConfig.anthropic.model] || 'Select model'
-                                                        }</span>
-                                                        <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${anthropicDropdownOpen ? 'rotate-180' : ''}`} />
-                                                    </button>
-                                                    
-                                                    {/* Custom Dropdown Menu */}
-                                                    {anthropicDropdownOpen && (
-                                                        <div className={`absolute top-full left-0 right-0 mt-2 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden origin-top ${anthropicDropdownClosing ? 'animate-dropdownClose' : 'animate-dropdownOpen'}`}>
+                                                <div className="relative" ref={anthropicRef} data-dropdown="anthropic">
+                                                     {/* Custom Dropdown Trigger */}
+                                                     <button
+                                                         onClick={() => {
+                                                             if (anthropicDropdownOpen) {
+                                                                 closeAnthropicDropdown();
+                                                             } else {
+                                                                 setAnthropicDirection(determineDirection(anthropicRef));
+                                                                 setAnthropicDropdownOpen(true);
+                                                             }
+                                                         }}
+                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                                                     >
+                                                         <span>{
+                                                             {
+                                                                 'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet (New)',
+                                                                 'claude-3-opus-20240229': 'Claude 3 Opus',
+                                                                 'claude-3-haiku-20240307': 'Claude 3 Haiku'
+                                                             }[modelConfig.anthropic.model] || 'Select model'
+                                                         }</span>
+                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${anthropicDropdownOpen ? 'rotate-180' : ''}`} />
+                                                     </button>
+                                                     
+                                                     {/* Custom Dropdown Menu */}
+                                                     {anthropicDropdownOpen && (
+                                                         <div className={`absolute ${anthropicDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${anthropicDropdownClosing ? (anthropicDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (anthropicDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
                                                                 {/* Corner Border Glow Effects */}
                                                                 <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
                                                                 <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
@@ -1522,7 +1386,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                 </div>
 
                                 {/* Unified Global Models List */}
-                                <div className="mt-8 pt-8 border-t border-white/5">
+                                <div className="mt-8 pt-8">
+                                    <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
+                                        <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                                            <defs>
+                                                <pattern id="wave-pattern-2" width="32" height="12" patternUnits="userSpaceOnUse">
+                                                    <path 
+                                                        d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
+                                                        fill="none" 
+                                                        stroke="currentColor" 
+                                                        strokeWidth="1.5" 
+                                                        strokeLinecap="round" 
+                                                    />
+                                                </pattern>
+                                            </defs>
+                                            <rect width="100%" height="100%" fill="url(#wave-pattern-2)" />
+                                        </svg>
+                                    </div>
                                     <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Models:</h2>
                                     <div className="space-y-4">
                                         {[
@@ -1603,6 +1483,293 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                                 </div>
                                             ))
                                         )}
+                                    </div>
+                                </div>
+                            </div>
+                        
+                        </div>
+                    ) : (
+                        // Overview Mode
+                        <div className={`space-y-10 ${wasManagingKeys ? 'animate-[fadeIn_150ms_ease-out]' : ''}`}>
+                            
+                            {/* Provider Cards */}
+                            <div className="grid grid-cols-3 gap-4">
+                                {/* Gemini Card */}
+                                <div 
+                                    className={`
+                                        relative rounded-2xl p-5 border cursor-pointer group
+                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
+                                        ${providerState.gemini.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
+                                    `}
+                                    onClick={() => setManagingProvider('gemini')}
+                                >
+                                    <div className="flex items-start justify-between mb-8">
+                                        <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
+                                            {/* Gemini Logo */}
+                                            <svg width="24" height="24" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                                                <path d="M256 0C256 0 292 200 512 256C292 312 256 512 256 512C256 512 220 312 0 256C220 200 256 0 256 0Z"/>
+                                            </svg>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('gemini'); }}
+                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
+                                        >
+                                            Manage
+                                        </button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Google Gemini</h3>
+                                        <p className="text-[12px] text-zinc-500">
+                                            {providerState.gemini.apiKey ? 'Configured' : 'Not configured'}
+                                        </p>
+                                    </div>
+                                    {providerState.gemini.apiKey && (
+                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
+                                    )}
+                                </div>
+
+                                {/* OpenAI Card */}
+                                <div 
+                                    className={`
+                                        relative rounded-2xl p-5 border cursor-pointer group
+                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
+                                        ${providerState.openai.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
+                                    `}
+                                    onClick={() => setManagingProvider('openai')}
+                                >
+                                    <div className="flex items-start justify-between mb-8">
+                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
+                                             <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.896zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('openai'); }}
+                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
+                                        >
+                                            Manage
+                                        </button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">OpenAI</h3>
+                                        <p className="text-[12px] text-zinc-500">
+                                            {providerState.openai.apiKey ? 'Configured' : 'Not configured'}
+                                        </p>
+                                    </div>
+                                    {providerState.openai.apiKey && (
+                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
+                                    )}
+                                </div>
+
+                                {/* Anthropic Card */}
+                                <div 
+                                    className={`
+                                        relative rounded-2xl p-5 border cursor-pointer group
+                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
+                                        ${providerState.anthropic.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
+                                    `}
+                                    onClick={() => setManagingProvider('anthropic')}
+                                >
+                                    <div className="flex items-start justify-between mb-8">
+                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
+                                            {/* Anthropic Logo */}
+                                            <svg viewBox="0 0 512 509.64" fill="currentColor" className="w-6 h-6">
+                                                <path fillRule="nonzero" d="M142.27 316.619l73.655-41.326 1.238-3.589-1.238-1.996-3.589-.001-12.31-.759-42.084-1.138-36.498-1.516-35.361-1.896-8.897-1.895-8.34-10.995.859-5.484 7.482-5.03 10.717.935 23.683 1.617 35.537 2.452 25.782 1.517 38.193 3.968h6.064l.86-2.451-2.073-1.517-1.618-1.517-36.776-24.922-39.81-26.338-20.852-15.166-11.273-7.683-5.687-7.204-2.451-15.721 10.237-11.273 13.75.935 3.513.936 13.928 10.716 29.749 23.027 38.848 28.612 5.687 4.727 2.275-1.617.278-1.138-2.553-4.271-21.13-38.193-22.546-38.848-10.035-16.101-2.654-9.655c-.935-3.968-1.617-7.304-1.617-11.374l11.652-15.823 6.445-2.073 15.545 2.073 6.547 5.687 9.655 22.092 15.646 34.78 24.265 47.291 7.103 14.028 3.791 12.992 1.416 3.968 2.449-.001v-2.275l1.997-26.641 3.69-32.707 3.589-42.084 1.239-11.854 5.863-14.206 11.652-7.683 9.099 4.348 7.482 10.716-1.036 6.926-4.449 28.915-8.72 45.294-5.687 30.331h3.313l3.792-3.791 15.342-20.372 25.782-32.227 11.374-12.789 13.27-14.129 8.517-6.724 16.1-.001 11.854 17.617-5.307 18.199-16.581 21.029-13.75 17.819-19.716 26.54-12.309 21.231 1.138 1.694 2.932-.278 44.536-9.479 24.062-4.347 28.714-4.928 12.992 6.066 1.416 6.167-5.106 12.613-30.71 7.583-36.018 7.204-53.636 12.689-.657.48.758.935 24.164 2.275 10.337.556h25.301l47.114 3.514 12.309 8.139 7.381 9.959-1.238 7.583-18.957 9.655-25.579-6.066-59.702-14.205-20.474-5.106-2.83-.001v1.694l17.061 16.682 31.266 28.233 39.152 36.397 1.997 8.999-5.03 7.102-5.307-.758-34.401-25.883-13.27-11.651-30.053-25.302-1.996-.001v2.654l6.926 10.136 36.574 54.975 1.895 16.859-2.653 5.485-9.479 3.311-10.414-1.895-21.408-30.054-22.092-33.844-17.819-30.331-2.173 1.238-10.515 113.261-4.929 5.788-11.374 4.348-9.478-7.204-5.03-11.652 5.03-23.027 6.066-30.052 4.928-23.886 4.449-29.674 2.654-9.858-.177-.657-2.173.278-22.37 30.71-34.021 45.977-26.919 28.815-6.445 2.553-11.173-5.789 1.037-10.337 6.243-9.2 37.257-47.392 22.47-29.371 14.508-16.961-.101-2.451h-.859l-98.954 64.251-17.618 2.275-7.583-7.103.936-11.652 3.589-3.791 29.749-20.474-.101.102.024.101z"/>
+                                            </svg>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('anthropic'); }}
+                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
+                                        >
+                                            Manage
+                                        </button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Anthropic</h3>
+                                        <p className="text-[12px] text-zinc-500">
+                                            {providerState.anthropic.apiKey ? 'Configured' : 'Not configured'}
+                                        </p>
+                                    </div>
+                                    {providerState.anthropic.apiKey && (
+                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* System Default Models Section */}
+                            <div className="pt-8 mt-4">
+                                <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
+                                    <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                                        <defs>
+                                            <pattern id="wave-pattern-3" width="32" height="12" patternUnits="userSpaceOnUse">
+                                                <path 
+                                                    d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
+                                                    fill="none" 
+                                                    stroke="currentColor" 
+                                                    strokeWidth="1.5" 
+                                                    strokeLinecap="round" 
+                                                />
+                                            </pattern>
+                                        </defs>
+                                        <rect width="100%" height="100%" fill="url(#wave-pattern-3)" />
+                                    </svg>
+                                </div>
+                                <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-6">System Defaults</h2>
+                                <div className="space-y-4">
+                                    {/* Chat Renaming Model */}
+                                    <div className="flex items-center justify-between py-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-[14px] font-semibold text-white">Chat Naming Model</span>
+                                            <span className="text-[12px] text-zinc-500">Model used to automatically generate chat titles.</span>
+                                        </div>
+                                        <div className="relative w-64" ref={geminiRef} data-dropdown="chat-renaming">
+                                            <button
+                                                onClick={() => {
+                                                    if (geminiDropdownOpen) closeGeminiDropdown();
+                                                    else {
+                                                        setGeminiDirection(determineDirection(geminiRef));
+                                                        setGeminiDropdownOpen(true);
+                                                    }
+                                                }}
+                                                className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                                            >
+                                                <span>
+                                                    {[
+                                                        ...modelConfig.gemini.savedModels,
+                                                        ...modelConfig.openai.savedModels,
+                                                        ...modelConfig.anthropic.savedModels
+                                                    ].find(m => m.modelId === modelConfig.systemDefaults?.chatRenaming)?.name || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : modelConfig.systemDefaults?.chatRenaming) || 'Select model'}
+                                                </span>
+                                                <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
+                                            </button>
+                                            
+                                            {geminiDropdownOpen && (
+                                                <div className={`absolute ${geminiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${geminiDropdownClosing ? (geminiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (geminiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
+                                                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                                                        {[
+                                                            ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
+                                                            ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
+                                                            ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
+                                                        ].length === 0 ? (
+                                                            <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
+                                                                No models saved or no API keys configured. Manage a provider above.
+                                                            </div>
+                                                        ) : (
+                                                            [
+                                                                ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
+                                                                ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
+                                                                ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
+                                                            ].map((model, index, arr) => (
+                                                                <button
+                                                                    key={`${model.provider}-${model.id}`}
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        setModelConfig(prev => ({ 
+                                                                            ...prev, 
+                                                                            systemDefaults: { 
+                                                                                ...prev.systemDefaults, 
+                                                                                chatRenaming: model.modelId 
+                                                                            } 
+                                                                        }));
+                                                                        closeGeminiDropdown();
+                                                                    }}
+                                                                    className={`
+                                                                        w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group
+                                                                        ${modelConfig.systemDefaults?.chatRenaming === model.modelId 
+                                                                            ? 'bg-white/10 text-white' 
+                                                                            : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                                                                        }
+                                                                    `}
+                                                                >
+                                                                    <span className="font-medium">{model.name}</span>
+                                                                    {modelConfig.systemDefaults?.chatRenaming === model.modelId && (
+                                                                        <Check size={14} className="text-white" />
+                                                                    )}
+                                                                </button>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Computer Use Model */}
+                                    <div className="flex items-center justify-between py-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-[14px] font-semibold text-white">Computer Use Model</span>
+                                            <span className="text-[12px] text-zinc-500">Model used for the automated test agent.</span>
+                                        </div>
+                                        <div className="relative w-64" ref={openaiRef} data-dropdown="computer-use">
+                                            <button
+                                                onClick={() => {
+                                                    if (openaiDropdownOpen) closeOpenaiDropdown();
+                                                    else {
+                                                        setOpenaiDirection(determineDirection(openaiRef));
+                                                        setOpenaiDropdownOpen(true);
+                                                    }
+                                                }}
+                                                className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                                            >
+                                                <span>
+                                                    {[
+                                                        ...modelConfig.gemini.savedModels,
+                                                        ...modelConfig.openai.savedModels,
+                                                        ...modelConfig.anthropic.savedModels
+                                                    ].find(m => m.modelId === modelConfig.systemDefaults?.computerUse)?.name || (modelConfig.systemDefaults?.computerUse === 'claude-sonnet-4.5' ? 'Claude Sonnet 4.5' : modelConfig.systemDefaults?.computerUse) || 'Select model'}
+                                                </span>
+                                                <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
+                                            </button>
+                                            
+                                            {openaiDropdownOpen && (
+                                                <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
+                                                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                                                        {[
+                                                            ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
+                                                            ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
+                                                            ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
+                                                        ].length === 0 ? (
+                                                            <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
+                                                                No models saved or no API keys configured. Manage a provider above.
+                                                            </div>
+                                                        ) : (
+                                                            [
+                                                                ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
+                                                                ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
+                                                                ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
+                                                            ].map((model, index, arr) => (
+                                                                <button
+                                                                    key={`${model.provider}-${model.id}`}
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        setModelConfig(prev => ({ 
+                                                                            ...prev, 
+                                                                            systemDefaults: { 
+                                                                                ...prev.systemDefaults, 
+                                                                                computerUse: model.modelId 
+                                                                            } 
+                                                                        }));
+                                                                        closeOpenaiDropdown();
+                                                                    }}
+                                                                    className={`
+                                                                        w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group
+                                                                        ${modelConfig.systemDefaults?.computerUse === model.modelId 
+                                                                            ? 'bg-white/10 text-white' 
+                                                                            : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                                                                        }
+                                                                    `}
+                                                                >
+                                                                    <span className="font-medium">{model.name}</span>
+                                                                    {modelConfig.systemDefaults?.computerUse === model.modelId && (
+                                                                        <Check size={14} className="text-white" />
+                                                                    )}
+                                                                </button>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -2317,13 +2484,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                        <div className="w-10 h-10 flex items-center justify-center">
                                             <Cloud size={20} className="text-white" />
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2 mb-0.5">
                                                 <span className="text-[14px] font-bold text-white">Webcontainers</span>
-                                                <span className="text-[11px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5 rounded">Enabled</span>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
                                             </div>
                                             <div className="text-[13px] text-zinc-400">Browser-based Node.js runtime</div>
                                         </div>
@@ -2337,13 +2504,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                        <div className="w-10 h-10 flex items-center justify-center">
                                             <FlaskConical size={20} className="text-white" />
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2 mb-0.5">
                                                 <span className="text-[14px] font-bold text-white">Willow AI</span>
-                                                <span className="text-[11px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5 rounded">Enabled</span>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
                                             </div>
                                             <div className="text-[13px] text-zinc-400">Unlock powerful AI features</div>
                                         </div>
@@ -2358,13 +2525,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                         className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors animate-[fadeIn_150ms_ease-out]"
                                     >
                                         <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                            <div className="w-10 h-10 flex items-center justify-center">
                                                 <FolderOpen size={20} className="text-white" />
                                             </div>
                                             <div>
                                                 <div className="flex items-center gap-2 mb-0.5">
                                                     <span className="text-[14px] font-bold text-white">Local Folder</span>
-                                                    <span className="text-[11px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5 rounded">Enabled</span>
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
                                                 </div>
                                                 <div className="text-[13px] text-zinc-400 truncate max-w-[200px]">Synced to: {localFolderName}</div>
                                             </div>
@@ -2389,7 +2556,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                        <div className="w-10 h-10 flex items-center justify-center">
                                             <Search size={20} className="text-white" />
                                         </div>
                                         <div>
@@ -2397,9 +2564,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                             <div className="text-[13px] text-zinc-400">Allow AI Agent to search through the web</div>
                                         </div>
                                     </div>
-                                    <button className="px-3 py-1.5 bg-[#1c1c1c] hover:bg-white/5 border border-white/10 rounded-lg text-white text-[12px] font-medium transition-colors">
-                                        Set up
-                                    </button>
+                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
                                 </div>
 
                                 {/* Drive */}
@@ -2408,7 +2573,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                        <div className="w-10 h-10 flex items-center justify-center">
                                             <HardDrive size={20} className="text-white" />
                                         </div>
                                         <div>
@@ -2416,9 +2581,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                             <div className="text-[13px] text-zinc-400">Save and share your projects</div>
                                         </div>
                                     </div>
-                                    <button className="px-3 py-1.5 bg-[#1c1c1c] hover:bg-white/5 border border-white/10 rounded-lg text-white text-[12px] font-medium transition-colors">
-                                        Set up
-                                    </button>
+                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
                                 </div>
 
                                 {/* Local Folder Sync (if not connected) */}
@@ -2428,7 +2591,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                         className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
                                     >
                                         <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-lg bg-[#1c1c1c] flex items-center justify-center border border-white/5">
+                                            <div className="w-10 h-10 flex items-center justify-center">
                                                 <FolderOpen size={20} className="text-white" />
                                             </div>
                                             <div>
@@ -2436,9 +2599,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                                 <div className="text-[13px] text-zinc-400">Save projects & chats locally</div>
                                             </div>
                                         </div>
-                                        <button className="px-3 py-1.5 bg-[#1c1c1c] hover:bg-white/5 border border-white/10 rounded-lg text-white text-[12px] font-medium transition-colors">
-                                            Set up
-                                        </button>
+                                        <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
                                     </div>
                                 )}
                             </div>
@@ -2456,13 +2617,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                         <div className="flex items-center justify-center mb-10">
                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                <div className="w-16 h-16 flex items-center justify-center">
                                     <FlaskConical size={32} className="text-white" />
                                 </div>
                                 <div>
-                                    <div className="flex items-center justify-center gap-3 mb-1">
+                                    <div className="flex items-center justify-center gap-2.5 mb-1">
                                         <h1 className="text-[24px] font-bold text-white">Willow AI</h1>
-                                        <span className="text-[12px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded">Enabled</span>
+                                        <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
                                     </div>
                                     <p className="text-[16px] text-zinc-400">Unlock powerful AI features</p>
                                 </div>
@@ -2515,13 +2676,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                         <div className="flex items-center justify-center mb-10">
                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                <div className="w-16 h-16 flex items-center justify-center">
                                     <Cloud size={32} className="text-white" />
                                 </div>
                                 <div>
-                                    <div className="flex items-center justify-center gap-3 mb-1">
+                                    <div className="flex items-center justify-center gap-2.5 mb-1">
                                         <h1 className="text-[24px] font-bold text-white">Webcontainers</h1>
-                                        <span className="text-[12px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded">Enabled</span>
+                                        <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
                                     </div>
                                     <p className="text-[16px] text-zinc-400">Browser-based Node.js runtime</p>
                                 </div>
@@ -2573,7 +2734,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                          <div className="flex items-center justify-center mb-10">
                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                <div className="w-16 h-16 flex items-center justify-center">
                                     <Search size={32} className="text-white" />
                                 </div>
                                 <div>
@@ -2623,14 +2784,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                          <div className="flex items-center justify-center mb-10">
                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                <div className="w-16 h-16 flex items-center justify-center">
                                     <FolderOpen size={32} className="text-white" />
                                 </div>
                                 <div>
-                                     <div className="flex items-center justify-center gap-3 mb-1">
+                                     <div className="flex items-center justify-center gap-2.5 mb-1">
                                         <h1 className="text-[24px] font-bold text-white">Local Folder Sync</h1>
                                         {isLocalFolderConnected && (
-                                            <span className="text-[12px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded">Connected</span>
+                                            <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
                                         )}
                                     </div>
                                     <p className="text-[16px] text-zinc-400">Save your projects, chats, and media directly on your device</p>
@@ -2665,7 +2826,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                                     <div className="bg-[#272729] border border-white/5 rounded-xl p-6">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isLocalFolderConnected ? 'bg-[#4ade80]/10' : 'bg-[#1c1c1c]'} border border-white/5`}>
+                                                <div className="w-12 h-12 flex items-center justify-center">
                                                     {isLocalFolderConnected ? (
                                                         <Check size={24} className="text-[#4ade80]" />
                                                     ) : (
@@ -2735,14 +2896,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
                          <div className="flex items-center justify-center mb-10">
                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/5 shadow-2xl">
+                                <div className="w-16 h-16 flex items-center justify-center">
                                     <HardDrive size={32} className="text-white" />
                                 </div>
                                 <div>
-                                     <div className="flex items-center justify-center gap-3 mb-1">
+                                     <div className="flex items-center justify-center gap-2.5 mb-1">
                                         <h1 className="text-[24px] font-bold text-white">Drive</h1>
                                         {isDriveConnected && (
-                                            <span className="text-[12px] font-bold text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded">Connected</span>
+                                            <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
                                         )}
                                     </div>
                                     <p className="text-[16px] text-zinc-400">Save and share your projects</p>
@@ -2764,7 +2925,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                             <div className="bg-[#272729] border border-white/5 rounded-xl p-6">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDriveConnected ? 'bg-[#4ade80]/10' : 'bg-[#1c1c1c]'} border border-white/5`}>
+                                        <div className="w-12 h-12 flex items-center justify-center">
                                             {isDriveConnected ? (
                                                 <Check size={24} className="text-[#4ade80]" />
                                             ) : (

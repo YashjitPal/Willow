@@ -26,21 +26,110 @@ function getDB(): Promise<IDBDatabase> {
 }
 
 /**
- * Save media items list for a specific project
+ * Save media items list for a specific project (keyed by projectId).
+ *
+ * DISK-AS-SOURCE: for any item already written to disk (`isSavedToFS && fsName`)
+ * the heavy bytes are NOT stored here — the `url` is dropped, leaving only
+ * lightweight metadata. The real PNG/MP4 on disk is the source of truth and the
+ * gallery re-hydrates a streaming blob: URL from it on load (see MediaView +
+ * LocalFSContext.loadLocalFSMediaUrl). Browser-only items (no folder yet) keep
+ * their base64 `url` so they still work without a connected folder.
  */
 export async function saveProjectMedia(projectId: string, mediaItems: any[]): Promise<void> {
   try {
+    const items = Array.isArray(mediaItems) ? mediaItems : [];
+    // Realtime, lightweight media INDEX in localStorage. The heavy image/video
+    // BYTES can never fit in localStorage (~5MB cap) — they live in IndexedDB /
+    // on disk. But we keep a small per-project record here (counts + timestamp)
+    // so media presence is visible & synced in localStorage in realtime, and so
+    // the UI can tell which projects have media without touching IndexedDB.
+    updateMediaIndex(projectId, items);
+
+    const toStore = items.map((m: any) =>
+      (m && m.isSavedToFS && m.fsName) ? { ...m, url: '' } : m
+    );
     const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const request = store.put(mediaItems, projectId);
+      const request = store.put(toStore, projectId);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   } catch (err) {
     // Fail silently to align with guidelines
   }
+}
+
+const MEDIA_INDEX_KEY = 'willow_media_index';
+
+/** Update the realtime localStorage media index for one project + notify the UI. */
+function updateMediaIndex(projectId: string, items: any[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const completed = (items || []).filter((m: any) => m && m.status === 'completed');
+    const raw = localStorage.getItem(MEDIA_INDEX_KEY);
+    const idx = raw ? JSON.parse(raw) : {};
+    if (completed.length === 0) {
+      delete idx[projectId];
+    } else {
+      idx[projectId] = {
+        count: completed.length,
+        images: completed.filter((m: any) => m.kind === 'image').length,
+        videos: completed.filter((m: any) => m.kind === 'video').length,
+        updatedAt: Date.now(),
+      };
+    }
+    localStorage.setItem(MEDIA_INDEX_KEY, JSON.stringify(idx));
+    window.dispatchEvent(new Event('willow_media_updated'));
+  } catch {}
+}
+
+/** Read the realtime media index (projectId -> { count, images, videos, updatedAt }). */
+export function getMediaIndex(): Record<string, { count: number; images: number; videos: number; updatedAt: number }> {
+  try {
+    const raw = localStorage.getItem(MEDIA_INDEX_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** True if a project has any media (per the realtime index). */
+export function projectHasMedia(projectId: string): boolean {
+  return (getMediaIndex()[projectId]?.count || 0) > 0;
+}
+
+/**
+ * Rebuild the localStorage media index from IndexedDB (run once on app mount).
+ * Ensures projects that already have media are reflected in the index without
+ * having to open each one. Keyed by projectId.
+ */
+export async function rebuildMediaIndex(): Promise<void> {
+  try {
+    const db = await getDB();
+    const entries = await new Promise<Record<string, any[]>>((resolve, reject) => {
+      const out: Record<string, any[]> = {};
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const c = tx.objectStore(STORE_NAME).openCursor();
+      c.onsuccess = () => { const cur = c.result; if (cur) { out[cur.key as string] = (cur.value as any[]) || []; cur.continue(); } else resolve(out); };
+      c.onerror = () => reject(c.error);
+    });
+    const idx: Record<string, any> = {};
+    for (const [pid, items] of Object.entries(entries)) {
+      const completed = (Array.isArray(items) ? items : []).filter((m: any) => m && m.status === 'completed');
+      if (completed.length > 0) {
+        idx[pid] = {
+          count: completed.length,
+          images: completed.filter((m: any) => m.kind === 'image').length,
+          videos: completed.filter((m: any) => m.kind === 'video').length,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+    localStorage.setItem(MEDIA_INDEX_KEY, JSON.stringify(idx));
+    window.dispatchEvent(new Event('willow_media_updated'));
+  } catch {}
 }
 
 /**
@@ -86,13 +175,36 @@ export async function loadProjectMedia(projectId: string): Promise<any[]> {
 /**
  * Save a project cover image (base64 data URL) in IndexedDB
  */
+/**
+ * Save a project cover. Converts blob: URLs and external video URLs to base64
+ * data URLs so they persist across reloads (videos with API keys expire).
+ */
 export async function saveProjectCover(projectId: string, coverUrl: string): Promise<void> {
   try {
+    let urlToSave = coverUrl;
+
+    // Covers must be self-contained so they survive reload. Anything that isn't
+    // already an inline data: URL — i.e. blob: object URLs, or external http(s)
+    // URLs such as expiring video links — is fetched and converted to base64.
+    // (Generated images are already data: URLs; only video covers are external.)
+    const needsInlining = coverUrl.startsWith('blob:') ||
+      coverUrl.startsWith('http://') || coverUrl.startsWith('https://');
+
+    if (needsInlining) {
+      const blob = await fetch(coverUrl).then(r => r.blob());
+      urlToSave = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
     const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(COVERS_STORE, 'readwrite');
       const store = tx.objectStore(COVERS_STORE);
-      const request = store.put(coverUrl, projectId);
+      const request = store.put(urlToSave, projectId);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -117,6 +229,138 @@ export async function loadProjectCover(projectId: string): Promise<string | null
   } catch (err) {
     return null;
   }
+}
+
+/**
+ * Delete all IndexedDB data for a project (media items + cover)
+ */
+export async function deleteProjectData(projectId: string): Promise<void> {
+  // Remove from the realtime localStorage media index first.
+  try {
+    const raw = localStorage.getItem(MEDIA_INDEX_KEY);
+    if (raw) {
+      const idx = JSON.parse(raw);
+      if (idx[projectId]) {
+        delete idx[projectId];
+        localStorage.setItem(MEDIA_INDEX_KEY, JSON.stringify(idx));
+        window.dispatchEvent(new Event('willow_media_updated'));
+      }
+    }
+  } catch {}
+  try {
+    const db = await getDB();
+
+    // Delete from project_media store
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.delete(projectId);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+
+    // Delete from project_covers store
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(COVERS_STORE, 'readwrite');
+      const store = tx.objectStore(COVERS_STORE);
+      const request = store.delete(projectId);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error('Failed to delete project data from IndexedDB:', err);
+  }
+}
+
+/**
+ * Return the set of projectIds that have stored media items in IndexedDB.
+ * Only MediaView writes to project_media, so this is a reliable "is a media
+ * project" signal (project covers are NOT, since code screenshots use them too).
+ */
+export async function getMediaProjectIds(): Promise<Set<string>> {
+  try {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      const ids = new Set<string>();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const items = cursor.value;
+          if (Array.isArray(items) && items.length > 0) {
+            ids.add(cursor.key as string);
+          }
+          cursor.continue();
+        } else {
+          resolve(ids);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    return new Set();
+  }
+}
+
+/**
+ * Fallback project-kind tagging that runs on app mount.
+ *
+ * IMPORTANT: This only FILLS IN tags for projects that have no `kind` yet. It
+ * never overrides an existing tag, because the disk sync
+ * (LocalFSContext.syncProjectsFromDisk) is the authoritative source for any
+ * project that lives in a connected workspace folder. This fallback exists for
+ * browser-only projects, or for the brief window before the folder is
+ * authorized on a fresh load.
+ *
+ * Heuristic for an untagged project: it's `media` if it has media items in
+ * IndexedDB or carries a generic/auto-generated name; otherwise `code`.
+ */
+export async function autoDetectProjectKinds(): Promise<boolean> {
+  try {
+    const stored = localStorage.getItem('willow_projects_list');
+    if (!stored) return false;
+
+    const list = JSON.parse(stored);
+    if (!Array.isArray(list) || list.length === 0) return false;
+
+    // Only act when something is actually untagged — never override disk tags.
+    const needsTag = list.some((p: any) => p && !p.kind);
+    if (!needsTag) return false;
+
+    const mediaIds = await getMediaProjectIds();
+
+    let changed = false;
+    const updated = list.map((p: any) => {
+      if (!p || p.kind) return p; // leave already-tagged projects untouched
+      changed = true;
+      const isGenericMediaName =
+        typeof p.name === 'string' &&
+        (p.name.startsWith('Project #') ||
+          /^\w{3}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+(AM|PM)$/.test(p.name));
+      const kind: 'media' | 'code' = (mediaIds.has(p.id) || isGenericMediaName) ? 'media' : 'code';
+      return { ...p, kind };
+    });
+
+    if (changed) {
+      localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+      window.dispatchEvent(new Event('willow_projects_updated'));
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    console.error('Auto-detect project kinds failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Legacy migration stub - replaced by autoDetectProjectKinds
+ */
+export async function migrateProjectKinds(): Promise<boolean> {
+  return autoDetectProjectKinds();
 }
 
 /**

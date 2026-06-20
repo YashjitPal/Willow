@@ -18,6 +18,7 @@ import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
 import { LocalFSProvider, useLocalFS } from './context/LocalFSContext';
+import { migrateProjectKinds, rebuildMediaIndex } from './lib/mediaStorage';
 
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
@@ -93,7 +94,15 @@ const DashboardLayout: React.FC<{
   setIsSidebarCollapsed
 }) => {
   const { background } = useBackground();
-  const { selectLocalFSInboxChat, activeChatId } = useLocalFS();
+  const { 
+    selectLocalFSInboxChat, 
+    activeChatId,
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    isInitializingLocalFS,
+    authorizeLocalFolder,
+    disconnectLocalFolder
+  } = useLocalFS();
 
   const isChatOngoing = !!activeChatId || hasActiveChat;
   // Calculate effective background (non-authenticated users get 'lines')
@@ -136,6 +145,39 @@ const DashboardLayout: React.FC<{
       {!isAuthenticated && <AuthButtons />}
       
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+
+      {/* Persistent Authorize Sync Modal */}
+      {isLocalFolderConnected && !isLocalFolderAuthorized && !isInitializingLocalFS && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-fade-in" />
+          <div className="relative bg-[#1e1f20] rounded-[28px] p-6 max-w-[500px] w-full shadow-2xl modal-scale-in">
+            <h2 className="text-[22px] font-medium text-[#e3e3e3] mb-4">Authorize local folder?</h2>
+            <p className="text-[15px] text-[#c4c7c5] leading-relaxed mb-8">
+              Willow requires your permission to read and write to the connected folder in order to sync your chats and projects.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void disconnectLocalFolder();
+                }}
+                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+              >
+                Turn off
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void authorizeLocalFolder();
+                }}
+                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+              >
+                Authorize
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
         {/* Top-right: Incognito Chat button in Chat mode */}
@@ -248,6 +290,7 @@ const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }
 };
 
 const App: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
@@ -262,6 +305,7 @@ const App: React.FC = () => {
         model: 'gemini-3-flash-preview',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
         savedModels: [
+          { id: 'default-flash-lite', name: 'Gemini 3.1 Flash Lite', thinkingLevel: 1, modelId: 'gemini-3.1-flash-lite' },
           { id: 'default-flash-high', name: 'Gemini 3 Flash', thinkingLevel: 3, modelId: 'gemini-3-flash-preview' },
           { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, modelId: 'gemini-3.1-pro-preview' }
         ] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
@@ -275,6 +319,10 @@ const App: React.FC = () => {
         model: 'claude-sonnet-4.5',
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+    },
+    systemDefaults: {
+      chatRenaming: 'gemini-3.1-flash-lite',
+      computerUse: 'claude-sonnet-4.5',
     }
   };
 
@@ -289,6 +337,7 @@ const App: React.FC = () => {
           gemini: { ...DEFAULT_MODEL_CONFIG.gemini, ...parsed.gemini },
           openai: { ...DEFAULT_MODEL_CONFIG.openai, ...parsed.openai },
           anthropic: { ...DEFAULT_MODEL_CONFIG.anthropic, ...parsed.anthropic },
+          systemDefaults: { ...DEFAULT_MODEL_CONFIG.systemDefaults, ...(parsed.systemDefaults || {}) },
         };
       }
     } catch { /* fall through */ }
@@ -314,7 +363,20 @@ const App: React.FC = () => {
 
   // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>('chat');
+  const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>(() => {
+    const modeParam = searchParams.get('mode') || searchParams.get('tab');
+    if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
+      return modeParam;
+    }
+    return 'chat';
+  });
+
+  React.useEffect(() => {
+    const modeParam = searchParams.get('mode') || searchParams.get('tab');
+    if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
+      setDashboardMode(modeParam);
+    }
+  }, [searchParams]);
   const [chatResetKey, setChatResetKey] = useState(0);
   const [hasActiveChat, setHasActiveChat] = useState(false);
   const [isIncognito, setIsIncognito] = useState(false);
@@ -347,6 +409,17 @@ const App: React.FC = () => {
       setShowOnboarding(false);
     }
   }, [user, userProfile]);
+
+  // One-time backfill of project `kind` for legacy entries created before
+  // media/code typing existed. Notifies project surfaces to re-read when done.
+  React.useEffect(() => {
+    void migrateProjectKinds().then((changed) => {
+      if (changed) window.dispatchEvent(new Event('willow_projects_updated'));
+    });
+    // Build the realtime localStorage media index from existing IndexedDB media
+    // so projects that already have media are reflected immediately.
+    void rebuildMediaIndex();
+  }, []);
 
   const handlePromptSubmit = (prompt: string, mode: string = 'ship', attachments?: any[]) => {
     if (!user) {
@@ -390,7 +463,7 @@ const App: React.FC = () => {
   return (
     <BackgroundProvider>
       <UserDataProvider>
-        <LocalFSProvider>
+        <LocalFSProvider modelConfig={modelConfig}>
           <Routes>
           <Route path="/" element={
           <>
@@ -445,13 +518,16 @@ const App: React.FC = () => {
                         sessionStorage.setItem('staging-nav', 'true');
                         navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
                       }}
-                      onProjectSelect={(projectId) => {
+                      onProjectSelect={(projectId, tempName) => {
                         if (!user) {
                            navigate('/login');
                            return;
                         }
                         sessionStorage.setItem('staging-nav', 'true');
-                        navigate(`/media?projectId=${encodeURIComponent(projectId)}`);
+                        const query = tempName 
+                          ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}` 
+                          : `?projectId=${encodeURIComponent(projectId)}`;
+                        navigate(`/media${query}`);
                       }}
                       modelConfig={modelConfig}
                       selectedModelId={selectedModelId}
@@ -466,7 +542,7 @@ const App: React.FC = () => {
                     {/* Only show BottomPanel (projects showcase) when authenticated */}
                     {user && (
                       <div className="pb-20">
-                        <BottomPanel onOpenDriveSettings={openDriveSettings} />
+                        <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
                       </div>
                     )}
                   </div>
@@ -484,12 +560,7 @@ const App: React.FC = () => {
                       dashboardMode="develop"
                       isSidebarCollapsed={isSidebarCollapsed}
                     />
-                    {/* Only show BottomPanel (projects showcase) when authenticated */}
-                    {user && (
-                      <div className="pb-20">
-                        <BottomPanel onOpenDriveSettings={openDriveSettings} />
-                      </div>
-                    )}
+                    {/* BottomPanel showcase is only for Media mode */}
                   </div>
                 )
               ) : (

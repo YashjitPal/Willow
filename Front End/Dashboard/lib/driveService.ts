@@ -45,6 +45,12 @@ class DriveService {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       console.error('[DriveService] API Error:', error);
+      if (response.status === 401 && typeof window !== 'undefined') {
+        // Token expired or revoked — drop it and let the app prompt a re-connect
+        // instead of repeatedly failing every request with a stale token.
+        this.accessToken = null;
+        window.dispatchEvent(new Event('willow_drive_auth_expired'));
+      }
       throw new Error(error.error?.message || 'Drive API request failed');
     }
 
@@ -321,8 +327,8 @@ class DriveService {
 export const driveService = new DriveService();
 export type { FileContent, DriveFile };
 
-// Expose on window for debugging (remove in production)
-if (typeof window !== 'undefined') {
+// Expose on window for debugging — DEV builds only (stripped from production bundles)
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   (window as any).driveService = driveService;
   (window as any).testDriveCreate = async () => {
     console.log('[Test] Testing Drive folder creation...');

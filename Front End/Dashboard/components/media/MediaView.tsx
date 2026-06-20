@@ -1167,6 +1167,91 @@ export const MediaView: React.FC = () => {
   const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
   const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
 
+  const [selectionBox, setSelectionBox] = React.useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const [selectedTileIds, setSelectedTileIds] = React.useState<Set<string>>(new Set());
+  const isSelectingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isSelectingRef.current) return;
+      setSelectionBox(prev => {
+        if (!prev) return null;
+        return { ...prev, currentX: e.clientX, currentY: e.clientY };
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (isSelectingRef.current) {
+        isSelectingRef.current = false;
+        setTimeout(() => setSelectionBox(null), 0); // Give a tick so click handlers know we were selecting if needed
+      }
+    };
+
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Define what counts as interactive and shouldn't start a drag selection.
+      const isInteractive = target.closest('button, input, a, [draggable="true"], select, textarea, [role="button"], .interactive-element, .custom-scrollbar-thumb, .tile-menu-overlay');
+      const isTile = target.closest('.gallery-tile');
+      
+      // Only start drag selection on left click
+      if (e.button === 0) {
+        if (!isInteractive && !isTile) {
+          // Clicked completely empty space: start drag selection and clear current selection
+          isSelectingRef.current = true;
+          setSelectedTileIds(new Set());
+          setSelectionBox({
+            startX: e.clientX,
+            startY: e.clientY,
+            currentX: e.clientX,
+            currentY: e.clientY
+          });
+        }
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousedown', handleGlobalMouseDown);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousedown', handleGlobalMouseDown);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectionBox || !mainRef.current) return;
+    const startX = Math.min(selectionBox.startX, selectionBox.currentX);
+    const startY = Math.min(selectionBox.startY, selectionBox.currentY);
+    const endX = Math.max(selectionBox.startX, selectionBox.currentX);
+    const endY = Math.max(selectionBox.startY, selectionBox.currentY);
+
+    const tiles = mainRef.current.querySelectorAll('.gallery-tile');
+    const newSelected = new Set<string>();
+    
+    // Check if the selection box is too small (e.g., just a click)
+    // If it is, we don't want to trigger overlap selection to avoid overriding standard click logic
+    const isTiny = Math.abs(selectionBox.currentX - selectionBox.startX) < 5 && 
+                   Math.abs(selectionBox.currentY - selectionBox.startY) < 5;
+                   
+    if (isTiny) return;
+
+    tiles.forEach(tile => {
+      const tileRect = tile.getBoundingClientRect();
+      const overlap = !(
+        tileRect.right < startX ||
+        tileRect.left > endX ||
+        tileRect.bottom < startY ||
+        tileRect.top > endY
+      );
+      if (overlap) {
+        const id = (tile as HTMLElement).dataset.id;
+        if (id) newSelected.add(id);
+      }
+    });
+    setSelectedTileIds(newSelected);
+  }, [selectionBox]);
+
   React.useEffect(() => {
     if (!draggingItemId) {
       setDraggedOverZone(null);
@@ -3605,10 +3690,23 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               onClick={() => setRenamingItemId(null)}
             />
           )}
+          {selectionBox && (
+            <div
+              className="fixed border-[1.5px] border-white bg-white/10 pointer-events-none z-[100] transition-opacity duration-75"
+              style={{
+                left: Math.min(selectionBox.startX, selectionBox.currentX),
+                top: Math.min(selectionBox.startY, selectionBox.currentY),
+                width: Math.abs(selectionBox.currentX - selectionBox.startX),
+                height: Math.abs(selectionBox.currentY - selectionBox.startY),
+                borderStyle: 'dotted'
+              }}
+            />
+          )}
           {mediaItems.length > 0 && (
             <div
               className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
               style={{ 
+                paddingLeft: '12px',
                 paddingRight: isAgentSidebarOpen ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
               }}
             >
@@ -3646,8 +3744,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         borderWidth: item.status === 'completed' ? '0.5px' : '0px',
                         borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
                         cursor: renamingItemId === item.id ? 'default' : draggingItemId === item.id ? 'grabbing' : 'grab',
+                        outline: selectedTileIds.has(item.id) ? '2.2px solid white' : '0px solid transparent',
+                        outlineOffset: '0px',
                       }}
-                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
+                      data-id={item.id}
+                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl transition-[outline] duration-150 ease-in-out ${
                         draggingItemId ? '' : 'group'
                       } ${
                         item.status === 'completed' ? 'border' : 'border-none'
@@ -3658,9 +3759,31 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             ? 'overflow-visible z-40' 
                             : draggingItemId === item.id
                               ? 'overflow-visible z-50'
-                              : 'overflow-hidden z-10'
+                              : selectedTileIds.has(item.id)
+                                ? 'overflow-visible z-[75]'
+                                : 'overflow-hidden z-10'
                       }`}
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return; // Only handle left click
+                        if (renamingItemId === item.id) return;
+                        e.stopPropagation();
+                        
+                        if (e.shiftKey) {
+                          setSelectedTileIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            return next;
+                          });
+                        } else {
+                          // Standard single click selects the image and clears others
+                          // Only if it's not already selected, to allow drag-and-drop to work without clearing selection
+                          if (!selectedTileIds.has(item.id)) {
+                            setSelectedTileIds(new Set([item.id]));
+                          }
+                        }
+                      }}
+                      onDoubleClick={(e) => {
                         if (renamingItemId === item.id) return;
                         if (item.status === 'completed' && item.url) {
                           setSelectedItem(item);

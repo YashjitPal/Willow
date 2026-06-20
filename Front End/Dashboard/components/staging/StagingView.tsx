@@ -53,20 +53,123 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
       setIsGeneratingName(true);
 
       try {
-        const genAI = new GoogleGenerativeAI(apiKeys.gemini[0]);
-        const model = genAI.getGenerativeModel({ model: PROJECT_NAME_MODEL });
+        const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
+        
+        const allModels = [
+          ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
+          ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
+          ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ];
+        
+        let targetProvider = 'gemini';
+        let targetModelId = 'gemini-3.1-flash-lite';
+        
+        if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
+          targetProvider = 'gemini';
+          targetModelId = 'gemini-3.1-flash-lite';
+        } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
+            targetProvider = 'anthropic';
+            targetModelId = 'claude-sonnet-4.5';
+        } else {
+            const sel = allModels.find((m) => m.modelId === chatNamingSelectionId);
+            if (sel) {
+              targetProvider = sel.provider;
+              targetModelId = sel.modelId;
+            }
+        }
+        
+        const apiKey = apiKeys?.[targetProvider]?.[0];
+        if (!apiKey) throw new Error('No API key for configured project naming provider');
 
-        const result = await model.generateContent(
-          `Generate a creative project name for an app. Use 2-3 words (preferred) or 1 word if catchy. Focus on WHAT the app does, not HOW it's being built. Ignore words like "code", "build", "create", "make" in the request - just name the app itself. Return ONLY the name, no quotes.\n\nApp description: ${prompt}`
-        );
+        const promptText = `Generate a creative project name for an app. Use 2-3 words (preferred) or 1 word if catchy. Focus on WHAT the app does, not HOW it's being built. Ignore words like "code", "build", "create", "make" in the request - just name the app itself. Return ONLY the name, no quotes.\n\nApp description: ${prompt}`;
+        let name = '';
 
-        const name = result.response.text().trim();
+        if (targetProvider === 'gemini') {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${targetModelId}:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: promptText }] }]
+                })
+              }
+            );
+            if (response.ok) {
+              const data = await response.json();
+              name = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+            }
+        } else if (targetProvider === 'openai') {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model: targetModelId,
+                messages: [{ role: 'user', content: promptText }]
+              })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                name = data?.choices?.[0]?.message?.content?.trim() || '';
+            }
+        } else if (targetProvider === 'anthropic') {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': apiKey,
+                  'anthropic-version': '2023-06-01',
+                  'anthropic-cors-bypass': 'true'
+                },
+                body: JSON.stringify({
+                  model: targetModelId,
+                  max_tokens: 50,
+                  messages: [{ role: 'user', content: promptText }]
+                })
+              });
+              if (response.ok) {
+                  const data = await response.json();
+                  name = data?.content?.[0]?.text?.trim() || '';
+              }
+        }
+
+        if (!name) name = 'New Project';
         // Clean up: remove quotes if present, limit length
-        const cleanName = name.replace(/^["']|["']$/g, '').substring(0, 30);
-        setProjectName(cleanName || 'New Project');
+        const cleanName = (name.replace(/^["']|["']$/g, '').substring(0, 30) || 'New Project').trim();
+        
+        // Save to willow_projects_list in localStorage
+        try {
+          const stored = localStorage.getItem('willow_projects_list');
+          let list = stored ? JSON.parse(stored) : [];
+          if (!Array.isArray(list)) list = [];
+          if (!list.some((p: any) => p.name.toLowerCase() === cleanName.toLowerCase())) {
+            const newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+            list.push({ id: newId, name: cleanName, kind: 'code' });
+            localStorage.setItem('willow_projects_list', JSON.stringify(list));
+            window.dispatchEvent(new Event('willow_projects_updated'));
+          }
+        } catch (e) {
+          // Fail silently
+        }
+
+        setProjectName(cleanName);
       } catch (error) {
-        console.error('[StagingView] Failed to generate project name:', error);
-        setProjectName('New Project');
+        const fallbackName = 'New Project';
+        try {
+          const stored = localStorage.getItem('willow_projects_list');
+          let list = stored ? JSON.parse(stored) : [];
+          if (!Array.isArray(list)) list = [];
+          if (!list.some((p: any) => p.name.toLowerCase() === fallbackName.toLowerCase())) {
+            const newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+            list.push({ id: newId, name: fallbackName, kind: 'code' });
+            localStorage.setItem('willow_projects_list', JSON.stringify(list));
+            window.dispatchEvent(new Event('willow_projects_updated'));
+          }
+        } catch (e) {}
+        setProjectName(fallbackName);
       } finally {
         setIsGeneratingName(false);
       }
@@ -373,6 +476,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             isTransitioning={isTransitioning}
             selectedModelId={selectedModelId}
             modelConfig={modelConfig}
+            projectName={projectName}
         />
       </div>
     </div>

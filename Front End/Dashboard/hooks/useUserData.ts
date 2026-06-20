@@ -61,16 +61,21 @@ export const useUserData = () => {
     
     const mapProviderState = (ps: any): ApiKeys => {
       if (!ps) return DEFAULT_API_KEYS;
+      
+      const extractKey = (newSchemaObj: any, oldSchemaArray: any) => {
+        // Try to get from new schema first
+        if (newSchemaObj?.apiKey) return [newSchemaObj.apiKey];
+        // Fallback to old schema (multiple keys array)
+        if ((oldSchemaArray || []).length > 0) {
+          return ((oldSchemaArray.some((k: any) => k.isActive) ? oldSchemaArray.filter((k: any) => k.isActive) : [oldSchemaArray[0]])).map((k: any) => k.key);
+        }
+        return [];
+      };
+
       return {
-        gemini: (ps.geminiKeys || []).length > 0 
-          ? ((ps.geminiKeys.some((k: any) => k.isActive) ? ps.geminiKeys.filter((k: any) => k.isActive) : [ps.geminiKeys[0]])).map((k: any) => k.key)
-          : [],
-        openai: (ps.openaiKeys || []).length > 0
-          ? ((ps.openaiKeys.some((k: any) => k.isActive) ? ps.openaiKeys.filter((k: any) => k.isActive) : [ps.openaiKeys[0]])).map((k: any) => k.key)
-          : [],
-        anthropic: (ps.anthropicKeys || []).length > 0
-          ? ((ps.anthropicKeys.some((k: any) => k.isActive) ? ps.anthropicKeys.filter((k: any) => k.isActive) : [ps.anthropicKeys[0]])).map((k: any) => k.key)
-          : []
+        gemini: extractKey(ps.gemini, ps.geminiKeys),
+        openai: extractKey(ps.openai, ps.openaiKeys),
+        anthropic: extractKey(ps.anthropic, ps.anthropicKeys)
       };
     };
     
@@ -99,16 +104,21 @@ export const useUserData = () => {
     const loadUserData = async () => {
       const mapProviderState = (ps: any): ApiKeys => {
         if (!ps) return DEFAULT_API_KEYS;
+        
+        const extractKey = (newSchemaObj: any, oldSchemaArray: any) => {
+          // Try to get from new schema first
+          if (newSchemaObj?.apiKey) return [newSchemaObj.apiKey];
+          // Fallback to old schema (multiple keys array)
+          if ((oldSchemaArray || []).length > 0) {
+            return ((oldSchemaArray.some((k: any) => k.isActive) ? oldSchemaArray.filter((k: any) => k.isActive) : [oldSchemaArray[0]])).map((k: any) => k.key);
+          }
+          return [];
+        };
+
         return {
-          gemini: (ps.geminiKeys || []).length > 0 
-            ? ((ps.geminiKeys.some((k: any) => k.isActive) ? ps.geminiKeys.filter((k: any) => k.isActive) : [ps.geminiKeys[0]])).map((k: any) => k.key)
-            : [],
-          openai: (ps.openaiKeys || []).length > 0
-            ? ((ps.openaiKeys.some((k: any) => k.isActive) ? ps.openaiKeys.filter((k: any) => k.isActive) : [ps.openaiKeys[0]])).map((k: any) => k.key)
-            : [],
-          anthropic: (ps.anthropicKeys || []).length > 0
-            ? ((ps.anthropicKeys.some((k: any) => k.isActive) ? ps.anthropicKeys.filter((k: any) => k.isActive) : [ps.anthropicKeys[0]])).map((k: any) => k.key)
-            : []
+          gemini: extractKey(ps.gemini, ps.geminiKeys),
+          openai: extractKey(ps.openai, ps.openaiKeys),
+          anthropic: extractKey(ps.anthropic, ps.anthropicKeys)
         };
       };
 

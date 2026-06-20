@@ -1,4 +1,21 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+const isCoverVideo = (url: string): boolean => {
+  if (!url) return false;
+  // For data: URLs trust ONLY the MIME type. Never substring-match the base64
+  // payload — random base64 routinely contains "veo"/"/video"/etc., which would
+  // mis-render image covers inside a <video> tag (they appear blank/gray).
+  if (url.startsWith('data:')) return url.startsWith('data:video');
+  const lowercaseUrl = url.toLowerCase();
+  return (
+    lowercaseUrl.endsWith('.mp4') ||
+    lowercaseUrl.endsWith('.webm') ||
+    lowercaseUrl.includes('/video') ||
+    lowercaseUrl.includes('generatevideo') ||
+    lowercaseUrl.includes('veo')
+  );
+};
 import { 
   ArrowRight, 
   Star, 
@@ -11,12 +28,14 @@ import {
   Trash2 
 } from 'lucide-react';
 import { RECENT_PROJECTS } from '../constants';
+import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
 
 interface ProjectMenuProps {
   onClose: () => void;
+  onDelete?: () => void;
 }
 
-const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose }) => {
+const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
 
@@ -42,24 +61,28 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  const menuItems = [
+  const menuItems: { label: string; icon: any; variant?: string; onClick?: () => void }[] = [
     { label: 'Select', icon: SquareDashed },
     { label: 'Move to folder', icon: Folder },
     { label: 'Remix', icon: RotateCcw },
     { label: 'Rename', icon: Pencil },
     { label: 'Settings', icon: Settings },
-    { label: 'Delete', icon: Trash2, variant: 'danger' },
+    { label: 'Delete', icon: Trash2, variant: 'danger', onClick: onDelete },
   ];
 
   return (
-    <div 
+    <div
       ref={menuRef}
       className={`absolute right-0 w-fit min-w-[150px] bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl py-1.5 z-50
         ${position === 'bottom' ? 'top-[50px]' : 'bottom-[50px]'}`}
     >
       {menuItems.map((item, idx) => (
-        <button 
+        <button
           key={idx}
+          onClick={() => {
+            if (item.onClick) item.onClick();
+            onClose();
+          }}
           className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-medium hover:bg-white/5 first:rounded-t-xl last:rounded-b-xl whitespace-nowrap
             ${item.variant === 'danger' ? 'text-[#ef4444]' : 'text-white/90'}`}
         >
@@ -73,18 +96,79 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose }) => {
 
 import { useBackground } from '../context/BackgroundContext';
 import { useAuth } from '../context/AuthContext';
+import { useLocalFS } from '../context/LocalFSContext';
 import { HardDrive } from 'lucide-react';
 
 interface BottomPanelProps {
   onOpenDriveSettings?: () => void;
+  mode?: 'media' | 'develop';
 }
 
-export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings }) => {
+export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, mode }) => {
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
+  const { deleteLocalFSProject } = useLocalFS();
+
+  const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean }[]>([]);
+  const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
+
+  // Permanently delete a project across IndexedDB, disk, and the registry.
+  const handleDeleteProject = async (id: string, name: string) => {
+    const ok = window.confirm(`Delete "${name}"? This permanently removes it from this device.`);
+    if (!ok) return;
+    try {
+      await deleteProjectData(id);
+      await deleteLocalFSProject(id, name);
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        const list = JSON.parse(stored);
+        const updated = list.filter((p: any) => p.id !== id);
+        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        window.dispatchEvent(new Event('willow_projects_updated'));
+      }
+      setProjectsList(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Failed to delete project', err);
+    }
+  };
+
+  useEffect(() => {
+    const loadProjects = () => {
+      try {
+        const stored = localStorage.getItem('willow_projects_list');
+        if (stored) {
+          const list = JSON.parse(stored);
+          // Match the showcase to the active mode. The Media tab also includes any
+          // project that actually HAS media (per the realtime index), so media you
+          // generated into a 'code' project still shows up here.
+          let filtered = list;
+          if (mode === 'media') {
+            const idx = getMediaIndex();
+            filtered = list.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0);
+          } else if (mode === 'develop') {
+            filtered = list.filter((p: any) => p.kind === 'code');
+          }
+          setProjectsList(filtered.slice(0, 9)); // Show top 9 projects
+          setStarredProjects(new Set(list.filter((p: any) => p.isStarred).map((p: any) => p.id)));
+
+          loadAllProjectCovers().then(covers => {
+            setCoverUrls(covers);
+          });
+        }
+      } catch (e) {}
+    };
+
+    loadProjects();
+    window.addEventListener('willow_projects_updated', loadProjects);
+    window.addEventListener('willow_media_updated', loadProjects);
+    return () => {
+      window.removeEventListener('willow_projects_updated', loadProjects);
+      window.removeEventListener('willow_media_updated', loadProjects);
+    };
+  }, [mode]);
 
   const toggleStar = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -97,6 +181,17 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings })
       setTimeout(() => setAnimatingStar(null), 300);
     }
     setStarredProjects(newStarred);
+
+    // Persist the starred flag so it survives reloads and matches ProjectsPage.
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        const list = JSON.parse(stored);
+        const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
+        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        window.dispatchEvent(new Event('willow_projects_updated'));
+      }
+    } catch {}
   };
 
   const toggleMenu = (e: React.MouseEvent, id: string) => {
@@ -165,19 +260,35 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings })
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10">
-        {RECENT_PROJECTS.slice(0, 9).map((project, index) => {
+        {projectsList.map((project, index) => {
           const isStarred = starredProjects.has(project.id);
           const isAnimating = animatingStar === project.id;
           const isMenuOpen = openMenuId === project.id;
+          const thumbnail = coverUrls[project.id] || project.coverUrl;
 
           return (
             <div key={project.id} className="group cursor-pointer">
-                <div className="relative aspect-[16/9] bg-[#1a1a1a] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
-                    <img 
-                      src={project.thumbnail} 
-                      className="w-full h-full object-cover opacity-90" 
-                      alt={project.title} 
-                    />
+                <div className="relative aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
+                    {thumbnail ? (
+                      isCoverVideo(thumbnail) ? (
+                        <video 
+                          src={thumbnail} 
+                          className="w-full h-full object-cover opacity-90" 
+                          autoPlay 
+                          loop 
+                          muted 
+                          playsInline 
+                        />
+                      ) : (
+                        <img 
+                          src={thumbnail} 
+                          className="w-full h-full object-cover opacity-90" 
+                          alt={project.name} 
+                        />
+                      )
+                    ) : (
+                      <div className="w-full h-full bg-[#2c2c2e]" />
+                    )}
                     
                     <div className="absolute top-3 right-3">
                       <button 
@@ -203,10 +314,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings })
                         />
                         <div className="flex flex-col">
                             <p className="text-[14px] font-bold text-white leading-tight">
-                              {project.title}
+                              {project.name}
                             </p>
                             <p className="text-[12px] font-medium text-[#52525b] mt-0.5">
-                              Viewed {project.lastViewed}
+                              Viewed recently
                             </p>
                         </div>
                     </div>
@@ -224,7 +335,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings })
                       </button>
                       
                       {isMenuOpen && (
-                        <ProjectMenu onClose={() => setOpenMenuId(null)} />
+                        <ProjectMenu onClose={() => setOpenMenuId(null)} onDelete={() => handleDeleteProject(project.id, project.name)} />
                       )}
                     </div>
                 </div>

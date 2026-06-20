@@ -60,6 +60,58 @@ const DiscordIcon = ({ size = 18, strokeWidth = 1.2, ...props }: any) => (
   </svg>
 );
 
+const MediaIcon = ({ size = 18, className = '', strokeWidth, ...props }: any) => {
+  // Multiply the size slightly to match the visual weight of other Lucide icons
+  const adjustedSize = Math.round(size * 1.15);
+  return (
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="18 1 128 128" 
+      width={adjustedSize} 
+      height={adjustedSize} 
+      className={className}
+      style={{
+        position: 'relative',
+        top: '-2.5px',
+        left: '2px',
+        ...props.style
+      }}
+      {...props}
+    >
+      <path d="M 84 33
+               L 36 33
+               A 12 12 0 0 0 24 45
+               L 24 78
+               A 12 12 0 0 0 36 90
+               L 104 90
+               A 12 12 0 0 0 116 78
+               L 116 65"
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth={strokeWidth ? strokeWidth * 5 : 10} 
+            strokeLinecap="butt" />
+      <path d="M 29 104 
+               L 111 104 
+               A 9 9 0 0 1 102 113 
+               L 38 113 
+               A 9 9 0 0 1 29 104 Z"
+            fill="currentColor" />
+      <path d="M 39 120 
+               L 101 120 
+               A 5 5 0 0 1 96 125 
+               L 44 125 
+               A 5 5 0 0 1 39 120 Z"
+            fill="currentColor" />
+      <path d="M 116 6
+               Q 116 33 143 33
+               Q 116 33 116 60
+               Q 116 33 89 33
+               Q 116 33 116 6 Z"
+            fill="currentColor" />
+    </svg>
+  );
+};
+
 const SidebarItem: React.FC<{ 
   icon?: React.ElementType; 
   label: string; 
@@ -705,10 +757,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     authorizeLocalFolder,
     deleteLocalFSChat,
     renameLocalFSChat,
-    getChatTimestamp
+    getChatTimestamp,
+    refreshLocalChats,
+    isInitializingLocalFS
   } = useLocalFS();
 
   const isChatOngoing = !!activeChatId || hasActiveChat;
+
+  useEffect(() => {
+    if (isLocalFolderConnected && isLocalFolderAuthorized) {
+      refreshLocalChats();
+    }
+  }, [isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalChats]);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -988,10 +1048,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Scrollable lower navigation wrapper */}
       <div className="flex-1 relative min-h-0">
-        {/* Scrollable lower navigation: Code, Media, Projects, Chats */}
-        <div 
+        {/* Scrollable lower navigation: Code, Media, Projects, Chats.
+            Uses `no-scrollbar` (not the transparent global 5px bar) so the
+            scrollbar reserves ZERO horizontal width — otherwise every w-full
+            highlight in here renders 5px narrower than the non-scrolling
+            Home/Search items above (visible as non-square highlights when
+            collapsed). The bar was already fully transparent, so hiding it is
+            no visual change. */}
+        <div
           onScroll={handleScroll}
-          className="h-full overflow-y-auto pt-0.5 pb-4 scrollbar-thin"
+          className="h-full overflow-y-auto pt-0.5 pb-4 no-scrollbar"
         >
           <div className="space-y-0.5">
             <SidebarItem 
@@ -1005,7 +1071,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             />
             <SidebarItem 
-              icon={Clapperboard} 
+              icon={MediaIcon} 
               label="Media" 
               isCollapsed={isCollapsed} 
               active={currentView === 'home' && dashboardMode === 'media'}
@@ -1043,22 +1109,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               </div>
 
-              {isLocalFolderConnected && (
+              {isLocalFolderConnected && (!isLocalFolderAuthorized || localChats.length > 0) && (
                 <>
                   <div className="flex items-center justify-between pr-[23px]">
                     <SectionHeader title="Chats" isCollapsed={isCollapsed} />
-                    {!isLocalFolderAuthorized && !isCollapsed && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void authorizeLocalFolder();
-                        }}
-                        className="mt-4 text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold px-2 py-0.5 rounded border border-amber-500/20 transition-colors cursor-pointer"
-                        title="Authorize local folder access to sync chats"
-                      >
-                        Authorize Sync
-                      </button>
-                    )}
                   </div>
                   <div className="space-y-0.5">
                     {localChats.length === 0 ? null : (

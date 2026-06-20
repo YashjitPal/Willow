@@ -320,6 +320,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, []);
 
+  // If a Drive request reports the token expired/revoked (HTTP 401), clear the
+  // stale auth so the UI can prompt a fresh connect instead of failing silently.
+  useEffect(() => {
+    const handleExpired = () => {
+      setAccessToken(null);
+      setDriveAccessToken(null);
+      setIsDriveConnected(false);
+      localStorage.removeItem('googleAccessToken');
+      localStorage.removeItem('googleDriveAccessToken');
+      localStorage.removeItem('isDriveConnected');
+      setError('Your Google Drive session expired. Please reconnect Drive.');
+    };
+    window.addEventListener('willow_drive_auth_expired', handleExpired);
+    return () => window.removeEventListener('willow_drive_auth_expired', handleExpired);
+  }, []);
+
   const value = useMemo<AuthContextType>(() => ({
     user,
     userProfile,

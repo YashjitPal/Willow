@@ -65,6 +65,7 @@ import { PROJECT_NAME_MODEL } from '@models';
 import { runComputerUseTest, type TestUpdate, type ConversationMessage } from '../../lib/computer-use';
 import { sandpackStore } from '../../lib/sandpack/sandpack-store';
 import { workbenchStore, parseAIResponse, parseResponseForDisplay, type ChatSegment } from '../../lib/sandpack';
+import { saveCodeSessions, loadCodeSessions } from '../../lib/willowDB';
 import { BOLT_SYSTEM_PROMPT } from '../../lib/sandpack/system-prompt';
 import { testStore } from '../../lib/test-store';
 import { TestingIndicator, TestResultIndicator } from './TestingIndicator';
@@ -1895,6 +1896,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const hasVisibleAttachments = (attachments.length > 0 && !attachments.every(att => removingIds.has(att.id))) || hasVisibleScreens;
   const [showRightGradient, setShowRightGradient] = useState(true);
 
+  const activeSnapshotId = useStore(workbenchStore.activeSnapshotId);
+  const previewSnapshot = useStore(workbenchStore.previewSnapshot);
+
   // Chat/Messaging State
   interface ChatMessage {
     id: string;
@@ -1904,6 +1908,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     isGenerating?: boolean;
     isThinking?: boolean;
     hasCodeChanges?: boolean;
+    filesSnapshot?: Record<string, string>; // State of codebase immediately after this message
 
     timestamp: number;
     attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
@@ -1926,6 +1931,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return `${dateStr}_${Math.random().toString(36).slice(2, 8)}`;
   });
 
+  // Project-specific Multi-Session Chat History
+  interface ChatSession {
+    id: string;                 // Unique UUID for the session
+    name: string;               // Summarized session name (defaults to 'New Chat')
+    messages: ChatMessage[];    // Chat messages list
+    filesSnapshot: Record<string, string>; // Files snapshot state for this session
+    activeSnapshotId: string | null;       // Active snapshot ID
+    createdAt: number;          // Creation timestamp
+    updatedAt: number;          // Last updated timestamp
+  }
+
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [namingSessionIds, setNamingSessionIds] = useState<Set<string>>(new Set());
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [shouldRenderHistory, setShouldRenderHistory] = useState(false);
+  const [isClosingHistory, setIsClosingHistory] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
   const [codeChatTitle, setCodeChatTitle] = useState<string | null>(null);
   const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
 
@@ -1941,13 +1966,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         try {
           const title = await generateChatTitle(userMsg, assistantMsg);
           if (title) {
-            setCodeChatTitle(title);
+            let uniqueTitle = title;
+            let counter = 1;
+            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+              uniqueTitle = `${title} (${counter})`;
+              counter++;
+            }
+            setCodeChatTitle(uniqueTitle);
           }
         } catch {}
       };
       void fetchTitle();
     }
-  }, [messages, codeChatTitle, isLocalFolderConnected, generateChatTitle]);
+  }, [messages, codeChatTitle, isLocalFolderConnected, generateChatTitle, sessions]);
 
   // Auto-save code chat sessions
   useEffect(() => {
@@ -1967,13 +1998,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         try {
           const title = await generateChatTitle(userMsg, assistantMsg);
           if (title) {
-            setDesignChatTitle(title);
+            let uniqueTitle = title;
+            let counter = 1;
+            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+              uniqueTitle = `${title} (${counter})`;
+              counter++;
+            }
+            setDesignChatTitle(uniqueTitle);
           }
         } catch {}
       };
       void fetchTitle();
     }
-  }, [designMessages, designChatTitle, isLocalFolderConnected, generateChatTitle]);
+  }, [designMessages, designChatTitle, isLocalFolderConnected, generateChatTitle, sessions]);
 
   // Auto-save design chat sessions
   useEffect(() => {
@@ -1992,12 +2029,423 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const { apiKeys, loading: userDataLoading } = useUserDataContext();
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+
+
   // Prompt Suggestions State
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsVisible, setSuggestionsVisible] = useState(false); // Start hidden
   const suggestionsGeneratedRef = useRef(false);
   const prevGeneratingRef = useRef(false);
   const initialLoadCompleteRef = useRef(false); // Track if first generation from dashboard is done
+
+  // Helper to extract a clean serializable snapshot of the sandpack files
+  const getFilesSnapshot = useCallback(() => {
+    const snapshot: Record<string, string> = {};
+    const filesMap = workbenchStore.files.get();
+    Object.entries(filesMap).forEach(([path, file]: [string, any]) => {
+      snapshot[path] = file.content;
+    });
+    return snapshot;
+  }, []);
+
+  // Helper to format human-readable relative dates
+  const formatRelativeTime = (timestamp: number) => {
+    const now = Date.now();
+    const diff = now - timestamp;
+    if (diff < 60000) return 'Just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(diff / 3600000);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(diff / 86400000);
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days}d ago`;
+    return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
+  // Manage delayed unmount for fade-out transitions
+  useEffect(() => {
+    if (isHistoryOpen) {
+      setShouldRenderHistory(true);
+      setIsClosingHistory(false);
+    } else if (shouldRenderHistory) {
+      setIsClosingHistory(true);
+      const timer = setTimeout(() => {
+        setShouldRenderHistory(false);
+        setIsClosingHistory(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isHistoryOpen, shouldRenderHistory]);
+
+  // Recalculate popover screen position dynamically
+  const updatePosition = useCallback(() => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPopoverPosition({
+        top: rect.bottom + window.scrollY,
+        left: rect.left + window.scrollX,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!shouldRenderHistory) return;
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [shouldRenderHistory, updatePosition]);
+
+  // Close history popover when clicking outside (Portal compatible)
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const popover = document.getElementById('history-popover-portal');
+      const isInsideTrigger = triggerRef.current?.contains(e.target as Node);
+      const isInsidePopover = popover?.contains(e.target as Node);
+      if (!isInsideTrigger && !isInsidePopover) {
+        setIsHistoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isHistoryOpen]);
+
+  // Load sessions from localStorage whenever projectName changes
+  useEffect(() => {
+    // If a prompt is present in the URL and we are on initial mount (projectName is empty),
+    // we are starting a brand new project. We must skip loading any saved sessions (like willow_chat_sessions_default)
+    // so that we start with a clean slate (empty messages, reset stores, etc.).
+    if (prompt && !projectName) {
+      setSessions([]);
+      const initialId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      setCurrentSessionId(initialId);
+      return;
+    }
+
+    let cancelled = false;
+    const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+
+    (async () => {
+      // loadCodeSessions migrates any legacy localStorage value into IndexedDB on first read.
+      const parsed = (await loadCodeSessions(storageKey)) as ChatSession[] | null;
+      if (cancelled) return;
+
+      if (parsed && parsed.length > 0) {
+        setSessions(parsed);
+        const sorted = [...parsed].sort((a, b) => b.updatedAt - a.updatedAt);
+        setCurrentSessionId(sorted[0].id);
+        setMessages(sorted[0].messages);
+        if (sorted[0].filesSnapshot && Object.keys(sorted[0].filesSnapshot).length > 0) {
+          workbenchStore.restoreFromSnapshot(sorted[0].activeSnapshotId || '', sorted[0].filesSnapshot);
+        }
+        return;
+      }
+
+      // No sessions found, create an initial one only if we already have messages
+      const initialId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (messages && messages.length > 0) {
+        const currentFiles = getFilesSnapshot();
+        const initialSession: ChatSession = {
+          id: initialId,
+          name: 'Initial Chat',
+          messages: messages,
+          filesSnapshot: Object.keys(currentFiles).length > 0 ? currentFiles : {},
+          activeSnapshotId: activeSnapshotId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setSessions([initialSession]);
+      } else {
+        setSessions([]);
+      }
+      setCurrentSessionId(initialId);
+    })();
+
+    return () => { cancelled = true; };
+  }, [projectName, prompt]);
+
+  // Auto-save current session state when messages or activeSnapshotId change
+  useEffect(() => {
+    if (!currentSessionId) return;
+
+    const currentFiles = getFilesSnapshot();
+
+    setSessions(prev => {
+      const idx = prev.findIndex(s => s.id === currentSessionId);
+      if (idx === -1) return prev;
+
+      const session = prev[idx];
+      const hasMessagesChanged = JSON.stringify(session.messages) !== JSON.stringify(messages);
+      const hasActiveSnapshotChanged = session.activeSnapshotId !== activeSnapshotId;
+      
+      if (!hasMessagesChanged && !hasActiveSnapshotChanged) {
+        return prev;
+      }
+
+      const updatedSession = {
+        ...session,
+        messages,
+        filesSnapshot: Object.keys(currentFiles).length > 0 ? currentFiles : session.filesSnapshot,
+        activeSnapshotId: activeSnapshotId,
+        updatedAt: Date.now(),
+      };
+
+      const next = [...prev];
+      next[idx] = updatedSession;
+
+      const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+      void saveCodeSessions(storageKey, next);
+
+      return next;
+    });
+  }, [messages, activeSnapshotId, currentSessionId, projectName, getFilesSnapshot]);
+
+  // Automated Session Naming with Gemini Flash
+  useEffect(() => {
+    if (!currentSessionId || !apiKeys.gemini?.[0]) return;
+
+    const currentSession = sessions.find(s => s.id === currentSessionId);
+    if (!currentSession) return;
+
+    const hasDefaultName = currentSession.name === 'New Chat' || currentSession.name === 'Initial Chat';
+    if (hasDefaultName && messages.length >= 1) {
+      const userMessage = messages.find(m => m.role === 'user');
+      if (!userMessage) return;
+
+      const userPrompt = userMessage.content;
+
+      const nameSession = async () => {
+        try {
+          setNamingSessionIds(prev => {
+            const next = new Set(prev);
+            next.add(currentSessionId);
+            return next;
+          });
+
+          const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
+          
+          const allModels = [
+            ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
+            ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
+            ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+          ];
+          
+          let targetProvider = 'gemini';
+          let targetModelId = 'gemini-3.1-flash-lite';
+          
+          if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
+            targetProvider = 'gemini';
+            targetModelId = 'gemini-3.1-flash-lite';
+          } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
+              targetProvider = 'anthropic';
+              targetModelId = 'claude-sonnet-4.5';
+          } else {
+              const sel = allModels.find((m: any) => m.modelId === chatNamingSelectionId);
+              if (sel) {
+                targetProvider = sel.provider;
+                targetModelId = sel.modelId;
+              }
+          }
+          
+          const apiKey = apiKeys?.[targetProvider]?.[0];
+          if (!apiKey) throw new Error('No API key for configured chat naming provider');
+
+          const promptText = `You are an AI assistant. Analyze this initial user prompt for a coding session and summarize it into a very short, creative title of 2 to 4 words. The title should describe what the user wants to build or achieve (e.g., "Create Button Component", "Fix Table Alignment", "Add Search Filter"). Do NOT use any quotes, punctuation, markdown, numbers, or bullet points. Return ONLY the title text.
+
+User Prompt:
+"${userPrompt}"`;
+
+          let summaryTitle = '';
+
+          if (targetProvider === 'gemini') {
+              const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${targetModelId}:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: promptText }] }]
+                  })
+                }
+              );
+              if (response.ok) {
+                const data = await response.json();
+                summaryTitle = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+              }
+          } else if (targetProvider === 'openai') {
+              const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                  model: targetModelId,
+                  messages: [{ role: 'user', content: promptText }]
+                })
+              });
+              if (response.ok) {
+                  const data = await response.json();
+                  summaryTitle = data?.choices?.[0]?.message?.content?.trim() || '';
+              }
+          } else if (targetProvider === 'anthropic') {
+              const response = await fetch('https://api.anthropic.com/v1/messages', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-cors-bypass': 'true'
+                  },
+                  body: JSON.stringify({
+                    model: targetModelId,
+                    max_tokens: 50,
+                    messages: [{ role: 'user', content: promptText }]
+                  })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    summaryTitle = data?.content?.[0]?.text?.trim() || '';
+                }
+          }
+          
+          summaryTitle = summaryTitle
+            .replace(/^["'-\s•]+|["'-\s•]+$/g, '')
+            .replace(/[\n\r]+/g, ' ')
+            .trim();
+
+          if (summaryTitle.length > 0 && summaryTitle.length < 40) {
+            setSessions(prev => {
+              const idx = prev.findIndex(s => s.id === currentSessionId);
+              if (idx === -1) return prev;
+
+              // Ensure name is unique among other sessions in the same project list
+              let uniqueTitle = summaryTitle;
+              let counter = 1;
+              while (prev.some((s, sIdx) => sIdx !== idx && s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+                uniqueTitle = `${summaryTitle} (${counter})`;
+                counter++;
+              }
+
+              const updated = {
+                ...prev[idx],
+                name: uniqueTitle,
+                updatedAt: Date.now(),
+              };
+              const next = [...prev];
+              next[idx] = updated;
+              const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+              void saveCodeSessions(storageKey, next);
+              return next;
+            });
+          }
+        } catch (error) {
+          console.error('[Sessions] Failed to auto-name session:', error);
+        } finally {
+          setNamingSessionIds(prev => {
+            const next = new Set(prev);
+            next.delete(currentSessionId);
+            return next;
+          });
+        }
+      };
+
+      void nameSession();
+    }
+  }, [messages, currentSessionId, apiKeys.gemini, projectName]);
+
+  // Switch to a different chat session
+  const handleSwitchSession = useCallback((sessionId: string) => {
+    if (isCurrentlyGenerating) return;
+
+    const currentFiles = getFilesSnapshot();
+    if (currentSessionId) {
+      setSessions(prev => {
+        const idx = prev.findIndex(s => s.id === currentSessionId);
+        if (idx === -1) return prev;
+        const updated = {
+          ...prev[idx],
+          messages,
+          filesSnapshot: Object.keys(currentFiles).length > 0 ? currentFiles : prev[idx].filesSnapshot,
+          activeSnapshotId: activeSnapshotId,
+          updatedAt: Date.now(),
+        };
+        const next = [...prev];
+        next[idx] = updated;
+        const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+        void saveCodeSessions(storageKey, next);
+        return next;
+      });
+    }
+
+    const targetSession = sessions.find(s => s.id === sessionId);
+    if (targetSession) {
+      setCurrentSessionId(sessionId);
+      setMessages(targetSession.messages);
+      
+      setCurrentStreamingResponse('');
+      setIsCurrentlyGenerating(false);
+      setIsCurrentlyThinking(false);
+      isCurrentlyThinkingRef.current = false;
+      setCurrentThinkingTime(0);
+      thinkingTimeRef.current = 0;
+      thinkingStartTimeRef.current = null;
+      if (thinkingTimerRef.current) {
+        clearInterval(thinkingTimerRef.current);
+        thinkingTimerRef.current = null;
+      }
+      
+      animatedContentRef.current.clear();
+      completedMessagesRef.current.clear();
+      introShownRef.current.clear();
+    }
+    
+    setIsHistoryOpen(false);
+  }, [currentSessionId, messages, activeSnapshotId, sessions, isCurrentlyGenerating, projectName, getFilesSnapshot]);
+
+  // Delete a chat session
+  const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    setSessions(prev => {
+      const next = prev.filter(s => s.id !== sessionId);
+      const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+      void saveCodeSessions(storageKey, next);
+      
+      if (currentSessionId === sessionId) {
+        if (next.length > 0) {
+          const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+          setTimeout(() => {
+            setCurrentSessionId(sorted[0].id);
+            setMessages(sorted[0].messages);
+          }, 0);
+        } else {
+          const newId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const newSession: ChatSession = {
+            id: newId,
+            name: 'Initial Chat',
+            messages: [],
+            filesSnapshot: getFilesSnapshot(),
+            activeSnapshotId: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          setTimeout(() => {
+            setSessions([newSession]);
+            setCurrentSessionId(newId);
+            setMessages([]);
+            workbenchStore.reset();
+          }, 0);
+        }
+      }
+      return next;
+    });
+  }, [currentSessionId, projectName, getFilesSnapshot]);
 
   const activeConversationMode = activeTab === 'canvas-screens' ? 'design' : 'default';
   const activeConversationMessages = activeConversationMode === 'design' ? designMessages : messages;
@@ -2018,19 +2466,94 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     if (!apiKeys.gemini?.[0]) return;
 
     try {
-      const genAI = new GoogleGenerativeAI(apiKeys.gemini[0]);
-      const model = genAI.getGenerativeModel({ model: PROJECT_NAME_MODEL });
+      const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
+      
+      const allModels = [
+        ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
+        ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
+        ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+      ];
+      
+      let targetProvider = 'gemini';
+      let targetModelId = 'gemini-3.1-flash-lite';
+      
+      if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
+        targetProvider = 'gemini';
+        targetModelId = 'gemini-3.1-flash-lite';
+      } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
+          targetProvider = 'anthropic';
+          targetModelId = 'claude-sonnet-4.5';
+      } else {
+          const sel = allModels.find((m: any) => m.modelId === chatNamingSelectionId);
+          if (sel) {
+            targetProvider = sel.provider;
+            targetModelId = sel.modelId;
+          }
+      }
+      
+      const apiKey = apiKeys?.[targetProvider]?.[0];
+      if (!apiKey) throw new Error('No API key for configured chat naming provider');
 
       // Build context from recent messages
       const recentMessages = messages.slice(-4).map(m =>
         `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.substring(0, 200)}`
       ).join('\n');
 
-      const result = await model.generateContent(
-        `Based on this conversation about building an app, suggest 5 short follow-up prompts (2-4 words each) the user might want to ask next. Return ONLY the suggestions, one per line. No numbers, no bullets, no question marks.\n\nConversation:\n${recentMessages}`
-      );
+      const promptText = `Based on this conversation about building an app, suggest 5 short follow-up prompts (2-4 words each) the user might want to ask next. Return ONLY the suggestions, one per line. No numbers, no bullets, no question marks.\n\nConversation:\n${recentMessages}`;
 
-      const text = result.response.text().trim();
+      let text = '';
+
+      if (targetProvider === 'gemini') {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${targetModelId}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: promptText }] }]
+              })
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          }
+      } else if (targetProvider === 'openai') {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: targetModelId,
+              messages: [{ role: 'user', content: promptText }]
+            })
+          });
+          if (response.ok) {
+              const data = await response.json();
+              text = data?.choices?.[0]?.message?.content?.trim() || '';
+          }
+      } else if (targetProvider === 'anthropic') {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-cors-bypass': 'true'
+              },
+              body: JSON.stringify({
+                model: targetModelId,
+                max_tokens: 150,
+                messages: [{ role: 'user', content: promptText }]
+              })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                text = data?.content?.[0]?.text?.trim() || '';
+            }
+      }
       const newSuggestions = text.split('\n')
         .map(s => s.trim().replace(/\?+$/, '')) // Remove trailing question marks
         .filter(s => s.length > 0 && s.length <= 30)
@@ -2185,6 +2708,27 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     // Don't allow new chat while generating
     if (isCurrentlyGenerating) return;
 
+    // Save outgoing session state first
+    const currentFiles = getFilesSnapshot();
+    if (currentSessionId) {
+      setSessions(prev => {
+        const idx = prev.findIndex(s => s.id === currentSessionId);
+        if (idx === -1) return prev;
+        const updated = {
+          ...prev[idx],
+          messages,
+          filesSnapshot: Object.keys(currentFiles).length > 0 ? currentFiles : prev[idx].filesSnapshot,
+          activeSnapshotId: activeSnapshotId,
+          updatedAt: Date.now(),
+        };
+        const next = [...prev];
+        next[idx] = updated;
+        const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+        void saveCodeSessions(storageKey, next);
+        return next;
+      });
+    }
+
     // Clear chat messages
     setMessages([]);
     setCurrentStreamingResponse('');
@@ -2227,9 +2771,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       exitVisualEdit();
     }
 
+    // Just generate a temporary new session ID and set it as active, but do not create a blank session in sessions list yet
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setCurrentSessionId(newSessionId);
+
     // Switch to preview tab
     onTabChange('preview');
-  }, [isCurrentlyGenerating, sidebarView, onTabChange]);
+  }, [isCurrentlyGenerating, sidebarView, onTabChange, currentSessionId, messages, activeSnapshotId, projectName, getFilesSnapshot]);
 
   // Listen for new chat signal from collapsed TopBar
   useEffect(() => {
@@ -2832,6 +3380,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (activeTab !== 'canvas-screens') {
         setMessages(prev => [...prev, userMessage]);
       }
+
+      // If the current session doesn't exist in sessions yet, create it on the first message
+      if (currentSessionId && !sessions.some(s => s.id === currentSessionId)) {
+        const newSession: ChatSession = {
+          id: currentSessionId,
+          name: 'New Chat',
+          messages: [userMessage],
+          filesSnapshot: currentFiles,
+          activeSnapshotId: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setSessions(prev => {
+          const next = [newSession, ...prev];
+          const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+          void saveCodeSessions(storageKey, next);
+          return next;
+        });
+      }
+
       setPromptValue('');
       setAttachments([]); // Clear attachments
       setRemovingIds(new Set());
@@ -3067,6 +3635,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       // Flush any pending file edits (for batched edits during subsequent generations)
       await workbenchStore.flushPendingEdits();
+
+      if (assistantMessage.hasCodeChanges) {
+        const snapshot: Record<string, string> = {};
+        Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
+          snapshot[path] = file.content;
+        });
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantMessage.id ? { ...msg, filesSnapshot: snapshot } : msg
+        ));
+        workbenchStore.activeSnapshotId.set(assistantMessage.id);
+      }
 
       workbenchStore.isGenerating.set(false);
 
@@ -3368,6 +3947,17 @@ CODING RULES:
       // Flush any pending file edits
       await workbenchStore.flushPendingEdits();
 
+      if (assistantMessage.hasCodeChanges) {
+        const snapshot: Record<string, string> = {};
+        Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
+          snapshot[path] = file.content;
+        });
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantMessage.id ? { ...msg, filesSnapshot: snapshot } : msg
+        ));
+        workbenchStore.activeSnapshotId.set(assistantMessage.id);
+      }
+
       workbenchStore.isGenerating.set(false);
       isSwarmRunning.set(false);
     } catch (error: any) {
@@ -3645,6 +4235,7 @@ CODING RULES:
   // Scroll logic - useLayoutEffect runs BEFORE browser paint, eliminating flash
   const lastPromptIds = useRef<{ default: string | null; design: string | null }>({ default: null, design: null });
   const isScrollingToTop = useRef(false);
+
 
   useEffect(() => {
     if (activeConversationMessages.length === 0) {
@@ -4181,7 +4772,91 @@ CODING RULES:
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
               </button>
-              <button className="p-1.5 hover:text-white transition-colors"><Clock size={16} /></button>
+              <div className="relative flex items-center">
+                <button 
+                  ref={triggerRef}
+                  onClick={() => setIsHistoryOpen(!isHistoryOpen)} 
+                  className={`p-1.5 transition-colors relative flex items-center justify-center rounded-lg ${isHistoryOpen ? 'text-white bg-white/10' : 'hover:text-white'}`}
+                  title="Chat History"
+                >
+                  <Clock size={16} />
+                </button>
+                {shouldRenderHistory && createPortal(
+                  <div 
+                    id="history-popover-portal"
+                    style={{
+                      position: 'fixed',
+                      top: `${popoverPosition.top + 8}px`,
+                      left: `${popoverPosition.left}px`,
+                      boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
+                    }}
+                    className={`w-72 max-h-[400px] z-[1000] bg-[#1c1c1c] rounded-xl p-2 flex flex-col gap-1 ${isClosingHistory ? 'settings-fade-out' : 'settings-fade-in'}`}
+                  >
+                    <div className="px-3 py-2 flex items-center justify-between text-zinc-400">
+                      <span className="text-[11px] font-semibold tracking-wider uppercase">History</span>
+                      <span className="text-[10px] bg-[#27272a] px-1.5 py-0.5 rounded-full text-zinc-300 font-medium">{sessions.length} sessions</span>
+                    </div>
+                    <div className="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto py-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                      {sessions.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-zinc-500 italic">
+                          No history sessions
+                        </div>
+                      ) : (
+                        [...sessions]
+                          .sort((a, b) => b.updatedAt - a.updatedAt)
+                          .map((session) => (
+                            <div 
+                              key={session.id}
+                              onClick={() => handleSwitchSession(session.id)}
+                              className={`group relative flex items-center justify-between p-2.5 rounded-lg transition-all duration-200 cursor-pointer select-none
+                                ${session.id === currentSessionId 
+                                  ? 'bg-[#27272a] text-white' 
+                                  : 'hover:bg-[#27272a]/55 text-zinc-400 hover:text-white'
+                                }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+                                <div className="w-3 flex items-center justify-center shrink-0 transition-all duration-300">
+                                  {session.id === currentSessionId ? (
+                                    <span className="text-[#2563eb] font-bold text-[14px] select-none leading-none">›</span>
+                                  ) : (
+                                    <div className="w-3 shrink-0" />
+                                  )}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  {namingSessionIds.has(session.id) ? (
+                                    <div className="flex flex-col gap-1 w-28 py-0.5">
+                                      <div className="h-3 bg-white/10 rounded animate-pulse w-full" />
+                                      <div className="h-2 bg-white/5 rounded animate-pulse w-2/3" />
+                                    </div>
+                                  ) : (
+                                    <span className="text-[13px] font-medium truncate">
+                                      {session.name || 'New Chat'}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-zinc-500 mt-0.5">
+                                    {formatRelativeTime(session.updatedAt)}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => handleDeleteSession(session.id, e)}
+                                className="p-1 text-zinc-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all duration-200 shrink-0"
+                                title="Delete Session"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 6h18"></path>
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              </div>
               <button onClick={() => sidebarView === 'visual-edit' ? handleExitVisualEdit(onToggle) : onToggle()} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
             </div>
           </div>
@@ -4204,9 +4879,9 @@ CODING RULES:
                 : 'pl-[27px] pr-[18.5px] mr-[8.5px] pt-5 scroll-pt-5'
           }`}
         style={{
-          // During resize: let browser maintain scroll position as text reflows (auto)
-          // Otherwise: disable scroll anchoring so our animation works correctly (none)
-          overflowAnchor: isResizing ? 'auto' : 'none'
+          // During resize or when not generating: let browser maintain scroll position (auto)
+          // During active scroll animation or when generating: disable anchoring (none)
+          overflowAnchor: (isResizing || !isCurrentlyGenerating) ? 'auto' : 'none'
         }}
       >
         <div className={isChatMode ? 'max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
@@ -4488,11 +5163,58 @@ CODING RULES:
                       </div>
                     )}
 
-                    {/* Preview Button - Only show when message is fully generated and code changed */}
-                    {!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && (
-                      <div className="pt-2 pb-1">
-                        <button className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/20 text-gray-200 hover:text-white hover:bg-white/5 hover:border-white/30 transition-all duration-200 text-[13px] font-medium select-none group">
-                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400 group-hover:text-white transition-colors">
+                    {/* Snapshot Action Buttons - Only show when message is fully generated and has a snapshot AND is not the current active state */}
+                    <div className={`grid transition-[grid-template-rows,margin] duration-300 ease-in-out ${!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && msg.filesSnapshot && activeSnapshotId !== msg.id ? 'grid-rows-[1fr] mt-2 mb-2' : 'grid-rows-[0fr] mt-0 mb-0'}`}>
+                      <div className="overflow-hidden">
+                        <div className={`w-[95%] max-w-[420px] mx-auto px-5 py-2.5 bg-[#27272a] rounded-[12px] flex justify-center items-center gap-5 flex-wrap transition-[opacity,transform] duration-300 ease-in-out ${!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && msg.filesSnapshot && activeSnapshotId !== msg.id ? 'opacity-100 translate-y-0 shadow-lg' : 'opacity-0 -translate-y-4 shadow-none'}`}>
+                          <button 
+                            onClick={() => {
+                              if (msg.filesSnapshot) {
+                                workbenchStore.restoreFromSnapshot(msg.id, msg.filesSnapshot);
+                              }
+                            }}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-full bg-black/25 text-[13px] font-medium select-none group transition-all duration-200 flex-1 max-w-[160px] min-w-0 text-gray-200 hover:text-white hover:bg-black/40"
+                          >
+                            {width >= 330 && (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400 group-hover:text-white transition-colors shrink-0">
+                                <path d="M3 10H13C17.4183 10 21 13.5817 21 18V20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M8 15L3 10L8 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                            Revert
+                          </button>
+
+                          <button 
+                            disabled={previewSnapshot === msg.filesSnapshot}
+                            onClick={() => {
+                              if (msg.filesSnapshot) {
+                                workbenchStore.setPreviewSnapshot(msg.filesSnapshot);
+                              }
+                            }}
+                            className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-medium select-none group transition-all duration-200 flex-1 max-w-[160px] min-w-0 ${previewSnapshot === msg.filesSnapshot ? 'bg-black/10 text-gray-500 cursor-default' : 'bg-black/25 text-gray-200 hover:text-white hover:bg-black/40'}`}
+                          >
+                            {width >= 330 && (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`${previewSnapshot === msg.filesSnapshot ? 'text-gray-500' : 'text-gray-400 group-hover:text-white transition-colors'} shrink-0`}>
+                                <rect x="5.5" y="5.5" width="13" height="13" rx="4" transform="rotate(45 12 12)" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M10.5 9.5L14.5 12L10.5 14.5V9.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                            Preview
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+
+                    {/* Fallback for older messages that have code changes but no snapshot yet */}
+                    {!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && !msg.filesSnapshot && (
+                      <div className="pt-2 pb-1 flex justify-center">
+                        <button 
+                          disabled
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/10 text-gray-500 cursor-not-allowed text-[13px] font-medium select-none opacity-60"
+                          title="This message was generated before Time Travel was enabled."
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-500">
                             <rect x="5.5" y="5.5" width="13" height="13" rx="4" transform="rotate(45 12 12)" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             <path d="M10.5 9.5L14.5 12L10.5 14.5V9.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
@@ -4906,7 +5628,12 @@ CODING RULES:
                      </button>
                      <div className="relative" ref={toolsMenuRef}>
                         {shouldRenderToolsMenu && (
-                          <div className={`absolute bottom-full left-0 mb-2 w-40 bg-[#1c1c1c] border border-[#2e2e2e] rounded-xl shadow-2xl overflow-hidden z-50 ${isClosingToolsMenu ? 'settings-fade-out' : 'settings-fade-in'}`}>
+                          <div 
+                             style={{
+                               boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
+                             }}
+                             className={`absolute bottom-full left-0 mb-2 w-40 bg-[#1c1c1c] rounded-xl overflow-hidden z-50 ${isClosingToolsMenu ? 'settings-fade-out' : 'settings-fade-in'}`}
+                          >
                              {TOOLS.map((tool) => (
                                <button 
                                   key={tool.id}
@@ -4973,7 +5700,12 @@ CODING RULES:
                      </button>
                       <div className="relative" ref={modelsMenuRef}>
                         {shouldRenderModelsMenu && (
-                          <div className={`absolute bottom-full right-0 mb-2 w-44 bg-[#1c1c1c] border border-[#2e2e2e] rounded-xl shadow-2xl overflow-hidden z-50 ${isClosingModelsMenu ? 'settings-fade-out' : 'settings-fade-in'}`}>
+                          <div 
+                             style={{
+                               boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
+                             }}
+                             className={`absolute bottom-full right-0 mb-2 w-44 bg-[#1c1c1c] rounded-xl overflow-hidden z-50 ${isClosingModelsMenu ? 'settings-fade-out' : 'settings-fade-in'}`}
+                          >
                              {/* Provider Groups */}
                              {['gemini', 'openai', 'anthropic'].map((provider) => {
                                const providerModels = modelConfig[provider]?.savedModels || [];

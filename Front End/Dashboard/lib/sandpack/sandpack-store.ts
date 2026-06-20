@@ -38,6 +38,12 @@ class SandpackStore {
   // Track if AI is currently generating (for UI states)
   isGenerating = atom<boolean>(false);
   
+  // Temporary snapshot for previewing past code states without overwriting live files
+  previewSnapshot = atom<Record<string, string> | null>(null);
+  
+  // Tracks the ID of the currently active snapshot (used to disable Revert/Preview buttons for the active state)
+  activeSnapshotId = atom<string | null>(null);
+
   // Pending file edits during streaming
   #pendingFileEdits: Map<string, { filePath: string; content: string }> = new Map();
 
@@ -64,6 +70,22 @@ class SandpackStore {
   }
 
   /**
+   * Restore files from a specific snapshot
+   */
+  restoreFromSnapshot(snapshotId: string, snapshot: Record<string, string>) {
+    const restoredFiles: FileMap = {};
+    for (const [path, content] of Object.entries(snapshot)) {
+      restoredFiles[path] = { type: 'file', content };
+    }
+    this.files.set(restoredFiles);
+    
+    // Ensure preview is updated with this new live state
+    this.hasUserCode.set(true);
+    this.activeSnapshotId.set(snapshotId);
+    this.previewSnapshot.set(null); // Clear preview snapshot when reverting (we are now live on this state)
+  }
+
+  /**
    * Set or update a file
    */
   setFile(path: string, content: string) {
@@ -79,6 +101,7 @@ class SandpackStore {
     
     this.files.setKey(normalizedPath, { type: 'file', content });
     this.hasUserCode.set(true);
+    this.activeSnapshotId.set(null); // Invalidate active snapshot when any file changes
   }
 
   /**
@@ -204,6 +227,8 @@ class SandpackStore {
     this.previewReady.set(false);
     this.hasUserCode.set(false);
     this.isGenerating.set(false);
+    this.previewSnapshot.set(null);
+    this.activeSnapshotId.set(null);
   }
 
   /**
@@ -211,6 +236,13 @@ class SandpackStore {
    */
   getFileContent(path: string): string | undefined {
     return this.getFile(path);
+  }
+
+  /**
+   * Set a temporary preview snapshot (time travel)
+   */
+  setPreviewSnapshot(snapshot: Record<string, string> | null): void {
+    this.previewSnapshot.set(snapshot);
   }
 }
 

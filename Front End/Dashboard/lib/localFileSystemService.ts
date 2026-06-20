@@ -121,9 +121,49 @@ export async function writeFileRecursively(
   // Create or get the file handle
   const fileName = parts[parts.length - 1];
   const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
-  
+
   // Write the file content
   const writable = await fileHandle.createWritable();
   await writable.write(content);
   await writable.close();
+}
+
+// Per-project manifest file. Holds the stable project id so that a project
+// re-discovered from disk keeps the same id it had in localStorage/IndexedDB
+// (which keys covers and media), instead of being assigned a fresh random id.
+const PROJECT_MANIFEST_NAME = '.willow.json';
+
+/**
+ * Read a project's `.willow.json` manifest from its folder handle.
+ * Returns null if the manifest is absent or unreadable.
+ */
+export async function readProjectManifest(
+  projectDirHandle: FileSystemDirectoryHandle
+): Promise<{ id?: string } | null> {
+  try {
+    const fileHandle = await projectDirHandle.getFileHandle(PROJECT_MANIFEST_NAME);
+    const file = await fileHandle.getFile();
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write (or overwrite) a project's `.willow.json` manifest with its stable id.
+ */
+export async function writeProjectManifest(
+  projectDirHandle: FileSystemDirectoryHandle,
+  id: string
+): Promise<void> {
+  try {
+    const fileHandle = await projectDirHandle.getFileHandle(PROJECT_MANIFEST_NAME, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify({ id }, null, 2));
+    await writable.close();
+  } catch {
+    // Fail silently to align with guidelines
+  }
 }

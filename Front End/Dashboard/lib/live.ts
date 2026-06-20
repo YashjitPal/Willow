@@ -283,6 +283,8 @@ export interface LiveSessionOptions {
   onTurnComplete?: (info: { aborted: boolean }) => void;
   onError?: (err: Error) => void;
   onClose?: () => void;
+  /** Discard all model audio/text and only emit input transcription */
+  transcribeOnly?: boolean;
 }
 
 export class GeminiLiveSession {
@@ -499,21 +501,27 @@ export class GeminiLiveSession {
     // i.e. words appear right as they're spoken, not after.
     const outTx = sc.outputTranscription?.text;
     if (typeof outTx === 'string' && outTx.length > 0) {
-      this.ensureTurnOpen();
-      this.queueText(outTx);
+      if (!this.opts.transcribeOnly) {
+        this.ensureTurnOpen();
+        this.queueText(outTx);
+      }
     }
     // modelTurn parts: text (future-proofing) OR inlineData audio (play it).
     const parts = sc.modelTurn?.parts;
     if (Array.isArray(parts)) {
       for (const p of parts) {
         if (typeof p?.text === 'string' && p.text.length > 0) {
-          this.ensureTurnOpen();
-          this.queueText(p.text);
+          if (!this.opts.transcribeOnly) {
+            this.ensureTurnOpen();
+            this.queueText(p.text);
+          }
         }
         const inline = p?.inlineData;
         if (inline?.data && typeof inline.data === 'string') {
-          this.ensureTurnOpen();
-          this.enqueueAudio(inline.data, inline.mimeType);
+          if (!this.opts.transcribeOnly) {
+            this.ensureTurnOpen();
+            this.enqueueAudio(inline.data, inline.mimeType);
+          }
         }
       }
     }
@@ -650,37 +658,39 @@ export class GeminiLiveSession {
 
     // Separate playback context (output is 24 kHz, input is 16 kHz). Create it
     // here — inside the user gesture — so autoplay policy lets it run.
-    try {
-      this.playCtx = new Ctx({ sampleRate: OUTPUT_SAMPLE_RATE_DEFAULT });
-    } catch {
-      this.playCtx = new Ctx();
-    }
-    void this.playCtx.resume?.();
-    this.playGain = this.playCtx.createGain();
-    this.playGain.gain.value = 1;
+    if (!this.opts.transcribeOnly) {
+      try {
+        this.playCtx = new Ctx({ sampleRate: OUTPUT_SAMPLE_RATE_DEFAULT });
+      } catch {
+        this.playCtx = new Ctx();
+      }
+      void this.playCtx.resume?.();
+      this.playGain = this.playCtx.createGain();
+      this.playGain.gain.value = 1;
 
-    // ── Echo-cancellation workaround ──────────────────────────────────────
-    // Chrome's getUserMedia AEC only cancels audio it can "see" on the
-    // render side: HTMLMediaElement / WebRTC output. Audio written straight
-    // to AudioContext.destination is invisible to it (crbug.com/687574), so
-    // the mic re-captures the model's own voice and ships it back as user
-    // speech. Routing the Web-Audio graph through a MediaStreamDestination
-    // and into a hidden <audio> element puts the model's voice on an
-    // AEC-visible path — the mic stream then comes back clean. Falls back to
-    // the direct destination if anything here throws.
-    try {
-      const sink = this.playCtx.createMediaStreamDestination();
-      this.playGain.connect(sink);
-      const el = new Audio();
-      el.srcObject = sink.stream;
-      el.autoplay = true;
-      // Keep the element attached so iOS/Safari don't GC the stream.
-      el.style.display = 'none';
-      document.body.appendChild(el);
-      void el.play().catch(() => {});
-      this.playSinkEl = el;
-    } catch {
-      this.playGain.connect(this.playCtx.destination);
+      // ── Echo-cancellation workaround ──────────────────────────────────────
+      // Chrome's getUserMedia AEC only cancels audio it can "see" on the
+      // render side: HTMLMediaElement / WebRTC output. Audio written straight
+      // to AudioContext.destination is invisible to it (crbug.com/687574), so
+      // the mic re-captures the model's own voice and ships it back as user
+      // speech. Routing the Web-Audio graph through a MediaStreamDestination
+      // and into a hidden <audio> element puts the model's voice on an
+      // AEC-visible path — the mic stream then comes back clean. Falls back to
+      // the direct destination if anything here throws.
+      try {
+        const sink = this.playCtx.createMediaStreamDestination();
+        this.playGain.connect(sink);
+        const el = new Audio();
+        el.srcObject = sink.stream;
+        el.autoplay = true;
+        // Keep the element attached so iOS/Safari don't GC the stream.
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        void el.play().catch(() => {});
+        this.playSinkEl = el;
+      } catch {
+        this.playGain.connect(this.playCtx.destination);
+      }
     }
     this.playCursor = 0;
   }

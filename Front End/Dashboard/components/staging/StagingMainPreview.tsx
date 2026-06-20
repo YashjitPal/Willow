@@ -17,6 +17,7 @@ import { createPreviewURL, initBundler, bundleForHotUpdate } from "../../lib/pre
 import { testStore } from "../../lib/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
 import { previewErrors, isErrorPanelOpen, addPreviewError, clearPreviewErrors, removePreviewError } from "../../lib/stores/error-store";
+import { saveProjectCover } from "../../lib/mediaStorage";
 
 // Import cursor image from cursor folder
 import cursorImage from "../../../cursor/arrow.cur";
@@ -346,6 +347,7 @@ interface MainPreviewProps {
   isTransitioning?: boolean;
   selectedModelId: string;
   modelConfig: any;
+  projectName?: string;
 }
 
 // Zoom percentage indicator (must be rendered inside ReactFlow)
@@ -463,6 +465,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   isTransitioning,
   selectedModelId,
   modelConfig,
+  projectName = '',
 }) => {
   // States
   const [generationStatus, setGenerationStatus] = useState<string | null>(null);
@@ -478,8 +481,9 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   // holds the up-to-date blob URL for external opens
   const latestExternalUrlRef = useRef<string | null>(null);
 
-  // Use sandpack store - subscribe to file changes
   const filesMap = useStore(sandpackStore.files);
+  const previewSnapshot = useStore(sandpackStore.previewSnapshot);
+  const activeSnapshotId = useStore(sandpackStore.activeSnapshotId);
   const hasUserCode = useStore(sandpackStore.hasUserCode);
   const currentEditingFile = useStore(sandpackStore.currentEditingFile);
   const isGenerating = useStore(sandpackStore.isGenerating);
@@ -549,13 +553,17 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
   // Convert files to the format bundler expects
   const getFilesForBundler = useCallback(() => {
+    if (previewSnapshot) {
+      console.log('[MainPreview] Using preview snapshot files');
+      return previewSnapshot;
+    }
     const files: Record<string, string> = {};
     for (const [path, file] of Object.entries(filesMap)) {
       files[path] = (file as { content: string }).content;
     }
     console.log('[MainPreview] Files in store:', Object.keys(files));
     return files;
-  }, [filesMap]);
+  }, [filesMap, previewSnapshot]);
 
   // ✨ CRITICAL: Rebuild preview with source locations when entering visual edit mode
   // Skip rebuild if we already have source locations from a previous build
@@ -600,6 +608,8 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   // Track previous isGenerating state to detect completion
   const wasGeneratingRef = useRef(false);
   const isFirstBuild = useRef(true);
+  const wasSnapshotRef = useRef(false);
+  const wasActiveSnapshotIdRef = useRef(activeSnapshotId);
 
   // Update preview only when generation COMPLETES (not during)
   useEffect(() => {
@@ -607,19 +617,28 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     const justFinishedGenerating = wasGeneratingRef.current && !isGenerating;
     wasGeneratingRef.current = isGenerating;
     
-    console.log('[MainPreview] Effect - bundlerReady:', bundlerReady, 'hasUserCode:', hasUserCode, 'isGenerating:', isGenerating, 'justFinished:', justFinishedGenerating);
+    // Detect when user reverted to a snapshot
+    const justReverted = wasActiveSnapshotIdRef.current !== activeSnapshotId;
+    wasActiveSnapshotIdRef.current = activeSnapshotId;
+    
+    console.log('[MainPreview] Effect - bundlerReady:', bundlerReady, 'hasUserCode:', hasUserCode, 'isGenerating:', isGenerating, 'justFinished:', justFinishedGenerating, 'justReverted:', justReverted);
     
     if (!bundlerReady || !hasUserCode) return;
     
-    // Only rebuild in two cases:
+    // Only rebuild in four cases:
     // 1. First build (no preview URL yet)
     // 2. Generation just completed
-    const shouldBuild = !previewUrl || justFinishedGenerating;
+    // 3. We are viewing a snapshot and it just changed, or we just exited snapshot mode
+    // 4. We just reverted to a past snapshot state
+    const isSnapshotMode = previewSnapshot !== null;
+    const shouldBuild = !previewUrl || justFinishedGenerating || previewSnapshot !== null || wasSnapshotRef.current || justReverted;
     
     if (!shouldBuild) {
       console.log('[MainPreview] Skipping rebuild - generation in progress or no change');
       return;
     }
+
+    wasSnapshotRef.current = isSnapshotMode;
     
     const files = getFilesForBundler();
     
@@ -644,6 +663,33 @@ const MainPreview: React.FC<MainPreviewProps> = ({
       try {
         // ✨ NEW: Enable source location injection when in visual edit mode
         const isVisualEdit = isVisualEditMode.get();
+
+        // ✨ HOT UPDATE: Try to hot update the preview if we already have a running iframe
+        // This prevents the iframe from flickering white when switching to/from snapshots
+        if (!isFirstBuild.current && previewUrl && iframeRef.current?.contentWindow) {
+          try {
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: isVisualEdit });
+            
+            iframeRef.current.contentWindow.postMessage({
+              type: 'HOT_UPDATE',
+              scriptCode,
+            }, '*');
+
+            // Generate new blob URL in background for "Open Externally" feature
+            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+            if (latestExternalUrlRef.current) {
+              URL.revokeObjectURL(latestExternalUrlRef.current);
+            }
+            latestExternalUrlRef.current = newExternalUrl;
+            
+            clearPreviewErrors();
+            console.log('[MainPreview] Preview hot updated successfully');
+            return; // Skip the full reload below
+          } catch (hotUpdateError) {
+            console.warn('[MainPreview] Hot update failed, falling back to full reload:', hotUpdateError);
+          }
+        }
+
         const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
 
         // Check if the build returned an error fallback page
@@ -690,7 +736,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     // Small delay to let files settle
     const timer = setTimeout(buildPreview, 150);
     return () => clearTimeout(timer);
-  }, [bundlerReady, hasUserCode, isGenerating, getFilesForBundler, previewUrl]);
+  }, [bundlerReady, hasUserCode, isGenerating, getFilesForBundler, previewUrl, activeSnapshotId]);
 
   // Update generation status when editing file changes
   useEffect(() => {
@@ -927,6 +973,72 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     }
   }, [previewUrl]);
 
+  // Capture snapshot of preview and save as project cover in IndexedDB
+  const captureAndSaveCover = useCallback(async () => {
+    if (!projectName || !iframeRef.current) return;
+    
+    // Resolve project ID from projectName in localStorage
+    let projectId = null;
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        const list = JSON.parse(stored);
+        const found = list.find((p: any) => p.name.toLowerCase() === projectName.toLowerCase());
+        if (found) {
+          projectId = found.id;
+        }
+      }
+    } catch (e) {
+      return;
+    }
+    
+    if (!projectId) return;
+
+    try {
+      const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
+      const body = doc?.body;
+      if (!body) return;
+
+      const { default: html2canvas } = await import('html2canvas');
+      
+      // Measure actual dimensions
+      const rect = iframeRef.current.getBoundingClientRect();
+      const actualWidth = rect.width || 800;
+      const actualHeight = rect.height || 450;
+
+      const canvas = await html2canvas(body, {
+        width: actualWidth,
+        height: actualHeight,
+        scale: 0.3, // Scale down to keep cover lightweight (JPEG)
+        useCORS: true,
+        backgroundColor: '#1c1c1c',
+        logging: false,
+      });
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85); // JPEG 85% is extremely lightweight
+      
+      // Save project cover in IndexedDB
+      await saveProjectCover(projectId, dataUrl);
+      
+      // Save hasCover = true in localStorage project list to keep metadata synced
+      try {
+        const stored = localStorage.getItem('willow_projects_list');
+        if (stored) {
+          const list = JSON.parse(stored);
+          const idx = list.findIndex((p: any) => p.id === projectId);
+          if (idx !== -1 && !list[idx].hasCover) {
+            list[idx].hasCover = true;
+            localStorage.setItem('willow_projects_list', JSON.stringify(list));
+            window.dispatchEvent(new Event('willow_projects_updated'));
+          }
+        }
+      } catch (e) {}
+
+    } catch (err) {
+      // Fail silently
+    }
+  }, [projectName]);
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#1c1c1c] overflow-hidden">
       {/* TopBar - without terminal toggle */}
@@ -955,6 +1067,29 @@ const MainPreview: React.FC<MainPreviewProps> = ({
       >
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-h-0">
+          {/* Snapshot Banner */}
+          <div 
+            className={`grid transition-[grid-template-rows,margin] duration-300 ease-in-out ${previewSnapshot ? 'grid-rows-[1fr] mb-3' : 'grid-rows-[0fr] mb-0'}`}
+          >
+            <div className="overflow-hidden">
+              <div className={`bg-[#27272a] text-[13px] px-3 py-2.5 flex items-center justify-between rounded-[12px] shrink-0 transition-[opacity,transform,box-shadow] duration-300 ${previewSnapshot ? 'opacity-100 translate-y-0 shadow-lg' : 'opacity-0 -translate-y-4 shadow-none'}`}>
+                <div className="flex items-center gap-2 pl-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400">
+                    <path d="M12 8V12L15 15M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="font-medium text-gray-200">Time Travel Preview</span>
+                  <span className="text-gray-500 hidden sm:inline">— Viewing a past state of your code</span>
+                </div>
+                <button 
+                  onClick={() => sandpackStore.setPreviewSnapshot(null)}
+                  className="bg-white/10 hover:bg-white/20 text-white font-medium px-4 py-1.5 rounded-full transition-colors text-[12px]"
+                >
+                  Back to Live Code
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Main Panel Area */}
           <div className="relative flex-1 min-h-0 overflow-hidden rounded-[12px]">
             {/* Code Panel */}
@@ -1139,6 +1274,11 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                           // USE IMMEDIATE REINIT: fast, silent, no delays
                           immediateInspectorReinit();
                       }
+
+                      // Take a screenshot of the preview for project cover after rendering settles
+                      setTimeout(() => {
+                        captureAndSaveCover();
+                      }, 1800);
                     }}
                     style={{
                       pointerEvents: (isResizing || isTransitioning || isTestMode || isVisualEdit) ? "none" : "auto",

@@ -104,6 +104,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         return;
       }
       isFirstScrollRef.current = true;
+      initialLoadRef.current = true; // Block auto-save on load when switching chats
 
       const loadChat = async () => {
         try {
@@ -135,13 +136,45 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             }
           }
         } catch {}
-        isFirstScrollRef.current = false;
       };
       void loadChat();
     }
   }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId]);
 
-  // Generate chat title using Gemini 3.1 Flash Lite once we have the first user prompt.
+  // Handle the case where the currently active chat is deselected/deleted.
+  // We must ONLY clear when an EXISTING active chat goes away (a non-null ->
+  // null transition) AND it STAYS null. A brand-new chat legitimately has
+  // activeChatId === null the whole time, and internal renames/syncs can briefly
+  // flip it; clearing on either would wipe the user's live conversation. So we
+  // (a) track the previous id, and (b) re-check after a short delay so a transient
+  // null can't wipe the chat — only a sustained deselect clears it.
+  const prevActiveChatIdRef = useRef<string | null>(activeChatId);
+  const activeChatIdRef = useRef<string | null>(activeChatId);
+  // Mirrors of isLive/isGenerating for the clear-effect's delayed re-check (they
+  // are declared later in the component, so we read them via refs at fire time).
+  const isLiveRef = useRef(false);
+  const isGeneratingRef = useRef(false);
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+  useEffect(() => {
+    const prev = prevActiveChatIdRef.current;
+    prevActiveChatIdRef.current = activeChatId;
+    if (prev !== null && activeChatId === null && messages.length > 0) {
+      const t = setTimeout(() => {
+        // Only a SUSTAINED, idle deselect clears the view. Never clear during a
+        // live session or while generating (live mode toggles activeChatId/
+        // isGenerating rapidly and can briefly read null), and never if the chat
+        // became active again in the meantime.
+        if (activeChatIdRef.current !== null || isLiveRef.current || isGeneratingRef.current) return;
+        setMessages([]);
+        setChatTitle(null);
+        const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
+        setChatSessionId(`${dateStr}_${Math.random().toString(36).slice(2, 8)}`);
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [activeChatId, messages.length]);
+
+  // Generate chat title using the user's selected Chat Naming Model once we have the first user prompt.
   // Instantly renames the chat session from its temporary ID to the new title.
   useEffect(() => {
     if (isIncognito) return;
@@ -166,13 +199,15 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
         if (title) {
           setChatTitle(title);
-          // Save and rename immediately so the skeleton loader in the sidebar is replaced by the title instantly
-          const strippedUserMsg = {
-            id: messages[0].id,
-            role: messages[0].role,
-            content: messages[0].content,
-          };
-          void saveLocalFSChat(title, [strippedUserMsg], chatSessionId);
+          // Rename to the title AND persist the FULL conversation under it (not
+          // just the first message). Saving only the user message left a
+          // truncated chat on disk, and the follow-up full save was skipped
+          // (the messages array ref hadn't changed), so a reload/sync could
+          // restore a chat that was missing the assistant reply.
+          const fullStripped = messages.map(
+            ({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest
+          );
+          void saveLocalFSChat(title, fullStripped, chatSessionId);
         }
       };
       void fetchTitle();
@@ -194,19 +229,39 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // Skip saving while generating — partial messages have empty content that
   // would corrupt the stored file. The final save fires once isGenerating
   // flips to false (which triggers a setMessages → re-render → this effect).
+  // Also, we use a ref to prevent saving the exact same messages we just loaded,
+  // which would bump the "last edited" timestamp to Date.now() simply by clicking on a chat.
+  const initialLoadRef = useRef(true);
+  const lastSavedMessagesRef = useRef<ChatMsg[]>([]);
+
   useEffect(() => {
     if (isIncognito) return;
-    if (isLocalFolderConnected && messages.length > 0 && !isGenerating) {
+    
+    if (initialLoadRef.current && messages.length > 0) {
+       initialLoadRef.current = false;
+       lastSavedMessagesRef.current = messages;
+       return;
+    }
+
+    if (messages === lastSavedMessagesRef.current) {
+        return; // Exact same array reference (e.g. from a load or unrelated re-render)
+    }
+
+    if (isLocalFolderConnected && messages.length > 0 && !isGenerating && !initialLoadRef.current) {
       const activeId = chatTitle || chatSessionId;
       // Strip runtime flags before persisting
       const toSave = messages.map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }) => rest);
       void saveLocalFSChat(activeId, toSave, chatTitle ? chatSessionId : null);
+      lastSavedMessagesRef.current = messages;
     }
   }, [messages, chatTitle, chatSessionId, isLocalFolderConnected, saveLocalFSChat, isGenerating, isIncognito]);
 
   // ── Live voice mode (Gemini Live API) ──────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const liveSessionRef = useRef<GeminiLiveSession | null>(null);
+  // Keep the clear-effect's refs in sync with live/generation state.
+  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   // Current in-flight live turn: the user + assistant message ids we're
   // writing into. `acc` mirrors `streaming` so finalize can read it without a
   // stale-closure round-trip.
