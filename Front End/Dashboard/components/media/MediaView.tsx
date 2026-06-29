@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
+import { extractVideoFrame } from '../../lib/coverUtils';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -34,7 +35,10 @@ import {
   Eye,
   EyeOff,
   Check,
-  Copy
+  Copy,
+  Folder,
+  Film,
+  Clipboard
 } from 'lucide-react';
 import logoG from '../../src/assets/logog.png'; // Fallback avatar
 import { useAuth } from '../../context/AuthContext';
@@ -43,8 +47,9 @@ import { useUserDataContext } from '../../context/UserDataContext';
 import { useLocalFS } from '../../context/LocalFSContext';
 import { AssetMenuModal } from '../AssetMenuModal';
 import { AgentSidebar, AgentInstruction } from './AgentSidebar';
-import { streamChat, ChatMessage, StreamPhase } from '../../lib/ai';
+import { streamChat, ChatMessage, StreamPhase, generateSessionTitle } from '../../lib/ai';
 import { TextShimmer } from '../ui/text-shimmer';
+import { CharactersView } from './CharactersView';
 
 const popupItemVariants = {
   hidden: { opacity: 0, y: 8, scale: 0.97 },
@@ -179,12 +184,48 @@ type MediaItem = {
   ratio: string;
   timestamp: number;
   attachments?: ImageAttachment[];
+  isSavedToFS?: boolean;
+  fsName?: string;
 };
 
-const TileContent = React.memo(({ 
-  item, 
-  isMenuOpen, 
-  onMenuOpenChange,
+// Videos are stored durably as base64 data URLs (so they survive reload), but a
+// large base64 string is slow to load in a <video> element — it can't stream and
+// must decode the whole payload first, leaving the tile black for a while. This
+// converts a data:video URL to a streaming blob: URL for display only (the stored
+// base64 is untouched). Other URLs (blob:, http) pass through unchanged.
+const useDisplayVideoSrc = (src?: string): string | undefined => {
+  const isDataVideo = !!src && src.startsWith('data:video');
+  const [resolved, setResolved] = React.useState<string | undefined>(isDataVideo ? undefined : src);
+  React.useEffect(() => {
+    if (!src || !src.startsWith('data:video')) { setResolved(src); return; }
+    let cancelled = false;
+    let objUrl: string | null = null;
+    setResolved(undefined);
+    fetch(src)
+      .then(r => r.blob())
+      .then(blob => {
+        if (cancelled) return;
+        objUrl = URL.createObjectURL(blob);
+        setResolved(objUrl);
+      })
+      .catch(() => { if (!cancelled) setResolved(src); });
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [src]);
+  return resolved;
+};
+
+const MediaVideo = React.forwardRef<HTMLVideoElement, React.VideoHTMLAttributes<HTMLVideoElement>>(
+  ({ src, ...rest }, ref) => {
+    const displaySrc = useDisplayVideoSrc(src);
+    return <video ref={ref} src={displaySrc} {...rest} />;
+  }
+);
+MediaVideo.displayName = 'MediaVideo';
+
+const TileContent = React.memo(({
+  item,
+  isMenuOpen,
+  onMenuOpenChange: onMenuOpenChangeProp,
   isHovered,
   onCancel,
   onRefresh,
@@ -200,7 +241,7 @@ const TileContent = React.memo(({
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
-  onMenuOpenChange: (open: boolean) => void; 
+  onMenuOpenChange: (open: boolean, isContext?: boolean) => void; 
   isHovered: boolean;
   onCancel?: (id: string) => void;
   onRefresh?: (item: MediaItem) => void;
@@ -212,17 +253,76 @@ const TileContent = React.memo(({
   onAddToPrompt?: (item: MediaItem) => void;
   onAnimate?: (item: MediaItem) => void;
   projectName?: string;
-  onSetAsCover?: (url: string) => void;
+  onSetAsCover?: (url: string, isVideo?: boolean) => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia } = useLocalFS();
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, refreshLocalMedia } = useLocalFS();
 
   const [progress, setProgress] = React.useState(0);
   const [renameValue, setRenameValue] = React.useState(item.shortenedPrompt || item.prompt);
   const [boxPosition, setBoxPosition] = React.useState<'bottom' | 'top'>('bottom');
+  const [contextMenuCoords, setContextMenuCoords] = React.useState<{ x: number; y: number } | null>(null);
+
+  const onMenuOpenChange = (open: boolean, isContext?: boolean) => {
+    if (!open) {
+      if (dropdownRef.current) {
+        dropdownRef.current.style.display = 'none';
+      }
+    }
+    onMenuOpenChangeProp(open, isContext);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+
+    requestAnimationFrame(() => {
+      const x = clientX - 4;
+      const y = clientY - 4;
+      const dropdownWidth = 180;
+      const dropdownHeight = 342;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      let left = x;
+      if (left + dropdownWidth > viewportWidth - 4) {
+        left = viewportWidth - dropdownWidth - 4;
+      }
+      if (left < 4) left = 4;
+
+      let top = y;
+      if (top + dropdownHeight > viewportHeight - 4) {
+        top = viewportHeight - dropdownHeight - 4;
+        if (top < 4) {
+          top = 4;
+        }
+      }
+
+      setMenuStyle({
+        position: 'fixed',
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${dropdownWidth}px`,
+        zIndex: 9999,
+        transformOrigin: 'top left',
+      });
+
+      setContextMenuCoords({ x: clientX, y: clientY });
+      onMenuOpenChange(true, true);
+    });
+  };
+
+  React.useEffect(() => {
+    if (!isMenuOpen) {
+      setContextMenuCoords(null);
+    }
+  }, [isMenuOpen]);
 
   React.useLayoutEffect(() => {
     if (isRenaming && containerRef.current) {
@@ -324,17 +424,54 @@ const TileContent = React.memo(({
     };
 
     if (isMenuOpen) {
-      document.addEventListener('mousedown', handleClose);
+      document.addEventListener('mousedown', handleClose, { capture: true });
       document.addEventListener('scroll', handleClose, { capture: true, passive: true });
     }
     return () => {
-      document.removeEventListener('mousedown', handleClose);
+      document.removeEventListener('mousedown', handleClose, { capture: true });
       document.removeEventListener('scroll', handleClose, { capture: true });
     };
   }, [isMenuOpen, onMenuOpenChange]);
 
   React.useLayoutEffect(() => {
-    if (!isMenuOpen || !menuRef.current) return;
+    if (!isMenuOpen) return;
+
+    if (contextMenuCoords) {
+      // Offset slightly northwest (4px left, 4px up) to align closer to the cursor tip
+      const x = contextMenuCoords.x - 4;
+      const y = contextMenuCoords.y - 4;
+      const dropdownWidth = 180;
+      const dropdownHeight = 342;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      let left = x;
+      if (left + dropdownWidth > viewportWidth - 4) {
+        left = viewportWidth - dropdownWidth - 4;
+      }
+      if (left < 4) left = 4;
+
+      let top = y;
+      if (top + dropdownHeight > viewportHeight - 4) {
+        // Slide up just enough to fit within the viewport bottom boundary
+        top = viewportHeight - dropdownHeight - 4;
+        if (top < 4) {
+          top = 4; // Cap at viewport top boundary if screen is too small
+        }
+      }
+
+      setMenuStyle({
+        position: 'fixed',
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${dropdownWidth}px`,
+        zIndex: 9999,
+        transformOrigin: 'top left',
+      });
+      return;
+    }
+
+    if (!menuRef.current) return;
 
     const updatePosition = () => {
       if (!menuRef.current) return;
@@ -342,7 +479,7 @@ const TileContent = React.memo(({
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
 
-      const dropdownWidth = 190;
+      const dropdownWidth = 180;
       const dropdownHeight = 342; // exact height of the menu with current button padding and dividers
 
       const centerRightOffset = (dropdownWidth - triggerRect.width) / 2;
@@ -374,7 +511,218 @@ const TileContent = React.memo(({
     updatePosition();
     window.addEventListener('resize', updatePosition);
     return () => window.removeEventListener('resize', updatePosition);
-  }, [isMenuOpen]);
+  }, [isMenuOpen, contextMenuCoords]);
+
+  const dropdownContent = (
+    <>
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onAnimate) onAnimate(item);
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <svg 
+          xmlns="http://www.w3.org/2000/svg" 
+          viewBox="25 0 100 50" 
+          className="w-[20px] h-[20px] text-zinc-100" 
+          fill="currentColor"
+        >
+          <defs>
+            <mask id="inner-hole" maskUnits="userSpaceOnUse" x="0" y="0" width="150" height="50">
+              <rect x="0" y="0" width="150" height="50" fill="white" />
+              <circle cx="100" cy="25" r="15" fill="black" />
+            </mask>
+          </defs>
+          <g fill="currentColor" mask="url(#inner-hole)">
+            <circle cx="100" cy="25" r="25" />
+            <rect x="35" y="0" width="65" height="10" />
+            <rect x="25" y="20" width="10" height="10" />
+            <rect x="45" y="20" width="55" height="10" />
+            <rect x="27" y="40" width="8" height="10" />
+            <rect x="45" y="40" width="55" height="10" />
+          </g>
+        </svg>
+        <span>Animate</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onAddToPrompt) onAddToPrompt(item);
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Add to prompt</span>
+      </button>
+      <button 
+        onClick={async (e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (item.url) {
+            const name = item.shortenedPrompt || item.prompt;
+            const ext = item.kind === 'video' ? 'mp4' : 'png';
+            const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+            const filename = `${cleanName}.${ext}`;
+            try {
+              const response = await fetch(item.url);
+              const blob = await response.blob();
+              if (isLocalFolderConnected) {
+                let authorized = isLocalFolderAuthorized;
+                if (!authorized) {
+                  authorized = await authorizeLocalFolder();
+                }
+                if (authorized) {
+                  void saveLocalFSMedia(projectName, item.kind, filename, blob);
+                }
+              }
+              const blobUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = blobUrl;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+              const a = document.createElement('a');
+              a.href = item.url;
+              a.download = filename;
+              a.target = '_blank';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            }
+          }
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Download</span>
+      </button>
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (setIsRenaming) {
+            setIsRenaming(true);
+          }
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Rename</span>
+      </button>
+      <button 
+        onClick={async (e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (item.url) {
+            if (item.kind === 'video') {
+              if (!item.url.startsWith('data:')) {
+                await navigator.clipboard.writeText(item.url);
+              }
+              return;
+            }
+            
+            try {
+              // To copy any image to clipboard reliably across all browsers,
+              // we load it into an Image, paint it to canvas, and write as 'image/png'.
+              // This bypasses browser restrictions on copying raw JPEG/WebP or base64 data strings.
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.naturalWidth;
+                  canvas.height = img.naturalHeight;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob(async (pngBlob) => {
+                      if (pngBlob) {
+                        try {
+                          await navigator.clipboard.write([
+                            new ClipboardItem({
+                              'image/png': pngBlob
+                            })
+                          ]);
+                        } catch (err) {
+                          if (!item.url.startsWith('data:')) {
+                            await navigator.clipboard.writeText(item.url);
+                          }
+                        }
+                      }
+                    }, 'image/png');
+                  }
+                } catch (err) {
+                  if (!item.url.startsWith('data:')) {
+                    navigator.clipboard.writeText(item.url).catch(() => {});
+                  }
+                }
+              };
+              img.onerror = () => {
+                if (!item.url.startsWith('data:')) {
+                  navigator.clipboard.writeText(item.url).catch(() => {});
+                }
+              };
+              img.src = item.url;
+            } catch (err) {
+              if (!item.url.startsWith('data:')) {
+                await navigator.clipboard.writeText(item.url);
+              }
+            }
+          }
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Copy size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Copy</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+        <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Share</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (item.url && onSetAsCover) {
+            onSetAsCover(item.url, item.kind === 'video');
+          }
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Set as cover</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onDelete) onDelete(item.id);
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]"
+      >
+        <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
+        <span>Move to trash</span>
+      </button>
+    </>
+  );
 
   return (
   <>
@@ -560,17 +908,17 @@ const TileContent = React.memo(({
     )}
  
     {item.status === 'completed' && item.url && (
-      <div ref={containerRef} className="w-full h-full relative">
+      <div ref={containerRef} className="w-full h-full relative" onContextMenu={handleContextMenu}>
         {item.kind === 'video' ? (
           <>
-            <video
+            <MediaVideo
               ref={videoRef}
               src={item.url}
               loop
               muted
               playsInline
               className="w-full h-full object-cover rounded-[18px]"
-              draggable="false"
+              draggable={false}
             />
             <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
               <svg viewBox="0 0 26 26" className="w-[22px] h-[22px] text-white fill-current">
@@ -687,7 +1035,7 @@ const TileContent = React.memo(({
         <div className={`absolute top-3 right-3 transition-all duration-300 z-30 ${
           isRenaming 
             ? 'opacity-0 -translate-y-2 pointer-events-none' 
-            : `opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto ${isMenuOpen ? '!opacity-100 !translate-y-0 !transition-none' : ''}`
+            : `opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto ${(isMenuOpen && !contextMenuCoords) ? '!opacity-100 !translate-y-0 !transition-none' : ''}`
         }`}>
           <div className="flex items-center gap-[3.5px] bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[3.5px] shadow-xl pointer-events-auto" ref={menuRef}>
             <button 
@@ -707,7 +1055,7 @@ const TileContent = React.memo(({
                <Undo2 size={17} className="text-[#1a1a1a]" strokeWidth={2} style={{ transform: 'scaleY(-1)' }} />
             </button>
             <button 
-              className={`w-[28px] h-[28px] flex items-center justify-center rounded-[7px] transition-colors duration-200 outline-none ${isMenuOpen ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
+              className={`w-[28px] h-[28px] flex items-center justify-center rounded-[7px] transition-colors duration-200 outline-none ${(isMenuOpen && !contextMenuCoords) ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onMenuOpenChange(!isMenuOpen);
@@ -719,222 +1067,36 @@ const TileContent = React.memo(({
  
           {/* Dropdown Menu */}
           {createPortal(
-            <AnimatePresence>
-              {isMenuOpen && (
-                <motion.div
+            contextMenuCoords ? (
+              isMenuOpen && (
+                <div
                   ref={dropdownRef}
-                  initial={{ opacity: 0, y: menuStyle.bottom !== 'auto' ? -8 : 8 }}
-                  animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 650, damping: 38 } }}
-                  exit={{ 
-                    opacity: 0, 
-                    y: isHovered ? (menuStyle.bottom !== 'auto' ? 8 : -8) : -8, 
-                    transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
-                  }}
                   style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
-                  className="fixed w-[190px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
+                  className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
                 >
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (onAnimate) onAnimate(item);
+                  {dropdownContent}
+                </div>
+              )
+            ) : (
+              <AnimatePresence>
+                {isMenuOpen && (
+                  <motion.div
+                    ref={dropdownRef}
+                    initial={{ opacity: 0, y: menuStyle.bottom !== 'auto' ? -8 : 8 }}
+                    animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 650, damping: 38 } }}
+                    exit={{ 
+                      opacity: 0, 
+                      y: isHovered ? (menuStyle.bottom !== 'auto' ? 8 : -8) : -8, 
+                      transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
                     }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+                    style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
+                    className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
                   >
-                    <svg 
-                      xmlns="http://www.w3.org/2000/svg" 
-                      viewBox="25 0 100 50" 
-                      className="w-[20px] h-[20px] text-zinc-100" 
-                      fill="currentColor"
-                    >
-                      <defs>
-                        <mask id="inner-hole" maskUnits="userSpaceOnUse" x="0" y="0" width="150" height="50">
-                          <rect x="0" y="0" width="150" height="50" fill="white" />
-                          <circle cx="100" cy="25" r="15" fill="black" />
-                        </mask>
-                      </defs>
-                      <g fill="currentColor" mask="url(#inner-hole)">
-                        <circle cx="100" cy="25" r="25" />
-                        <rect x="35" y="0" width="65" height="10" />
-                        <rect x="25" y="20" width="10" height="10" />
-                        <rect x="45" y="20" width="55" height="10" />
-                        <rect x="27" y="40" width="8" height="10" />
-                        <rect x="45" y="40" width="55" height="10" />
-                      </g>
-                    </svg>
-                    <span>Animate</span>
-                  </button>
-                  
-                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-                  
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (onAddToPrompt) onAddToPrompt(item);
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-                  >
-                    <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Add to prompt</span>
-                  </button>
-                  <button 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (item.url) {
-                        const name = item.shortenedPrompt || item.prompt;
-                        const ext = item.kind === 'video' ? 'mp4' : 'png';
-                        const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
-                        const filename = `${cleanName}.${ext}`;
-                        try {
-                          const response = await fetch(item.url);
-                          const blob = await response.blob();
-                          if (isLocalFolderConnected) {
-                            let authorized = isLocalFolderAuthorized;
-                            if (!authorized) {
-                              authorized = await authorizeLocalFolder();
-                            }
-                            if (authorized) {
-                              void saveLocalFSMedia(projectName, item.kind, filename, blob);
-                            }
-                          }
-                          const blobUrl = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = blobUrl;
-                          a.download = filename;
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          URL.revokeObjectURL(blobUrl);
-                        } catch (err) {
-                          const a = document.createElement('a');
-                          a.href = item.url;
-                          a.download = filename;
-                          a.target = '_blank';
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                        }
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-                  >
-                    <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Download</span>
-                  </button>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (setIsRenaming) {
-                        setIsRenaming(true);
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-                  >
-                    <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Rename</span>
-                  </button>
-                  <button 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (item.url) {
-                        if (item.kind === 'video') {
-                          if (!item.url.startsWith('data:')) {
-                            await navigator.clipboard.writeText(item.url);
-                          }
-                          return;
-                        }
-                        
-                        try {
-                          // To copy any image to clipboard reliably across all browsers,
-                          // we load it into an Image, paint it to canvas, and write as 'image/png'.
-                          // This bypasses browser restrictions on copying raw JPEG/WebP or base64 data strings.
-                          const img = new Image();
-                          img.crossOrigin = 'anonymous';
-                          img.onload = () => {
-                            try {
-                              const canvas = document.createElement('canvas');
-                              canvas.width = img.naturalWidth;
-                              canvas.height = img.naturalHeight;
-                              const ctx = canvas.getContext('2d');
-                              if (ctx) {
-                                ctx.drawImage(img, 0, 0);
-                                canvas.toBlob(async (pngBlob) => {
-                                  if (pngBlob) {
-                                    try {
-                                      await navigator.clipboard.write([
-                                        new ClipboardItem({
-                                          'image/png': pngBlob
-                                        })
-                                      ]);
-                                    } catch (err) {
-                                      if (!item.url.startsWith('data:')) {
-                                        await navigator.clipboard.writeText(item.url);
-                                      }
-                                    }
-                                  }
-                                }, 'image/png');
-                              }
-                            } catch (err) {
-                              if (!item.url.startsWith('data:')) {
-                                navigator.clipboard.writeText(item.url).catch(() => {});
-                              }
-                            }
-                          };
-                          img.onerror = () => {
-                            if (!item.url.startsWith('data:')) {
-                              navigator.clipboard.writeText(item.url).catch(() => {});
-                            }
-                          };
-                          img.src = item.url;
-                        } catch (err) {
-                          if (!item.url.startsWith('data:')) {
-                            await navigator.clipboard.writeText(item.url);
-                          }
-                        }
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-                  >
-                    <Copy size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Copy</span>
-                  </button>
-                  
-                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-                  
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-                    <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Share</span>
-                  </button>
-                  
-                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-                  
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMenuOpenChange(false);
-                      if (item.url && onSetAsCover) {
-                        onSetAsCover(item.url);
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-                  >
-                    <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
-                    <span>Set as cover</span>
-                  </button>
-                  
-                  <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-                  
-                  <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]">
-                    <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
-                    <span>Move to trash</span>
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>,
+                    {dropdownContent}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            ),
             document.body
           )}
         </div>
@@ -1027,7 +1189,7 @@ const SUNFLOWER_BOX_SHADOW: string = "160px 42px #cacaca, 120px 50px #9e9e9e, 12
 export const MediaView: React.FC = () => {
   const { user, userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia } = useLocalFS();
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, loadLocalFSMediaUrl } = useLocalFS();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1041,6 +1203,9 @@ export const MediaView: React.FC = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const urlProjectId = urlParams.get('projectId');
       if (urlProjectId) {
+        const urlTempName = urlParams.get('tempName');
+        if (urlTempName) return urlTempName;
+
         const stored = localStorage.getItem('willow_projects_list');
         if (stored) {
           try {
@@ -1070,15 +1235,7 @@ export const MediaView: React.FC = () => {
         } catch (e) {}
       }
       if (projects.length === 0) {
-        projects = [
-          { id: '#4829', name: 'Project #4829' },
-          { id: '#8193', name: 'Project #8193' },
-          { id: '#1047', name: 'Project #1047' },
-          { id: '#5923', name: 'Project #5923' },
-          { id: '#7741', name: 'Project #7741' },
-          { id: '#2189', name: 'Project #2189' }
-        ];
-        localStorage.setItem('willow_projects_list', JSON.stringify(projects));
+        return;
       }
       const firstId = projects[0].id;
       setSearchParams(prev => {
@@ -1091,18 +1248,33 @@ export const MediaView: React.FC = () => {
 
   // Sync project name
   React.useEffect(() => {
-    if (!projectId) return;
-    const stored = localStorage.getItem('willow_projects_list');
-    if (stored) {
-      try {
-        const projects = JSON.parse(stored);
-        const match = projects.find((p: any) => p.id === projectId);
-        if (match) {
-          setProjectName(match.name);
-        }
-      } catch (e) {}
-    }
+    const updateProjectName = () => {
+      if (!projectId) return;
+      if (projectId.startsWith('temp_')) return;
+      const stored = localStorage.getItem('willow_projects_list');
+      if (stored) {
+        try {
+          const projects = JSON.parse(stored);
+          const match = projects.find((p: any) => p.id === projectId);
+          if (match) {
+            setProjectName(match.name);
+          }
+        } catch (e) {}
+      }
+    };
+
+    updateProjectName();
+    window.addEventListener('willow_projects_updated', updateProjectName);
+    return () => window.removeEventListener('willow_projects_updated', updateProjectName);
   }, [projectId]);
+
+
+  // Media loading is consolidated into ONE projectId-keyed effect below
+  // ("Unified media load"). It reconciles with disk when a folder is connected
+  // (disk = source of truth) and hydrates streaming blob: URLs, or falls back to
+  // IndexedDB base64 when there's no folder. Do NOT add a second load path or a
+  // reload poll here — divergent load paths previously wiped the gallery.
+
 
   // Parse prompt from URL search parameters if passed
   React.useEffect(() => {
@@ -1128,9 +1300,9 @@ export const MediaView: React.FC = () => {
       
       const response = await fetch(url);
       const blob = await response.blob();
-      const success = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob);
-      if (success) {
-        setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true } : m));
+      const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob);
+      if (finalName) {
+        setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
       }
     } catch (err) {
       // Ignored to prevent debugging logs in production
@@ -1160,7 +1332,41 @@ export const MediaView: React.FC = () => {
       setSessionName('Untitled session');
     }
   }, [chatMessages]);
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState<'all' | 'images' | 'video' | 'characters' | 'scenes' | 'uploads' | 'tools'>('all');
+  const activeSidebarTabRef = React.useRef(activeSidebarTab);
+  React.useEffect(() => {
+    activeSidebarTabRef.current = activeSidebarTab;
+  }, [activeSidebarTab]);
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
+  const [canvasContextMenuCoords, setCanvasContextMenuCoords] = React.useState<{ x: number; y: number } | null>(null);
+  const [canvasMenuStyle, setCanvasMenuStyle] = React.useState<React.CSSProperties>({});
+  const canvasMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClose = (event: Event) => {
+      if (event.type === 'scroll') {
+        setCanvasContextMenuCoords(null);
+        return;
+      }
+      
+      const mouseEvent = event as MouseEvent;
+      const clickedOutsideCanvasMenu = canvasMenuRef.current && !canvasMenuRef.current.contains(mouseEvent.target as Node);
+      
+      if (clickedOutsideCanvasMenu) {
+        setCanvasContextMenuCoords(null);
+      }
+    };
+
+    if (canvasContextMenuCoords) {
+      document.addEventListener('mousedown', handleClose, { capture: true });
+      document.addEventListener('scroll', handleClose, { capture: true, passive: true });
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClose, { capture: true });
+      document.removeEventListener('scroll', handleClose, { capture: true });
+    };
+  }, [canvasContextMenuCoords]);
+
   const [hoveredTileId, setHoveredTileId] = React.useState<string | null>(null);
   const [draggingItemId, setDraggingItemId] = React.useState<string | null>(null);
   const [dragMousePos, setDragMousePos] = React.useState({ x: 0, y: 0 });
@@ -1189,23 +1395,13 @@ export const MediaView: React.FC = () => {
 
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Define what counts as interactive and shouldn't start a drag selection.
-      const isInteractive = target.closest('button, input, a, [draggable="true"], select, textarea, [role="button"], .interactive-element, .custom-scrollbar-thumb, .tile-menu-overlay');
-      const isTile = target.closest('.gallery-tile');
+      if (!target?.closest) return;
+      if (selectedItemRef.current !== null || activeSidebarTabRef.current === 'characters') return;
+      const isInsideTile = target.closest('.gallery-tile');
+      const isButtonOrInteractive = target.closest('button, input, select, textarea, a, [role="button"], .interactive-element, .custom-scrollbar-thumb');
       
-      // Only start drag selection on left click
-      if (e.button === 0) {
-        if (!isInteractive && !isTile) {
-          // Clicked completely empty space: start drag selection and clear current selection
-          isSelectingRef.current = true;
-          setSelectedTileIds(new Set());
-          setSelectionBox({
-            startX: e.clientX,
-            startY: e.clientY,
-            currentX: e.clientX,
-            currentY: e.clientY
-          });
-        }
+      if (e.button === 0 && !isInsideTile && !isButtonOrInteractive) {
+        setSelectedTileIds(new Set());
       }
     };
 
@@ -1219,6 +1415,62 @@ export const MediaView: React.FC = () => {
     };
   }, []);
 
+  const handleCanvasContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('.gallery-tile') ||
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('textarea') ||
+      target.closest('a') ||
+      target.closest('.prompt-container-box') ||
+      target.closest('.search-container') ||
+      target.closest('.agent-sidebar-container') ||
+      target.closest('.asset-menu-modal-container') ||
+      target.closest('[role="button"]') ||
+      target.closest('.interactive-element') ||
+      target.closest('.custom-scrollbar-thumb')
+    ) {
+      return;
+    }
+
+    setActiveMenuId(null);
+
+    const x = e.clientX - 4;
+    const y = e.clientY - 4;
+    const dropdownWidth = 180;
+    const dropdownHeight = 145;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = x;
+    if (left + dropdownWidth > viewportWidth - 4) {
+      left = viewportWidth - dropdownWidth - 4;
+    }
+    if (left < 4) left = 4;
+
+    let top = y;
+    if (top + dropdownHeight > viewportHeight - 4) {
+      top = viewportHeight - dropdownHeight - 4;
+      if (top < 4) {
+        top = 4;
+      }
+    }
+
+    setCanvasMenuStyle({
+      position: 'fixed',
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${dropdownWidth}px`,
+      zIndex: 9999,
+      transformOrigin: 'top left',
+    });
+
+    setCanvasContextMenuCoords({ x: e.clientX, y: e.clientY });
+  };
+
   React.useEffect(() => {
     if (!selectionBox || !mainRef.current) return;
     const startX = Math.min(selectionBox.startX, selectionBox.currentX);
@@ -1228,14 +1480,6 @@ export const MediaView: React.FC = () => {
 
     const tiles = mainRef.current.querySelectorAll('.gallery-tile');
     const newSelected = new Set<string>();
-    
-    // Check if the selection box is too small (e.g., just a click)
-    // If it is, we don't want to trigger overlap selection to avoid overriding standard click logic
-    const isTiny = Math.abs(selectionBox.currentX - selectionBox.startX) < 5 && 
-                   Math.abs(selectionBox.currentY - selectionBox.startY) < 5;
-                   
-    if (isTiny) return;
-
     tiles.forEach(tile => {
       const tileRect = tile.getBoundingClientRect();
       const overlap = !(
@@ -1258,26 +1502,148 @@ export const MediaView: React.FC = () => {
     }
   }, [draggingItemId]);
 
-  const blankDragImage = React.useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    const img = new Image();
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    return img;
-  }, []);
+  // Ref to track the mousedown origin for drag threshold detection
+  const customDragStartRef = React.useRef<{ itemId: string; startX: number; startY: number } | null>(null);
+  // Flag to suppress the click event that fires after mouseup ends a drag
+  const wasDraggingRef = React.useRef(false);
 
+  // Custom mouse-based drag system (replaces HTML5 drag to allow mouse wheel scrolling)
   React.useEffect(() => {
-    if (!draggingItemId) return;
-    
-    const handleDragOver = (e: DragEvent) => {
-      setDragMousePos({ x: e.clientX, y: e.clientY });
-    };
-    
-    window.addEventListener('dragover', handleDragOver);
-    return () => {
-      window.removeEventListener('dragover', handleDragOver);
-    };
-  }, [draggingItemId]);
+    const handleMouseMove = (e: MouseEvent) => {
+      // Check if we need to activate drag (threshold of 5px)
+      if (customDragStartRef.current && !draggingItemId) {
+        const dx = e.clientX - customDragStartRef.current.startX;
+        const dy = e.clientY - customDragStartRef.current.startY;
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+          const itemId = customDragStartRef.current.itemId;
 
+          // If dragging an item that is not part of the selection, clear selection
+          if (!selectedTileIds.has(itemId)) {
+            setSelectedTileIds(new Set());
+          }
+
+          setDraggingItemId(itemId);
+          setDragMousePos({ x: e.clientX, y: e.clientY });
+          document.body.style.userSelect = 'none';
+        }
+        return;
+      }
+
+      // Update mouse position during active drag
+      if (draggingItemId) {
+        setDragMousePos({ x: e.clientX, y: e.clientY });
+
+        // Detect hover over drop zones using elementFromPoint
+        const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+        if (elUnder) {
+          const isOverPromptBox = elUnder.closest('.prompt-container-box');
+          setIsDragOverPrompt(!!isOverPromptBox);
+
+          const startZone = elUnder.closest('[data-drop-zone="start"]');
+          const endZone = elUnder.closest('[data-drop-zone="end"]');
+          if (startZone) {
+            setDraggedOverZone('start');
+          } else if (endZone) {
+            setDraggedOverZone('end');
+          } else {
+            setDraggedOverZone(null);
+          }
+        }
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      // Cancel a potential drag that never crossed the threshold
+      if (customDragStartRef.current && !draggingItemId) {
+        customDragStartRef.current = null;
+        return;
+      }
+
+      if (!draggingItemId) return;
+
+      document.body.style.userSelect = '';
+
+      // Check for drop on zones
+      const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+      if (elUnder) {
+        const isOverPromptBox = elUnder.closest('.prompt-container-box');
+        const startZone = elUnder.closest('[data-drop-zone="start"]');
+        const endZone = elUnder.closest('[data-drop-zone="end"]');
+
+        if (startZone && isFramesModeRef.current) {
+          // Drop on start frame zone
+          const draggedItem = mediaItemsRef.current.find(m => m.id === draggingItemId);
+          if (draggedItem && draggedItem.url) {
+            setAttachments(prev => {
+              const next = [...prev];
+              next[0] = {
+                id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
+                url: draggedItem.url,
+                name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
+                kind: draggedItem.kind
+              };
+              return next;
+            });
+          }
+        } else if (endZone && isFramesModeRef.current) {
+          // Drop on end frame zone
+          const draggedItem = mediaItemsRef.current.find(m => m.id === draggingItemId);
+          if (draggedItem && draggedItem.url) {
+            setAttachments(prev => {
+              const next = [...prev];
+              next[1] = {
+                id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
+                url: draggedItem.url,
+                name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
+                kind: draggedItem.kind
+              };
+              return next;
+            });
+          }
+        } else if (isOverPromptBox && !isFramesModeRef.current) {
+          // Drop on prompt box (non-frames mode)
+          const isMultiSelectDrag = selectedTileIds.has(draggingItemId) && selectedTileIds.size > 1;
+          const itemsToAdd = isMultiSelectDrag
+            ? mediaItemsRef.current.filter(m => selectedTileIds.has(m.id))
+            : mediaItemsRef.current.filter(m => m.id === draggingItemId);
+
+          if (itemsToAdd.length > 0) {
+            setAttachments(prev => {
+              let next = [...prev];
+              itemsToAdd.forEach(item => {
+                if (item.url && !next.some(att => att && att.url === item.url)) {
+                  next.push({
+                    id: item.id,
+                    url: item.url,
+                    name: item.shortenedPrompt || item.prompt || 'Attached Media',
+                    kind: item.kind
+                  });
+                }
+              });
+              return next;
+            });
+          }
+        }
+      }
+
+      setIsDragOverPrompt(false);
+      setDraggedOverZone(null);
+      setDraggingItemId(null);
+      customDragStartRef.current = null;
+      // Suppress the click event that the browser fires right after mouseup
+      wasDraggingRef.current = true;
+      requestAnimationFrame(() => { wasDraggingRef.current = false; });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingItemId, selectedTileIds]);
+
+  // Auto-scroll when dragging near edges
   React.useEffect(() => {
     if (!draggingItemId) return;
 
@@ -1293,18 +1659,23 @@ export const MediaView: React.FC = () => {
       const rect = el.getBoundingClientRect();
       const mouseY = dragMousePos.y;
       
-      const threshold = 30;
+      const threshold = 140;
       const topBoundary = rect.top + threshold;
       const bottomBoundary = rect.bottom - threshold;
       
       if (mouseY < topBoundary && mouseY > rect.top) {
         const distance = topBoundary - mouseY;
-        const speed = Math.min(15, (distance / threshold) * 15);
+        const speed = Math.min(25, (distance / threshold) * 25);
         el.scrollTop -= speed;
       } else if (mouseY > bottomBoundary && mouseY < rect.bottom) {
-        const distance = mouseY - bottomBoundary;
-        const speed = Math.min(15, (distance / threshold) * 15);
-        el.scrollTop += speed;
+        // Don't auto-scroll down when hovering over the prompt box or frame drop zones
+        const elUnder = document.elementFromPoint(dragMousePos.x, mouseY);
+        const isOverDropTarget = elUnder?.closest('.prompt-container-box, [data-drop-zone]');
+        if (!isOverDropTarget) {
+          const distance = mouseY - bottomBoundary;
+          const speed = Math.min(25, (distance / threshold) * 25);
+          el.scrollTop += speed;
+        }
       }
       
       animationFrameId = requestAnimationFrame(scrollLoop);
@@ -1316,25 +1687,14 @@ export const MediaView: React.FC = () => {
     };
   }, [draggingItemId, dragMousePos]);
 
-  React.useEffect(() => {
-    if (!draggingItemId) return;
-    
-    const handleWheel = (e: WheelEvent) => {
-      const el = mainRef.current;
-      if (!el) return;
-      el.scrollTop += e.deltaY;
-    };
-    
-    window.addEventListener('wheel', handleWheel, { passive: true });
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-    };
-  }, [draggingItemId]);
-
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // Full-screen Image viewer modal states
   const [selectedItem, setSelectedItem] = React.useState<MediaItem | null>(null);
+  const selectedItemRef = React.useRef(selectedItem);
+  React.useEffect(() => {
+    selectedItemRef.current = selectedItem;
+  }, [selectedItem]);
   const [showHistory, setShowHistory] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState<'crop' | 'pen' | 'select'>('pen');
   const [showPenMenu, setShowPenMenu] = React.useState(false);
@@ -1973,25 +2333,147 @@ export const MediaView: React.FC = () => {
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
   const mediaLoadedRef = React.useRef(false);
+  // Mirror of mediaItems for use inside non-reactive listeners.
+  const mediaItemsRef = React.useRef<MediaItem[]>([]);
+  React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
 
-  // Load media items on projectId change with IndexedDB
+  const prevSelectedTileIdsRef = React.useRef<Set<string>>(new Set());
+
+  // Automatically sync selection with prompt ingredients in realtime
   React.useEffect(() => {
-    mediaLoadedRef.current = false;
-    if (!projectId) {
-      setMediaItems([]);
-      return;
-    }
-    let active = true;
-    loadProjectMedia(projectId).then(items => {
-      if (active) {
-        setMediaItems(items || []);
-        mediaLoadedRef.current = true;
+    const prevSelected = prevSelectedTileIdsRef.current;
+    
+    // 1. Identify newly-selected items
+    const newlySelected = new Set<string>();
+    selectedTileIds.forEach(id => {
+      if (!prevSelected.has(id)) {
+        newlySelected.add(id);
       }
     });
-    return () => {
-      active = false;
+
+    // 2. Identify newly-unselected items
+    const newlyUnselected = new Set<string>();
+    prevSelected.forEach(id => {
+      if (!selectedTileIds.has(id)) {
+        newlyUnselected.add(id);
+      }
+    });
+
+    // Handle newly-selected items (Auto-Addition)
+    if (newlySelected.size > 0) {
+      const itemsToAdd = mediaItems.filter(m => newlySelected.has(m.id));
+      if (itemsToAdd.length > 0) {
+        setAttachments(prev => {
+          let next = [...prev];
+          let changed = false;
+          itemsToAdd.forEach(item => {
+            if (item.url && !next.some(att => att && att.url === item.url)) {
+              next.push({
+                id: item.id,
+                url: item.url,
+                name: item.shortenedPrompt || item.prompt || 'Attached Media',
+                kind: item.kind
+              });
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+      }
+    }
+
+    // Handle newly-unselected items (Auto-Removal with smooth 200ms fade transition)
+    if (newlyUnselected.size > 0) {
+      setRemovingIds(prev => {
+        const next = new Set(prev);
+        newlyUnselected.forEach(id => next.add(id));
+        return next;
+      });
+
+      setTimeout(() => {
+        setAttachments(prev => {
+          const next = prev.filter(att => att && !newlyUnselected.has(att.id));
+          return next.length !== prev.length ? next : prev;
+        });
+        setRemovingIds(prev => {
+          const next = new Set(prev);
+          newlyUnselected.forEach(id => next.delete(id));
+          return next;
+        });
+      }, 200);
+    }
+
+    // Keep the prevSelectedTileIdsRef in sync
+    prevSelectedTileIdsRef.current = new Set(selectedTileIds);
+  }, [selectedTileIds, mediaItems]);
+
+  // Blob: URLs created for disk-backed media (the heavy bytes live on disk, not
+  // in IndexedDB). We OWN these and must revoke them on project change / unmount
+  // to avoid leaking memory.
+  const mediaBlobUrlsRef = React.useRef<string[]>([]);
+  const revokeMediaBlobUrls = React.useCallback(() => {
+    for (const u of mediaBlobUrlsRef.current) { try { URL.revokeObjectURL(u); } catch {} }
+    mediaBlobUrlsRef.current = [];
+  }, []);
+  React.useEffect(() => () => { revokeMediaBlobUrls(); }, [revokeMediaBlobUrls]);
+
+  // Load generation token so concurrent loads (project switch + a realtime
+  // disk-change refresh) can't clobber each other — only the latest applies.
+  const loadGenRef = React.useRef(0);
+
+  // Load the gallery and hydrate disk-backed items into streaming blob: URLs.
+  // • Folder connected → reconcile against disk (source of truth) + hydrate.
+  // • No folder → IndexedDB metadata (browser-only items keep their base64 url).
+  // `skipIfGenerating` is used by the realtime path so a background refresh never
+  // clobbers an in-progress generation.
+  const loadMedia = React.useCallback(async (skipIfGenerating: boolean) => {
+    if (!projectId) { revokeMediaBlobUrls(); setMediaItems([]); return; }
+    if (skipIfGenerating && mediaItemsRef.current.some(i => i.status === 'generating')) return;
+    const gen = ++loadGenRef.current;
+    const connected = isLocalFolderConnected && isLocalFolderAuthorized && !!projectName;
+    const items = connected
+      ? await refreshLocalMedia(projectId, projectName)
+      : await loadProjectMedia(projectId);
+
+    const freshBlobUrls: string[] = [];
+    const hydrated = await Promise.all((items || []).map(async (m: any) => {
+      if (m?.url) return m; // browser-only base64 (or already hydrated) — use as-is
+      if (connected && m?.fsName && m?.kind) {
+        const blobUrl = await loadLocalFSMediaUrl(projectName, m.kind, m.fsName);
+        if (blobUrl) { freshBlobUrls.push(blobUrl); return { ...m, url: blobUrl }; }
+      }
+      return m; // disk-backed but no folder/file → no displayable url
+    }));
+
+    // Bail if a newer load superseded this one, or a generation started meanwhile.
+    if (gen !== loadGenRef.current || mediaItemsRef.current.some(i => i.status === 'generating')) {
+      for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
+      return;
+    }
+    revokeMediaBlobUrls();                 // release previous URLs
+    mediaBlobUrlsRef.current = freshBlobUrls;
+    setMediaItems(hydrated);
+    mediaLoadedRef.current = true;
+  }, [projectId, projectName, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
+
+  // (Re)load on project / folder change.
+  React.useEffect(() => {
+    mediaLoadedRef.current = false;
+    void loadMedia(false);
+    return () => { loadGenRef.current++; }; // invalidate any in-flight load
+  }, [loadMedia]);
+
+  // Realtime: refresh the gallery when the disk watcher reports a change
+  // (debounced; skipped while a generation is in flight so it can't clobber).
+  React.useEffect(() => {
+    let t: number | undefined;
+    const onDiskChanged = () => {
+      if (t) window.clearTimeout(t);
+      t = window.setTimeout(() => { void loadMedia(true); }, 300);
     };
-  }, [projectId]);
+    window.addEventListener('willow_disk_changed', onDiskChanged);
+    return () => { if (t) window.clearTimeout(t); window.removeEventListener('willow_disk_changed', onDiskChanged); };
+  }, [loadMedia]);
 
   // Save media items on changes with IndexedDB — only after initial load completes
   React.useEffect(() => {
@@ -2017,9 +2499,9 @@ export const MediaView: React.FC = () => {
 
           const response = await fetch(item.url);
           const blob = await response.blob();
-          const success = await saveLocalFSMedia(projectName, item.kind, filename, blob);
-          if (success) {
-            setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true } : m));
+          const finalName = await saveLocalFSMedia(projectName, item.kind, filename, blob);
+          if (finalName) {
+            setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
           }
         } catch (e) {
           // Ignore write lock issues
@@ -2030,39 +2512,121 @@ export const MediaView: React.FC = () => {
     void syncUnsaved();
   }, [isLocalFolderConnected, isLocalFolderAuthorized, mediaItems, projectName, saveLocalFSMedia]);
 
-  // Auto-set first generated completed image as project cover if no cover is set
+  // Materialize temporary projects when the first generated item completes successfully
   React.useEffect(() => {
-    if (!projectId || mediaItems.length === 0) return;
+    if (!projectId || !projectId.startsWith('temp_') || mediaItems.length === 0) return;
+    
+    const completedItems = mediaItems.filter(m => m.status === 'completed' && m.url);
+    if (completedItems.length === 0) return;
+    
+    const firstCompleted = completedItems[completedItems.length - 1];
+    if (!firstCompleted || !firstCompleted.url) return;
+    
+    const realProjectId = projectId.replace('temp_', '');
+    const stored = localStorage.getItem('willow_projects_list');
+    let projects: any[] = [];
+    if (stored) {
+      try {
+        projects = JSON.parse(stored);
+      } catch (e) {}
+    }
+    
+    const projIndex = projects.findIndex((p: any) => p.id === realProjectId);
+    if (projIndex === -1) {
+      const newProj = {
+        id: realProjectId,
+        name: projectName,
+        hasCover: true,
+        kind: 'media'
+      };
+      const updatedProjects = [...projects, newProj];
+      try {
+        localStorage.setItem('willow_projects_list', JSON.stringify(updatedProjects));
+      } catch (err) {}
+      
+      window.dispatchEvent(new CustomEvent('willow_projects_updated'));
+    }
+    
+    const finalizeProjectCreation = async () => {
+      try {
+        // Cover is a still image — capture a frame if the first item is a video.
+        let coverUrl = firstCompleted.url as string;
+        if (firstCompleted.kind === 'video') {
+          const frame = await extractVideoFrame(firstCompleted.url as string);
+          if (frame) coverUrl = frame;
+        }
+        await saveProjectCover(realProjectId, coverUrl);
+        void saveLocalFSCover(projectNameRef.current, coverUrl);
+        await saveProjectMedia(realProjectId, mediaItems);
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('projectId', realProjectId);
+          next.delete('tempName');
+          return next;
+        }, { replace: true });
+      } catch (e) {}
+    };
+    
+    void finalizeProjectCreation();
+  }, [projectId, mediaItems, projectName, setSearchParams]);
+
+  // Auto-set the first generated item as the project cover if none is set. The
+  // cover is always a still image — if the first item is a video we capture a
+  // frame (so the card shows a static shot, not a playing clip).
+  React.useEffect(() => {
+    if (!projectId || projectId.startsWith('temp_') || mediaItems.length === 0) return;
     const stored = localStorage.getItem('willow_projects_list');
     if (!stored) return;
-    try {
-      const projects = JSON.parse(stored);
-      const projIndex = projects.findIndex((p: any) => p.id === projectId);
-      if (projIndex !== -1 && !projects[projIndex].hasCover) {
-        const completedImages = mediaItems.filter(m => m.kind === 'image' && m.status === 'completed' && m.url);
-        if (completedImages.length > 0) {
-          // The oldest completed image is at the end of the array because new items are prepended
-          const firstImage = completedImages[completedImages.length - 1];
-          if (firstImage && firstImage.url) {
-            // Save heavy base64 cover into IndexedDB, keep localStorage lightweight
-            saveProjectCover(projectId, firstImage.url);
-            projects[projIndex].hasCover = true;
-            delete projects[projIndex].coverUrl; // clean legacy field
-            try {
-              localStorage.setItem('willow_projects_list', JSON.stringify(projects));
-            } catch (err) {}
-          }
-        }
+    let projects: any[];
+    try { projects = JSON.parse(stored); } catch { return; }
+    const projIndex = projects.findIndex((p: any) => p.id === projectId);
+    if (projIndex === -1 || projects[projIndex].hasCover) return;
+    const completedItems = mediaItems.filter(m => m.status === 'completed' && m.url);
+    if (completedItems.length === 0) return;
+    // Oldest completed item is at the end (new items are prepended).
+    const firstItem = completedItems[completedItems.length - 1];
+    if (!firstItem?.url) return;
+
+    void (async () => {
+      let coverUrl = firstItem.url as string;
+      if (firstItem.kind === 'video') {
+        const frame = await extractVideoFrame(firstItem.url as string);
+        if (frame) coverUrl = frame;
       }
-    } catch (e) {}
+      await saveProjectCover(projectId, coverUrl);
+      void saveLocalFSCover(projectNameRef.current, coverUrl);
+      // Re-read before writing (avoid clobbering concurrent updates) + refresh UI.
+      try {
+        const cur = JSON.parse(localStorage.getItem('willow_projects_list') || '[]');
+        const idx = cur.findIndex((p: any) => p.id === projectId);
+        if (idx !== -1 && !cur[idx].hasCover) {
+          const { coverUrl: _legacy, ...rest } = cur[idx];
+          cur[idx] = { ...rest, hasCover: true };
+          localStorage.setItem('willow_projects_list', JSON.stringify(cur));
+          window.dispatchEvent(new Event('willow_projects_updated'));
+        }
+      } catch {}
+    })();
   }, [projectId, mediaItems]);
 
   // Manual set cover handler
-  const handleSetAsCover = React.useCallback((url: string) => {
+  const handleSetAsCover = React.useCallback(async (url: string, isVideo: boolean = false) => {
     if (!projectId) return;
-    // Save to IndexedDB (no quota issues)
-    saveProjectCover(projectId, url);
-    // Mark hasCover in localStorage project list
+    // Covers are always still images. If the chosen item is a video, grab a
+    // single frame and use that PNG (so the cover is a static shot, not a
+    // playing video). Fall back to the raw url only if frame capture fails.
+    let coverUrl = url;
+    if (isVideo) {
+      const frame = await extractVideoFrame(url);
+      if (frame) coverUrl = frame;
+    }
+    // 1. Save the cover image in IndexedDB (what the UI reads).
+    await saveProjectCover(projectId, coverUrl);
+    // 2. Write an INDEPENDENT copy to disk as Media/<name>/cover.png, replacing
+    //    any previous cover (saveLocalFSCover writes a fresh file from the bytes;
+    //    it never moves/renames the source media, which stays in Images/Videos).
+    await saveLocalFSCover(projectNameRef.current, coverUrl);
+    // 3. Mark hasCover in the registry.
     const stored = localStorage.getItem('willow_projects_list');
     if (stored) {
       try {
@@ -2079,6 +2643,8 @@ export const MediaView: React.FC = () => {
         } catch (err) {}
       } catch (e) {}
     }
+    // 4. Tell every project surface to reload covers so the new one shows at once.
+    window.dispatchEvent(new Event('willow_projects_updated'));
   }, [projectId]);
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
   type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
@@ -2176,10 +2742,12 @@ export const MediaView: React.FC = () => {
 
   const menuRef = React.useRef<HTMLDivElement>(null);
   const popupRef = React.useRef<HTMLDivElement>(null);
+  const activeMenuButtonRef = React.useRef<HTMLElement | null>(null);
   const [menuRect, setMenuRect] = React.useState<{ bottom: number; right: number } | null>(null);
 
   const openModelMenu = () => {
     if (menuRef.current) {
+      activeMenuButtonRef.current = menuRef.current;
       const r = menuRef.current.getBoundingClientRect();
       setMenuRect({
         bottom: window.innerHeight - r.top + 12,
@@ -2189,9 +2757,20 @@ export const MediaView: React.FC = () => {
     setIsModelMenuOpen(true);
   };
 
+  const openModelMenuFromRef = (buttonElement: HTMLElement) => {
+    activeMenuButtonRef.current = buttonElement;
+    const r = buttonElement.getBoundingClientRect();
+    setMenuRect({
+      bottom: window.innerHeight - r.top + 12,
+      right: window.innerWidth - r.right,
+    });
+    setIsModelMenuOpen(true);
+  };
+
   React.useEffect(() => {
     const isInsideMenu = (target: Node | null) =>
       (!!target && menuRef.current?.contains(target)) ||
+      (!!target && activeMenuButtonRef.current?.contains(target)) ||
       (!!target && popupRef.current?.contains(target));
     const handleClickOutside = (event: MouseEvent) => {
       if (!isInsideMenu(event.target as Node)) {
@@ -2247,6 +2826,8 @@ export const MediaView: React.FC = () => {
   const [showFramesPlaceholders, setShowFramesPlaceholders] = React.useState(false);
   const [prevIsFramesMode, setPrevIsFramesMode] = React.useState(false);
   const isFramesMode = modelMode === 'video' && videoMode === 'frames';
+  const isFramesModeRef = React.useRef(isFramesMode);
+  React.useEffect(() => { isFramesModeRef.current = isFramesMode; }, [isFramesMode]);
 
   if (isFramesMode !== prevIsFramesMode) {
     setPrevIsFramesMode(isFramesMode);
@@ -2527,13 +3108,7 @@ export const MediaView: React.FC = () => {
         );
       };
 
-      let rephraseResp = await fetchRephrase('gemini-3.1-flash-lite');
-      if (!rephraseResp.ok) {
-        rephraseResp = await fetchRephrase('gemini-3.1-flash-lite-preview');
-      }
-      if (!rephraseResp.ok) {
-        rephraseResp = await fetchRephrase('gemini-1.5-flash');
-      }
+      const rephraseResp = await fetchRephrase('gemini-1.5-flash');
       
       if (rephraseResp.ok) {
         const rephraseData = await rephraseResp.json();
@@ -2726,7 +3301,24 @@ export const MediaView: React.FC = () => {
       if (!videoUri) throw new Error('Video generation request timed out after polling.');
 
       const sep = videoUri.includes('?') ? '&' : '?';
-      const url = `${videoUri}${sep}key=${apiKey}`;
+      const externalUrl = `${videoUri}${sep}key=${apiKey}`;
+
+      // Inline the video to a durable base64 data URL (like images already are),
+      // so it survives reload. The external URL carries an API key and expires,
+      // which would leave a black/blank video next time the project is opened.
+      // Fall back to the external URL only if the fetch fails (plays this session).
+      let url = externalUrl;
+      try {
+        const vblob = await fetch(externalUrl).then(r => r.blob());
+        url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(vblob);
+        });
+      } catch (e) {
+        // keep externalUrl as a session-only fallback
+      }
 
       setMediaItems(prev =>
         prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url } : m)),
@@ -3404,7 +3996,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     setViewerRemovingIds(new Set());
   };
 
-  let galleryLayoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean}> = [];
+  let galleryLayoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> = [];
   
   if (mediaItems.length > 0) {
     const targetH = isSidebarCollapsed ? 230 : 270;
@@ -3413,7 +4005,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     // So total distance from screen edge to images should be 368px.
     // Since scrollbar takes up `scrollbarWidth` space, padding needs to be 368 - scrollbarWidth.
     const activePaddingRight = Math.max(12, 368 - scrollbarWidth);
-    const visibleWidth = isAgentSidebarOpen ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth);
+    // Subtract 2px of safety margin to absorb browser floating-point rounding errors and prevent accidental wrapping of tiles
+    // Subtract 3px for the left padding added to prevent left-side outline clipping
+    const visibleWidth = Math.max(1, (isAgentSidebarOpen ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth)) - 5);
     
     // We bias the target height up by 20% for layout calculations.
     // This perfectly tunes the algorithm's distance check to match your exact preferred rhythm:
@@ -3433,7 +4027,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     // We penalize the difference between the resulting height and our tuned ideal height
     const getDiff = (h: number) => Math.abs(h - layoutTargetH);
 
-    mediaItems.forEach((item) => {
+    const sortedMediaItems = [...mediaItems].sort((a, b) => b.timestamp - a.timestamp);
+    sortedMediaItems.forEach((item) => {
       const ratio = item.ratio;
       let ar = 16 / 9;
       if (ratio === '4:3') ar = 4 / 3;
@@ -3475,7 +4070,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     }
     const averageFullRowHeight = fullRowsCount > 0 ? sumHeights / fullRowsCount : layoutTargetH;
 
-    const layoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean}> = [];
+    const layoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> = [];
     rows.forEach((row) => {
       let finalRowHeight = row.height;
       let isCapped = false;
@@ -3492,22 +4087,48 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           ar: cell.ar,
           finalHeight: finalRowHeight,
           finalWidth: finalRowHeight * cell.ar,
-          isCapped
+          isCapped,
+          isLastRow: row.isLast
         });
       });
     });
     galleryLayoutItems = layoutItems;
   }
 
+  const isContextMenuActive = activeMenuId !== null && activeMenuId.endsWith('-context');
+
   return (
     <div
       className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
       style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
+      onContextMenu={handleCanvasContextMenu}
+      onMouseDown={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target?.closest) return;
+        if (selectedItem !== null || activeSidebarTab === 'characters') return;
+        const isClickable = target.closest('button, .gallery-tile, input, a, [draggable="true"], select, textarea, [role="button"], .interactive-element, .custom-scrollbar-thumb');
+        const isExcludedArea = target.closest('.prompt-container-box') || target.closest('.agent-sidebar-container') || target.closest('.asset-menu-modal-container');
+        
+        if (e.button === 0 && !isClickable && !isExcludedArea) {
+          e.preventDefault(); // Prevents native text selection during drag
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur(); // Manually blur since preventDefault stops native blur
+          }
+          isSelectingRef.current = true;
+          setSelectedTileIds(new Set());
+          setSelectionBox({
+            startX: e.clientX,
+            startY: e.clientY,
+            currentX: e.clientX,
+            currentY: e.clientY
+          });
+        }
+      }}
     >
       
       {/* Fading Backdrop Blur & Dark Gradient Strip */}
       <div 
-        className="absolute inset-x-0 top-0 h-32 pointer-events-none z-[55]"
+        className="absolute inset-x-0 top-0 h-32 pointer-events-none z-[70]"
         style={{
           background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
           backdropFilter: 'blur(12px)',
@@ -3524,7 +4145,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Top Header */}
       <header 
-        className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[60] bg-transparent pointer-events-none"
+        className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent pointer-events-none"
         style={{
           transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
           opacity: isHeaderVisible ? 1 : 0,
@@ -3535,12 +4156,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       >
         
         {/* Left Section */}
-        <div className={`flex items-center gap-4 w-[300px] ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+        <div className={`flex items-center gap-4 w-[330px] ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
           <button 
-            onClick={() => navigate('/')}
-            className="p-2.5 hover:bg-white/10 rounded-full transition-colors"
+            onClick={() => navigate('/?mode=media')}
+            className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
           >
-            <ArrowLeft size={22} className="text-white" />
+            <ArrowLeft size={24} className="text-white" />
           </button>
           <span className="text-sm font-medium text-white tracking-wide">
             {projectName}
@@ -3552,7 +4173,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
         {/* Center Section: Search */}
         <div className={`flex items-center gap-3 flex-1 justify-center max-w-2xl ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          <div className="flex items-center bg-[#171717]/90 backdrop-blur-xl rounded-2xl h-11 w-full max-w-[500px] px-4 border border-transparent hover:border-white/10 transition-colors">
+          <div className="flex items-center bg-[#171717]/90 backdrop-blur-xl rounded-2xl h-11 w-full max-w-[500px] px-4 border border-transparent hover:border-white/10 transition-colors search-container">
             <Search size={18} className="text-gray-400" />
             <input 
               type="text" 
@@ -3579,7 +4200,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         </div>
 
         {/* Right Section */}
-        <div className={`flex items-center gap-4 w-[300px] justify-end ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+        <div className={`flex items-center gap-5 w-[330px] justify-end ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
           <button className="text-gray-300 hover:text-white transition-colors">
             <Plus size={22} />
           </button>
@@ -3593,7 +4214,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             <MoreVertical size={22} />
           </button>
           
-          <button className="flex items-center h-10 bg-[#171717] rounded-full pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10">
+          <button className="flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10">
             <span className="text-xs font-semibold text-gray-300 mr-1 truncate max-w-[100px]">
               {userProfile?.displayName || user?.email?.split('@')[0] || 'Guest'}
             </span>
@@ -3610,7 +4231,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Sidebar */}
-        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-[72px] pb-2 px-3 shrink-0 relative z-[70]`}>
+        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-[72px] pb-2 px-3 shrink-0 relative z-[75]`}>
           <nav 
             className="flex flex-col gap-1"
             style={{
@@ -3618,7 +4239,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               transition: `transform ${currentSidebarTransitionTiming}`
             }}
           >
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 bg-[#373737] rounded-2xl text-white`}>
+            <button 
+              onClick={() => setActiveSidebarTab('all')}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'all' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
               <AllMediaIcon className="text-gray-300" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide">All Media</span>}
             </button>
@@ -3630,7 +4254,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               <VideoIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Video</span>}
             </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
+            <button 
+              onClick={() => setActiveSidebarTab('characters')}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'characters' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
               <CharactersIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Characters</span>}
             </button>
@@ -3670,7 +4297,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         <main 
           ref={mainRef} 
           onScroll={handleScroll} 
-          className={`flex-1 bg-[#000000] relative no-scrollbar ${
+          className={`flex-1 bg-transparent relative z-[60] -ml-[3px] pl-[3px] no-scrollbar ${
             renamingItemId ? 'overflow-hidden' : 'overflow-y-scroll'
           }`}
         >
@@ -3690,27 +4317,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               onClick={() => setRenamingItemId(null)}
             />
           )}
-          {selectionBox && (
-            <div
-              className="fixed border-[1.5px] border-white bg-white/10 pointer-events-none z-[100] transition-opacity duration-75"
-              style={{
-                left: Math.min(selectionBox.startX, selectionBox.currentX),
-                top: Math.min(selectionBox.startY, selectionBox.currentY),
-                width: Math.abs(selectionBox.currentX - selectionBox.startX),
-                height: Math.abs(selectionBox.currentY - selectionBox.startY),
-                borderStyle: 'dotted'
-              }}
-            />
-          )}
           {mediaItems.length > 0 && (
             <div
               className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
               style={{ 
-                paddingLeft: '12px',
                 paddingRight: isAgentSidebarOpen ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
               }}
             >
-              {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped }) => {
+              {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped, isLastRow }) => {
                 return (
                     <motion.div
                       layout
@@ -3719,43 +4333,33 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         ease: [0.16, 1, 0.3, 1] 
                       }}
                       key={item.id}
-                      draggable={!renamingItemId && activeMenuId === null}
-                      onDragStart={(e) => {
+                      onMouseDown={(e: React.MouseEvent) => {
+                        if (e.button !== 0 || renamingItemId || activeMenuId !== null) return;
                         setHoveredTileId(null);
                         setActiveMenuId(null);
-                        setDragMousePos({ x: e.clientX, y: e.clientY });
-                        
-                        if (blankDragImage) {
-                          e.dataTransfer.setDragImage(blankDragImage, 0, 0);
-                        }
-                        e.dataTransfer.effectAllowed = 'move';
-                        setDraggingItemId(item.id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggingItemId(null);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
+                        customDragStartRef.current = {
+                          itemId: item.id,
+                          startX: e.clientX,
+                          startY: e.clientY
+                        };
                       }}
                       style={{
-                        flexGrow: isCapped ? 0 : ar,
+                        flexGrow: isLastRow ? 0 : ar,
                         flexBasis: `${finalWidth}px`,
                         height: `${finalHeight}px`,
                         borderWidth: item.status === 'completed' ? '0.5px' : '0px',
                         borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
                         cursor: renamingItemId === item.id ? 'default' : draggingItemId === item.id ? 'grabbing' : 'grab',
-                        outline: selectedTileIds.has(item.id) ? '2.2px solid white' : '0px solid transparent',
-                        outlineOffset: '0px',
                       }}
                       data-id={item.id}
-                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl transition-[outline] duration-150 ease-in-out ${
-                        draggingItemId ? '' : 'group'
+                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
+                        (draggingItemId || selectionBox !== null || isContextMenuActive) ? '' : 'group'
                       } ${
                         item.status === 'completed' ? 'border' : 'border-none'
                       } ${
                         renamingItemId === item.id 
                           ? 'overflow-visible z-50' 
-                          : activeMenuId === item.id 
+                          : (activeMenuId === item.id || activeMenuId === `${item.id}-context`)
                             ? 'overflow-visible z-40' 
                             : draggingItemId === item.id
                               ? 'overflow-visible z-50'
@@ -3763,34 +4367,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                 ? 'overflow-visible z-[75]'
                                 : 'overflow-hidden z-10'
                       }`}
-                      onMouseDown={(e) => {
-                        if (e.button !== 0) return; // Only handle left click
-                        if (renamingItemId === item.id) return;
-                        e.stopPropagation();
-                        
-                        if (e.shiftKey) {
-                          setSelectedTileIds(prev => {
-                            const next = new Set(prev);
-                            if (next.has(item.id)) next.delete(item.id);
-                            else next.add(item.id);
-                            return next;
-                          });
-                        } else {
-                          // Standard single click selects the image and clears others
-                          // Only if it's not already selected, to allow drag-and-drop to work without clearing selection
-                          if (!selectedTileIds.has(item.id)) {
-                            setSelectedTileIds(new Set([item.id]));
-                          }
-                        }
-                      }}
-                      onDoubleClick={(e) => {
+                      onClick={() => {
+                        if (wasDraggingRef.current) return;
                         if (renamingItemId === item.id) return;
                         if (item.status === 'completed' && item.url) {
                           setSelectedItem(item);
                         }
                       }}
                       onMouseEnter={() => {
-                        if (isModelMenuOpen || isAssetMenuOpen) return;
+                        if (isModelMenuOpen || isAssetMenuOpen || isContextMenuActive) return;
                         setHoveredTileId(item.id);
                       }}
                       onMouseLeave={() => {
@@ -3801,13 +4386,37 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       <TileContent 
                         item={item} 
                         projectName={projectName}
-                        isMenuOpen={activeMenuId === item.id} 
-                        onMenuOpenChange={(open) => setActiveMenuId(open ? item.id : null)} 
-                        isHovered={hoveredTileId === item.id}
+                        isMenuOpen={activeMenuId === item.id || activeMenuId === `${item.id}-context`} 
+                        onMenuOpenChange={(open, isContext) => {
+                          if (open && isContext) {
+                            setHoveredTileId(null);
+                            setCanvasContextMenuCoords(null);
+                          }
+                          setActiveMenuId(open ? (isContext ? `${item.id}-context` : item.id) : null);
+                        }} 
+                        isHovered={hoveredTileId === item.id && selectionBox === null && draggingItemId === null}
                         onCancel={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
                         onRefresh={handleRefreshItem}
                         onRePrompt={handleRePromptItem}
-                        onDelete={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
+                        onDelete={(id) => {
+                          const item = mediaItemsRef.current.find(m => m.id === id);
+                          // If this item was shown via a disk blob: URL, revoke it.
+                          if (item?.url && item.url.startsWith('blob:')) {
+                            try { URL.revokeObjectURL(item.url); } catch {}
+                            mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.url);
+                          }
+                          setMediaItems(prev => {
+                            const next = prev.filter(m => m.id !== id);
+                            // Persist removal to IndexedDB (unified on projectId).
+                            if (projectId) void saveProjectMedia(projectId, next);
+                            return next;
+                          });
+                          // Remove the actual file from disk (disk = source of truth)
+                          // so it doesn't reappear on the next reconcile.
+                          if (item?.fsName && item.kind) {
+                            void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
+                          }
+                        }}
                         onRename={(id, newName) => {
                           setMediaItems(prev => {
                             const baseName = newName.trim();
@@ -3862,9 +4471,27 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       
                       {/* Smooth fading local dark overlay for all other images/videos */}
                       <div 
-                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none ${
-                          (renamingItemId && renamingItemId !== item.id) || (draggingItemId && draggingItemId !== item.id) ? 'opacity-100' : 'opacity-0'
+                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[400ms] ${
+                          (renamingItemId && renamingItemId !== item.id) || 
+                          (draggingItemId && draggingItemId !== item.id) ||
+                          (selectedTileIds.size > 0 && !selectedTileIds.has(item.id))
+                            ? 'opacity-100' 
+                            : 'opacity-0'
                         }`}
+                      />
+
+                      {/* Selection white border overlay to prevent any gap */}
+                      <div 
+                        className={`absolute rounded-[18px] pointer-events-none z-[38] transition-opacity duration-300 ease-in-out ${
+                          selectedTileIds.has(item.id) ? 'opacity-100' : 'opacity-0'
+                        }`}
+                        style={{
+                          top: item.status === 'completed' ? '-0.5px' : '0px',
+                          left: item.status === 'completed' ? '-0.5px' : '0px',
+                          right: item.status === 'completed' ? '-0.5px' : '0px',
+                          bottom: item.status === 'completed' ? '-0.5px' : '0px',
+                          border: '2.2px solid white',
+                        }}
                       />
                     </motion.div>
                   );
@@ -3907,12 +4534,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Bottom Prompt Bar */}
       <div 
-        className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out"
+        className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out prompt-container-box"
         style={{
           opacity: isAgentSidebarOpen ? 0 : 1,
           transform: 'translate(-50%, 0px)',
           pointerEvents: isAgentSidebarOpen ? 'none' : 'auto'
         }}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <AssetMenuModal
           isOpen={isAssetMenuOpen && assetMenuSource === 'main'}
@@ -3956,82 +4584,61 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             borderWidth: (isDragOverPrompt && !isFramesMode) ? '1.5px' : ((draggingItemId && isFramesMode) ? '0px' : '1px'),
             borderColor: (isDragOverPrompt && !isFramesMode) ? 'rgba(255, 255, 255, 0.9)' : ((draggingItemId && isFramesMode) ? 'transparent' : 'rgba(255, 255, 255, 0.05)')
           }}
-          onDragEnter={(e) => {
-            e.preventDefault();
-            if (draggingItemId) setIsDragOverPrompt(true);
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragOverPrompt(false);
-            if (isFramesMode) {
-              setDraggedOverZone(null);
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragOverPrompt(false);
-            if (isFramesMode) {
-              setDraggedOverZone(null);
-            }
-            if (draggingItemId) {
-              const draggedItem = mediaItems.find(m => m.id === draggingItemId);
-              if (draggedItem && draggedItem.url) {
-                setAttachments(prev => {
-                  if (prev.some(att => att && att.url === draggedItem.url)) return prev;
-                  return [...prev, {
-                    id: draggedItem.id,
-                    url: draggedItem.url,
-                    name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
-                    kind: draggedItem.kind
-                  }];
-                });
-              }
-              setDraggingItemId(null);
-            }
-          }}
         >
+          {(!draggingItemId || !isFramesMode) && isAgentActive && agentAnimationKey > 0 && (
+            <div 
+              key={`toggle-${agentAnimationKey}`}
+              className="absolute inset-0 z-30 pointer-events-none rounded-[22px] overflow-hidden"
+            >
+              <svg width="100%" height="100%" className="absolute inset-0 mix-blend-screen animate-[parent-fade_1.8s_ease-in-out_forwards]">
+                <filter id="glow-blur">
+                  <feGaussianBlur stdDeviation="11" />
+                </filter>
+                <g filter="url(#glow-blur)">
+                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                        pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0.1s', opacity: 0.15 }} strokeLinecap="round" />
+                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                        pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0.05s', opacity: 0.4 }} strokeLinecap="round" />
+                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                        pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0s', opacity: 0.9 }} strokeLinecap="round" />
+                </g>
+              </svg>
+            </div>
+          )}
+
+          <AnimatePresence>
+            {(!draggingItemId || !isFramesMode) && isAgentActive && isAgentGenerating && (
+              <motion.div 
+                key="thinking"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 z-30 pointer-events-none rounded-[22px] overflow-hidden"
+              >
+                <svg width="100%" height="100%" className="absolute inset-0 mix-blend-screen opacity-80">
+                  <filter id="glow-blur-thinking">
+                    <feGaussianBlur stdDeviation="11" />
+                  </filter>
+                  <g filter="url(#glow-blur-thinking)">
+                    <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                          pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0.1s', opacity: 0.15 }} strokeLinecap="round" />
+                    <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                          pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0.05s', opacity: 0.4 }} strokeLinecap="round" />
+                    <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
+                          pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0s', opacity: 0.9 }} strokeLinecap="round" />
+                  </g>
+                </svg>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {draggingItemId !== null ? (
             isFramesMode ? (
-              <div className="flex gap-3 w-full h-[96px]" onMouseLeave={() => setDraggedOverZone(null)}>
+              <div className="flex gap-3 w-full h-[96px]">
                 {/* Start Frame Dropzone */}
                 <div
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone('start');
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone('start');
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone(null);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDraggedOverZone(null);
-                    setIsDragOverPrompt(false);
-                    if (draggingItemId) {
-                      const draggedItem = mediaItems.find(m => m.id === draggingItemId);
-                      if (draggedItem && draggedItem.url) {
-                        setAttachments(prev => {
-                          const next = [...prev];
-                          next[0] = {
-                            id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
-                            url: draggedItem.url,
-                            name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
-                            kind: draggedItem.kind
-                          };
-                          return next;
-                        });
-                      }
-                      setDraggingItemId(null);
-                    }
-                  }}
+                  data-drop-zone="start"
                   style={{
                     transform: draggedOverZone === 'start' ? 'scale(1.015)' : 'scale(1)',
                     borderWidth: draggedOverZone === 'start' ? '1.5px' : '1px',
@@ -4047,40 +4654,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
                 {/* End Frame Dropzone */}
                 <div
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone('end');
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone('end');
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    setDraggedOverZone(null);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDraggedOverZone(null);
-                    setIsDragOverPrompt(false);
-                    if (draggingItemId) {
-                      const draggedItem = mediaItems.find(m => m.id === draggingItemId);
-                      if (draggedItem && draggedItem.url) {
-                        setAttachments(prev => {
-                          const next = [...prev];
-                          next[1] = {
-                            id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
-                            url: draggedItem.url,
-                            name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
-                            kind: draggedItem.kind
-                          };
-                          return next;
-                        });
-                      }
-                      setDraggingItemId(null);
-                    }
-                  }}
+                  data-drop-zone="end"
                   style={{
                     transform: draggedOverZone === 'end' ? 'scale(1.015)' : 'scale(1)',
                     borderWidth: draggedOverZone === 'end' ? '1.5px' : '1px',
@@ -4131,53 +4705,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               <div className="absolute top-full left-1/2 -translate-x-1/2 w-16 h-[24px] bg-transparent" />
             </div>
           )}
-        {(isAgentActive && agentAnimationKey > 0) && (
-          <div 
-            key={`toggle-${agentAnimationKey}`}
-            className="absolute inset-0 z-30 pointer-events-none rounded-[22px] overflow-hidden"
-          >
-            <svg width="100%" height="100%" className="absolute inset-0 mix-blend-screen animate-[parent-fade_1.8s_ease-in-out_forwards]">
-              <filter id="glow-blur">
-                <feGaussianBlur stdDeviation="11" />
-              </filter>
-              <g filter="url(#glow-blur)">
-                <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                      pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0.1s', opacity: 0.15 }} strokeLinecap="round" />
-                <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                      pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0.05s', opacity: 0.4 }} strokeLinecap="round" />
-                <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                      pathLength="100" strokeDasharray="60 40" className="animate-[snake-stroke_1.8s_linear_forwards]" style={{ animationDelay: '0s', opacity: 0.9 }} strokeLinecap="round" />
-              </g>
-            </svg>
-          </div>
-        )}
-
-        <AnimatePresence>
-          {(isAgentActive && isAgentGenerating) && (
-            <motion.div 
-              key="thinking"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5 }}
-              className="absolute inset-0 z-30 pointer-events-none rounded-[22px] overflow-hidden"
-            >
-              <svg width="100%" height="100%" className="absolute inset-0 mix-blend-screen opacity-80">
-                <filter id="glow-blur-thinking">
-                  <feGaussianBlur stdDeviation="11" />
-                </filter>
-                <g filter="url(#glow-blur-thinking)">
-                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                        pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0.1s', opacity: 0.15 }} strokeLinecap="round" />
-                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                        pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0.05s', opacity: 0.4 }} strokeLinecap="round" />
-                  <rect x="0" y="0" width="100%" height="100%" rx="22" ry="22" fill="none" stroke="#82858b" strokeWidth="13"
-                        pathLength="100" strokeDasharray="60 40" className="animate-[btn-snake-dynamic_2.5s_infinite]" style={{ animationDelay: '0s', opacity: 0.9 }} strokeLinecap="round" />
-                </g>
-              </svg>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        
 
           <input 
             type="file" 
@@ -5045,7 +5573,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           className="w-9 h-9 rounded-[12px] overflow-hidden border border-white/5 shrink-0 transition-opacity active:scale-[0.95] opacity-80 hover:opacity-100"
                         >
                           {thumbItem.kind === 'video' ? (
-                            <video src={thumbItem.url} className="w-full h-full object-cover pointer-events-none" muted />
+                            <MediaVideo src={thumbItem.url} className="w-full h-full object-cover pointer-events-none" muted />
                           ) : (
                             <img src={thumbItem.url} className="w-full h-full object-cover pointer-events-none" alt="" />
                           )}
@@ -5547,11 +6075,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               >
                 {(() => {
                   const ratio = selectedItem.ratio;
-                  let ar = "16 / 9";
-                  if (ratio === '4:3') ar = "4 / 3";
-                  else if (ratio === '1:1') ar = "1 / 1";
-                  else if (ratio === '3:4') ar = "3 / 4";
-                  else if (ratio === '9:16') ar = "9 / 16";
+                  let ar = 16 / 9;
+                  if (ratio === '4:3') ar = 4 / 3;
+                  else if (ratio === '1:1') ar = 1;
+                  else if (ratio === '3:4') ar = 3 / 4;
+                  else if (ratio === '9:16') ar = 9 / 16;
                   
                   return (
                     <div 
@@ -5561,7 +6089,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       style={{ aspectRatio: ar, borderWidth: '0.5px', borderColor: '#0e0e10', borderStyle: 'solid' }}
                     >
                       {selectedItem.kind === 'video' ? (
-                        <video
+                        <MediaVideo
                           src={selectedItem.url}
                           controls
                           autoPlay
@@ -6352,8 +6880,22 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         else if (ratio === '3:4') ar = 3 / 4;
         else if (ratio === '9:16') ar = 9 / 16;
         
-        const ghostWidth = 250; // Increased size slightly more!
-        const ghostHeight = ghostWidth / ar;
+        let ghostWidth = 210; // Reduced base width
+        let ghostHeight = ghostWidth / ar;
+        
+        // Cap the maximum height so 9:16 and 1:1 don't become massive
+        const maxHeight = 145;
+        if (ghostHeight > maxHeight) {
+          ghostHeight = maxHeight;
+          ghostWidth = ghostHeight * ar;
+        }
+        
+        const isMultiSelectDrag = selectedTileIds.has(draggingItemId) && selectedTileIds.size > 1;
+        let previewItems = [item];
+        if (isMultiSelectDrag) {
+          const otherSelected = mediaItems.filter(m => selectedTileIds.has(m.id) && m.id !== draggingItemId);
+          previewItems = [item, ...otherSelected].slice(0, 3);
+        }
         
         return (
           <div
@@ -6366,32 +6908,148 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               pointerEvents: 'none',
               zIndex: 99999,
               opacity: 1, // 100% full opacity
-              borderRadius: '18px',
-              overflow: 'hidden',
-              boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.8)',
-              backgroundColor: '#0c0c0c',
-              border: 'none', // No border
             }}
           >
-            {item.kind === 'video' ? (
-              <video
-                src={item.url}
-                loop
-                muted
-                autoPlay
-                playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
-              />
-            ) : (
-              <img
-                src={item.url}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
-                alt=""
-              />
-            )}
+            {[...previewItems].reverse().map((previewItem, reverseIndex) => {
+              const originalIndex = previewItems.length - 1 - reverseIndex;
+              const offsetX = originalIndex * 36;
+              const offsetY = originalIndex * 36;
+
+              // Calculate aspect ratio specifically for this item
+              const pRatio = previewItem.ratio;
+              let pAr = 16 / 9;
+              if (pRatio === '4:3') pAr = 4 / 3;
+              else if (pRatio === '1:1') pAr = 1;
+              else if (pRatio === '3:4') pAr = 3 / 4;
+              else if (pRatio === '9:16') pAr = 9 / 16;
+              
+              let itemWidth = 210;
+              let itemHeight = itemWidth / pAr;
+              
+              if (itemHeight > 145) {
+                itemHeight = 145;
+                itemWidth = itemHeight * pAr;
+              }
+
+              // Calculate vertical alignment so the bottom edges step evenly by the offset
+              const heightDiff = ghostHeight - itemHeight;
+              const alignedTopOffset = offsetY + heightDiff;
+
+              return (
+                <div
+                  key={previewItem.id}
+                  style={{
+                    position: 'absolute',
+                    top: `${alignedTopOffset}px`,
+                    left: `${offsetX}px`,
+                    width: `${itemWidth}px`,
+                    height: `${itemHeight}px`,
+                    borderRadius: '18px',
+                    overflow: 'hidden',
+                    backgroundColor: '#0c0c0c',
+                    border: '1px solid #4A4A4A',
+                  }}
+                >
+                  {previewItem.kind === 'video' ? (
+                    <video
+                      src={previewItem.url}
+                      loop
+                      muted
+                      autoPlay
+                      playsInline
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
+                    />
+                  ) : (
+                    <img
+                      src={previewItem.url}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
+                      alt=""
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
       })()}
+
+      {activeSidebarTab === 'characters' && (
+        <div className="absolute inset-0 z-[100]">
+          <CharactersView 
+            onBack={() => setActiveSidebarTab('all')} 
+            mediaItems={mediaItems} 
+            onFileSelect={() => fileInputRef.current?.click()} 
+            modelMode={modelMode}
+            activeModelId={modelMode === 'image' ? imageModel : videoModel}
+            onModelChange={(id) => {
+              if (modelMode === 'image') {
+                setImageModel(id as any);
+              } else {
+                setVideoModel(id as any);
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {selectionBox && (
+        <div
+          className="fixed pointer-events-none z-[9999] bg-white/10 border-[1.5px] border-white border-dotted"
+          style={{
+            left: Math.min(selectionBox.startX, selectionBox.currentX),
+            top: Math.min(selectionBox.startY, selectionBox.currentY),
+            width: Math.abs(selectionBox.currentX - selectionBox.startX),
+            height: Math.abs(selectionBox.currentY - selectionBox.startY),
+          }}
+        />
+      )}
+
+      {createPortal(
+        canvasContextMenuCoords && (
+          <div
+            ref={canvasMenuRef}
+            style={{ ...canvasMenuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
+            className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
+          >
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setCanvasContextMenuCoords(null);
+              }}
+              className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[12px] font-medium text-zinc-100"
+            >
+              <Folder size={18} strokeWidth={2.5} className="text-zinc-100" />
+              <span>Create Collection</span>
+            </button>
+            
+            <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+            
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setCanvasContextMenuCoords(null);
+              }}
+              className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[12px] font-medium text-zinc-100"
+            >
+              <Film size={18} strokeWidth={2.5} className="text-zinc-100" />
+              <span>Create Scene</span>
+            </button>
+            
+            <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+            
+            <button 
+              className="w-full flex items-center gap-3 px-3.5 py-2 text-[12px] font-medium text-zinc-500 cursor-not-allowed select-none"
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <Clipboard size={18} strokeWidth={2.5} className="text-zinc-500" />
+              <span>Paste</span>
+            </button>
+          </div>
+        ),
+        document.body
+      )}
     </div>
   );
 };

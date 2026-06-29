@@ -606,7 +606,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
 
   return (
     <div 
-      className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden"
+      className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden agent-sidebar-container"
       style={{
         top: isHeaderVisible ? '72px' : '16px',
         bottom: '8px',
@@ -614,6 +614,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
         transition: `transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top ${sidebarTransition}, visibility 0.5s`,
         visibility: isOpen ? 'visible' : 'hidden'
       }}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Sliding Viewport Container */}
       <div 

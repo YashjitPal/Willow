@@ -32,7 +32,7 @@ const sampleCharacters = [
   {
     title: 'The Fantastical',
     description: 'High-concept visionary beings. A surreal fusion of the human and the mythical. Ethereal, dreamlike, and rooted in the textures of another reality.',
-    image: 'https://images.unsplash.com/photo-1542206395-9feb3edaa68d?w=400&q=80'
+    image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80'
   }
 ];
 
@@ -195,7 +195,7 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
         clearInterval(timer);
         setProgress(100);
         setGenStatus('completed');
-        setCharacterImage('https://images.unsplash.com/photo-1542206395-9feb3edaa68d?w=800&q=80'); // Sample generated image
+        setCharacterImage('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80'); // Sample generated image
       }
     }, interval);
   };
@@ -241,8 +241,18 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
           {/* Left Column: Info & Voice */}
           <div className="w-[360px] flex flex-col shrink-0 mt-8">
             <div className="flex items-center justify-between mb-8">
-              <h1 className="text-[32px] font-semibold text-white leading-tight">Untitled Character</h1>
-              <button className="text-gray-500 hover:text-gray-300 transition-colors">
+              <h1 
+                style={{
+                  fontFamily: '"Google Sans", sans-serif',
+                  fontSize: '2rem',
+                  fontWeight: 400,
+                  lineHeight: '2.5rem',
+                  color: 'rgb(255, 255, 255)'
+                }}
+              >
+                Untitled Character
+              </h1>
+              <button className="text-[#141517]/90 hover:text-[#1f2023]/90 transition-colors">
                 <Pencil size={18} />
               </button>
             </div>
@@ -261,23 +271,55 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
             </button>
 
             <div className="flex flex-col">
-              <label className="text-[12px] font-medium text-gray-400 mb-3 ml-1">Character Info (optional)</label>
+              <label 
+                style={{
+                  fontFamily: '"Google Sans Text", sans-serif',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  lineHeight: '1rem',
+                  color: 'rgba(218, 220, 224, 0.75)'
+                }}
+                className="mb-3 ml-1"
+              >
+                Character Info (optional)
+              </label>
               <textarea 
                 value={characterInfo}
                 onChange={(e) => setCharacterInfo(e.target.value)}
                 placeholder="Describe how your character acts..."
-                className="w-full bg-[#141517]/50 border border-white/5 rounded-[16px] p-5 text-[14px] text-white placeholder-gray-600 resize-none outline-none focus:border-white/20 transition-colors h-[280px]"
+                style={{
+                  height: '325.2px',
+                  padding: '1rem',
+                  boxSizing: 'border-box',
+                  color: 'rgb(255, 255, 255)',
+                  fontSize: '0.875rem',
+                  fontFamily: '"Google Sans Text", sans-serif',
+                  lineHeight: '1.25rem'
+                }}
+                className="w-full bg-[#141517]/50 border-[1.5px] border-white/15 rounded-[16px] resize-none outline-none focus:border-white/75 transition-colors placeholder-[#757575]"
               />
-              <p className="text-[12px] text-gray-500 leading-relaxed mt-4 px-1">
-                The Flow agent can use this information to help craft scenes with your character.
+              <p className="mt-4 px-1" style={{ lineHeight: '16px' }}>
+                <span 
+                  style={{
+                    color: 'rgba(218, 220, 224, 0.5)',
+                    fontSize: '12px',
+                    fontFamily: '"Google Sans Text", sans-serif',
+                    lineHeight: '16px'
+                  }}
+                >
+                  The agent can use this information to help craft scenes with your character.
+                </span>
               </p>
             </div>
           </div>
 
           {/* Right Column: Generation Window & Controls */}
-          <div className="flex-1 w-full max-w-[880px] flex flex-col items-center shrink-0">
+          <div className="flex-1 w-full max-w-[880px] flex flex-col items-center shrink-0 mt-8 translate-y-4">
             {/* Keeping 16:9 aspect ratio */}
-            <div className="relative w-full aspect-[16/9] rounded-[24px] bg-[#2a2b2f] overflow-hidden shadow-2xl">
+            <div 
+              style={{ aspectRatio: '16/9' }}
+              className="relative w-full max-w-[860px] h-auto shrink-0 rounded-[24px] bg-[#2a2b2f] overflow-hidden shadow-2xl -translate-y-2"
+            >
               {genStatus === 'generating' ? (
                 <div className="absolute inset-0 z-10 mesh-container-generating">
                   <style dangerouslySetInnerHTML={{ __html: `
@@ -385,29 +427,68 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
               )}
             </div>
 
-            {/* Toggle Switches */}
-            <div className="flex items-center gap-2 mt-6 p-1 bg-[#1a1b1f] rounded-full border border-white/5 shadow-md">
-              <button className="flex items-center gap-2 px-5 py-2 bg-[#b8bccc] text-black rounded-full font-medium text-[13px] shadow-sm transition-all">
+            {/* Action Pills */}
+            <div className="flex items-center gap-2 mt-6 translate-y-2">
+              <button 
+                style={{
+                  backgroundColor: 'rgba(218, 220, 224, 0.9)',
+                  borderRadius: '12px',
+                  padding: '4px 12px 4px 4px',
+                  height: '40px'
+                }}
+                className="flex items-center gap-2 transition-all cursor-pointer"
+                aria-label="Portrait"
+              >
                 {characterImage ? (
-                  <img src={characterImage} alt="Thumbnail" className="w-[26px] h-[18px] rounded-[4px] object-cover" />
+                  <img src={characterImage} alt="Generated image" className="w-[32px] h-[32px] rounded-[8px] object-cover" />
                 ) : (
-                  <div className="w-[26px] h-[18px] rounded-[4px] bg-black/80"></div>
+                  <div className="w-[32px] h-[32px] rounded-[8px]" style={{ backgroundColor: 'rgba(22, 23, 24, 0.15)' }}></div>
                 )}
-                Portrait
+                <span
+                  style={{
+                    color: '#000000',
+                    fontFamily: '"Google Sans Text", sans-serif',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    lineHeight: '16px'
+                  }}
+                >
+                  Portrait
+                </span>
               </button>
-              <button className="flex items-center gap-2 px-5 py-2 bg-transparent text-gray-400 hover:text-white rounded-full font-medium text-[13px] transition-all">
-                <div className="flex items-center justify-center w-[18px] h-[18px]">
-                  <svg width="14" height="16" viewBox="0 0 24 24" fill="currentColor" className="opacity-80">
+              
+              <button 
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                  borderRadius: '12px',
+                  padding: '4px 12px 4px 4px',
+                  height: '40px'
+                }}
+                className="flex items-center gap-2 hover:bg-white/20 transition-colors cursor-pointer"
+                aria-label="Create Body"
+              >
+                <div className="flex items-center justify-center w-[32px] h-[32px] rounded-[8px]" style={{ backgroundColor: 'rgba(218, 220, 224, 0.15)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'rgba(218, 220, 224, 0.9)' }}>
                     <circle cx="12" cy="4" r="3"/>
                     <path d="M12 9 L12 16 M8 9 L16 9 M12 16 L9 22 M12 16 L15 22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                Create Body
+                <span
+                  style={{
+                    color: 'rgba(218, 220, 224, 0.9)',
+                    fontFamily: '"Google Sans Text", sans-serif',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    lineHeight: '16px'
+                  }}
+                >
+                  Create Body
+                </span>
               </button>
             </div>
 
             {/* Editor Bottom Prompt Box - Now ALIGNED UNDER the image container, fixed length */}
-            <div className="w-full max-w-[600px] mt-6 flex justify-center">
+            <div className="w-full max-w-[600px] mt-6 translate-y-[16px] flex justify-center">
                <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 flex flex-col shadow-2xl border border-white/5 w-full">
                 <div className="relative flex items-start w-full">
                   <textarea 

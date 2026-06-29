@@ -329,7 +329,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
             backfaceVisibility: 'hidden',
             pointerEvents: isShown ? 'auto' : 'none',
           }}
-          className={`${isScreenCentered ? 'fixed left-1/2' : isSidebarPrompt ? 'fixed' : 'absolute left-1/2'} w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden`}
+          className={`${isScreenCentered ? 'fixed left-1/2' : isSidebarPrompt ? 'fixed' : 'absolute left-1/2'} w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden asset-menu-modal-container`}
         >
       {/* Left Sidebar */}
       <div className="w-[160px] shrink-0 flex flex-col">
