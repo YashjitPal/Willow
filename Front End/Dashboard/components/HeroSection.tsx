@@ -108,7 +108,7 @@ export const HeroSection: React.FC<{
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const [isFading, setIsFading] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
-  const [projectsList, setProjectsList] = React.useState<{ id: string; name: string; hasCover?: boolean; kind?: 'media' | 'code' }[]>(() => {
+  const [projectsList, setProjectsList] = React.useState<{ id: string; name: string; hasCover?: boolean; kind?: 'media' | 'code'; coverUrl?: string }[]>(() => {
     const stored = localStorage.getItem('willow_projects_list');
     if (stored) {
       try {
@@ -323,7 +323,7 @@ export const HeroSection: React.FC<{
     if (activeMedia.type !== 'image') return;
 
     setProgress(0);
-    const duration = activeMedia.duration || 4000;
+    const duration = (activeMedia as any).duration || 4000;
     progressDurationRef.current = duration;
     progressStartTimeRef.current = Date.now();
 

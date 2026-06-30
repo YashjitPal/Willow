@@ -38,8 +38,10 @@ import {
   Copy,
   Folder,
   Film,
-  Clipboard
+  Clipboard,
+  AudioLines
 } from 'lucide-react';
+import { GeminiLiveSession, LIVE_MODEL_ID, playLiveChime, primeLiveChimes } from '../../lib/live';
 import logoG from '../../src/assets/logog.png'; // Fallback avatar
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../ui/Avatar';
@@ -186,6 +188,7 @@ type MediaItem = {
   attachments?: ImageAttachment[];
   isSavedToFS?: boolean;
   fsName?: string;
+  progress?: number;
 };
 
 // Videos are stored durably as base64 data URLs (so they survive reload), but a
@@ -237,7 +240,13 @@ const TileContent = React.memo(({
   onAddToPrompt,
   onAnimate,
   projectName = 'Default',
-  onSetAsCover
+  onSetAsCover,
+  isSelected = false,
+  selectedCount = 0,
+  onDeleteSelected,
+  onDownloadSelected,
+  onCreateCollectionSelected,
+  onCreateSceneSelected
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
@@ -254,6 +263,12 @@ const TileContent = React.memo(({
   onAnimate?: (item: MediaItem) => void;
   projectName?: string;
   onSetAsCover?: (url: string, isVideo?: boolean) => void;
+  isSelected?: boolean;
+  selectedCount?: number;
+  onDeleteSelected?: () => void;
+  onDownloadSelected?: () => void;
+  onCreateCollectionSelected?: () => void;
+  onCreateSceneSelected?: () => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -362,6 +377,7 @@ const TileContent = React.memo(({
 
   React.useEffect(() => {
     if (item.status !== 'generating') return;
+    if (item.modelId === 'pasted') return;
     
     const getEstimatedDuration = (modelId: string, kind: 'image' | 'video') => {
       if (kind === 'image') {
@@ -387,6 +403,12 @@ const TileContent = React.memo(({
 
     return () => clearInterval(interval);
   }, [item.status, item.timestamp, item.modelId, item.kind]);
+
+  React.useEffect(() => {
+    if (item.progress !== undefined) {
+      setProgress(item.progress);
+    }
+  }, [item.progress]);
 
   React.useEffect(() => {
     if (item.kind !== 'video' || !videoRef.current) return;
@@ -512,6 +534,64 @@ const TileContent = React.memo(({
     window.addEventListener('resize', updatePosition);
     return () => window.removeEventListener('resize', updatePosition);
   }, [isMenuOpen, contextMenuCoords]);
+
+  const multiSelectDropdownContent = (
+    <>
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onCreateCollectionSelected) onCreateCollectionSelected();
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Folder size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Create Collection</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onCreateSceneSelected) onCreateSceneSelected();
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Film size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Create Scene</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onDownloadSelected) onDownloadSelected();
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
+      >
+        <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Download</span>
+      </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onDeleteSelected) onDeleteSelected();
+        }}
+        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]"
+      >
+        <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
+        <span>Move to trash</span>
+      </button>
+    </>
+  );
 
   const dropdownContent = (
     <>
@@ -1074,7 +1154,7 @@ const TileContent = React.memo(({
                   style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
                   className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
                 >
-                  {dropdownContent}
+                  {isSelected && selectedCount > 1 ? multiSelectDropdownContent : dropdownContent}
                 </div>
               )
             ) : (
@@ -1092,7 +1172,7 @@ const TileContent = React.memo(({
                     style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
                     className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
                   >
-                    {dropdownContent}
+                    {isSelected && selectedCount > 1 ? multiSelectDropdownContent : dropdownContent}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1320,8 +1400,324 @@ export const MediaView: React.FC = () => {
   }, [isAgentSidebarOpen]);
   const [agentAnimationKey, setAgentAnimationKey] = React.useState(0);
 
+  const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
+  const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
+  type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
+  const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
+  const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
+  const [imageModelDropDirection, setImageModelDropDirection] = React.useState<'down' | 'up'>('down');
+  const imageModelDropdownRef = React.useRef<HTMLDivElement>(null);
+  const imageModelButtonRef = React.useRef<HTMLButtonElement>(null);
+
+  type VideoModelId = 'veo-3.1-fast' | 'veo-3.1' | 'veo-3.1-lite' | 'omni-flash';
+  const VIDEO_MODELS: { id: VideoModelId; name: string; apiId: string }[] = [
+    { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', apiId: 'veo-3.1-fast-generate-preview' },
+    { id: 'veo-3.1', name: 'Veo 3.1', apiId: 'veo-3.1-generate-preview' },
+    { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', apiId: 'veo-3.0-fast-generate-001' },
+    { id: 'omni-flash', name: 'Omni Flash', apiId: 'gemini-omni-flash-preview' },
+  ];
+  const getVideoApiModelId = (id: VideoModelId) =>
+    VIDEO_MODELS.find(m => m.id === id)?.apiId ?? 'veo-3.1-fast-generate-preview';
+  const [videoModel, setVideoModel] = React.useState<VideoModelId>('omni-flash');
+  const [isVideoModelDropdownOpen, setIsVideoModelDropdownOpen] = React.useState(false);
+  const [videoModelDropDirection, setVideoModelDropDirection] = React.useState<'down' | 'up'>('down');
+  const videoModelDropdownRef = React.useRef<HTMLDivElement>(null);
+  const videoModelButtonRef = React.useRef<HTMLButtonElement>(null);
+  const getVideoModelName = (id: VideoModelId) => VIDEO_MODELS.find(m => m.id === id)?.name ?? 'Omni Flash';
+
+  // Estimate dropdown panel height: each item ~42px + container padding 8px
+  const estimateDropdownHeight = (itemCount: number) => itemCount * 42 + 8;
+
+  const computeDropDirection = (
+    buttonEl: HTMLElement | null,
+    panelHeight: number,
+  ): 'down' | 'up' => {
+    if (!buttonEl) return 'down';
+    const rect = buttonEl.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const margin = 12;
+    return spaceBelow >= panelHeight + margin ? 'down' : 'up';
+  };
+
+  const toggleImageModelDropdown = () => {
+    setIsImageModelDropdownOpen(open => {
+      const next = !open;
+      if (next) {
+        setImageModelDropDirection(
+          computeDropDirection(imageModelButtonRef.current, estimateDropdownHeight(2)),
+        );
+      }
+      return next;
+    });
+  };
+
+  const toggleVideoModelDropdown = () => {
+    setIsVideoModelDropdownOpen(open => {
+      const next = !open;
+      if (next) {
+        setVideoModelDropDirection(
+          computeDropDirection(videoModelButtonRef.current, estimateDropdownHeight(VIDEO_MODELS.length)),
+        );
+      }
+      return next;
+    });
+  };
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (imageModelDropdownRef.current && !imageModelDropdownRef.current.contains(event.target as Node)) {
+        setIsImageModelDropdownOpen(false);
+      }
+    };
+    if (isImageModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('touchstart', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [isImageModelDropdownOpen]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (videoModelDropdownRef.current && !videoModelDropdownRef.current.contains(event.target as Node)) {
+        setIsVideoModelDropdownOpen(false);
+      }
+    };
+    if (isVideoModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('touchstart', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [isVideoModelDropdownOpen]);
+
+  const getImageModelName = (id: string) => {
+    if (id === 'gemini-3-pro-image-preview') return 'Nano Banana Pro';
+    if (id === 'gemini-3.1-flash-image-preview') return 'Nano Banana 2';
+    return 'Nano Banana Lite';
+  };
+
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const popupRef = React.useRef<HTMLDivElement>(null);
+  const activeMenuButtonRef = React.useRef<HTMLElement | null>(null);
+  const [menuRect, setMenuRect] = React.useState<{ bottom: number; right: number } | null>(null);
+
+  const openModelMenu = () => {
+    if (menuRef.current) {
+      activeMenuButtonRef.current = menuRef.current;
+      const r = menuRef.current.getBoundingClientRect();
+      setMenuRect({
+        bottom: window.innerHeight - r.top + 12,
+        right: window.innerWidth - r.right,
+      });
+    }
+    setIsModelMenuOpen(true);
+  };
+
+  const openModelMenuFromRef = (buttonElement: HTMLElement) => {
+    activeMenuButtonRef.current = buttonElement;
+    const r = buttonElement.getBoundingClientRect();
+    setMenuRect({
+      bottom: window.innerHeight - r.top + 12,
+      right: window.innerWidth - r.right,
+    });
+    setIsModelMenuOpen(true);
+  };
+
+  React.useEffect(() => {
+    const isInsideMenu = (target: Node | null) =>
+      (!!target && menuRef.current?.contains(target)) ||
+      (!!target && activeMenuButtonRef.current?.contains(target)) ||
+      (!!target && popupRef.current?.contains(target));
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!isInsideMenu(event.target as Node)) {
+        setIsModelMenuOpen(false);
+      }
+    };
+    const handleScroll = (event: Event) => {
+      if (isInsideMenu(event.target as Node)) return;
+      setIsModelMenuOpen(false);
+    };
+    const handleResize = () => setIsModelMenuOpen(false);
+    if (isModelMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('touchstart', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
+      window.addEventListener('scroll', handleScroll, true);
+      window.addEventListener('wheel', handleScroll, { capture: true, passive: true });
+      window.addEventListener('resize', handleResize);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('wheel', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isModelMenuOpen]);
+
+  const [modelMode, setModelMode] = useState<'image' | 'video'>('image');
+  
+  const [isAssetMenuOpen, setIsAssetMenuOpen] = useState(false);
+  const assetMenuPlusRef = useRef<HTMLButtonElement>(null);
+  const [assetMenuSource, setAssetMenuSource] = useState<'main' | 'sidebar' | 'instruction-reference'>('main');
+  const [sidebarButtonRef, setSidebarButtonRef] = useState<React.RefObject<HTMLButtonElement> | null>(null);
+  const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
+  const [activeInstructionId, setActiveInstructionId] = useState<string | null>(null);
+  const [instructionButtonRef, setInstructionButtonRef] = useState<React.RefObject<any> | null>(null);
+
+  const [imageRatio, setImageRatio] = React.useState('16:9');
+  const [imageBatch, setImageBatch] = React.useState('x4');
+  const [videoMode, setVideoMode] = React.useState<'frames' | 'ingredients'>('ingredients');
+  const [videoRatio, setVideoRatio] = React.useState('16:9');
+  const [videoBatch, setVideoBatch] = React.useState('x4');
+  const [videoDuration, setVideoDuration] = React.useState('10s');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
+  const [isLayoutSuppressing, setIsLayoutSuppressing] = React.useState(false);
+  
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
   const [isAgentGenerating, setIsAgentGenerating] = React.useState(false);
+  const [isLive, setIsLive] = React.useState(false);
+  const liveSessionRef = React.useRef<any>(null);
+  const liveTurnRef = React.useRef<{ userId: string; acc: string } | null>(null);
+
+  const openLiveTurn = React.useCallback(() => {
+    const uId = Math.random().toString(36).substring(2, 9);
+    const aId = Math.random().toString(36).substring(2, 9);
+    setChatMessages((prev) => [
+      ...prev,
+      { id: uId, role: 'user', content: '', isTranscribing: true, isNew: true, createdAt: Date.now() },
+      { id: aId, role: 'assistant', content: '', isNew: true, createdAt: Date.now() },
+    ]);
+    liveTurnRef.current = { userId: uId, acc: '' };
+    setAgentStreaming('');
+  }, []);
+
+  const closeLiveTurn = React.useCallback(({ aborted, error }: { aborted?: boolean; error?: string }) => {
+    const turn = liveTurnRef.current;
+    if (!turn) return;
+    setAgentStreaming(null);
+    setChatMessages((prev) =>
+      prev.map((m) => {
+        if (m.id === turn.userId) return { ...m, isTranscribing: false };
+        if (m.id !== turn.userId && m.role === 'assistant' && !m.content && turn.acc) {
+          return { ...m, content: turn.acc + (aborted ? '—' : ''), isError: !!error };
+        }
+        if (m.id !== turn.userId && m.role === 'assistant' && error && !turn.acc) {
+          return { ...m, content: error, isError: true };
+        }
+        return m;
+      })
+    );
+    liveTurnRef.current = null;
+  }, []);
+
+  const handleStopLive = React.useCallback(() => {
+    if (!isLive) return;
+    playLiveChime('end');
+    liveSessionRef.current?.stop();
+    liveSessionRef.current = null;
+    setIsLive(false);
+    if (liveTurnRef.current) closeLiveTurn({ aborted: true });
+  }, [isLive, closeLiveTurn]);
+
+  const handleStartLive = React.useCallback(() => {
+    if (isLive || isAgentGenerating) return;
+    const apiKey = apiKeys?.gemini?.[0];
+    if (!apiKey) {
+      setChatMessages((prev) => [
+        ...prev,
+        { id: Math.random().toString(36).substring(2, 9), role: 'user', content: 'Start live voice chat', isNew: true, createdAt: Date.now() },
+        { id: Math.random().toString(36).substring(2, 9), role: 'assistant', content: 'A **Gemini** API key is required for live voice mode. Add one in **Settings → Models**.', isError: true, createdAt: Date.now() }
+      ]);
+      return;
+    }
+    primeLiveChimes();
+    setIsLive(true);
+    setIsAgentSidebarOpen(true);
+    
+    let activeImageModelName = 'Nano Banana Lite';
+    if (imageModel === 'gemini-3-pro-image-preview') activeImageModelName = 'Nano Banana Pro';
+    if (imageModel === 'gemini-3.1-flash-image-preview') activeImageModelName = 'Nano Banana 2';
+    const activeVideoModelName = videoModel === 'veo-3.1-fast' ? 'Veo 3.1 Fast' : videoModel === 'veo-3.1' ? 'Veo 3.1' : videoModel === 'veo-3.1-lite' ? 'Veo 3.1 Lite' : 'Omni Flash';
+
+    const activeGuidelines = instructions
+      .filter(i => i.isActive && i.content.trim())
+      .map(i => `- [${i.title}]: ${i.content}`)
+      .join('\n');
+
+    const systemPrompt = `You are a creative co-pilot AI Agent assisting the user in crafting elite-tier media prompts, storytelling, and refining video/image properties.
+At any point, you can suggest full storyboard ideas, prompt scripts, or style guidelines. Keep your formatting gorgeous with clean headings and bullets.
+
+Active Workspace Generation Settings:
+- Default Image Generator: ${activeImageModelName} (Aspect Ratio: ${imageRatio}, Batch Size: ${imageBatch})
+- Default Video Generator: ${activeVideoModelName} (Aspect Ratio: ${videoRatio}, Batch Size: ${videoBatch})
+
+${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\n${activeGuidelines}` : ''}`;
+
+    const history = chatMessages
+      .filter((m) => m.content)
+      .map((m) => ({
+        role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
+        text: m.content,
+      }));
+
+    const session = new GeminiLiveSession({
+      apiKey,
+      model: LIVE_MODEL_ID,
+      systemPrompt,
+      history,
+      onOpen: () => playLiveChime('start'),
+      onTurnStart: () => openLiveTurn(),
+      onUserTranscript: (full) => {
+        const turn = liveTurnRef.current;
+        if (!turn) return;
+        setChatMessages((prev) =>
+          prev.map((m) => m.id === turn.userId ? { ...m, content: full, isTranscribing: false } : m)
+        );
+      },
+      onModelText: (chunk) => {
+        const turn = liveTurnRef.current;
+        if (!turn) return;
+        turn.acc += chunk;
+        setAgentStreaming(turn.acc);
+      },
+      onTurnComplete: ({ aborted }) => closeLiveTurn({ aborted }),
+      onError: (err) => {
+        console.error('[MediaView] live error', err);
+        if (liveTurnRef.current) {
+          closeLiveTurn({ error: `Live session error: ${err.message}` });
+        } else {
+          setChatMessages((prev) => [
+            ...prev,
+            { id: Math.random().toString(36).substring(2, 9), role: 'user', content: 'Start live voice chat', isNew: true, createdAt: Date.now() },
+            { id: Math.random().toString(36).substring(2, 9), role: 'assistant', isError: true, content: `Couldn't start live mode (\`${LIVE_MODEL_ID}\`).\n\n> ${err.message}\n\nCheck that your Gemini key has **Live API** access and that microphone permission was granted.`, createdAt: Date.now() }
+          ]);
+        }
+        liveSessionRef.current = null;
+        setIsLive(false);
+      },
+      onClose: () => {
+        liveSessionRef.current = null;
+        setIsLive(false);
+      },
+    });
+    liveSessionRef.current = session;
+    void session.start();
+  }, [
+    isLive, isAgentGenerating, apiKeys, imageModel, imageRatio, imageBatch, videoModel, videoRatio, videoBatch, instructions, chatMessages, openLiveTurn, closeLiveTurn
+  ]);
+
+  React.useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
   const [agentStreaming, setAgentStreaming] = React.useState('');
   const [isAgentThinking, setIsAgentThinking] = React.useState(false);
   const [agentThinkingPhase, setAgentThinkingPhase] = React.useState<StreamPhase>('thinking');
@@ -1373,7 +1769,7 @@ export const MediaView: React.FC = () => {
   const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
   const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
 
-  const [selectionBox, setSelectionBox] = React.useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const [selectionBox, setSelectionBox] = React.useState<{ startX: number; startY: number; currentX: number; currentY: number; initialScrollTop: number; initialScrollLeft: number } | null>(null);
   const [selectedTileIds, setSelectedTileIds] = React.useState<Set<string>>(new Set());
   const isSelectingRef = React.useRef(false);
 
@@ -1473,10 +1869,18 @@ export const MediaView: React.FC = () => {
 
   React.useEffect(() => {
     if (!selectionBox || !mainRef.current) return;
-    const startX = Math.min(selectionBox.startX, selectionBox.currentX);
-    const startY = Math.min(selectionBox.startY, selectionBox.currentY);
-    const endX = Math.max(selectionBox.startX, selectionBox.currentX);
-    const endY = Math.max(selectionBox.startY, selectionBox.currentY);
+    const currentScrollTop = mainRef.current.scrollTop || 0;
+    const currentScrollLeft = mainRef.current.scrollLeft || 0;
+    const deltaY = currentScrollTop - selectionBox.initialScrollTop;
+    const deltaX = currentScrollLeft - selectionBox.initialScrollLeft;
+    
+    const adjustedStartX = selectionBox.startX - deltaX;
+    const adjustedStartY = selectionBox.startY - deltaY;
+    
+    const startX = Math.min(adjustedStartX, selectionBox.currentX);
+    const startY = Math.min(adjustedStartY, selectionBox.currentY);
+    const endX = Math.max(adjustedStartX, selectionBox.currentX);
+    const endY = Math.max(adjustedStartY, selectionBox.currentY);
 
     const tiles = mainRef.current.querySelectorAll('.gallery-tile');
     const newSelected = new Set<string>();
@@ -2222,6 +2626,9 @@ export const MediaView: React.FC = () => {
 
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     updateCustomScrollbar(e.currentTarget);
+    if (isSelectingRef.current) {
+      setSelectionBox(prev => prev ? { ...prev } : null);
+    }
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop <= 10) {
       setIsHeaderVisible(true);
@@ -2245,10 +2652,11 @@ export const MediaView: React.FC = () => {
   const [attachments, setAttachments] = React.useState<ImageAttachment[]>([]);
   const [hoveredAttachmentUrl, setHoveredAttachmentUrl] = React.useState<string | null>(null);
   const [hoveredAttachmentRect, setHoveredAttachmentRect] = React.useState<{ left: number; width: number } | null>(null);
+  const [hoveredAttachmentIsEndFrame, setHoveredAttachmentIsEndFrame] = React.useState<boolean>(false);
   const hoverTimeoutRef = React.useRef<any>(null);
   const closeTimeoutRef = React.useRef<any>(null);
   
-  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string) => {
+  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string, isEndFrame?: boolean) => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     
@@ -2263,6 +2671,7 @@ export const MediaView: React.FC = () => {
         width: width
       });
       setHoveredAttachmentUrl(url);
+      setHoveredAttachmentIsEndFrame(!!isEndFrame);
     }, 330);
   };
 
@@ -2272,6 +2681,7 @@ export const MediaView: React.FC = () => {
     closeTimeoutRef.current = setTimeout(() => {
       setHoveredAttachmentUrl(null);
       setHoveredAttachmentRect(null);
+      setHoveredAttachmentIsEndFrame(false);
     }, 200);
   };
 
@@ -2318,7 +2728,6 @@ export const MediaView: React.FC = () => {
         id: Math.random().toString(36).substring(7),
         url: URL.createObjectURL(file),
         name: file.name,
-        file,
         kind: 'image'
       }));
     setAttachments(prev => {
@@ -2329,13 +2738,13 @@ export const MediaView: React.FC = () => {
   };
 
   // Model Menu State
-  const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
   const mediaLoadedRef = React.useRef(false);
   // Mirror of mediaItems for use inside non-reactive listeners.
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
   React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
+  const lastGenerationTimeRef = React.useRef<number>(0);
 
   const prevSelectedTileIdsRef = React.useRef<Set<string>>(new Set());
 
@@ -2411,9 +2820,22 @@ export const MediaView: React.FC = () => {
   // in IndexedDB). We OWN these and must revoke them on project change / unmount
   // to avoid leaking memory.
   const mediaBlobUrlsRef = React.useRef<string[]>([]);
+  const attachmentsRef = React.useRef<ImageAttachment[]>([]);
+  React.useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+
   const revokeMediaBlobUrls = React.useCallback(() => {
-    for (const u of mediaBlobUrlsRef.current) { try { URL.revokeObjectURL(u); } catch {} }
-    mediaBlobUrlsRef.current = [];
+    const activeUrls = new Set(attachmentsRef.current.map(a => a?.url).filter(Boolean));
+    const keptUrls: string[] = [];
+    
+    for (const u of mediaBlobUrlsRef.current) { 
+      if (activeUrls.has(u)) {
+        keptUrls.push(u);
+      } else {
+        try { URL.revokeObjectURL(u); } catch {} 
+      }
+    }
+    mediaBlobUrlsRef.current = keptUrls;
+    return keptUrls;
   }, []);
   React.useEffect(() => () => { revokeMediaBlobUrls(); }, [revokeMediaBlobUrls]);
 
@@ -2450,8 +2872,8 @@ export const MediaView: React.FC = () => {
       for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
       return;
     }
-    revokeMediaBlobUrls();                 // release previous URLs
-    mediaBlobUrlsRef.current = freshBlobUrls;
+    const keptUrls = revokeMediaBlobUrls(); // release previous URLs not in use by attachments
+    mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
     setMediaItems(hydrated);
     mediaLoadedRef.current = true;
   }, [projectId, projectName, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
@@ -2646,175 +3068,6 @@ export const MediaView: React.FC = () => {
     // 4. Tell every project surface to reload covers so the new one shows at once.
     window.dispatchEvent(new Event('willow_projects_updated'));
   }, [projectId]);
-  const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
-  type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
-  const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
-  const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
-  const [imageModelDropDirection, setImageModelDropDirection] = React.useState<'down' | 'up'>('down');
-  const imageModelDropdownRef = React.useRef<HTMLDivElement>(null);
-  const imageModelButtonRef = React.useRef<HTMLButtonElement>(null);
-
-  type VideoModelId = 'veo-3.1-fast' | 'veo-3.1' | 'veo-3.1-lite' | 'omni-flash';
-  const VIDEO_MODELS: { id: VideoModelId; name: string; apiId: string }[] = [
-    { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', apiId: 'veo-3.1-fast-generate-preview' },
-    { id: 'veo-3.1', name: 'Veo 3.1', apiId: 'veo-3.1-generate-preview' },
-    { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', apiId: 'veo-3.0-fast-generate-001' },
-    { id: 'omni-flash', name: 'Omni Flash', apiId: 'veo-3.0-generate-001' },
-  ];
-  const getVideoApiModelId = (id: VideoModelId) =>
-    VIDEO_MODELS.find(m => m.id === id)?.apiId ?? 'veo-3.1-fast-generate-preview';
-  const [videoModel, setVideoModel] = React.useState<VideoModelId>('omni-flash');
-  const [isVideoModelDropdownOpen, setIsVideoModelDropdownOpen] = React.useState(false);
-  const [videoModelDropDirection, setVideoModelDropDirection] = React.useState<'down' | 'up'>('down');
-  const videoModelDropdownRef = React.useRef<HTMLDivElement>(null);
-  const videoModelButtonRef = React.useRef<HTMLButtonElement>(null);
-  const getVideoModelName = (id: VideoModelId) => VIDEO_MODELS.find(m => m.id === id)?.name ?? 'Omni Flash';
-
-  // Estimate dropdown panel height: each item ~42px + container padding 8px
-  const estimateDropdownHeight = (itemCount: number) => itemCount * 42 + 8;
-
-  const computeDropDirection = (
-    buttonEl: HTMLElement | null,
-    panelHeight: number,
-  ): 'down' | 'up' => {
-    if (!buttonEl) return 'down';
-    const rect = buttonEl.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const margin = 12;
-    return spaceBelow >= panelHeight + margin ? 'down' : 'up';
-  };
-
-  const toggleImageModelDropdown = () => {
-    setIsImageModelDropdownOpen(open => {
-      const next = !open;
-      if (next) {
-        setImageModelDropDirection(
-          computeDropDirection(imageModelButtonRef.current, estimateDropdownHeight(2)),
-        );
-      }
-      return next;
-    });
-  };
-
-  const toggleVideoModelDropdown = () => {
-    setIsVideoModelDropdownOpen(open => {
-      const next = !open;
-      if (next) {
-        setVideoModelDropDirection(
-          computeDropDirection(videoModelButtonRef.current, estimateDropdownHeight(VIDEO_MODELS.length)),
-        );
-      }
-      return next;
-    });
-  };
-
-  React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (imageModelDropdownRef.current && !imageModelDropdownRef.current.contains(event.target as Node)) {
-        setIsImageModelDropdownOpen(false);
-      }
-    };
-    if (isImageModelDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isImageModelDropdownOpen]);
-
-  React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (videoModelDropdownRef.current && !videoModelDropdownRef.current.contains(event.target as Node)) {
-        setIsVideoModelDropdownOpen(false);
-      }
-    };
-    if (isVideoModelDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isVideoModelDropdownOpen]);
-
-  const getImageModelName = (id: string) => {
-    return id === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2';
-  };
-
-  const menuRef = React.useRef<HTMLDivElement>(null);
-  const popupRef = React.useRef<HTMLDivElement>(null);
-  const activeMenuButtonRef = React.useRef<HTMLElement | null>(null);
-  const [menuRect, setMenuRect] = React.useState<{ bottom: number; right: number } | null>(null);
-
-  const openModelMenu = () => {
-    if (menuRef.current) {
-      activeMenuButtonRef.current = menuRef.current;
-      const r = menuRef.current.getBoundingClientRect();
-      setMenuRect({
-        bottom: window.innerHeight - r.top + 12,
-        right: window.innerWidth - r.right,
-      });
-    }
-    setIsModelMenuOpen(true);
-  };
-
-  const openModelMenuFromRef = (buttonElement: HTMLElement) => {
-    activeMenuButtonRef.current = buttonElement;
-    const r = buttonElement.getBoundingClientRect();
-    setMenuRect({
-      bottom: window.innerHeight - r.top + 12,
-      right: window.innerWidth - r.right,
-    });
-    setIsModelMenuOpen(true);
-  };
-
-  React.useEffect(() => {
-    const isInsideMenu = (target: Node | null) =>
-      (!!target && menuRef.current?.contains(target)) ||
-      (!!target && activeMenuButtonRef.current?.contains(target)) ||
-      (!!target && popupRef.current?.contains(target));
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!isInsideMenu(event.target as Node)) {
-        setIsModelMenuOpen(false);
-      }
-    };
-    const handleScroll = (event: Event) => {
-      if (isInsideMenu(event.target as Node)) return;
-      setIsModelMenuOpen(false);
-    };
-    const handleResize = () => setIsModelMenuOpen(false);
-    if (isModelMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      window.addEventListener('scroll', handleScroll, true);
-      window.addEventListener('wheel', handleScroll, { capture: true, passive: true });
-      window.addEventListener('resize', handleResize);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      window.removeEventListener('scroll', handleScroll, true);
-      window.removeEventListener('wheel', handleScroll, true);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [isModelMenuOpen]);
-
-  const [modelMode, setModelMode] = useState<'image' | 'video'>('image');
-  
-  const [isAssetMenuOpen, setIsAssetMenuOpen] = useState(false);
-  const assetMenuPlusRef = useRef<HTMLButtonElement>(null);
-  const [assetMenuSource, setAssetMenuSource] = useState<'main' | 'sidebar' | 'instruction-reference'>('main');
-  const [sidebarButtonRef, setSidebarButtonRef] = useState<React.RefObject<HTMLButtonElement> | null>(null);
-  const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
-  const [activeInstructionId, setActiveInstructionId] = useState<string | null>(null);
-  const [instructionButtonRef, setInstructionButtonRef] = useState<React.RefObject<any> | null>(null);
-
-  const [imageRatio, setImageRatio] = React.useState('16:9');
-  const [imageBatch, setImageBatch] = React.useState('x4');
-  const [videoMode, setVideoMode] = React.useState<'frames' | 'ingredients'>('ingredients');
-  const [videoRatio, setVideoRatio] = React.useState('16:9');
-  const [videoBatch, setVideoBatch] = React.useState('x4');
-  const [videoDuration, setVideoDuration] = React.useState('10s');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
-  const [isLayoutSuppressing, setIsLayoutSuppressing] = React.useState(false);
-  
   const handleToggleLeftSidebar = () => {
     setIsLayoutSuppressing(true);
     setIsSidebarCollapsed(c => !c);
@@ -3226,6 +3479,112 @@ export const MediaView: React.FC = () => {
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
       const firstImagePart = inlineParts[0]?.inlineData;
 
+      if (videoModelKey === 'omni-flash') {
+        const interactionsInput = [
+          { 
+            type: 'text', 
+            text: `${activePrompt}\n\n[System: Please generate this video with an aspect ratio of ${ratio} and a duration of ${durationSec} seconds.]` 
+          },
+          ...inlineParts.map(part => {
+            if (part.inlineData) {
+              return {
+                type: 'image',
+                mime_type: part.inlineData.mimeType || 'image/png',
+                data: part.inlineData.data
+              };
+            }
+            return null;
+          }).filter(Boolean)
+        ];
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/interactions`,
+          {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
+            body: JSON.stringify({
+              model: `models/${apiModelId}`,
+              input: interactionsInput,
+              response_format: {
+                type: 'video',
+                aspect_ratio: ratio
+              }
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const status = response.status;
+          const msg = errData?.error?.message || errData?.[0]?.error?.message || '';
+          
+          if (status === 400 && msg.toLowerCase().includes('key')) {
+            throw new Error('Invalid API Key. Please check your workspace configuration in the Settings panel.');
+          } else if (status === 403) {
+            throw new Error('Access forbidden. Please check your API key permissions and region restrictions.');
+          } else if (status === 429) {
+            throw new Error('Rate limit exceeded. Too many requests. Please wait a moment and try again.');
+          } else if (status === 503 || status === 504) {
+            throw new Error('The generation service is currently overloaded. Please wait a few seconds and try again.');
+          }
+          
+          throw new Error(msg || `API error (${status})`);
+        }
+
+        const data = await response.json();
+        
+        if (data?.promptFeedback?.blockReason === 'SAFETY' || data?.state === 'BLOCKED') {
+          throw new Error('This prompt might violate our safety policies. Please try a different prompt or send feedback.');
+        }
+
+        let videoUrl = '';
+        
+        if (data?.steps) {
+          const outputStep = data.steps.find((s: any) => 
+            s.type === 'model_output' || s.stepType === 'model_output' || s.step_type === 'model_output'
+          );
+          if (outputStep) {
+            const parts = Array.isArray(outputStep.content)
+              ? outputStep.content
+              : (outputStep.content?.parts || outputStep.modelOutput?.parts || []);
+            
+            const videoPart = parts.find((p: any) => 
+              p.mime_type?.startsWith('video/') || p.mimeType?.startsWith('video/') ||
+              p.inlineData?.mimeType?.startsWith('video/') || p.videoMetadata?.uri || p.video_metadata?.uri
+            );
+            
+            if (videoPart) {
+              if (videoPart.inlineData?.data) {
+                videoUrl = `data:${videoPart.inlineData.mimeType};base64,${videoPart.inlineData.data}`;
+              } else if (videoPart.data) {
+                const mime = videoPart.mime_type || videoPart.mimeType || 'video/mp4';
+                videoUrl = `data:${mime};base64,${videoPart.data}`;
+              } else if (videoPart.videoMetadata?.uri) {
+                videoUrl = videoPart.videoMetadata.uri;
+              } else if (videoPart.video_metadata?.uri) {
+                videoUrl = videoPart.video_metadata.uri;
+              }
+            }
+          }
+        }
+
+        if (!videoUrl) {
+          console.error("Unrecognized response shape or missing video:", data);
+          throw new Error('The model was unable to generate a video from this prompt. Try adding more descriptive details.');
+        }
+
+        setMediaItems(prev =>
+          prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: videoUrl } : m)),
+        );
+        if (isLocalFolderConnected) {
+          void saveGeneratedMedia({ ...item, url: videoUrl }, videoUrl);
+        }
+        return videoUrl;
+      }
+
       const instance: any = { prompt: activePrompt };
       if (firstImagePart) {
         instance.image = {
@@ -3461,7 +3820,9 @@ export const MediaView: React.FC = () => {
       return;
     }
 
-    const activeImageModelName = imageModel === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2';
+    let activeImageModelName = 'Nano Banana Lite';
+    if (imageModel === 'gemini-3-pro-image-preview') activeImageModelName = 'Nano Banana Pro';
+    if (imageModel === 'gemini-3.1-flash-image-preview') activeImageModelName = 'Nano Banana 2';
     const activeVideoModelName = videoModel === 'veo-3.1-fast' ? 'Veo 3.1 Fast' : videoModel === 'veo-3.1' ? 'Veo 3.1' : videoModel === 'veo-3.1-lite' ? 'Veo 3.1 Lite' : 'Omni Flash';
 
     const activeGuidelines = instructions
@@ -3542,7 +3903,199 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     }
   };
 
+  const handlePastedImage = async (file: File, isViewer = false) => {
+    const id = `pasted_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const filename = file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`;
+    const cleanName = filename.replace(/[\/:*?"<>|]/g, '').trim() || 'pasted-image';
+    const finalFilename = cleanName.endsWith('.png') ? cleanName : `${cleanName}.png`;
+
+    // Load image to read its natural width and height for aspect ratio detection
+    const imageSize: { width: number; height: number } = await new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        URL.revokeObjectURL(objectUrl);
+      };
+      img.onerror = () => {
+        resolve({ width: 1, height: 1 }); // fallback
+        URL.revokeObjectURL(objectUrl);
+      };
+      img.src = objectUrl;
+    });
+
+    const calculatedRatio = `${imageSize.width}:${imageSize.height}`;
+
+    const newItem: MediaItem = {
+      id,
+      kind: 'image',
+      status: 'generating',
+      prompt: filename,
+      modelId: 'pasted',
+      modelName: 'Pasted Image',
+      ratio: calculatedRatio,
+      timestamp: Date.now(),
+      progress: 0,
+    };
+
+    setIsLayoutSuppressing(true);
+    setMediaItems(prev => [newItem, ...prev]);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
+
+    const dataUrl: string = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+
+    let currentProgress = 0;
+    const updateProgress = (p: number) => {
+      setMediaItems(prev => prev.map(m => m.id === id ? { ...m, progress: p } : m));
+    };
+
+    const runProgress = () => {
+      return new Promise<void>((resolve) => {
+        const interval = setInterval(() => {
+          const step = Math.floor(Math.random() * 8) + 8;
+          currentProgress = Math.min(100, currentProgress + step);
+          updateProgress(currentProgress);
+          
+          if (currentProgress >= 100) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 60);
+      });
+    };
+
+    await runProgress();
+
+    let finalUrl = dataUrl;
+    let isSaved = false;
+    let savedFsName = '';
+
+    if (isLocalFolderConnected) {
+      let authorized = isLocalFolderAuthorized;
+      if (!authorized) {
+        authorized = await authorizeLocalFolder();
+      }
+      if (authorized) {
+        try {
+          const finalName = await saveLocalFSMedia(projectName, 'image', finalFilename, file);
+          if (finalName) {
+            isSaved = true;
+            savedFsName = finalName;
+            const blobUrl = await loadLocalFSMediaUrl(projectName, 'image', finalName);
+            if (blobUrl) {
+              finalUrl = blobUrl;
+            }
+          }
+        } catch (e) {
+          // Fallback to base64
+        }
+      }
+    }
+
+    setMediaItems(prev => prev.map(m => m.id === id ? {
+      ...m,
+      status: 'completed',
+      url: finalUrl,
+      isSavedToFS: isSaved,
+      fsName: savedFsName,
+      progress: undefined
+    } : m));
+
+    const attachment: ImageAttachment = {
+      id,
+      url: finalUrl,
+      name: filename,
+      file
+    };
+
+    if (isViewer) {
+      setViewerAttachments(prev => [...prev, attachment]);
+    } else {
+      setAttachments(prev => {
+        const next = [...prev, attachment];
+        return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
+      });
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const selectedItems = mediaItemsRef.current.filter(m => selectedTileIds.has(m.id));
+    if (selectedItems.length === 0) return;
+
+    selectedItems.forEach(item => {
+      if (item?.url && item.url.startsWith('blob:')) {
+        try { URL.revokeObjectURL(item.url); } catch {}
+        mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.url);
+      }
+      if (item?.isSavedToFS && item.fsName) {
+        void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
+      }
+    });
+
+    setMediaItems(prev => {
+      const next = prev.filter(m => !selectedTileIds.has(m.id));
+      if (projectId) void saveProjectMedia(projectId, next);
+      return next;
+    });
+
+    const selectedIds = new Set(selectedItems.map(item => item.id));
+    setAttachments(prev => prev.filter(att => att && !selectedIds.has(att.id)));
+    setViewerAttachments(prev => prev.filter(att => att && !selectedIds.has(att.id)));
+
+    setSelectedTileIds(new Set());
+  };
+
+  const handleDownloadSelected = async () => {
+    const selectedItems = mediaItemsRef.current.filter(m => selectedTileIds.has(m.id) && m.status === 'completed' && m.url);
+    if (selectedItems.length === 0) return;
+    
+    for (const item of selectedItems) {
+      if (!item.url) continue;
+      const name = item.shortenedPrompt || item.prompt;
+      const ext = item.kind === 'video' ? 'mp4' : 'png';
+      const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+      const filename = `${cleanName}.${ext}`;
+      try {
+        const response = await fetch(item.url);
+        const blob = await response.blob();
+        if (isLocalFolderConnected) {
+          let authorized = isLocalFolderAuthorized;
+          if (!authorized) {
+            authorized = await authorizeLocalFolder();
+          }
+          if (authorized) {
+            void saveLocalFSMedia(projectName, item.kind, filename, blob);
+          }
+        }
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        const a = document.createElement('a');
+        a.href = item.url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    }
+  };
+
   const handleGenerate = async () => {
+    if (Date.now() - lastGenerationTimeRef.current < 500) return;
+    lastGenerationTimeRef.current = Date.now();
     const activePrompt = prompt.trim();
     if (!activePrompt) return;
 
@@ -3603,7 +4156,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelId: activeModelId,
       modelName: activeModelName,
       ratio: activeRatio,
-      timestamp: Date.now(),
+      timestamp: Date.now() - i,
       attachments: activeAttachments,
     }));
 
@@ -3803,10 +4356,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       }
     };
     if (isViewerModelDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('touchstart', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
     };
   }, [isViewerModelDropdownOpen]);
 
@@ -4035,6 +4592,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       else if (ratio === '1:1') ar = 1;
       else if (ratio === '3:4') ar = 3 / 4;
       else if (ratio === '9:16') ar = 9 / 16;
+      else if (ratio && ratio.includes(':')) {
+        const [w, h] = ratio.split(':').map(Number);
+        if (w && h && !isNaN(w) && !isNaN(h)) ar = w / h;
+      }
       
       const arWithItem = currentRowSumAR + ar;
       const countWithItem = currentRow.length + 1;
@@ -4120,7 +4681,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             startX: e.clientX,
             startY: e.clientY,
             currentX: e.clientX,
-            currentY: e.clientY
+            currentY: e.clientY,
+            initialScrollTop: mainRef.current?.scrollTop || 0,
+            initialScrollLeft: mainRef.current?.scrollLeft || 0
           });
         }
       }}
@@ -4416,6 +4979,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           if (item?.fsName && item.kind) {
                             void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
                           }
+                          
+                          setAttachments(prev => prev.filter(att => att && att.id !== id));
+                          setViewerAttachments(prev => prev.filter(att => att && att.id !== id));
                         }}
                         onRename={(id, newName) => {
                           setMediaItems(prev => {
@@ -4467,6 +5033,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             }, 50);
                           }
                         }}
+                        isSelected={selectedTileIds.has(item.id)}
+                        selectedCount={selectedTileIds.size}
+                        onDeleteSelected={handleDeleteSelected}
+                        onDownloadSelected={handleDownloadSelected}
+                        onCreateCollectionSelected={() => {}}
+                        onCreateSceneSelected={() => {}}
                       />
                       
                       {/* Smooth fading local dark overlay for all other images/videos */}
@@ -4693,13 +5265,31 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               onMouseLeave={() => {
                 setHoveredAttachmentUrl(null);
                 setHoveredAttachmentRect(null);
+                setHoveredAttachmentIsEndFrame(false);
               }}
             >
-              <div className="shadow-2xl overflow-hidden preview-fade-in">
+              <div className="shadow-2xl overflow-hidden preview-fade-in relative rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]">
                 <img 
                   src={hoveredAttachmentUrl} 
-                  className="max-h-[320px] max-w-[400px] object-contain rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]" 
+                  className={`max-h-[320px] max-w-[400px] object-contain block ${hoveredAttachmentIsEndFrame && videoModel === 'omni-flash' ? 'grayscale' : ''}`} 
                 />
+                {hoveredAttachmentIsEndFrame && videoModel === 'omni-flash' && (
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center p-4 gap-2 text-center select-none">
+                    <div className="w-8 h-8 flex items-center justify-center text-white">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-8 h-8">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <span className="text-[14px] font-bold text-white tracking-wide">
+                      This model doesn't support end frame
+                    </span>
+                    <span className="text-[11px] font-normal text-white/60 max-w-[200px]">
+                      Omni Flash is a conversational model and cannot interpolate between start and end frames.
+                    </span>
+                  </div>
+                )}
               </div>
               {/* Invisible bridge to cover prompt box padding gap */}
               <div className="absolute top-full left-1/2 -translate-x-1/2 w-16 h-[24px] bg-transparent" />
@@ -4777,17 +5367,26 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     <div 
                       onMouseEnter={(e) => {
                         if (isModelMenuOpen || isAssetMenuOpen) return;
-                        handleAttachmentMouseEnter(e, attachments[1].url);
+                        handleAttachmentMouseEnter(e, attachments[1].url, true);
                       }}
                       onMouseLeave={handleAttachmentMouseLeave}
                       className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[1].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
                       <div className="relative">
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                        <div className={`w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e] relative ${videoModel === 'omni-flash' ? 'grayscale' : ''}`}>
                           {attachments[1].kind === 'video' ? (
                             <video src={attachments[1].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
                           ) : (
                             <img src={attachments[1].url} alt={attachments[1].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                          )}
+                          {videoModel === 'omni-flash' && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-500">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="8" x2="12" y2="12" />
+                                <line x1="12" y1="16" x2="12.01" y2="16" strokeLinecap="round" />
+                              </svg>
+                            </div>
                           )}
                         </div>
                         <button 
@@ -5004,15 +5603,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   }
                   if (imageFiles.length > 0) {
                     e.preventDefault();
-                    const newAttachments: ImageAttachment[] = imageFiles.map(file => ({
-                      id: Math.random().toString(36).substring(7),
-                      url: URL.createObjectURL(file),
-                      name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                      file
-                    }));
-                    setAttachments(prev => {
-                      const next = [...prev, ...newAttachments];
-                      return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
+                    imageFiles.forEach(file => {
+                      void handlePastedImage(file, false);
                     });
                   }
                 }}
@@ -5302,6 +5894,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                 {[
                                   { id: 'gemini-3-pro-image-preview' as ImageModelId, name: 'Nano Banana Pro' },
                                   { id: 'gemini-3.1-flash-image-preview' as ImageModelId, name: 'Nano Banana 2' },
+                                  { id: 'gemini-3.1-flash-lite-image' as ImageModelId, name: 'Nano Banana Lite' },
                                 ].map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
@@ -5454,18 +6047,33 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               )}
               
               <button
-                onClick={isAgentGenerating ? undefined : handleGenerate}
-                disabled={!isAgentGenerating && !prompt.trim()}
+                onClick={() => {
+                  if (isAgentGenerating) return;
+                  if (isAgentActive && !prompt.trim() && !hasActiveAttachments) {
+                    isLive ? handleStopLive() : handleStartLive();
+                  } else {
+                    handleGenerate();
+                  }
+                }}
+                disabled={!isAgentGenerating && !isAgentActive && !prompt.trim()}
                 className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border border-transparent ${
-                  (!isAgentGenerating && !prompt.trim())
+                  (!isAgentGenerating && !isAgentActive && !prompt.trim())
                     ? 'bg-[#27282b]/90 cursor-not-allowed'
-                    : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
+                    : isLive ? 'bg-red-500 hover:bg-red-600 animate-pulse active:scale-95 text-white' : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95 text-black'
                 }`}
               >
                 {isAgentGenerating ? (
                   <div className="w-[9px] h-[9px] bg-black rounded-[1px]" />
                 ) : (
-                  <ArrowRight size={16} strokeWidth={2.5} className={!prompt.trim() ? "text-white" : "text-black"} />
+                  (!isAgentGenerating && isAgentActive && !prompt.trim() && !hasActiveAttachments) ? (
+                    isLive ? (
+                      <div className="w-2.5 h-2.5 bg-current rounded-[1px]" />
+                    ) : (
+                      <AudioLines size={16} strokeWidth={2.2} className="text-black" />
+                    )
+                  ) : (
+                    <ArrowRight size={16} strokeWidth={2.5} className={(!prompt.trim() && !isAgentActive) ? "text-white" : "text-black"} />
+                  )
                 )}
               </button>
             </div>
@@ -6080,6 +6688,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   else if (ratio === '1:1') ar = 1;
                   else if (ratio === '3:4') ar = 3 / 4;
                   else if (ratio === '9:16') ar = 9 / 16;
+                  else if (ratio && ratio.includes(':')) {
+                    const [w, h] = ratio.split(':').map(Number);
+                    if (w && h && !isNaN(w) && !isNaN(h)) ar = w / h;
+                  }
                   
                   return (
                     <div 
@@ -6428,6 +7040,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         else if (ratio === '1:1') ar = 1;
                         else if (ratio === '3:4') ar = 3 / 4;
                         else if (ratio === '9:16') ar = 9 / 16;
+                        else if (ratio && ratio.includes(':')) {
+                          const [w, h] = ratio.split(':').map(Number);
+                          if (w && h && !isNaN(w) && !isNaN(h)) ar = w / h;
+                        }
 
                         return (
                           <div className="w-full rounded-[20px] overflow-hidden border-2 border-white bg-[#141517]/40 shadow-xl flex flex-col">
@@ -6588,13 +7204,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         }
                         if (imageFiles.length > 0) {
                           e.preventDefault();
-                          const newAttachments: ImageAttachment[] = imageFiles.map(file => ({
-                            id: Math.random().toString(36).substring(7),
-                            url: URL.createObjectURL(file),
-                            name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                            file
-                          }));
-                          setViewerAttachments(prev => [...prev, ...newAttachments]);
+                          imageFiles.forEach(file => {
+                            void handlePastedImage(file, true);
+                          });
                         }
                       }}
                       rows={1}
@@ -6647,6 +7259,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                               [
                                 { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
                                 { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
+                                { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' },
                               ].map(modelOpt => (
                                 <button
                                   key={modelOpt.id}
@@ -6803,6 +7416,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         imageRatio={imageRatio}
         setImageRatio={setImageRatio}
         imageBatch={imageBatch}
+        isLive={isLive}
+        onStartLive={handleStartLive}
+        onStopLive={handleStopLive}
         setImageBatch={setImageBatch}
         imageModel={imageModel}
         setImageModel={setImageModel}
@@ -6879,6 +7495,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         else if (ratio === '1:1') ar = 1;
         else if (ratio === '3:4') ar = 3 / 4;
         else if (ratio === '9:16') ar = 9 / 16;
+        else if (ratio && ratio.includes(':')) {
+          const [w, h] = ratio.split(':').map(Number);
+          if (w && h && !isNaN(w) && !isNaN(h)) ar = w / h;
+        }
         
         let ghostWidth = 210; // Reduced base width
         let ghostHeight = ghostWidth / ar;
@@ -6992,17 +7612,27 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         </div>
       )}
 
-      {selectionBox && (
-        <div
-          className="fixed pointer-events-none z-[9999] bg-white/10 border-[1.5px] border-white border-dotted"
-          style={{
-            left: Math.min(selectionBox.startX, selectionBox.currentX),
-            top: Math.min(selectionBox.startY, selectionBox.currentY),
-            width: Math.abs(selectionBox.currentX - selectionBox.startX),
-            height: Math.abs(selectionBox.currentY - selectionBox.startY),
-          }}
-        />
-      )}
+      {selectionBox && (() => {
+        const currentScrollTop = mainRef.current?.scrollTop || 0;
+        const currentScrollLeft = mainRef.current?.scrollLeft || 0;
+        const deltaY = currentScrollTop - selectionBox.initialScrollTop;
+        const deltaX = currentScrollLeft - selectionBox.initialScrollLeft;
+        
+        const adjustedStartX = selectionBox.startX - deltaX;
+        const adjustedStartY = selectionBox.startY - deltaY;
+
+        return (
+          <div
+            className="fixed pointer-events-none z-[9999] bg-white/10 border-[1.5px] border-white border-dotted"
+            style={{
+              left: Math.min(adjustedStartX, selectionBox.currentX),
+              top: Math.min(adjustedStartY, selectionBox.currentY),
+              width: Math.abs(selectionBox.currentX - adjustedStartX),
+              height: Math.abs(selectionBox.currentY - adjustedStartY),
+            }}
+          />
+        );
+      })()}
 
       {createPortal(
         canvasContextMenuCoords && (

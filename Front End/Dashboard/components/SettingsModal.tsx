@@ -409,6 +409,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       gemini: ProviderConfig;
       openai: ProviderConfig;
       anthropic: ProviderConfig;
+      activeProvider?: string;
     };
 
     const defaultProviderState: ProviderParams = {

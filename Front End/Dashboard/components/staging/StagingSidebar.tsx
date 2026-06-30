@@ -1936,7 +1936,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     id: string;                 // Unique UUID for the session
     name: string;               // Summarized session name (defaults to 'New Chat')
     messages: ChatMessage[];    // Chat messages list
-    filesSnapshot: Record<string, string>; // Files snapshot state for this session
+    filesSnapshot: any; // Files snapshot state for this session
     activeSnapshotId: string | null;       // Active snapshot ID
     createdAt: number;          // Creation timestamp
     updatedAt: number;          // Last updated timestamp

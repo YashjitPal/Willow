@@ -83,11 +83,11 @@ export async function removeStoredDirectoryHandle(): Promise<void> {
 export async function verifyPermission(handle: FileSystemDirectoryHandle, readWrite = true, interactive = false): Promise<boolean> {
   const opts = { mode: readWrite ? 'readwrite' as const : 'read' as const };
   try {
-    if ((await handle.queryPermission(opts)) === 'granted') {
+    if ((await (handle as any).queryPermission(opts)) === 'granted') {
       return true;
     }
     if (interactive) {
-      if ((await handle.requestPermission(opts)) === 'granted') {
+      if ((await (handle as any).requestPermission(opts)) === 'granted') {
         return true;
       }
     }

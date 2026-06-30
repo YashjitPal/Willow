@@ -97,7 +97,7 @@ const DesignCanvasInner = () => {
   // this prevents DesignNode memo from failing on every store sync
   const dataCacheRef = useRef<Record<string, { data: any; code: string; vm: string; fn?: string; csW?: number; csH?: number }>>({});
   // Defer nanostore selection writes so they don't overlap with click+drag start frame
-  const selectionTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const isHand = activeTool === 'hand';
 

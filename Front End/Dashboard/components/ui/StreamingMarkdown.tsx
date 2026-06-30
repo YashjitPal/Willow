@@ -275,7 +275,7 @@ function renderInline(
   src: string,
   baseOffset: number,
   settledBefore: number,
-  variant: 'w' | 'h' = 'w'
+  variant: 'w' | 'h' | 'image-grid' = 'w'
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
 
@@ -289,7 +289,7 @@ function renderInline(
     if (!text) return; // speculatively-closed empty marker → render nothing
     const id = baseOffset + wordStart;
     nodes.push(
-      <Word key={id} variant={variant} settled={id < settledBefore} {...opts}>
+      <Word key={id} variant={variant === 'image-grid' ? 'w' : variant} settled={id < settledBefore} {...opts}>
         {text}
       </Word>
     );
@@ -322,10 +322,10 @@ function renderInline(
   };
 
   // Inline scanner — order matters (longest / most specific first).
-  //   $$math$$ · \[math\] · $math$ · \(math\) · [text](url) · `code`
+  //   $$math$$ · \[math\] · $math$ · \(math\) · ![alt](url) · [text](url) · `code`
   //   · **bold** · ~~strike~~ · *italic*
   const scan =
-    /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[^\s$][^$\n]*?\$|\\\([\s\S]*?\\\)|\[[^\]\n]+\]\([^)\s]+\)|`[^`\n]*`|\*\*[^*\n]*\*\*|~~[^~\n]+~~|\*[^*\n]*\*)/g;
+    /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[^\s$][^$\n]*?\$|\\\([\s\S]*?\\\)|!\[[^\]\n]*\]\([^)\s]+\)|\[[^\]\n]+\]\([^)\s]+\)|`[^`\n]*`|\*\*[^*\n]*\*\*|~~[^~\n]+~~|\*[^*\n]*\*)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = scan.exec(src))) {
@@ -346,6 +346,224 @@ function renderInline(
       nodes.push(
         <MathSpan key={baseOffset + at} tex={tok.slice(1, -1).trim()} settled={settledAt(at)} />
       );
+    } else if (tok.startsWith('![')) {
+      const mm = tok.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      if (mm) {
+        let imageUrl = mm[2];
+        let isGenerating = false;
+        let itemRef: any = null;
+        if (imageUrl.startsWith('media-id:')) {
+          const mediaId = imageUrl.replace('media-id:', '');
+          const found = (window as any).canvasMediaItems?.find((item: any) => item.id === mediaId);
+          if (found) {
+            itemRef = found;
+            if (found.status === 'generating') {
+              isGenerating = true;
+            } else if (found.url) {
+              imageUrl = found.url;
+            }
+          }
+        }
+
+        if (isGenerating) {
+          const ratio = itemRef?.ratio || '4:3';
+          const pbPercent = 
+            ratio === '16:9' ? '56.25%'
+            : ratio === '9:16' ? '177.78%'
+            : ratio === '1:1' ? '100%'
+            : ratio === '4:3' ? '75%'
+            : ratio === '3:4' ? '133.33%'
+            : '75%';
+
+          nodes.push(
+            <div
+              key={baseOffset + at}
+              data-grid-item={true}
+              onClick={() => {
+                if (itemRef && typeof (window as any).openCanvasItemInFullscreen === 'function') {
+                  (window as any).openCanvasItemInFullscreen(itemRef);
+                }
+              }}
+              className="relative overflow-hidden rounded-[14px] border-[0.5px] border-[#0e0e10] w-full h-0 cursor-pointer hover:border-white/20 transition-all animate-in fade-in duration-300 block"
+              style={{
+                paddingBottom: pbPercent
+              }}
+            >
+              <div className="sidebar-mesh-container-generating">
+                <style dangerouslySetInnerHTML={{ __html: `
+                  .sidebar-mesh-container-generating {
+                    position: absolute;
+                    inset: 0;
+                    border-radius: 14px;
+                    background-color: #1a1b1f;
+                    overflow: hidden;
+                  }
+                  .sidebar-mesh-container-generating::after {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    border-radius: 14px;
+                    pointer-events: none;
+                    z-index: 30;
+                  }
+                  .sidebar-mesh-blob {
+                    position: absolute;
+                    border-radius: 50%;
+                    filter: blur(15px); 
+                    opacity: 0.85;
+                    will-change: transform;
+                  }
+                  .sidebar-blob-1 {
+                    top: -20%; left: -20%; width: 80%; height: 80%;
+                    background-color: #a3a8b5;
+                    animation: sidebar-move1 8s infinite ease-in-out;
+                  }
+                  .sidebar-blob-2 {
+                    bottom: -20%; right: -20%; width: 70%; height: 70%;
+                    background-color: #757a87;
+                    animation: sidebar-move2 9s infinite ease-in-out;
+                  }
+                  .sidebar-blob-3 {
+                    top: -15%; left: -15%; width: 65%; height: 65%;
+                    background-color: #12141a;
+                    animation: sidebar-move3 13s infinite ease-in-out; 
+                  }
+                  .sidebar-blob-4 {
+                    bottom: 10%; left: 10%; width: 60%; height: 60%;
+                    background-color: #c2c6d1;
+                    animation: sidebar-move4 15s infinite ease-in-out;
+                    z-index: 2;
+                  }
+                  .sidebar-blob-5 {
+                    bottom: -15%; right: -15%; width: 70%; height: 70%;
+                    background-color: #0d0f14;
+                    animation: sidebar-move5 17s infinite ease-in-out; 
+                  }
+                  @keyframes sidebar-move1 {
+                    0% { transform: translate(0, 0) scale(1); }
+                    33% { transform: translate(25%, 15%) scale(1.05); }
+                    66% { transform: translate(-10%, 25%) scale(0.95); }
+                    100% { transform: translate(0, 0) scale(1); }
+                  }
+                  @keyframes sidebar-move2 {
+                    0% { transform: translate(0, 0) scale(1); }
+                    33% { transform: translate(-25%, -15%) scale(0.95); }
+                    66% { transform: translate(15%, -25%) scale(1.05); }
+                    100% { transform: translate(0, 0) scale(1); }
+                  }
+                  @keyframes sidebar-move3 {
+                    0% { transform: translate(0, 0) scale(1); }
+                    33% { transform: translate(70%, 20%) scale(1.15); }
+                    66% { transform: translate(20%, 70%) scale(0.85); }
+                    100% { transform: translate(0, 0) scale(1); }
+                  }
+                  @keyframes sidebar-move4 {
+                    0% { transform: translate(0, 0) scale(1); }
+                    33% { transform: translate(-20%, 20%) scale(1.1); }
+                    66% { transform: translate(30%, -15%) scale(0.9); }
+                    100% { transform: translate(0, 0) scale(1); }
+                  }
+                  @keyframes sidebar-move5 {
+                    0% { transform: translate(0, 0) scale(1); }
+                    33% { transform: translate(-80%, -30%) scale(1.1); }
+                    66% { transform: translate(-10%, -80%) scale(0.9); }
+                    100% { transform: translate(0, 0) scale(1); }
+                  }
+                  .sidebar-noise-layer {
+                    position: absolute;
+                    inset: 0;
+                    z-index: 10;
+                    opacity: 0.045;
+                    mix-blend-mode: overlay;
+                    pointer-events: none;
+                    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+                  }
+                `}} />
+                <div className="sidebar-mesh-blob sidebar-blob-1"></div>
+                <div className="sidebar-mesh-blob sidebar-blob-2"></div>
+                <div className="sidebar-mesh-blob sidebar-blob-3"></div>
+                <div className="sidebar-mesh-blob sidebar-blob-4"></div>
+                <div className="sidebar-mesh-blob sidebar-blob-5"></div>
+                <div className="sidebar-noise-layer"></div>
+              </div>
+            </div>
+          );
+        } else {
+          const ratio = itemRef?.ratio || '4:3';
+          const pbPercent = 
+            ratio === '16:9' ? '56.25%'
+            : ratio === '9:16' ? '177.78%'
+            : ratio === '1:1' ? '100%'
+            : ratio === '4:3' ? '75%'
+            : ratio === '3:4' ? '133.33%'
+            : '75%';
+
+          const isFailed = itemRef?.status === 'failed';
+
+          nodes.push(
+            <div
+              key={baseOffset + at}
+              data-grid-item={true}
+              onClick={() => {
+                if (itemRef && typeof (window as any).openCanvasItemInFullscreen === 'function') {
+                  (window as any).openCanvasItemInFullscreen(itemRef);
+                }
+              }}
+              className="relative overflow-hidden rounded-[14px] border-[0.5px] border-[#0e0e10] w-full h-0 cursor-pointer hover:border-white/20 transition-all animate-in fade-in duration-300 block"
+              style={{
+                paddingBottom: pbPercent
+              }}
+            >
+              {isFailed ? (
+                <div className="absolute inset-0 flex flex-col items-start p-2.5 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[14px] select-text">
+                  {/* Steep Sharp Warning Triangle */}
+                  <svg 
+                    viewBox="0 0 24 24" 
+                    width="9" 
+                    height="9" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="square" 
+                    strokeLinejoin="miter" 
+                    className="text-zinc-200 shrink-0"
+                  >
+                    <path d="M12 2 L22 21 H2 Z" />
+                    <line x1="12" y1="8" x2="12" y2="14" />
+                    <line x1="12" y1="17.5" x2="12" y2="18" strokeWidth="2.5" />
+                  </svg>
+
+                  <h3 className="text-[9.5px] font-semibold text-zinc-200 mt-1 leading-none">Failed</h3>
+                  <p className="text-[8.5px] font-normal text-zinc-300 mt-0.5 leading-snug max-w-full overflow-y-auto select-text pr-1 scrollbar-none">
+                    {itemRef?.error ? (
+                      itemRef.error.includes('policies') ? (
+                        <>
+                          {itemRef.error.split('policies')[0]}
+                          <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>
+                          {itemRef.error.split('policies')[1]}
+                        </>
+                      ) : (
+                        itemRef.error
+                      )
+                    ) : (
+                      <>
+                        This prompt might violate our{' '}
+                        <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>{' '}
+                      </>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <img
+                  src={imageUrl}
+                  alt={mm[1]}
+                  className="absolute inset-0 w-full h-full object-cover rounded-[14px]"
+                />
+              )}
+            </div>
+          );
+        }
+      }
     } else if (tok.startsWith('[')) {
       const mm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/)!;
       nodes.push(
@@ -372,7 +590,90 @@ function renderInline(
   }
   if (last < src.length) pushWords(src.slice(last), last);
 
-  return nodes;
+  // Group consecutive images or generating containers into a 2-column grid
+  const processedNodes: React.ReactNode[] = [];
+  let tempGroup: React.ReactNode[] = [];
+
+  for (const node of nodes) {
+    if (React.isValidElement(node) && node.props?.['data-grid-item'] === true) {
+      tempGroup.push(node);
+    } else {
+      if (tempGroup.length > 0) {
+        if (tempGroup.length === 1) {
+          if (variant === 'image-grid') {
+            processedNodes.push(tempGroup[0]);
+          } else {
+            processedNodes.push(
+              <div key={`grid-group-${processedNodes.length}`} className="flex justify-center w-full my-4">
+                <div className="w-[75%] max-w-[350px]">
+                  {tempGroup[0]}
+                </div>
+              </div>
+            );
+          }
+        } else {
+          const leftCol: React.ReactNode[] = [];
+          const rightCol: React.ReactNode[] = [];
+          tempGroup.forEach((item: any, idx) => {
+            if (idx % 2 === 0) {
+              leftCol.push(item);
+            } else {
+              rightCol.push(item);
+            }
+          });
+          processedNodes.push(
+            <div key={`grid-group-${processedNodes.length}`} className="flex gap-3 my-4 w-full items-start">
+              <div className="flex flex-col gap-3 w-1/2 min-w-0">
+                {leftCol}
+              </div>
+              <div className="flex flex-col gap-3 w-1/2 min-w-0">
+                {rightCol}
+              </div>
+            </div>
+          );
+        }
+        tempGroup = [];
+      }
+      processedNodes.push(node);
+    }
+  }
+  if (tempGroup.length > 0) {
+    if (tempGroup.length === 1) {
+      if (variant === 'image-grid') {
+        processedNodes.push(tempGroup[0]);
+      } else {
+        processedNodes.push(
+          <div key={`grid-group-${processedNodes.length}`} className="flex justify-center w-full my-4">
+            <div className="w-[75%] max-w-[350px]">
+              {tempGroup[0]}
+            </div>
+          </div>
+        );
+      }
+    } else {
+      const leftCol: React.ReactNode[] = [];
+      const rightCol: React.ReactNode[] = [];
+      tempGroup.forEach((item: any, idx) => {
+        if (idx % 2 === 0) {
+          leftCol.push(item);
+        } else {
+          rightCol.push(item);
+        }
+      });
+      processedNodes.push(
+        <div key={`grid-group-${processedNodes.length}`} className="flex gap-3 my-4 w-full items-start">
+          <div className="flex flex-col gap-3 w-1/2 min-w-0">
+            {leftCol}
+          </div>
+          <div className="flex flex-col gap-3 w-1/2 min-w-0">
+            {rightCol}
+          </div>
+        </div>
+      );
+    }
+  }
+
+  return processedNodes;
 }
 
 // ── Speculative closer ──────────────────────────────────────────────────────
@@ -647,7 +948,45 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
   useInjectStyles();
 
   const { text: shown } = useSmoothText(text, animate);
-  const blocks = useMemo(() => parseBlocks(closeDangling(shown)), [shown]);
+  const processedBlocks = useMemo(() => {
+    const blocks = parseBlocks(closeDangling(shown));
+    
+    const isImageLine = (lineText: string) => {
+      return /^!\[[^\]]*\]\([^)]+\)$/.test(lineText.trim());
+    };
+    const isImageBlock = (b: Block) => {
+      if (b.type !== 'p') return false;
+      return b.lines.length === 1 && isImageLine(b.lines[0].text);
+    };
+
+    const out: (Block | { type: 'image-grid'; start: number; items: Block[] })[] = [];
+    let tempImageGrid: Block[] = [];
+
+    blocks.forEach((blk) => {
+      if (isImageBlock(blk)) {
+        tempImageGrid.push(blk);
+      } else {
+        if (tempImageGrid.length > 0) {
+          out.push({
+            type: 'image-grid',
+            start: tempImageGrid[0].start,
+            items: tempImageGrid
+          });
+          tempImageGrid = [];
+        }
+        out.push(blk);
+      }
+    });
+    if (tempImageGrid.length > 0) {
+      out.push({
+        type: 'image-grid',
+        start: tempImageGrid[0].start,
+        items: tempImageGrid
+      });
+    }
+    return out;
+  }, [shown]);
+
   void isStreaming; // reserved for future caret/indicator use
 
   // A word / block is "settled" iff its first character already existed in the
@@ -662,7 +1001,46 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
 
   const rendered: React.ReactNode[] = [];
 
-  blocks.forEach((blk) => {
+  processedBlocks.forEach((blk) => {
+    if (blk.type === 'image-grid') {
+      const gridItems = blk.items.map((item: any) => {
+        return (
+          <div key={item.start} className="w-full">
+            {renderInline(item.lines[0].text, item.lines[0].start, settledBefore, 'image-grid')}
+          </div>
+        );
+      });
+      if (blk.items.length === 1) {
+        rendered.push(
+          <div key={blk.start} className="flex justify-center w-full my-4">
+            <div className="w-[75%] max-w-[350px]">
+              {gridItems[0]}
+            </div>
+          </div>
+        );
+      } else {
+        const leftCol: React.ReactNode[] = [];
+        const rightCol: React.ReactNode[] = [];
+        gridItems.forEach((item, idx) => {
+          if (idx % 2 === 0) {
+            leftCol.push(item);
+          } else {
+            rightCol.push(item);
+          }
+        });
+        rendered.push(
+          <div key={blk.start} className="flex gap-3 my-4 w-full items-start">
+            <div className="flex flex-col gap-3 w-1/2 min-w-0">
+              {leftCol}
+            </div>
+            <div className="flex flex-col gap-3 w-1/2 min-w-0">
+              {rightCol}
+            </div>
+          </div>
+        );
+      }
+      return;
+    }
     if (blk.type === 'code') {
       const settled = blk.start < settledBefore;
       rendered.push(

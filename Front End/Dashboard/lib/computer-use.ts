@@ -1056,7 +1056,7 @@ export async function runComputerUseTest(
         systemInstruction: TEST_INTRO_SYSTEM_PROMPT,
         // @ts-ignore - Native Thinking/Thought Signature config
         thinkingConfig: {
-          thinkingLevel: 'low',
+          thinkingLevel: 'low' as any,
         },
         abortSignal: abortSignal, // Allow cancellation during intro
       },
@@ -1213,9 +1213,9 @@ Please analyze the screenshot and perform the necessary actions to test this fea
           // @ts-ignore - Native Thinking/Thought Signature config
           thinkingConfig: {
             includeThoughts: true,
-            thinkingLevel: 'low',
+            thinkingLevel: 'low' as any,
           },
-          tools: LOCAL_COMPUTER_USE_TOOLS,
+          tools: LOCAL_COMPUTER_USE_TOOLS as any,
           abortSignal: abortSignal, // Allow immediate cancellation
         },
       });
@@ -1521,7 +1521,7 @@ export async function streamTestRequest(
     ],
     config: {
       systemInstruction: COMPUTER_USE_SYSTEM_PROMPT,
-      tools: LOCAL_COMPUTER_USE_TOOLS,
+      tools: LOCAL_COMPUTER_USE_TOOLS as any,
     },
   });
   

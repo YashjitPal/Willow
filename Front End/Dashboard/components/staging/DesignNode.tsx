@@ -50,7 +50,7 @@ export const DesignNode = memo(({ data, selected }: any) => {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
-  const [contentHeight, setContentHeight] = useState(vpDefaults.screenHeight);
+  const [contentHeight, setContentHeight] = useState<number>(vpDefaults.screenHeight);
   const [isResizing, setIsResizing] = useState(false);
   const [localSize, setLocalSize] = useState<{ w: number; h: number } | null>(null);
 

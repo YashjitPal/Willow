@@ -112,7 +112,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   const { isDriveConnected } = useAuth();
   const { deleteLocalFSProject } = useLocalFS();
 
-  const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean }[]>([]);
+  const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean; coverUrl?: string }[]>([]);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
 
   // Permanently delete a project across IndexedDB, disk, and the registry.

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit, X, Plus, ArrowRight, ArrowLeft, ChevronDown, Trash2, Check, FileText, Lightbulb, Search, Terminal, ThumbsUp, ThumbsDown, Copy } from 'lucide-react';
+import { Menu, Edit, X, Plus, ArrowRight, ArrowLeft, ChevronDown, Trash2, Check, FileText, Lightbulb, Search, Terminal, ThumbsUp, ThumbsDown, Copy, AudioLines } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUserDataContext } from '../../context/UserDataContext';
 import { streamChat, ChatMessage, StreamPhase, generateSessionTitle } from '../../lib/ai';
@@ -215,8 +215,8 @@ interface AgentSidebarProps {
   setImageRatio: React.Dispatch<React.SetStateAction<string>>;
   imageBatch: string;
   setImageBatch: React.Dispatch<React.SetStateAction<string>>;
-  imageModel: 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
-  setImageModel: React.Dispatch<React.SetStateAction<'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview'>>;
+  imageModel: 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
+  setImageModel: React.Dispatch<React.SetStateAction<'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image'>>;
   videoRatio: string;
   setVideoRatio: React.Dispatch<React.SetStateAction<string>>;
   videoBatch: string;
@@ -230,6 +230,9 @@ interface AgentSidebarProps {
   ) => void;
   instructions: AgentInstruction[];
   setInstructions: React.Dispatch<React.SetStateAction<AgentInstruction[]>>;
+  isLive?: boolean;
+  onStartLive?: () => void;
+  onStopLive?: () => void;
 }
 
 export const AgentSidebar: React.FC<AgentSidebarProps> = ({ 
@@ -241,6 +244,9 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   setPrompt,
   attachments,
   setAttachments,
+  isLive,
+  onStartLive,
+  onStopLive,
   chatMessages,
   setChatMessages,
   isGenerating,
@@ -620,7 +626,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
       <div 
         className="flex-1 flex w-[200%] min-h-0"
         style={{
-          transform: sidebarView === 'chat' || sidebarView === 'main'
+          transform: sidebarView === 'main'
             ? 'translateX(0%)' 
             : 'translateX(-50%)',
           transition: 'transform 500ms cubic-bezier(0.16, 1, 0.3, 1)'
@@ -938,10 +944,25 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                     </svg>
                   </button>
                   <button 
-                    onClick={() => handleSend(prompt)}
-                    className={`w-[30px] h-[30px] flex items-center justify-center rounded-full ml-1 transition-colors cursor-pointer outline-none ${(prompt.trim() || hasActiveAttachments) && !isGenerating ? 'bg-white text-black hover:bg-gray-200' : 'bg-white/5 text-[#606060] hover:bg-white/10 hover:text-[#a0a0a0]'}`}
+                    onClick={() => {
+                      if (isGenerating) return;
+                      if (!prompt.trim() && !hasActiveAttachments) {
+                        isLive ? onStopLive?.() : onStartLive?.();
+                      } else {
+                        handleSend(prompt);
+                      }
+                    }}
+                    className={`w-[30px] h-[30px] flex items-center justify-center rounded-full ml-1 transition-colors cursor-pointer outline-none ${!isGenerating ? (isLive ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-white text-black hover:bg-gray-200') : 'bg-white/5 text-[#606060]'}`}
                   >
-                    <ArrowRight size={15} strokeWidth={2.5} />
+                    {!isGenerating && !prompt.trim() && !hasActiveAttachments ? (
+                      isLive ? (
+                        <div className="w-2.5 h-2.5 bg-current rounded-[1px]" />
+                      ) : (
+                        <AudioLines size={15} strokeWidth={2.2} />
+                      )
+                    ) : (
+                      <ArrowRight size={15} strokeWidth={2.5} />
+                    )}
                   </button>
                 </div>
               </div>
@@ -1071,32 +1092,30 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                       className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[14px] px-3 py-3 text-white text-[13px] font-normal cursor-pointer outline-none"
                     >
                       <span className="flex items-center gap-2">
-                        {imageModel === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2'}
+                        {imageModel === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' :
+                         imageModel === 'gemini-3.1-flash-lite-image' ? 'Nano Banana Lite' : 'Nano Banana 2'}
                       </span>
                       <ChevronDown size={16} className={`text-[#a0a0a0] transition-transform duration-200 ${isImgDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isImgDropdownOpen && (
                       <div className="absolute top-[calc(100%+6px)] left-0 right-0 bg-[#141517]/90 backdrop-blur-xl border border-white/5 rounded-[14px] p-1 flex flex-col shadow-2xl z-50">
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            setImageModel('gemini-3-pro-image-preview');
-                            setIsImgDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors cursor-pointer ${imageModel === 'gemini-3-pro-image-preview' ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
-                        >
-                          Nano Banana Pro
-                        </button>
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            setImageModel('gemini-3.1-flash-image-preview');
-                            setIsImgDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors cursor-pointer ${imageModel === 'gemini-3.1-flash-image-preview' ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
-                        >
-                          Nano Banana 2
-                        </button>
+                        {[
+                          { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
+                          { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
+                          { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' }
+                        ].map((modelOpt) => (
+                          <button 
+                            key={modelOpt.id}
+                            type="button"
+                            onClick={() => {
+                              setImageModel(modelOpt.id as any);
+                              setIsImgDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors cursor-pointer ${imageModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                          >
+                            {modelOpt.name}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>

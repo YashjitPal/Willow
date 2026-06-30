@@ -397,6 +397,27 @@ Chats use React state (`localChats` from context) directly — no event needed.
     race-delete chats mid-creation.
 12. **`<LocalFSProvider>` must wrap every route** (it's in App.tsx around
     `<Routes>`). Any component calling `useLocalFS()` outside it throws.
+13. **Rename must suppress disk-change reloads.** Renaming a project folder is
+    async (native `move()` or recursive copy-then-delete). The `FileSystemObserver`
+    fires multiple events mid-rename (folder deleted → folder created → files
+    copied). If `loadMedia` runs during this window it reads partial/empty folder
+    contents, causing images to vanish and the gallery layout to collapse.
+    **Guard:** set a `renamingRef` flag before the disk rename starts, clear it
+    ~800 ms after completion (lets the observer's last debounced event pass), and
+    skip all disk-change-triggered `loadMedia` calls while it's true.
+14. **Reuse existing `blob:` URLs when the underlying file hasn't changed.**
+    When `loadMedia` hydrates disk-backed items it must check if the item's `id`
+    and `fsName` match a currently-displayed item that already has a live
+    `blob:` URL. If so, reuse that URL instead of creating a new one. Creating a
+    new URL revokes the old one, which forces the browser to unload and reload
+    the `<img>`, causing a masonry layout collapse and visible reflow.
+15. **`loadMedia` must be change-only (structural diff gate).** After hydration,
+    compare the incoming items against `mediaItemsRef.current` by ID (order-
+    independent). If every item's `id`, `url`, `status`, `fsName`, `kind`,
+    `prompt`, and `timestamp` are identical, skip `setMediaItems` entirely.
+    Without this, each periodic disk poll triggers a React re-render and
+    framer-motion `layout` animations that cause tiles to visibly reposition
+    even though nothing changed on disk. (This is a refinement of invariant 7.)
 
 ---
 

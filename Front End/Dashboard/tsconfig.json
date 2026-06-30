@@ -29,5 +29,12 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    ".next",
+    "dist",
+    "out",
+    "build"
+  ]
 }

@@ -86,11 +86,43 @@ re-add it.
 
 ## Blob URL lifecycle (important — leaks if mishandled)
 - Disk-backed items are shown via `URL.createObjectURL(file)`. These are tracked
-  in `mediaBlobUrlsRef` and **revoked** when the project changes, on unmount, and
-  on delete. Never persist a `blob:` URL — it dies on reload (the save strip
-  guarantees disk-backed items store `url:''`, so a blob URL can't be persisted).
+  in `mediaBlobUrlsRef` and **revoked** immediately when the project changes, on
+  unmount, and on delete. To ensure active URLs are never broken during dynamic
+  virtualization scrolling, background `loadMedia` refreshes never perform 
+  arbitrary/bulk revocations; instead, the previous project's URLs are cleanly
+  revoked as a single atomic batch during the project switch `useEffect` itself.
+  Never persist a `blob:` URL — it dies on reload (the save strip guarantees
+  disk-backed items store `url:''`, so a blob URL can't be persisted).
 - `MediaVideo` owns the blob URL it creates from a `data:video` base64 and revokes
   it on src change/unmount (separate from the disk-hydration URLs).
+
+## Race guards in `loadMedia` (critical — removing any of these causes gallery flicker)
+
+### 1. Rename guard (`renamingRef`)
+Renaming a project folder on disk is async (`FileSystemHandle.move()` or
+recursive copy-then-delete). During this window the `FileSystemObserver` fires
+multiple events (folder deleted → folder created → files copied). If `loadMedia`
+runs mid-rename it reads partial/empty contents → images vanish, layout collapses.
+
+**Guard:** `MediaView` sets `renamingRef.current = true` before the disk rename
+starts and clears it ~800 ms after completion. Both the `willow_disk_changed`
+handler and `loadMedia(true)` bail if this flag is set.
+
+### 2. Blob URL reuse
+When hydrating disk-backed items, `loadMedia` checks if the item (`id` + `fsName`)
+already has a live `blob:` URL on screen. If so, it reuses that exact URL instead
+of creating a new one. Without this, each reload revokes the old URL and creates a
+new one → the browser unloads the `<img>` (height collapses to 0) → masonry layout
+re-flows → tiles visibly jump.
+
+### 3. Structural diff gate
+After hydration, `loadMedia` compares the incoming items against
+`mediaItemsRef.current` by ID (order-independent). It checks `id`, `url`,
+`status`, `fsName`, `kind`, `prompt`, `shortenedPrompt`, and `timestamp`. If
+everything is identical, `setMediaItems` is skipped entirely — no React re-render,
+no framer-motion `layout` animation. Without this, each periodic disk poll
+(every 3–30 s) triggers a state update that causes tiles to reposition even though
+nothing changed on disk.
 
 ## Key functions
 | Function | Where | Role |
