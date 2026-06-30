@@ -120,7 +120,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
   // Keep the handle in a ref to avoid re-renders and closure issues
   const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
-  const fsWriteLockRef = useRef<Promise<void>>(Promise.resolve());
 
   // chatId -> last local-save time. The disk poller uses this to avoid deleting a
   // chat that was just created/edited in the brief window before its .json hits
@@ -929,40 +928,29 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const baseName = lastDot !== -1 ? fileName.slice(0, lastDot) : fileName;
       const ext = lastDot !== -1 ? fileName.slice(lastDot) : '';
 
-      let releaseLock: () => void = () => {};
-      const lockPromise = new Promise<void>(resolve => { releaseLock = resolve; });
-      const previousLock = fsWriteLockRef.current;
-      fsWriteLockRef.current = previousLock.then(() => lockPromise);
-      
-      await previousLock;
+      let finalFileName = fileName;
+      let counter = 1;
+      let fileExists = true;
 
-      try {
-        let finalFileName = fileName;
-        let counter = 1;
-        let fileExists = true;
-
-        while (fileExists) {
-          try {
-            // Check if file already exists in destination directory
-            await subDir.getFileHandle(finalFileName, { create: false });
-            // If this call succeeds, the file exists. Increment counter and try again.
-            finalFileName = `${baseName} (${counter})${ext}`;
-            counter++;
-          } catch (e) {
-            // If it throws, the file name is available!
-            fileExists = false;
-          }
+      while (fileExists) {
+        try {
+          // Check if file already exists in destination directory
+          await subDir.getFileHandle(finalFileName, { create: false });
+          // If this call succeeds, the file exists. Increment counter and try again.
+          finalFileName = `${baseName} (${counter})${ext}`;
+          counter++;
+        } catch (e) {
+          // If it throws, the file name is available!
+          fileExists = false;
         }
-
-        const fileHandle = await subDir.getFileHandle(finalFileName, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-
-        return finalFileName;
-      } finally {
-        releaseLock();
       }
+
+      const fileHandle = await subDir.getFileHandle(finalFileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+
+      return finalFileName;
     } catch (err) {
       return null;
     }
@@ -1423,10 +1411,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               matchName = baseName.substring(0, suffixMatch.index);
             }
             
-            // Match to existing metadata by filename, else by cleaned prompt (legacy).
-            const cleanNameForMatch = (name: string) => (name || '').replace(/[\/:*?"<>|]/g, '').trim();
+            // Match to existing metadata by filename, else by prompt (legacy).
             let existing = dbMedia.find((m: any) => m.fsName === fsName)
-              || dbMedia.find((m: any) => !consumedDbIds.has(m.id) && (cleanNameForMatch(m.shortenedPrompt) === matchName || cleanNameForMatch(m.prompt) === matchName));
+              || dbMedia.find((m: any) => !consumedDbIds.has(m.id) && (m.shortenedPrompt === matchName || m.prompt === matchName));
             if (existing) {
               consumedDbIds.add(existing.id);
               // Keep metadata, mark disk-backed, drop bytes (hydrated on display).
