@@ -233,6 +233,7 @@ interface AgentSidebarProps {
   isLive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;
+  mediaItems?: any[];
 }
 
 export const AgentSidebar: React.FC<AgentSidebarProps> = ({ 
@@ -253,6 +254,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   setIsGenerating,
   streaming,
   setStreaming,
+  mediaItems,
   isThinking,
   setIsThinking,
   thinkingPhase,
@@ -751,6 +753,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                             text={bodyText}
                             isStreaming={isLast && isGenerating}
                             animate={true}
+                            mediaItems={mediaItems}
                           />
                         </div>
 

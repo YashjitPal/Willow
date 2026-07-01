@@ -47,7 +47,7 @@ import { useUserDataContext } from '../../context/UserDataContext';
 import { useLocalFS } from '../../context/LocalFSContext';
 import { AssetMenuModal } from '../AssetMenuModal';
 import { AgentSidebar, AgentInstruction } from './AgentSidebar';
-import { streamChat, ChatMessage, StreamPhase, generateSessionTitle } from '../../lib/ai';
+import { streamChat, ChatMessage, StreamPhase, generateSessionTitle, mockExecuteTool } from '../../lib/ai';
 import { TextShimmer } from '../ui/text-shimmer';
 import { CharactersView } from './CharactersView';
 
@@ -2340,6 +2340,20 @@ export const MediaView: React.FC = () => {
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
   React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
 
+  // Synchronously bind the canvas items & fullscreen viewer globally in the render body so StreamingMarkdown can preview them instantly during render
+  (window as any).canvasMediaItems = mediaItems;
+  (window as any).openCanvasItemInFullscreen = (item: MediaItem) => {
+    setSelectedItem(item);
+  };
+
+  // Clean up global window bindings on unmount
+  React.useEffect(() => {
+    return () => {
+      delete (window as any).canvasMediaItems;
+      delete (window as any).openCanvasItemInFullscreen;
+    };
+  }, []);
+
   const prevSelectedTileIdsRef = React.useRef<Set<string>>(new Set());
 
   // Automatically sync selection with prompt ingredients in realtime
@@ -3554,6 +3568,70 @@ export const MediaView: React.FC = () => {
       })
     );
 
+    const activeCanvasImages = mediaItemsRef.current
+      .filter(m => m.kind === 'image' && m.status === 'completed' && m.url)
+      .slice(0, 10);
+
+    const canvasImageAttachments = await Promise.all(
+      activeCanvasImages.map(async (m) => {
+        try {
+          const res = await fetch(m.url!);
+          const blob = await res.blob();
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_SIZE = 512;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                if (width > MAX_SIZE) {
+                  height *= MAX_SIZE / width;
+                  width = MAX_SIZE;
+                }
+              } else {
+                if (height > MAX_SIZE) {
+                  width *= MAX_SIZE / height;
+                  height = MAX_SIZE;
+                }
+              }
+              
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+              }
+              
+              const result = canvas.toDataURL('image/jpeg', 0.5);
+              const match = result.match(/^data:([^;]+);base64,(.+)$/);
+              if (match) {
+                resolve({
+                  type: 'image',
+                  mimeType: match[1],
+                  data: match[2],
+                  id: m.id,
+                  name: `media-id: ${m.id}`
+                });
+              } else {
+                reject(new Error('Failed to parse file data'));
+              }
+              URL.revokeObjectURL(img.src);
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(img.src);
+              reject(new Error('Failed to load image'));
+            };
+            img.src = URL.createObjectURL(blob);
+          });
+        } catch (e) {
+          return null;
+        }
+      })
+    );
+
     const validAttachments = convertedAttachments.filter(Boolean) as any[];
 
     const userMsg: ChatMessage = {
@@ -3619,10 +3697,22 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       })();
     }
 
+    const apiValidAttachments = [...validAttachments, ...canvasImageAttachments.filter(Boolean)] as any[];
+    const apiUserMsg: ChatMessage = {
+      role: 'user',
+      content: text,
+      ...(apiValidAttachments.length > 0 ? { attachments: apiValidAttachments } : {})
+    };
+    const apiMessages: ChatMessage[] = [
+      ...chatMessages,
+      apiUserMsg,
+      { role: 'assistant', content: '' }
+    ];
+
     let acc = '';
     try {
-      await streamChat(
-        newMessages.slice(0, -1),
+      const returnedHistory = await streamChat(
+        apiMessages.slice(0, -1),
         {
           provider: 'gemini',
           model: 'gemini-3.5-flash',
@@ -3650,8 +3740,349 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           if (phase !== 'responding') {
             setAgentThinkingPhase(phase);
           }
+        },
+        async (name: string, args: any) => {
+          const result = mockExecuteTool(name, args);
+          
+          if (name === 'generate_image' && result?.media_id) {
+            const modelToUse = args.model || imageModel || 'gemini-3.1-flash-image-preview';
+            const ratioToUse = args.aspect_ratio || imageRatio || '16:9';
+            const isEditing = args.references && Array.isArray(args.references) && args.references.length > 0;
+            const batchStr = args.batch_size || (isEditing ? '1x' : imageBatch) || '1x';
+            const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
+            
+            // Resolve any style, composition, or character referenced canvas image IDs requested by the agent
+            const refAttachments: ImageAttachment[] = [];
+            if (args.references && Array.isArray(args.references)) {
+              args.references.forEach((refId: string) => {
+                const cleanId = refId.replace(/^media-id:/, '');
+                const refItem = mediaItemsRef.current.find(m => m.id === cleanId);
+                if (refItem?.url) {
+                  refAttachments.push({
+                    id: refItem.id,
+                    url: refItem.url,
+                    name: refItem.prompt || 'Reference Image',
+                    kind: refItem.kind
+                  });
+                }
+              });
+            }
+
+            // Create a batch of placeholder items in generating state synchronously
+            const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
+              // Ensure the first item matches result.media_id so the chat sidebar image works,
+              // while other items in the batch get unique IDs so they display on the canvas.
+              const itemId = i === 0 ? result.media_id : `${result.media_id}_batch_${i}`;
+              return {
+                id: itemId,
+                kind: 'image',
+                status: 'generating',
+                prompt: args.prompt || 'Agent Generated Image',
+                modelId: modelToUse,
+                modelName: modelToUse === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2',
+                ratio: ratioToUse,
+                timestamp: Date.now() - i,
+                ...(refAttachments.length > 0 ? { attachments: refAttachments } : {})
+              };
+            });
+            setMediaItems(prev => [...newItems, ...prev]);
+            
+            // Populate media_ids so the agent sidebar can render all images in the batch
+            result.media_ids = newItems.map(item => item.id);
+            
+            // Await all parallel Gemini/Imagen image generations so that Gemini is blocked and pauses its stream
+            // until the images are 100% completed, guaranteeing that paragraphs render in the correct sequential order!
+            await Promise.all(
+              newItems.map(async (item) => {
+                try {
+                  const allAttachments = [...refAttachments, ...validAttachments];
+                  const inlineParts = await Promise.all(allAttachments.map(getGeminiInlinePart));
+                  
+                  const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${apiKey}`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{
+                          parts: [
+                            { text: args.prompt || 'Agent Generated Image' },
+                            ...inlineParts
+                          ]
+                        }],
+                        generationConfig: {
+                          responseModalities: ['IMAGE'],
+                          imageConfig: { aspectRatio: ratioToUse, imageSize: '1K' },
+                        },
+                      }),
+                    },
+                  );
+                  
+                  if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData?.error?.message || `API error (${response.status})`);
+                  }
+                  
+                  const data = await response.json();
+                  if (data?.promptFeedback?.blockReason === 'SAFETY' || data?.candidates?.[0]?.finishReason === 'SAFETY') {
+                    throw new Error('This prompt might violate our safety policies. Please try a different prompt.');
+                  }
+                  
+                  const parts = data?.candidates?.[0]?.content?.parts || [];
+                  const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
+                  if (!imagePart?.inlineData?.data) {
+                    throw new Error('The model was unable to generate an image from this prompt.');
+                  }
+                  
+                  const realUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+                  
+                  setMediaItems(prev =>
+                    prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: realUrl } : m))
+                  );
+                  
+                  if (item.id === result.media_id) {
+                    result.url = realUrl;
+                    result.status = 'success';
+                  }
+                } catch (err: any) {
+                  setMediaItems(prev =>
+                    prev.map(m => (m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Generation failed' } : m))
+                  );
+                  if (item.id === result.media_id) {
+                    result.status = 'failed';
+                    result.error = err?.message || 'Generation failed';
+                  }
+                }
+              })
+            );
+            
+          } else if (name === 'generate_video_from_text' && result?.media_id) {
+            const modelToUse = args.model || videoModel || 'omni-flash';
+            const ratioToUse = args.aspect_ratio || videoRatio || '16:9';
+            const durationToUse = args.duration || videoDuration || '10s';
+            const batchStr = args.batch_size || videoBatch || '1x';
+            const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
+            
+            const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
+              const itemId = i === 0 ? result.media_id : `${result.media_id}_batch_${i}`;
+              return {
+                id: itemId,
+                kind: 'video',
+                status: 'generating',
+                prompt: args.prompt || 'Agent Generated Video',
+                modelId: modelToUse,
+                modelName: modelToUse === 'omni-flash' ? 'Omni Flash' : 'Veo 3.1 Fast',
+                ratio: ratioToUse,
+                timestamp: Date.now() - i
+              };
+            });
+            setMediaItems(prev => [...newItems, ...prev]);
+            
+            // Populate media_ids so the agent sidebar can render all videos in the batch
+            result.media_ids = newItems.map(item => item.id);
+            
+            // Await parallel video generations
+            await Promise.all(
+              newItems.map(async (item) => {
+                try {
+                  const durationSec = parseInt(durationToUse.replace('s', ''), 10) || 8;
+                  const inlineParts = await Promise.all(validAttachments.map(getGeminiInlinePart));
+                  
+                  if (modelToUse === 'omni-flash') {
+                    const interactionsInput = [
+                      { 
+                        type: 'text', 
+                        text: `${args.prompt || 'Agent Generated Video'}\n\n[System: Please generate this video with an aspect ratio of ${ratioToUse} and a duration of ${durationSec} seconds.]` 
+                      },
+                      ...inlineParts.map(part => {
+                        if (part.inlineData) {
+                          return {
+                            type: 'image',
+                            mime_type: part.inlineData.mimeType || 'image/png',
+                            data: part.inlineData.data
+                          };
+                        }
+                        return null;
+                      }).filter(Boolean)
+                    ];
+                    
+                    const response = await fetch(
+                      `https://generativelanguage.googleapis.com/v1beta/interactions`,
+                      {
+                        method: 'POST',
+                        headers: { 
+                          'Content-Type': 'application/json',
+                          'x-goog-api-key': apiKey
+                        },
+                        body: JSON.stringify({
+                          model: `models/veo-2.0-generate-001`,
+                          input: interactionsInput,
+                          response_format: {
+                            type: 'video',
+                            aspect_ratio: ratioToUse
+                          }
+                        }),
+                      }
+                    );
+                    
+                    if (!response.ok) {
+                      const errData = await response.json().catch(() => ({}));
+                      throw new Error(errData?.error?.message || `API error (${response.status})`);
+                    }
+                    
+                    const data = await response.json();
+                    if (data?.promptFeedback?.blockReason === 'SAFETY' || data?.state === 'BLOCKED') {
+                      throw new Error('This prompt might violate our safety policies. Please try a different prompt.');
+                    }
+                    
+                    let videoUrl = '';
+                    if (data?.steps) {
+                      const outputStep = data.steps.find((s: any) => s.type === 'model_output' || s.stepType === 'model_output' || s.step_type === 'model_output');
+                      if (outputStep) {
+                        const parts = Array.isArray(outputStep.content) ? outputStep.content : (outputStep.content?.parts || []);
+                        const videoPart = parts.find((p: any) => p.mime_type?.startsWith('video/') || p.mimeType?.startsWith('video/') || p.inlineData?.mimeType?.startsWith('video/'));
+                        if (videoPart) {
+                          if (videoPart.inlineData?.data) {
+                            videoUrl = `data:${videoPart.inlineData.mimeType};base64,${videoPart.inlineData.data}`;
+                          } else if (videoPart.data) {
+                            const mime = videoPart.mime_type || videoPart.mimeType || 'video/mp4';
+                            videoUrl = `data:${mime};base64,videoPart.data`;
+                          }
+                        }
+                      }
+                    }
+                    
+                    if (!videoUrl) {
+                      throw new Error('The model was unable to generate a video from this prompt.');
+                    }
+                    
+                    setMediaItems(prev =>
+                      prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: videoUrl } : m))
+                    );
+                    
+                    if (item.id === result.media_id) {
+                      result.url = videoUrl;
+                      result.status = 'success';
+                    }
+                  } else {
+                    // For other Veo models, leverage existing predictLongRunning predictive background task helper
+                    await generateSingleVideo(item, args.prompt || 'Agent Generated Video', modelToUse as VideoModelId, ratioToUse, durationToUse, apiKey, validAttachments);
+                  }
+                } catch (err: any) {
+                  setMediaItems(prev =>
+                    prev.map(m => (m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Generation failed' } : m))
+                  );
+                  if (item.id === result.media_id) {
+                    result.status = 'failed';
+                    result.error = err?.message || 'Generation failed';
+                  }
+                }
+              })
+            );
+          } else if (name === 'generate_video_with_first_frame' && result?.media_id) {
+            const newItem: MediaItem = {
+              id: result.media_id,
+              kind: 'video',
+              status: 'completed',
+              prompt: args.prompt || 'First Frame Animation',
+              modelId: args.model || 'omni-flash',
+              modelName: 'Omni Flash',
+              ratio: '16:9',
+              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
+              timestamp: Date.now()
+            };
+            setMediaItems(prev => [newItem, ...prev]);
+          } else if (name === 'generate_video_with_interpolation' && result?.media_id) {
+            const newItem: MediaItem = {
+              id: result.media_id,
+              kind: 'video',
+              status: 'completed',
+              prompt: args.prompt || 'Interpolated Video',
+              modelId: 'veo-3.1',
+              modelName: 'Veo 3.1',
+              ratio: '16:9',
+              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
+              timestamp: Date.now()
+            };
+            setMediaItems(prev => [newItem, ...prev]);
+          } else if (name === 'generate_video_with_references' && result?.media_id) {
+            const newItem: MediaItem = {
+              id: result.media_id,
+              kind: 'video',
+              status: 'completed',
+              prompt: args.prompt || 'Reference Guided Video',
+              modelId: 'omni-flash',
+              modelName: 'Omni Flash',
+              ratio: '16:9',
+              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
+              timestamp: Date.now()
+            };
+            setMediaItems(prev => [newItem, ...prev]);
+          } else if (name === 'generate_video_edit_video' && result?.media_id) {
+            const newItem: MediaItem = {
+              id: result.media_id,
+              kind: 'video',
+              status: 'completed',
+              prompt: args.prompt || 'Video Transformation',
+              modelId: 'omni-flash',
+              modelName: 'Omni Flash',
+              ratio: '16:9',
+              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
+              timestamp: Date.now()
+            };
+            setMediaItems(prev => [newItem, ...prev]);
+          } else if (name === 'get_geo_grounding_image' && result?.streetview_id) {
+            const newItem: MediaItem = {
+              id: result.streetview_id,
+              kind: 'image',
+              status: 'completed',
+              prompt: `Grounding location: ${args.location || 'US'}`,
+              modelId: 'streetview',
+              modelName: 'Google Street View',
+              ratio: '16:9',
+              url: result.image_url,
+              timestamp: Date.now()
+            };
+            setMediaItems(prev => [newItem, ...prev]);
+          } else if (name === 'analyze_artifact') {
+             const targetItem = mediaItemsRef.current.find(m => m.id === args.media_id);
+             if (targetItem && targetItem.url) {
+                try {
+                   const res = await fetch(targetItem.url);
+                   const blob = await res.blob();
+                   const base64 = await new Promise<string>((resolve, reject) => {
+                       const reader = new FileReader();
+                       reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                       reader.onerror = reject;
+                       reader.readAsDataURL(blob);
+                   });
+                   const visionModel = getGeminiClient(apiKey).getGenerativeModel({ model: 'gemini-3.5-flash' });
+                   const visionRes = await visionModel.generateContent([
+                       args.query,
+                       { inlineData: { mimeType: blob.type, data: base64 } }
+                   ]);
+                   return {
+                       media_id: args.media_id,
+                       analysis: visionRes.response.text()
+                   };
+                } catch (e: any) {
+                   return { media_id: args.media_id, error: 'Failed to visually analyze image: ' + e.message };
+                }
+             }
+             return { media_id: args.media_id, error: 'Media not found or has no visual URL.' };
+          }
+          return result;
         }
       );
+      
+      setChatMessages(prev => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === 'assistant') {
+          last.history = returnedHistory;
+        }
+        return next;
+      });
     } catch (e: any) {
       setChatMessages(prev => {
         const next = [...prev];
@@ -4079,23 +4510,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const newModelId = viewerModelId || selectedItem.modelId;
     const newModelName = viewerModelName || selectedItem.modelName;
 
-    const newItem: MediaItem = {
-      id: `${Date.now()}-viewer-${Math.random().toString(36).slice(2, 8)}`,
-      kind: selectedItem.kind,
-      status: 'generating',
-      prompt: editPrompt,
-      modelId: newModelId,
-      modelName: newModelName,
-      ratio: selectedItem.ratio,
-      timestamp: Date.now(),
-    };
-
-    setIsLayoutSuppressing(true);
-    setMediaItems(prev => [newItem, ...prev]);
-    setTimeout(() => {
-      setIsLayoutSuppressing(false);
-    }, 150);
-
     const selectedInlinePart = await getAnnotatedImageBase64();
     const attachments: ImageAttachment[] = [];
     if (selectedInlinePart) {
@@ -4108,6 +4522,24 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
     const activeViewerAttachments = viewerAttachments.filter(att => !viewerRemovingIds.has(att.id));
     attachments.push(...activeViewerAttachments);
+
+    const newItem: MediaItem = {
+      id: `${Date.now()}-viewer-${Math.random().toString(36).slice(2, 8)}`,
+      kind: selectedItem.kind,
+      status: 'generating',
+      prompt: editPrompt,
+      modelId: newModelId,
+      modelName: newModelName,
+      ratio: selectedItem.ratio,
+      timestamp: Date.now(),
+      attachments: attachments.length > 0 ? attachments : undefined
+    };
+
+    setIsLayoutSuppressing(true);
+    setMediaItems(prev => [newItem, ...prev]);
+    setTimeout(() => {
+      setIsLayoutSuppressing(false);
+    }, 150);
 
     void rephrasePromptForItems([newItem.id], fullPrompt, apiKey);
 
@@ -6937,6 +7369,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         isOpen={isAgentSidebarOpen} 
         onClose={() => setIsAgentSidebarOpen(false)} 
         isHeaderVisible={isHeaderVisible}
+        mediaItems={mediaItems}
         sidebarTransition={currentSidebarTransitionTiming}
         prompt={prompt}
         setPrompt={setPrompt}

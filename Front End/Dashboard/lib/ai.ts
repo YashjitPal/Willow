@@ -678,6 +678,7 @@ Adhere to the following rules and guidelines:
    - You must output clean, concise, premium, and professional text.
    - Do NOT use emojis under any circumstances. Emojis are strictly prohibited.
    - Keep outputs short, structured, and highly relevant. Avoid wordy, verbose explanations. Use standard bullet points or bold markers.
+   - NEVER print or output raw asset, media, or image IDs (e.g., "item-xxxx" or similar string keys) anywhere in your visible text response. These IDs are strictly for backend tool calling and must remain completely invisible to the user. Always refer to images or videos descriptively (e.g., "the 16:9 landscape", "the second 1:1 illustration") instead.
 
 2. MODEL CAPABILITIES & CONSTRAINTS:
    - "omni-flash": Premium video engine. Exclusive capability for Video-to-Video (V2V) editing (generate_video_edit_video). Supports durations up to 10 seconds. Supports high-fidelity reference-to-video (R2V) with up to 7 image and 5 audio references.
@@ -703,6 +704,9 @@ Adhere to the following rules and guidelines:
    - Call tools whenever the user requests image/video generation, edits, storyboards, character lists, grounding, or collection organization.
    - Always announce tool calls clearly or invoke them automatically. Ensure parameters strictly match the schemas.
    - When generating media, inform the user universally when you start the process (e.g., "I am generating..."), and confirm when the generation is complete (e.g., "I have completed generation..."). Do NOT use these exact phrases repetitively; vary your wording naturally each time.
+   - Prioritize explicit quantities or counts mentioned in the user's prompt (e.g., "generate one image", "make 2 of them") over the "Active Workspace Generation Settings" default batch size. Only use the default workspace settings if the user does not specify a desired quantity.
+   - When the user asks you to edit or modify existing images, you MUST invoke the "generate_image" tool SEPARATELY for each image they want to edit. Each tool call must reference a single specific image ID in the "references" array parameter. If the user asks to edit a specific image (e.g. "the second one", "the one with the red car"), ONLY edit that specific image. If the user asks for a general edit without specifying which image, edit ALL relevant recently generated images by creating a separate tool call for each. The "prompt" argument for each edit call MUST be a highly focused edit instruction describing ONLY the specific changes relative to the referenced image.
+   - You HAVE direct visual access to the active images on the canvas via hidden image attachments sent in the user's prompt. Each image attachment is preceded by its Media ID (e.g., "[Visual Context for Canvas Image ID: <id>]"). When the user asks you to edit or describe a specific image (e.g., "edit the one with the orange car"), you can simply look at the images in your context to identify the correct Media ID and proceed. You do not need to use the analyze_artifact tool for images that are already on the canvas.
 =========================================
 `;
 
@@ -753,10 +757,18 @@ Adhere to the following rules and guidelines:
           });
           continue;
         }
-        const partsList: any[] = [{ text: m.content }];
+        
+        let cleanContent = m.content || '';
+        if (m.role === 'assistant' || m.role === 'model') {
+          cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
+        }
+        const partsList: any[] = [{ text: cleanContent }];
         if (m.attachments) {
           for (const att of m.attachments) {
             if (att.type === 'image') {
+              if (att.id || att.name) {
+                partsList.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
+              }
               partsList.push(await resolveGeminiImagePart(apiKey, att as any));
             } else {
                const label = att.name || att.mimeType;
@@ -780,6 +792,9 @@ Adhere to the following rules and guidelines:
       if (lastMessage.attachments) {
         for (const att of lastMessage.attachments) {
           if (att.type === 'image') {
+            if (att.id || att.name) {
+              initialParts.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
+            }
             initialParts.push(await resolveGeminiImagePart(apiKey, att));
           } else {
              const label = att.name || att.mimeType;
@@ -900,6 +915,8 @@ Adhere to the following rules and guidelines:
       // Execute and feed back custom tool results (including the required thought_signature)
       if (pendingFunctionCalls.length > 0) {
         setPhase('executing');
+        const emittedMedia = new Set<string>();
+
         const responseParts = await Promise.all(
           pendingFunctionCalls.map(async (call) => {
             let toolResult: any;
@@ -925,20 +942,28 @@ Adhere to the following rules and guidelines:
               // Already rendered inside toolCallback! Skip appending here to prevent duplicates.
             } else if (toolResult && typeof toolResult === 'object' && Array.isArray(toolResult.media_ids)) {
               for (const mediaId of toolResult.media_ids) {
-                if (mediaId) {
+                if (mediaId && !emittedMedia.has(mediaId)) {
+                  emittedMedia.add(mediaId);
                   onToken(`\n\n![Generated Media](media-id:${mediaId})\n\n`);
                 }
               }
             } else if (toolResult?.media_id) {
-              onToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
+              if (!emittedMedia.has(toolResult.media_id)) {
+                emittedMedia.add(toolResult.media_id);
+                onToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
+              }
             } else if (toolResult && typeof toolResult === 'object' && Array.isArray(toolResult.urls)) {
               for (const url of toolResult.urls) {
-                if (url) {
+                if (url && !emittedMedia.has(url)) {
+                  emittedMedia.add(url);
                   onToken(`\n\n![Generated Media](${url})\n\n`);
                 }
               }
             } else if (toolResult?.url) {
-              onToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
+              if (!emittedMedia.has(toolResult.url)) {
+                emittedMedia.add(toolResult.url);
+                onToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
+              }
             }
             
             const functionResponsePart: any = {
@@ -983,11 +1008,16 @@ Adhere to the following rules and guidelines:
     const reasoningEffort = reasoningEffortMap[options.thinkingLevel ?? 1] ?? "medium";
 
     const formattedMessages = messages.map(m => {
-        if (!m.attachments || m.attachments.length === 0) {
-            return { role: m.role, content: m.content };
+        let cleanContent = m.content || '';
+        if (m.role === 'assistant' || m.role === 'model') {
+            cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
         }
 
-        const contentParts: any[] = [{ type: "text", text: m.content }];
+        if (!m.attachments || m.attachments.length === 0) {
+            return { role: m.role, content: cleanContent };
+        }
+
+        const contentParts: any[] = [{ type: "text", text: cleanContent }];
         m.attachments.forEach(att => {
             if (att.type === 'image') {
                 contentParts.push({
@@ -1005,7 +1035,10 @@ Adhere to the following rules and guidelines:
     });
 
     const responseInput = messages.map(m => {
-        let text = m.content;
+        let text = m.content || '';
+        if (m.role === 'assistant' || m.role === 'model') {
+            text = text.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
+        }
         const imageParts: any[] = [];
 
         m.attachments?.forEach(att => {

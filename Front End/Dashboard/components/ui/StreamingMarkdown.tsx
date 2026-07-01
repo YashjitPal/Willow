@@ -275,7 +275,8 @@ function renderInline(
   src: string,
   baseOffset: number,
   settledBefore: number,
-  variant: 'w' | 'h' | 'image-grid' = 'w'
+  variant: 'w' | 'h' | 'image-grid' = 'w',
+  mediaItems?: any[]
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
 
@@ -354,7 +355,7 @@ function renderInline(
         let itemRef: any = null;
         if (imageUrl.startsWith('media-id:')) {
           const mediaId = imageUrl.replace('media-id:', '');
-          const found = (window as any).canvasMediaItems?.find((item: any) => item.id === mediaId);
+          const found = mediaItems?.find((item: any) => item.id === mediaId) || (window as any).canvasMediaItems?.find((item: any) => item.id === mediaId);
           if (found) {
             itemRef = found;
             if (found.status === 'generating') {
@@ -553,6 +554,15 @@ function renderInline(
                     )}
                   </p>
                 </div>
+              ) : itemRef?.kind === 'video' ? (
+                <video
+                  src={imageUrl}
+                  className="absolute inset-0 w-full h-full object-cover rounded-[14px]"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                />
               ) : (
                 <img
                   src={imageUrl}
@@ -934,6 +944,7 @@ export interface StreamingMarkdownProps {
   /** When false, renders instantly with no word animation (history view). */
   animate?: boolean;
   className?: string;
+  mediaItems?: any[];
 }
 
 // Memoised: completed messages (stable `text`/`isStreaming`) skip re-render
@@ -944,6 +955,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
   isStreaming,
   animate = true,
   className = '',
+  mediaItems,
 }) {
   useInjectStyles();
 
@@ -1006,7 +1018,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       const gridItems = blk.items.map((item: any) => {
         return (
           <div key={item.start} className="w-full">
-            {renderInline(item.lines[0].text, item.lines[0].start, settledBefore, 'image-grid')}
+            {renderInline(item.lines[0].text, item.lines[0].start, settledBefore, 'image-grid', mediaItems)}
           </div>
         );
       });
@@ -1055,7 +1067,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     }
 
     if (blk.type === 'h') {
-      const nodes = renderInline(blk.text, blk.contentStart, settledBefore, 'h');
+      const nodes = renderInline(blk.text, blk.contentStart, settledBefore, 'h', mediaItems);
       const size =
         blk.level === 1 ? 'text-[20px]'
         : blk.level === 2 ? 'text-[17px]'
@@ -1091,7 +1103,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       blk.lines.forEach((ln, li) => {
         qNodes.push(
           <React.Fragment key={ln.start}>
-            {renderInline(ln.text, ln.start, settledBefore)}
+            {renderInline(ln.text, ln.start, settledBefore, 'w', mediaItems)}
           </React.Fragment>
         );
         if (li < blk.lines.length - 1) qNodes.push(<br key={`br-${ln.start}`} />);
@@ -1118,7 +1130,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
                     key={c.start}
                     className="px-3.5 py-2 text-left font-semibold text-gray-100 border-b border-white/10"
                   >
-                    {renderInline(c.text, c.start, settledBefore)}
+                    {renderInline(c.text, c.start, settledBefore, 'w', mediaItems)}
                   </th>
                 ))}
               </tr>
@@ -1128,7 +1140,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
                 <tr key={row[0]?.start ?? ri} className="border-t border-white/5">
                   {row.map((c) => (
                     <td key={c.start} className="px-3.5 py-2 align-top text-gray-300">
-                      {renderInline(c.text, c.start, settledBefore)}
+                      {renderInline(c.text, c.start, settledBefore, 'w', mediaItems)}
                     </td>
                   ))}
                 </tr>
@@ -1148,7 +1160,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
           : 'list-decimal pl-5 space-y-1.5 my-2';
       const items = blk.items.map((item) => (
         <li key={item.start} className="text-gray-300">
-          {renderInline(item.text, item.start, settledBefore)}
+          {renderInline(item.text, item.start, settledBefore, 'w', mediaItems)}
         </li>
       ));
       rendered.push(
@@ -1165,7 +1177,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     pBlk.lines.forEach((ln, li) => {
       pNodes.push(
         <React.Fragment key={ln.start}>
-          {renderInline(ln.text, ln.start, settledBefore)}
+          {renderInline(ln.text, ln.start, settledBefore, 'w', mediaItems)}
         </React.Fragment>
       );
       if (li < pBlk.lines.length - 1) pNodes.push(<br key={`br-${ln.start}`} />);
