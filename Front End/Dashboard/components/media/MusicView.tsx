@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { ArrowLeft, ArrowRight, Plus, Upload, X, ChevronDown, Heart, Trash2, History, Pencil, Wand2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Plus, Upload, X, ChevronDown, Heart, Trash2, History, Pencil, Wand2, Droplet, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { AssetMenuModal } from '../AssetMenuModal';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../../context/AuthContext';
@@ -85,16 +86,74 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [showAmbientBackground, setShowAmbientBackground] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const leftBlockRef = useRef<HTMLDivElement>(null);
   const editorContentRef = useRef<HTMLDivElement>(null);
   const [leftGap, setLeftGap] = useState(64);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [spacerHeight, setSpacerHeight] = useState(172);
+
+  const handleDownload = async () => {
+    if (!audioSrc || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const ID3Writer = (await import('browser-id3-writer')).default;
+      
+      const audioResponse = await fetch(audioSrc);
+      const audioBuffer = await audioResponse.arrayBuffer();
+      
+      const writer = new ID3Writer(audioBuffer);
+      writer.setFrame('TIT2', songTitle)
+            .setFrame('TPE1', [songArtist || 'Lyria']);
+            
+      if (musicImage) {
+        try {
+          const imageResponse = await fetch(musicImage);
+          const imageBuffer = await imageResponse.arrayBuffer();
+          writer.setFrame('APIC', {
+            type: 3,
+            data: imageBuffer,
+            description: 'Cover',
+            useUnicodeEncoding: false
+          });
+        } catch (e) {
+          console.warn("Could not fetch cover image for ID3 tag:", e);
+        }
+      }
+
+      if (lyrics && lyrics.length > 0) {
+        const plainLyrics = lyrics.map(l => l.text).join('\n');
+        writer.setFrame('USLT', {
+          description: '',
+          lyrics: plainLyrics,
+          language: 'eng'
+        });
+      }
+
+      writer.addTag();
+      const taggedSongBuffer = writer.arrayBuffer;
+      const blob = new Blob([taggedSongBuffer], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${songTitle} - ${songArtist || 'Lyria'}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error("Failed to download song:", e);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   React.useEffect(() => {
-    if (viewState !== 'editor' || musicStatus !== 'completed') return;
+    if (viewState !== 'editor' || (musicStatus !== 'completed' && musicStatus !== 'generating')) return;
 
-    const calculateGap = () => {
+    const calculateLayout = () => {
       if (leftBlockRef.current && editorContentRef.current) {
         const coverRect = leftBlockRef.current.getBoundingClientRect();
         const T = coverRect.top;
@@ -102,24 +161,30 @@ export const MusicView: React.FC<MusicViewProps> = ({
           setLeftGap(T);
         }
       }
+      if (lyricsContainerRef.current) {
+        const containerHeight = lyricsContainerRef.current.clientHeight;
+        // The container has py-32 (128px padding). 
+        // We subtract an additional 40px to account for half of the lyric's visual line-height (which now includes py-2).
+        setSpacerHeight(Math.max(0, (containerHeight / 2) - 128 - 40));
+      }
     };
 
-    calculateGap();
+    calculateLayout();
     
     const intervals = [50, 100, 300, 500, 1000];
-    const timers = intervals.map(delay => setTimeout(calculateGap, delay));
+    const timers = intervals.map(delay => setTimeout(calculateLayout, delay));
 
-    window.addEventListener('resize', calculateGap);
+    window.addEventListener('resize', calculateLayout);
     return () => {
       timers.forEach(clearTimeout);
-      window.removeEventListener('resize', calculateGap);
+      window.removeEventListener('resize', calculateLayout);
     };
   }, [viewState, musicStatus, lyrics]);
 
   // Calculate active lyric index to prevent scroll jank
   const activeLyricIndex = React.useMemo(() => {
     return lyrics.findIndex((line, i) => {
-      return currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time);
+      return (i === 0 && currentTime < line.time) || (currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time));
     });
   }, [currentTime, lyrics]);
 
@@ -343,10 +408,12 @@ export const MusicView: React.FC<MusicViewProps> = ({
     if (!generatedAudioUrl) {
       console.error("Lyria generation failed. No audio returned.");
       alert("Lyria 3 Generation Failed: Please check your API key and quotas.");
-      setMusicStatus('idle');
+      setMusicStatus('idle'); // The main view condition uses `musicStatus === 'idle'` to show the prompt input
       setCoverStatus('idle');
+      setViewState('prompt'); // Reset viewState so it returns to the prompt screen instead of the editor screen
       setProgress(0);
       clearInterval(timer);
+      setIsGenerating(false); // Also reset `isGenerating` so the input is active again
       return;
     }
 
@@ -517,6 +584,156 @@ CRITICAL RULES:
         className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
         style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
       >
+        {/* Dynamic Ambient Background */}
+        <style dangerouslySetInnerHTML={{__html: `
+          .ambient-background-container {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            z-index: 0;
+            pointer-events: none;
+            background: #000;
+          }
+          
+          .ambient-liquid-layer {
+            position: absolute;
+            background-size: cover;
+            background-repeat: no-repeat;
+            filter: blur(140px) saturate(200%);
+            opacity: 0;
+            transition: opacity 2s ease-in-out;
+            will-change: transform, border-radius;
+            mix-blend-mode: screen;
+          }
+          
+          .ambient-liquid-layer.visible {
+            opacity: 0.60;
+          }
+
+          /* Layer 1: Top Left colors */
+          .liquid-1 {
+            top: -20%; left: -20%; width: 120%; height: 120%;
+            background-position: top left;
+            animation: blob-morph-1 25s infinite alternate ease-in-out;
+          }
+          
+          /* Layer 2: Bottom Right colors */
+          .liquid-2 {
+            bottom: -30%; right: -20%; width: 130%; height: 130%;
+            background-position: bottom right;
+            animation: blob-morph-2 32s infinite alternate-reverse ease-in-out;
+          }
+          
+          /* Layer 3: Center colors sweeping across */
+          .liquid-3 {
+            top: 0%; left: 0%; width: 140%; height: 140%;
+            background-position: center;
+            animation: blob-morph-3 38s infinite alternate ease-in-out;
+            opacity: 0;
+          }
+          .liquid-3.visible { opacity: 0.50; }
+
+          /* Layer 4: Additional accent blob */
+          .liquid-4 {
+            top: 20%; right: 20%; width: 100%; height: 100%;
+            background-position: top right;
+            animation: blob-morph-4 28s infinite alternate-reverse ease-in-out;
+            opacity: 0;
+          }
+          .liquid-4.visible { opacity: 0.40; }
+
+          .ambient-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.9) 100%);
+            z-index: 1;
+          }
+
+          @keyframes blob-morph-1 {
+            0% { 
+              border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+              transform: rotate(0deg) scale(1.1) translate(-5%, -5%); 
+            }
+            34% { 
+              border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%;
+              transform: rotate(45deg) scale(1.4) translate(15%, 20%); 
+            }
+            67% { 
+              border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%;
+              transform: rotate(-20deg) scale(1.2) translate(-15%, 30%); 
+            }
+            100% { 
+              border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+              transform: rotate(10deg) scale(1.1) translate(-5%, -5%); 
+            }
+          }
+          
+          @keyframes blob-morph-2 {
+            0% { 
+              border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+              transform: rotate(0deg) scale(1) translate(0, 0); 
+            }
+            34% { 
+              border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+              transform: rotate(-30deg) scale(1.3) translate(-20%, -15%); 
+            }
+            67% { 
+              border-radius: 50% 50% 40% 60% / 40% 40% 60% 50%;
+              transform: rotate(-60deg) scale(1.1) translate(15%, -25%); 
+            }
+            100% { 
+              border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+              transform: rotate(-10deg) scale(1.2) translate(5%, 10%); 
+            }
+          }
+          
+          @keyframes blob-morph-3 {
+            0% { 
+              border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+              transform: scale(1) translate(0, 0); 
+            }
+            34% { 
+              border-radius: 80% 20% 40% 60% / 60% 40% 80% 20%;
+              transform: scale(1.4) translate(-15%, 15%); 
+            }
+            67% { 
+              border-radius: 30% 70% 60% 40% / 40% 70% 30% 60%;
+              transform: scale(1.2) translate(20%, -15%); 
+            }
+            100% { 
+              border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+              transform: scale(1.1) translate(-5%, 5%); 
+            }
+          }
+
+          @keyframes blob-morph-4 {
+            0% { 
+              border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+              transform: rotate(0deg) scale(1) translate(0, 0); 
+            }
+            50% { 
+              border-radius: 70% 30% 30% 70% / 70% 70% 30% 30%;
+              transform: rotate(180deg) scale(1.5) translate(30%, 10%); 
+            }
+            100% { 
+              border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+              transform: rotate(360deg) scale(1) translate(-10%, -20%); 
+            }
+          }
+        `}} />
+        <div className="ambient-background-container">
+          {/* Base full blur to prevent dark spots */}
+          <div 
+            className={`absolute inset-0 bg-cover bg-center transition-opacity duration-2000 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'opacity-30' : 'opacity-0'}`}
+            style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none', filter: 'blur(140px) saturate(150%)' }}
+          />
+          <div className={`ambient-liquid-layer liquid-1 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-2 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-3 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-4 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
+          <div className="ambient-overlay" />
+        </div>
+
         {/* Editor Header */}
         <header className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent">
           <div className="flex items-center gap-4">
@@ -549,7 +766,7 @@ CRITICAL RULES:
         {/* Editor Main Content: Three Column Layout when completed or generating */}
         <div 
           ref={editorContentRef}
-          className={`absolute top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'}`}
+          className={`absolute z-10 top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'}`}
         >
           
           {/* Left Column / Center generating block */}
@@ -564,75 +781,97 @@ CRITICAL RULES:
           >
 
             {/* 1:1 Cover Art Container */}
-            <div className={`relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-[16px] bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8 transition-all duration-700`}>
-              {coverStatus === 'generating' ? (
-                <div className="absolute inset-0 z-10 mesh-container-generating">
-                  <style dangerouslySetInnerHTML={{ __html: `
-                    .mesh-container-generating {
-                      position: absolute;
-                      inset: 0;
-                      border-radius: 24px;
-                      background-color: #1a1b1f;
-                      overflow: hidden;
-                    }
-                    .mesh-blob {
-                      position: absolute;
-                      border-radius: 50%;
-                      filter: blur(45px); 
-                      opacity: 0.85;
-                      will-change: transform;
-                    }
-                    .blob-1 { top: -20%; left: -20%; width: 80%; height: 80%; background-color: #a3a8b5; animation: move1 8s infinite ease-in-out; }
-                    .blob-2 { bottom: -20%; right: -20%; width: 70%; height: 70%; background-color: #757a87; animation: move2 9s infinite ease-in-out; }
-                    .blob-3 { top: -15%; left: -15%; width: 65%; height: 65%; background-color: #12141a; animation: move3 13s infinite ease-in-out; }
-                    .blob-4 { bottom: 10%; left: 10%; width: 60%; height: 60%; background-color: #c2c6d1; animation: move4 15s infinite ease-in-out; z-index: 2; }
-                    .blob-5 { bottom: -15%; right: -15%; width: 70%; height: 70%; background-color: #0d0f14; animation: move5 17s infinite ease-in-out; }
-                    @keyframes move1 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(25%, 15%) scale(1.05); } 66% { transform: translate(-10%, 25%) scale(0.95); } 100% { transform: translate(0, 0) scale(1); } }
-                    @keyframes move2 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-25%, -15%) scale(0.95); } 66% { transform: translate(15%, -25%) scale(1.05); } 100% { transform: translate(0, 0) scale(1); } }
-                    @keyframes move3 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(70%, 20%) scale(1.15); } 66% { transform: translate(20%, 70%) scale(0.85); } 100% { transform: translate(0, 0) scale(1); } }
-                    @keyframes move4 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-20%, 20%) scale(1.1); } 66% { transform: translate(30%, -15%) scale(0.9); } 100% { transform: translate(0, 0) scale(1); } }
-                    @keyframes move5 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-80%, -30%) scale(1.1); } 66% { transform: translate(-10%, -80%) scale(0.9); } 100% { transform: translate(0, 0) scale(1); } }
-                  `}} />
-                  <div className="mesh-blob blob-1"></div>
-                  <div className="mesh-blob blob-2"></div>
-                  <div className="mesh-blob blob-3"></div>
-                  <div className="mesh-blob blob-4"></div>
-                  <div className="mesh-blob blob-5"></div>
-                  {/* No intrusive text overlays on liquidy animation */}
-                </div>
-              ) : (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#1c1c1e]">
-                   {musicImage && (
-                     <img src={musicImage} alt="Music Cover" className="w-full h-full object-cover transition-opacity duration-1000" />
-                   )}
-                </div>
-              )}
+            <div className={`relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-lg bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8 transition-all duration-700`}>
+              <AnimatePresence>
+                {coverStatus === 'generating' && (
+                  <motion.div 
+                    key="generating"
+                    className="absolute inset-0 z-10 mesh-container-generating"
+                    initial={{ opacity: 1, backdropFilter: 'blur(0px)' }}
+                    exit={{ opacity: 0, backdropFilter: 'blur(24px)' }}
+                    transition={{ duration: 1.5, ease: "easeInOut" }}
+                  >
+                    <style dangerouslySetInnerHTML={{ __html: `
+                      .mesh-container-generating {
+                        position: absolute;
+                        inset: 0;
+                        border-radius: 24px;
+                        background-color: #1a1b1f;
+                        overflow: hidden;
+                      }
+                      .mesh-blob {
+                        position: absolute;
+                        border-radius: 50%;
+                        filter: blur(45px); 
+                        opacity: 0.85;
+                        will-change: transform;
+                      }
+                      .blob-1 { top: -20%; left: -20%; width: 80%; height: 80%; background-color: #a3a8b5; animation: move1 8s infinite ease-in-out; }
+                      .blob-2 { bottom: -20%; right: -20%; width: 70%; height: 70%; background-color: #757a87; animation: move2 9s infinite ease-in-out; }
+                      .blob-3 { top: -15%; left: -15%; width: 65%; height: 65%; background-color: #12141a; animation: move3 13s infinite ease-in-out; }
+                      .blob-4 { bottom: 10%; left: 10%; width: 60%; height: 60%; background-color: #c2c6d1; animation: move4 15s infinite ease-in-out; z-index: 2; }
+                      .blob-5 { bottom: -15%; right: -15%; width: 70%; height: 70%; background-color: #0d0f14; animation: move5 17s infinite ease-in-out; }
+                      @keyframes move1 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(25%, 15%) scale(1.05); } 66% { transform: translate(-10%, 25%) scale(0.95); } 100% { transform: translate(0, 0) scale(1); } }
+                      @keyframes move2 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-25%, -15%) scale(0.95); } 66% { transform: translate(15%, -25%) scale(1.05); } 100% { transform: translate(0, 0) scale(1); } }
+                      @keyframes move3 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(70%, 20%) scale(1.15); } 66% { transform: translate(20%, 70%) scale(0.85); } 100% { transform: translate(0, 0) scale(1); } }
+                      @keyframes move4 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-20%, 20%) scale(1.1); } 66% { transform: translate(30%, -15%) scale(0.9); } 100% { transform: translate(0, 0) scale(1); } }
+                      @keyframes move5 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-80%, -30%) scale(1.1); } 66% { transform: translate(-10%, -80%) scale(0.9); } 100% { transform: translate(0, 0) scale(1); } }
+                    `}} />
+                    <div className="mesh-blob blob-1"></div>
+                    <div className="mesh-blob blob-2"></div>
+                    <div className="mesh-blob blob-3"></div>
+                    <div className="mesh-blob blob-4"></div>
+                    <div className="mesh-blob blob-5"></div>
+                    {/* No intrusive text overlays on liquidy animation */}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              
+              <div className="absolute inset-0 z-0 flex items-center justify-center bg-[#1c1c1e]">
+                 {musicImage && (
+                   <img src={musicImage} alt="Music Cover" className="w-full h-full object-cover transition-opacity duration-1000" />
+                 )}
+              </div>
             </div>
 
             {/* Left Column Controls & Info */}
             {(musicStatus === 'completed' || musicStatus === 'generating') && (
                <div className={`w-full flex flex-col gap-4 px-2 ${musicStatus === 'generating' ? 'opacity-40 pointer-events-none' : ''}`}>
-                  <style dangerouslySetInnerHTML={{ __html: `
-                    .shimmer-container {
-                      background: rgba(255, 255, 255, 0.03);
-                    }
-                    .shimmer-sweep {
-                      position: absolute;
-                      inset: 0;
-                      transform: translateX(-100%);
-                      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05) 50%, transparent);
-                      animation: shimmer-anim 1.6s infinite;
-                    }
-                    @keyframes shimmer-anim {
-                      100% { transform: translateX(100%); }
-                    }
-                  `}} />
+                   <style dangerouslySetInnerHTML={{ __html: `
+                     .shimmer-container {
+                       position: relative;
+                       background-color: rgba(160, 160, 160, 0.15);
+                       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.25'/%3E%3C/svg%3E");
+                       overflow: hidden;
+                       transform-origin: left center;
+                       animation: title-glitter-breathe 2.4s infinite ease-in-out;
+                     }
+                     .shimmer-container::after {
+                       content: "";
+                       position: absolute;
+                       top: 0; left: -100%; width: 50%; height: 100%;
+                       background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+                       animation: title-skeleton-shimmer 2s infinite;
+                     }
+                     @keyframes title-skeleton-shimmer {
+                       100% { left: 200%; }
+                     }
+                     @keyframes title-glitter-breathe {
+                       0%, 100% { 
+                         opacity: 0.85; 
+                         transform: scaleY(0.96) scaleX(0.995); 
+                       }
+                       50% { 
+                         opacity: 1; 
+                         transform: scaleY(1.04) scaleX(1.005);
+                         filter: drop-shadow(0 0 6px rgba(255,255,255,0.15));
+                       }
+                     }
+                   `}} />
                   <div className="flex flex-col">
                      <h1 className="text-[32px] font-bold text-white flex items-center gap-3 leading-tight tracking-tight" style={{ fontFamily: '"Google Sans", sans-serif' }}>
                         {musicStatus === 'generating' ? (
-                           <div className="w-56 h-[38px] bg-white/5 rounded-lg overflow-hidden relative shimmer-container">
-                              <div className="shimmer-sweep"></div>
-                           </div>
+                           <div className="w-56 h-[38px] rounded-lg shimmer-container" style={{ animationDelay: '0s' }}></div>
                         ) : (
                            <>
                               {songTitle}
@@ -642,9 +881,7 @@ CRITICAL RULES:
                      </h1>
                      <span className="text-[20px] text-gray-400 font-medium mt-1 tracking-tight">
                         {musicStatus === 'generating' ? (
-                           <div className="w-36 h-6 bg-white/5 rounded-md mt-2 overflow-hidden relative shimmer-container">
-                              <div className="shimmer-sweep"></div>
-                           </div>
+                           <div className="w-36 h-6 rounded-md mt-2 shimmer-container" style={{ animationDelay: '-0.3s' }}></div>
                         ) : (
                            songArtist
                         )}
@@ -672,40 +909,58 @@ CRITICAL RULES:
                     <span className="text-xs text-gray-400 font-semibold w-8">{formatTime(duration)}</span>
                  </div>
                  {/* Controls underneath the progress bar */}
-                 <div className="w-full flex items-center justify-between mt-6 px-2">
-                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer">
+                 <div className="w-full flex items-center justify-between mt-6 px-2 relative">
+                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer w-10 h-10 flex items-center justify-center">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
                     </button>
                     
-                    <div className="flex items-center gap-6">
-                      <button className="text-gray-400 hover:text-white transition-colors cursor-pointer">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
-                      </button>
+                    <button 
+                      onClick={() => setShowAmbientBackground(!showAmbientBackground)}
+                      className="transition-colors cursor-pointer relative w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white"
+                    >
+                      <Droplet size={20} strokeWidth={2} />
+                      {!showAmbientBackground && (
+                        <svg className="absolute inset-0 w-full h-full text-current opacity-70" viewBox="0 0 24 24">
+                          <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      )}
+                    </button>
+                    
+                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer w-10 h-10 flex items-center justify-center">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+                    </button>
+                    
+                    <button 
+                      onClick={togglePlay}
+                      className="w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-[0_10px_25px_rgba(0,0,0,0.6),inset_0_2px_4px_rgba(255,255,255,0.7),inset_0_-4px_8px_rgba(0,0,0,0.4)] border-[3px] border-[#8a8d91] focus:outline-none outline-none group relative overflow-hidden shrink-0"
+                      style={{
+                        background: 'radial-gradient(circle at 30% 30%, #f0f2f5 0%, #b0b4ba 40%, #70757d 80%, #4a4d52 100%)',
+                        color: '#1a1c20'
+                      }}
+                    >
+                      <div className="absolute inset-0 rounded-full bg-[linear-gradient(135deg,rgba(255,255,255,0.6)_0%,rgba(255,255,255,0)_50%,rgba(0,0,0,0.2)_100%)] mix-blend-overlay"></div>
+                      <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.4),transparent_60%)]"></div>
                       
-                      <button 
-                        onClick={togglePlay}
-                        className="w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-[0_10px_25px_rgba(0,0,0,0.6),inset_0_2px_4px_rgba(255,255,255,0.7),inset_0_-4px_8px_rgba(0,0,0,0.4)] border-[3px] border-[#8a8d91] hover:scale-105 active:scale-95 focus:outline-none outline-none group relative overflow-hidden"
-                        style={{
-                          background: 'radial-gradient(circle at 30% 30%, #f0f2f5 0%, #b0b4ba 40%, #70757d 80%, #4a4d52 100%)',
-                          color: '#1a1c20'
-                        }}
-                      >
-                        <div className="absolute inset-0 rounded-full bg-[linear-gradient(135deg,rgba(255,255,255,0.6)_0%,rgba(255,255,255,0)_50%,rgba(0,0,0,0.2)_100%)] mix-blend-overlay"></div>
-                        <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.4),transparent_60%)]"></div>
-                        
-                        {isPlaying ? (
-                          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="relative z-10 drop-shadow-[0_2px_3px_rgba(255,255,255,0.5)]"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                        ) : (
-                          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="ml-1 relative z-10 drop-shadow-[0_2px_3px_rgba(255,255,255,0.5)]"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                        )}
-                      </button>
-                      
-                      <button className="text-gray-400 hover:text-white transition-colors cursor-pointer">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
-                      </button>
-                    </div>
+                      {isPlaying ? (
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="relative z-10 drop-shadow-[0_2px_3px_rgba(255,255,255,0.5)]"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                      ) : (
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="ml-1 relative z-10 drop-shadow-[0_2px_3px_rgba(255,255,255,0.5)]"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      )}
+                    </button>
+                    
+                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer w-10 h-10 flex items-center justify-center">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+                    </button>
 
-                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer">
+                    <button 
+                      onClick={handleDownload}
+                      disabled={isDownloading}
+                      className={`transition-colors relative w-10 h-10 flex items-center justify-center ${isDownloading ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-white cursor-pointer'}`}
+                    >
+                      <Download size={20} strokeWidth={2} />
+                    </button>
+
+                    <button className="text-gray-400 hover:text-white transition-colors cursor-pointer w-10 h-10 flex items-center justify-center">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
                     </button>
                  </div>
@@ -728,7 +983,7 @@ CRITICAL RULES:
 
                {/* Right Column Lyrics Container */}
                <div className="flex-1 h-full flex items-center justify-center px-8">
-                  <div ref={lyricsContainerRef} className="w-full max-w-[600px] h-[600px] overflow-y-auto no-scrollbar flex flex-col items-start gap-8 py-32 px-8 mask-image-linear-gradient animate-in fade-in slide-in-from-right-4 duration-700">
+                  <div ref={lyricsContainerRef} className="w-full max-w-[600px] h-[600px] overflow-y-auto no-scrollbar flex flex-col items-start gap-4 py-32 px-8 mask-image-linear-gradient animate-in fade-in duration-700">
                      <style dangerouslySetInnerHTML={{__html: `
                        .mask-image-linear-gradient {
                          mask-image: linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
@@ -737,55 +992,77 @@ CRITICAL RULES:
                      `}} />
                      {musicStatus === 'generating' ? (
                         <>
-                           <style dangerouslySetInnerHTML={{__html: `
-                             .skeleton-lyric-line {
-                               height: 24px;
-                               position: relative;
-                               border-radius: 6px;
-                               background-image: radial-gradient(circle, rgba(255,255,255,0.12) 1.5px, transparent 1.5px);
-                               background-size: 8px 8px;
-                               opacity: 0.5;
-                               animation: shimmer-glitter 3s infinite ease-in-out;
-                             }
-                             @keyframes shimmer-glitter {
-                               0%, 100% { opacity: 0.3; transform: scale(0.99); filter: brightness(0.8); }
-                               50% { opacity: 0.7; transform: scale(1.01); filter: brightness(1.2); }
-                             }
-                           `}} />
-                           <div className="skeleton-lyric-line w-[85%]" style={{ animationDelay: '0s' }}></div>
-                           <div className="skeleton-lyric-line w-[70%]" style={{ animationDelay: '0.2s' }}></div>
-                           <div className="skeleton-lyric-line w-[90%]" style={{ animationDelay: '0.4s' }}></div>
-                           <div className="skeleton-lyric-line w-[65%]" style={{ animationDelay: '0.6s' }}></div>
-                           <div className="skeleton-lyric-line w-[80%]" style={{ animationDelay: '0.8s' }}></div>
-                           <div className="skeleton-lyric-line w-[75%]" style={{ animationDelay: '1s' }}></div>
-                           <div className="skeleton-lyric-line w-[85%]" style={{ animationDelay: '1.2s' }}></div>
-                           <div className="skeleton-lyric-line w-[60%]" style={{ animationDelay: '1.4s' }}></div>
+                             <style dangerouslySetInnerHTML={{__html: `
+                               .skeleton-lyric-line {
+                                 height: 80px;
+                                 position: relative;
+                                 border-radius: 12px;
+                                 background-color: rgba(160, 160, 160, 0.15);
+                                 background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.25'/%3E%3C/svg%3E");
+                                 overflow: hidden;
+                                 transform-origin: left center;
+                                 animation: glitter-breathe 2.4s infinite ease-in-out;
+                               }
+                               .skeleton-lyric-line::after {
+                                 content: "";
+                                 position: absolute;
+                                 top: 0; left: -100%; width: 50%; height: 100%;
+                                 background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+                                 animation: skeleton-shimmer 2s infinite;
+                               }
+                               @keyframes skeleton-shimmer {
+                                 100% { left: 200%; }
+                               }
+                               @keyframes glitter-breathe {
+                                 0%, 100% { 
+                                   opacity: 0.85; 
+                                   transform: scaleY(0.96) scaleX(0.995); 
+                                 }
+                                 50% { 
+                                   opacity: 1; 
+                                   transform: scaleY(1.04) scaleX(1.005);
+                                   filter: drop-shadow(0 0 6px rgba(255,255,255,0.15));
+                                 }
+                               }
+                             `}} />
+                            <div className="skeleton-lyric-line w-[85%]" style={{ animationDelay: '0s' }}></div>
+                            <div className="skeleton-lyric-line w-[70%]" style={{ animationDelay: '-0.3s' }}></div>
+                            <div className="skeleton-lyric-line w-[90%]" style={{ animationDelay: '-0.6s' }}></div>
+                            <div className="skeleton-lyric-line w-[65%]" style={{ animationDelay: '-0.9s' }}></div>
+                            <div className="skeleton-lyric-line w-[80%]" style={{ animationDelay: '-1.2s' }}></div>
+                            <div className="skeleton-lyric-line w-[75%]" style={{ animationDelay: '-1.5s' }}></div>
+                            <div className="skeleton-lyric-line w-[85%]" style={{ animationDelay: '-1.8s' }}></div>
+                            <div className="skeleton-lyric-line w-[60%]" style={{ animationDelay: '-2.1s' }}></div>
                         </>
                      ) : (
-                        lyrics.map((line, i) => {
-                           const isPast = currentTime > line.time;
-                           const isCurrent = currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time);
-                           
-                           return (
-                             <div 
-                               key={i}
-                               data-active={isCurrent}
-                               onClick={() => {
-                                 if (audioRef.current) {
-                                   audioRef.current.currentTime = line.time;
-                                   if (!isPlaying) togglePlay();
-                                 }
-                               }}
-                               className={`text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] w-full origin-left text-[32px] font-bold tracking-tight ${
-                                 isCurrent ? 'text-white opacity-100 translate-y-0 scale-100' : 
-                                 isPast ? 'text-white opacity-30 -translate-y-2 scale-[0.95]' : 
-                                 'text-white opacity-50 translate-y-2 scale-[0.95]'
-                               }`}
-                             >
-                               {line.text}
-                             </div>
-                           );
-                        })
+                        <>
+                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                          {lyrics.map((line, i) => {
+                             const isPast = currentTime > line.time;
+                             const isCurrent = (i === 0 && currentTime < line.time) || (currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time));
+                             
+                             return (
+                               <div 
+                                 key={i}
+                                 data-active={isCurrent}
+                                 onClick={() => {
+                                   if (audioRef.current) {
+                                     audioRef.current.currentTime = line.time;
+                                     if (!isPlaying) togglePlay();
+                                   }
+                                 }}
+                                 className={`text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] w-full py-2 origin-left text-[32px] font-bold tracking-tight ${
+                                   isCurrent ? 'text-white opacity-100 translate-y-0 scale-100' : 
+                                   isPast ? 'text-white opacity-30 -translate-y-2 scale-[0.95]' : 
+                                   'text-white opacity-50 translate-y-2 scale-[0.95]'
+                                 }`}
+                               >
+                                 {line.text}
+                               </div>
+                             );
+                          })}
+                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                        </>
                      )}
                      {musicStatus !== 'generating' && lyrics.length === 0 && (
                        <div className="text-gray-500 italic text-[24px] font-semibold">No lyrics available</div>

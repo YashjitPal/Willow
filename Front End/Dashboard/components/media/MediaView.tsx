@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
 import { extractVideoFrame } from '../../lib/coverUtils';
 import { createPortal } from 'react-dom';
@@ -778,9 +778,16 @@ const TileContent = React.memo(({
 
   return (
   <>
-    {item.status === 'generating' && (
-      <div className="mesh-container-generating">
-        <style dangerouslySetInnerHTML={{ __html: `
+    <AnimatePresence>
+      {item.status === 'generating' && (
+        <motion.div 
+          className="mesh-container-generating"
+          initial={{ opacity: 1, backdropFilter: 'blur(0px)' }}
+          exit={{ opacity: 0, backdropFilter: 'blur(24px)' }}
+          transition={{ duration: 1.5, ease: "easeInOut" }}
+          style={{ zIndex: 50 }}
+        >
+          <style dangerouslySetInnerHTML={{ __html: `
           .mesh-container-generating {
             position: absolute;
             inset: 0;
@@ -956,8 +963,9 @@ const TileContent = React.memo(({
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     )}
+    </AnimatePresence>
  
     {item.status === 'completed' && item.url && (
       <div ref={containerRef} className="w-full h-full relative" onContextMenu={handleContextMenu}>
@@ -1245,6 +1253,7 @@ export const MediaView: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const projectId = searchParams.get('projectId') || '';
 
   const [prompt, setPrompt] = React.useState(() => {
@@ -1384,7 +1393,12 @@ export const MediaView: React.FC = () => {
       setSessionName('Untitled session');
     }
   }, [chatMessages]);
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState<'all' | 'images' | 'video' | 'characters' | 'music' | 'scenes' | 'uploads' | 'tools'>('all');
+  const activeSidebarTab = React.useMemo(() => {
+    const parts = location.pathname.split('/');
+    const lastPart = parts[parts.length - 1];
+    return ['images', 'video', 'characters', 'music', 'scenes', 'uploads', 'tools'].includes(lastPart) ? lastPart : 'all';
+  }, [location.pathname]);
+  
   const activeSidebarTabRef = React.useRef(activeSidebarTab);
   React.useEffect(() => {
     activeSidebarTabRef.current = activeSidebarTab;
@@ -4707,6 +4721,48 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
   const isContextMenuActive = activeMenuId !== null && activeMenuId.endsWith('-context');
 
+  if (activeSidebarTab === 'characters') {
+    return (
+      <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
+        <CharactersView 
+          onBack={() => navigate('/media')} 
+          mediaItems={mediaItems} 
+          onFileSelect={() => fileInputRef.current?.click()} 
+          modelMode={modelMode}
+          activeModelId={modelMode === 'image' ? imageModel : videoModel}
+          onModelChange={(id) => {
+            if (modelMode === 'image') {
+              setImageModel(id as any);
+            } else {
+              setVideoModel(id as any);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (activeSidebarTab === 'music') {
+    return (
+      <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
+        <MusicView 
+          onBack={() => navigate('/media')} 
+          mediaItems={mediaItems} 
+          onFileSelect={() => fileInputRef.current?.click()} 
+          modelMode={modelMode}
+          activeModelId={modelMode === 'image' ? imageModel : videoModel}
+          onModelChange={(id) => {
+            if (modelMode === 'image') {
+              setImageModel(id as any);
+            } else {
+              setVideoModel(id as any);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
@@ -4850,7 +4906,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }}
           >
             <button 
-              onClick={() => setActiveSidebarTab('all')}
+              onClick={() => navigate('/media')}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'all' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <AllMediaIcon className="text-gray-300" />
@@ -4865,14 +4921,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Video</span>}
             </button>
             <button 
-              onClick={() => setActiveSidebarTab('characters')}
+              onClick={() => navigate('/media/characters')}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'characters' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <CharactersIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Characters</span>}
             </button>
             <button 
-              onClick={() => setActiveSidebarTab('music')}
+              onClick={() => navigate('/media/music')}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'music' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <MusicIcon className="text-gray-200 group-hover:text-white transition-colors" />
@@ -7620,43 +7676,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         );
       })()}
 
-      {activeSidebarTab === 'characters' && (
-        <div className="absolute inset-0 z-[100]">
-          <CharactersView 
-            onBack={() => setActiveSidebarTab('all')} 
-            mediaItems={mediaItems} 
-            onFileSelect={() => fileInputRef.current?.click()} 
-            modelMode={modelMode}
-            activeModelId={modelMode === 'image' ? imageModel : videoModel}
-            onModelChange={(id) => {
-              if (modelMode === 'image') {
-                setImageModel(id as any);
-              } else {
-                setVideoModel(id as any);
-              }
-            }}
-          />
-        </div>
-      )}
-
-      {activeSidebarTab === 'music' && (
-        <div className="absolute inset-0 z-[100]">
-          <MusicView 
-            onBack={() => setActiveSidebarTab('all')} 
-            mediaItems={mediaItems} 
-            onFileSelect={() => fileInputRef.current?.click()} 
-            modelMode={modelMode}
-            activeModelId={modelMode === 'image' ? imageModel : videoModel}
-            onModelChange={(id) => {
-              if (modelMode === 'image') {
-                setImageModel(id as any);
-              } else {
-                setVideoModel(id as any);
-              }
-            }}
-          />
-        </div>
-      )}
+      {/* Characters and Music views have been moved to early returns to completely unmount the canvas when active */}
 
       {selectionBox && (
         <div

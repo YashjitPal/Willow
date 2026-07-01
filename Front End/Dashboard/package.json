@@ -19,6 +19,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@typescript-eslint/parser": "^8.62.1",
     "@xyflow/react": "^12.10.1",
+    "browser-id3-writer": "^6.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "diff": "^8.0.2",

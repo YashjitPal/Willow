@@ -598,7 +598,7 @@ const App: React.FC = () => {
           </StagingRouteGuard>
         } />
 
-        <Route path="/media" element={
+        <Route path="/media/*" element={
           <StagingRouteGuard>
             <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
               <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
