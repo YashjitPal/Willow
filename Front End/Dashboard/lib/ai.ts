@@ -46,7 +46,7 @@ const clientCache: {
   anthropic: null,
 };
 
-const getGeminiClient = (apiKey: string): any => {
+export const getGeminiClient = (apiKey: string): any => {
   if (clientCache.gemini?.key === apiKey) {
     return clientCache.gemini.client;
   }

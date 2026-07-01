@@ -50,6 +50,7 @@ import { AgentSidebar, AgentInstruction } from './AgentSidebar';
 import { streamChat, ChatMessage, StreamPhase, generateSessionTitle, mockExecuteTool } from '../../lib/ai';
 import { TextShimmer } from '../ui/text-shimmer';
 import { CharactersView } from './CharactersView';
+import { MusicView } from './MusicView';
 
 const popupItemVariants = {
   hidden: { opacity: 0, y: 8, scale: 0.97 },
@@ -114,6 +115,57 @@ const CharactersIcon = ({ className }: { className?: string }) => (
   <svg width="22" height="22" viewBox="9 8 82 82" fill="currentColor" className={className}>
     <circle cx="50" cy="18" r="10" />
     <path d="M 86 31.5 L 50 36 L 14 31.5 L 14 39.5 L 39 42.625 L 39 90 L 46 90 L 46 62 L 54 62 L 54 90 L 61 90 L 61 42.625 L 86 39.5 Z" />
+  </svg>
+);
+
+const MusicIcon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="26" height="26" className={className}>
+    <defs>
+      <mask id="vinyl-mask">
+        <rect width="512" height="512" fill="white" />
+
+        <g stroke="black" fill="none">
+          <circle cx="256" cy="256" r="238" stroke-width="2" />
+          <circle cx="256" cy="256" r="234" stroke-width="4" />
+
+          <circle cx="256" cy="256" r="216" stroke-width="3" />
+          <circle cx="256" cy="256" r="208" stroke-width="2" />
+          <circle cx="256" cy="256" r="200" stroke-width="4" />
+          <circle cx="256" cy="256" r="192" stroke-width="2" />
+          <circle cx="256" cy="256" r="184" stroke-width="3" />
+
+          <circle cx="256" cy="256" r="166" stroke-width="4" />
+          <circle cx="256" cy="256" r="158" stroke-width="2" />
+          <circle cx="256" cy="256" r="150" stroke-width="3" />
+          <circle cx="256" cy="256" r="142" stroke-width="2" />
+
+          <circle cx="256" cy="256" r="124" stroke-width="3" />
+          <circle cx="256" cy="256" r="118" stroke-width="2" />
+        </g>
+
+        <g fill="white">
+          <g transform="rotate(45, 256, 256)">
+            <polygon points="256,256 186,-50 326,-50" />
+            <polygon points="256,256 186,562 326,562" />
+          </g>
+          <g transform="rotate(135, 256, 256)">
+            <polygon points="256,256 236,-50 276,-50" />
+            <polygon points="256,256 236,562 276,562" />
+          </g>
+        </g>
+
+        <circle cx="256" cy="256" r="110" fill="black" />
+
+        <path d="M 256,166 
+                 C 256,229 229,256 166,256 
+                 C 229,256 256,283 256,346 
+                 C 256,283 283,256 346,256 
+                 C 283,256 256,229 256,166 Z" 
+              fill="white" />
+      </mask>
+    </defs>
+
+    <circle cx="256" cy="256" r="240" fill="currentColor" mask="url(#vinyl-mask)" />
   </svg>
 );
 
@@ -1332,7 +1384,7 @@ export const MediaView: React.FC = () => {
       setSessionName('Untitled session');
     }
   }, [chatMessages]);
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState<'all' | 'images' | 'video' | 'characters' | 'scenes' | 'uploads' | 'tools'>('all');
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState<'all' | 'images' | 'video' | 'characters' | 'music' | 'scenes' | 'uploads' | 'tools'>('all');
   const activeSidebarTabRef = React.useRef(activeSidebarTab);
   React.useEffect(() => {
     activeSidebarTabRef.current = activeSidebarTab;
@@ -4819,6 +4871,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               <CharactersIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Characters</span>}
             </button>
+            <button 
+              onClick={() => setActiveSidebarTab('music')}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'music' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
+              <MusicIcon className="text-gray-200 group-hover:text-white transition-colors" />
+              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Music</span>}
+            </button>
             <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
               <ScenesIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Scenes</span>}
@@ -7564,6 +7623,25 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       {activeSidebarTab === 'characters' && (
         <div className="absolute inset-0 z-[100]">
           <CharactersView 
+            onBack={() => setActiveSidebarTab('all')} 
+            mediaItems={mediaItems} 
+            onFileSelect={() => fileInputRef.current?.click()} 
+            modelMode={modelMode}
+            activeModelId={modelMode === 'image' ? imageModel : videoModel}
+            onModelChange={(id) => {
+              if (modelMode === 'image') {
+                setImageModel(id as any);
+              } else {
+                setVideoModel(id as any);
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {activeSidebarTab === 'music' && (
+        <div className="absolute inset-0 z-[100]">
+          <MusicView 
             onBack={() => setActiveSidebarTab('all')} 
             mediaItems={mediaItems} 
             onFileSelect={() => fileInputRef.current?.click()} 
