@@ -39,6 +39,43 @@ const sampleMusic = [
   }
 ];
 
+const MemoLyricLine = React.memo(({ group, isCurrent, isPast, activeTime, onClick }: any) => {
+  return (
+    <div 
+      data-active={isCurrent}
+      onClick={() => onClick(group.time)}
+      className={`flex flex-col text-left cursor-pointer transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform will-change-opacity w-full py-2 origin-left tracking-tight ${
+        isCurrent ? 'opacity-100 translate-y-0 scale-100' : 
+        isPast ? 'opacity-30 -translate-y-2 scale-[0.95]' : 
+        'opacity-50 translate-y-2 scale-[0.95]'
+      }`}
+    >
+      {group.text.length > 0 && (
+        <div className="text-[32px] font-bold text-white">
+          {group.text}
+        </div>
+      )}
+      {isCurrent && group.bgVocals.length > 0 && (
+        <div className="flex flex-col mt-1 gap-1">
+          {group.bgVocals.map((bg: any, j: number) => {
+            const bgActive = activeTime >= bg.time;
+            return (
+              <div 
+                key={j} 
+                className={`text-[22px] font-medium transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform will-change-opacity ${
+                  bgActive ? 'text-white/90 translate-y-0 opacity-100' : 'text-white/40 translate-y-2 opacity-0'
+                }`}
+              >
+                {bg.text}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export const MusicView: React.FC<MusicViewProps> = ({ 
   onBack, 
   mediaItems, 
@@ -94,6 +131,17 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const [leftGap, setLeftGap] = useState(64);
   const [isDownloading, setIsDownloading] = useState(false);
   const [spacerHeight, setSpacerHeight] = useState(172);
+  const [isTitleOverflowing, setIsTitleOverflowing] = useState(false);
+  const titleContainerRef = useRef<HTMLDivElement>(null);
+  const titleTextRef = useRef<HTMLSpanElement>(null);
+
+  const handleLyricClick = React.useCallback((time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  }, []);
 
   const handleDownload = async () => {
     if (!audioSrc || isDownloading) return;
@@ -181,12 +229,67 @@ export const MusicView: React.FC<MusicViewProps> = ({
     };
   }, [viewState, musicStatus, lyrics]);
 
-  // Calculate active lyric index to prevent scroll jank
-  const activeLyricIndex = React.useMemo(() => {
-    return lyrics.findIndex((line, i) => {
-      return (i === 0 && currentTime < line.time) || (currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time));
+  React.useEffect(() => {
+    const checkOverflow = () => {
+      if (titleContainerRef.current && titleTextRef.current) {
+        const hasMinusMargin = titleContainerRef.current.classList.contains('-ml-4');
+        const containerWidth = titleContainerRef.current.clientWidth - (hasMinusMargin ? 16 : 0);
+        setIsTitleOverflowing(titleTextRef.current.scrollWidth > containerWidth);
+      }
+    };
+    checkOverflow();
+    window.addEventListener('resize', checkOverflow);
+    return () => window.removeEventListener('resize', checkOverflow);
+  }, [songTitle, viewState, musicStatus]);
+
+  // Group background vocals (lines in parentheses) with the preceding main lyric
+  const groupedLyrics = React.useMemo(() => {
+    const grouped: { time: number; text: string; bgVocals: { time: number; text: string }[] }[] = [];
+    lyrics.forEach((line) => {
+      let mainText = line.text.trim();
+      const bgMatches = [...mainText.matchAll(/\((.*?)\)/g)];
+      
+      if (bgMatches.length === 0) {
+        grouped.push({
+          time: line.time,
+          text: mainText,
+          bgVocals: []
+        });
+      } else {
+        let cleanedMain = mainText.replace(/\((.*?)\)/g, '').trim();
+        const bgs = bgMatches.map(m => ({ time: line.time, text: m[1] }));
+        
+        if (cleanedMain.length === 0) {
+          if (grouped.length > 0) {
+            grouped[grouped.length - 1].bgVocals.push(...bgs);
+          } else {
+            grouped.push({
+              time: line.time,
+              text: '',
+              bgVocals: bgs
+            });
+          }
+        } else {
+          grouped.push({
+            time: line.time,
+            text: cleanedMain,
+            bgVocals: bgs
+          });
+        }
+      }
     });
-  }, [currentTime, lyrics]);
+    return grouped;
+  }, [lyrics]);
+
+  // Calculate active lyric index based on grouped lyrics to prevent scroll jank
+  const activeLyricIndex = React.useMemo(() => {
+    if (groupedLyrics.length === 0) return -1;
+    if (currentTime < groupedLyrics[0].time) return -1;
+
+    return groupedLyrics.findIndex((group, i) => {
+      return currentTime >= group.time && (i === groupedLyrics.length - 1 || currentTime < groupedLyrics[i + 1].time);
+    });
+  }, [currentTime, groupedLyrics]);
 
   // Auto-scroll lyrics only when the active line changes
   React.useEffect(() => {
@@ -795,7 +898,7 @@ CRITICAL RULES:
                       .mesh-container-generating {
                         position: absolute;
                         inset: 0;
-                        border-radius: 24px;
+                        border-radius: inherit;
                         background-color: #1a1b1f;
                         overflow: hidden;
                       }
@@ -851,9 +954,18 @@ CRITICAL RULES:
                        position: absolute;
                        top: 0; left: -100%; width: 50%; height: 100%;
                        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
-                       animation: title-skeleton-shimmer 2s infinite;
+                       animation: skeleton-shimmer 2s infinite;
                      }
-                     @keyframes title-skeleton-shimmer {
+                     .animate-title-marquee {
+                       display: flex;
+                       width: max-content;
+                       animation: title-marquee 15s linear infinite;
+                     }
+                     @keyframes title-marquee {
+                       0%, 20% { transform: translateX(0); }
+                       100% { transform: translateX(-50%); }
+                     }
+                     @keyframes skeleton-shimmer {
                        100% { left: 200%; }
                      }
                      @keyframes title-glitter-breathe {
@@ -869,14 +981,28 @@ CRITICAL RULES:
                      }
                    `}} />
                   <div className="flex flex-col">
-                     <h1 className="text-[32px] font-bold text-white flex items-center gap-3 leading-tight tracking-tight" style={{ fontFamily: '"Google Sans", sans-serif' }}>
+                     <h1 className="text-[32px] font-bold text-white flex items-center leading-tight tracking-tight w-full max-w-[450px]" style={{ fontFamily: '"Google Sans", sans-serif' }}>
                         {musicStatus === 'generating' ? (
                            <div className="w-56 h-[38px] rounded-lg shimmer-container" style={{ animationDelay: '0s' }}></div>
                         ) : (
-                           <>
-                              {songTitle}
-                              <button className="text-gray-500 hover:text-white transition-colors cursor-pointer"><Pencil size={20} /></button>
-                           </>
+                           <div className="flex items-center w-full min-w-0">
+                               <div 
+                                 ref={titleContainerRef} 
+                                 className={`relative flex-1 min-w-0 overflow-hidden flex items-center ${isTitleOverflowing ? '-ml-4' : ''}`}
+                                 style={isTitleOverflowing ? {
+                                   maskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 32px), transparent)',
+                                   WebkitMaskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 32px), transparent)'
+                                 } : {}}
+                               >
+                                 <div className={isTitleOverflowing ? 'pl-4' : ''}>
+                                   <div className={`flex items-center whitespace-nowrap ${isTitleOverflowing ? 'animate-title-marquee' : ''}`}>
+                                     <span ref={titleTextRef} className={isTitleOverflowing ? "pr-12" : "truncate"}>{songTitle}</span>
+                                     {isTitleOverflowing && <span className="pr-12">{songTitle}</span>}
+                                   </div>
+                                 </div>
+                               </div>
+                               <button className="text-gray-500 hover:text-white transition-colors cursor-pointer shrink-0 ml-3 z-20"><Pencil size={20} /></button>
+                           </div>
                         )}
                      </h1>
                      <span className="text-[20px] text-gray-400 font-medium mt-1 tracking-tight">
@@ -1035,36 +1161,30 @@ CRITICAL RULES:
                             <div className="skeleton-lyric-line w-[60%]" style={{ animationDelay: '-2.1s' }}></div>
                         </>
                      ) : (
-                        <>
-                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
-                          {lyrics.map((line, i) => {
-                             const isPast = currentTime > line.time;
-                             const isCurrent = (i === 0 && currentTime < line.time) || (currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time));
+                        <div 
+                          className="w-full flex flex-col items-start gap-4 animate-in fade-in zoom-in-[0.98] slide-in-from-bottom-6 duration-[1200ms]"
+                          style={{ animationTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
+                        >
+                          {groupedLyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                          {groupedLyrics.map((group, i) => {
+                             const isPast = activeLyricIndex > i;
+                             const isCurrent = activeLyricIndex === i;
                              
                              return (
-                               <div 
+                               <MemoLyricLine 
                                  key={i}
-                                 data-active={isCurrent}
-                                 onClick={() => {
-                                   if (audioRef.current) {
-                                     audioRef.current.currentTime = line.time;
-                                     if (!isPlaying) togglePlay();
-                                   }
-                                 }}
-                                 className={`text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] w-full py-2 origin-left text-[32px] font-bold tracking-tight ${
-                                   isCurrent ? 'text-white opacity-100 translate-y-0 scale-100' : 
-                                   isPast ? 'text-white opacity-30 -translate-y-2 scale-[0.95]' : 
-                                   'text-white opacity-50 translate-y-2 scale-[0.95]'
-                                 }`}
-                               >
-                                 {line.text}
-                               </div>
+                                 group={group}
+                                 isCurrent={isCurrent}
+                                 isPast={isPast}
+                                 activeTime={isCurrent ? currentTime : 0}
+                                 onClick={handleLyricClick}
+                               />
                              );
                           })}
-                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
-                        </>
+                          {groupedLyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                        </div>
                      )}
-                     {musicStatus !== 'generating' && lyrics.length === 0 && (
+                     {musicStatus !== 'generating' && groupedLyrics.length === 0 && (
                        <div className="text-gray-500 italic text-[24px] font-semibold">No lyrics available</div>
                      )}
                   </div>
