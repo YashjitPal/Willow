@@ -11,7 +11,7 @@ interface ImageAttachment {
   url: string;
   name: string;
   file?: File;
-  kind?: 'image' | 'video';
+  kind?: 'image' | 'video' | 'audio';
 }
 
 export interface AgentInstruction {

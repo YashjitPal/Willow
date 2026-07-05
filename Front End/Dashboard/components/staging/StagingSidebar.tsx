@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { flushSync, createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   ChevronDown, 
   ChevronRight,
@@ -1627,6 +1627,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
 
 const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
   const [sidebarView, setSidebarViewRaw] = useState<'chat' | 'visual-edit'>('chat');
@@ -3134,7 +3135,20 @@ User Prompt:
     if (prompt && !initialPromptDisplayed.current) {
       initialPromptDisplayed.current = true;
 
-      // Reset stores for fresh session (in case user navigated back and returned)
+      const isNewProject = location.state?.isNewProject;
+      
+      // If we are returning from another page (like /media) to an existing session,
+      // don't reset the stores and don't re-trigger the initial generation.
+      if (isNewProject === false) {
+        return;
+      }
+
+      // If it is a new project, clear the state flag so navigating away/back later doesn't reset it again
+      if (isNewProject) {
+        navigate(location.pathname + location.search, { replace: true, state: { ...location.state, isNewProject: false } });
+      }
+
+      // Reset stores for fresh session
       sandpackStore.reset();
       testStore.reset();
 

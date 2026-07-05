@@ -14,6 +14,7 @@ interface MusicViewProps {
   modelMode: 'image' | 'video'; // might need to remove this or keep it if passed from parent
   activeModelId: string;
   onModelChange: (id: any) => void;
+  onSongGenerated?: (item: any) => void;
 }
 
 const sampleMusic = [
@@ -39,42 +40,6 @@ const sampleMusic = [
   }
 ];
 
-const MemoLyricLine = React.memo(({ group, isCurrent, isPast, activeTime, onClick }: any) => {
-  return (
-    <div 
-      data-active={isCurrent}
-      onClick={() => onClick(group.time)}
-      className={`flex flex-col text-left cursor-pointer transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform will-change-opacity w-full py-2 origin-left tracking-tight ${
-        isCurrent ? 'opacity-100 translate-y-0 scale-100' : 
-        isPast ? 'opacity-30 -translate-y-2 scale-[0.95]' : 
-        'opacity-50 translate-y-2 scale-[0.95]'
-      }`}
-    >
-      {group.text.length > 0 && (
-        <div className="text-[32px] font-bold text-white">
-          {group.text}
-        </div>
-      )}
-      {isCurrent && group.bgVocals.length > 0 && (
-        <div className="flex flex-col mt-1 gap-1">
-          {group.bgVocals.map((bg: any, j: number) => {
-            const bgActive = activeTime >= bg.time;
-            return (
-              <div 
-                key={j} 
-                className={`text-[22px] font-medium transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform will-change-opacity ${
-                  bgActive ? 'text-white/90 translate-y-0 opacity-100' : 'text-white/40 translate-y-2 opacity-0'
-                }`}
-              >
-                {bg.text}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-});
 
 export const MusicView: React.FC<MusicViewProps> = ({ 
   onBack, 
@@ -82,7 +47,8 @@ export const MusicView: React.FC<MusicViewProps> = ({
   onFileSelect, 
   modelMode,
   activeModelId,
-  onModelChange
+  onModelChange,
+  onSongGenerated
 }) => {
   const { userProfile, user } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -135,6 +101,8 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const titleContainerRef = useRef<HTMLDivElement>(null);
   const titleTextRef = useRef<HTMLSpanElement>(null);
 
+  const [isLayoutCalculated, setIsLayoutCalculated] = useState(false);
+
   const handleLyricClick = React.useCallback((time: number) => {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -147,14 +115,15 @@ export const MusicView: React.FC<MusicViewProps> = ({
     if (!audioSrc || isDownloading) return;
     setIsDownloading(true);
     try {
-      const ID3Writer = (await import('browser-id3-writer')).default;
+      const ID3WriterModule = await import('browser-id3-writer');
+      const ID3Writer = (ID3WriterModule.default || ID3WriterModule) as any;
       
       const audioResponse = await fetch(audioSrc);
       const audioBuffer = await audioResponse.arrayBuffer();
       
       const writer = new ID3Writer(audioBuffer);
       writer.setFrame('TIT2', songTitle)
-            .setFrame('TPE1', [songArtist || 'Lyria']);
+            .setFrame('TPE1', [songArtist]);
             
       if (musicImage) {
         try {
@@ -176,17 +145,17 @@ export const MusicView: React.FC<MusicViewProps> = ({
         writer.setFrame('USLT', {
           description: '',
           lyrics: plainLyrics,
-          language: 'eng'
         });
       }
-
+      
       writer.addTag();
       const taggedSongBuffer = writer.arrayBuffer;
+      
       const blob = new Blob([taggedSongBuffer], { type: 'audio/mpeg' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${songTitle} - ${songArtist || 'Lyria'}.mp3`;
+      a.download = `${songTitle} - ${songArtist}.mp3`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -198,33 +167,43 @@ export const MusicView: React.FC<MusicViewProps> = ({
     }
   };
 
-  React.useEffect(() => {
-    if (viewState !== 'editor' || (musicStatus !== 'completed' && musicStatus !== 'generating')) return;
+  React.useLayoutEffect(() => {
+    if (viewState !== 'editor' || (musicStatus !== 'completed' && musicStatus !== 'generating')) {
+      setIsLayoutCalculated(false);
+      return;
+    }
 
     const calculateLayout = () => {
       if (leftBlockRef.current && editorContentRef.current) {
-        const coverRect = leftBlockRef.current.getBoundingClientRect();
-        const T = coverRect.top;
-        if (T > 0) {
-          setLeftGap(T);
-        }
+        // Derive the gap from heights instead of the block's live rect.top, so a
+        // mid-settle measurement can't bake a wrong horizontal offset into state.
+        const containerRect = editorContentRef.current.getBoundingClientRect();
+        const blockHeight = leftBlockRef.current.offsetHeight;
+        const T = containerRect.top + Math.max(0, (containerRect.height - blockHeight) / 2);
+        setLeftGap(Math.max(32, Math.round(T)));
       }
       if (lyricsContainerRef.current) {
         const containerHeight = lyricsContainerRef.current.clientHeight;
-        // The container has py-32 (128px padding). 
+        // The container has py-32 (128px padding).
         // We subtract an additional 40px to account for half of the lyric's visual line-height (which now includes py-2).
         setSpacerHeight(Math.max(0, (containerHeight / 2) - 128 - 40));
       }
+      setIsLayoutCalculated(true);
     };
 
     calculateLayout();
-    
-    const intervals = [50, 100, 300, 500, 1000];
-    const timers = intervals.map(delay => setTimeout(calculateLayout, delay));
+
+    // Re-derive whenever the container or block size settles late (fonts, content
+    // swaps, window changes) — a one-shot measurement is what caused the skeleton
+    // to land offset and only sometimes recover.
+    const observer = new ResizeObserver(calculateLayout);
+    if (editorContentRef.current) observer.observe(editorContentRef.current);
+    if (leftBlockRef.current) observer.observe(leftBlockRef.current);
+    if (lyricsContainerRef.current) observer.observe(lyricsContainerRef.current);
 
     window.addEventListener('resize', calculateLayout);
     return () => {
-      timers.forEach(clearTimeout);
+      observer.disconnect();
       window.removeEventListener('resize', calculateLayout);
     };
   }, [viewState, musicStatus, lyrics]);
@@ -232,8 +211,8 @@ export const MusicView: React.FC<MusicViewProps> = ({
   React.useEffect(() => {
     const checkOverflow = () => {
       if (titleContainerRef.current && titleTextRef.current) {
-        const hasMinusMargin = titleContainerRef.current.classList.contains('-ml-4');
-        const containerWidth = titleContainerRef.current.clientWidth - (hasMinusMargin ? 16 : 0);
+        const hasMinusMargin = titleContainerRef.current.classList.contains('-mx-4');
+        const containerWidth = titleContainerRef.current.clientWidth - (hasMinusMargin ? 32 : 0);
         setIsTitleOverflowing(titleTextRef.current.scrollWidth > containerWidth);
       }
     };
@@ -242,54 +221,15 @@ export const MusicView: React.FC<MusicViewProps> = ({
     return () => window.removeEventListener('resize', checkOverflow);
   }, [songTitle, viewState, musicStatus]);
 
-  // Group background vocals (lines in parentheses) with the preceding main lyric
-  const groupedLyrics = React.useMemo(() => {
-    const grouped: { time: number; text: string; bgVocals: { time: number; text: string }[] }[] = [];
-    lyrics.forEach((line) => {
-      let mainText = line.text.trim();
-      const bgMatches = [...mainText.matchAll(/\((.*?)\)/g)];
-      
-      if (bgMatches.length === 0) {
-        grouped.push({
-          time: line.time,
-          text: mainText,
-          bgVocals: []
-        });
-      } else {
-        let cleanedMain = mainText.replace(/\((.*?)\)/g, '').trim();
-        const bgs = bgMatches.map(m => ({ time: line.time, text: m[1] }));
-        
-        if (cleanedMain.length === 0) {
-          if (grouped.length > 0) {
-            grouped[grouped.length - 1].bgVocals.push(...bgs);
-          } else {
-            grouped.push({
-              time: line.time,
-              text: '',
-              bgVocals: bgs
-            });
-          }
-        } else {
-          grouped.push({
-            time: line.time,
-            text: cleanedMain,
-            bgVocals: bgs
-          });
-        }
-      }
-    });
-    return grouped;
-  }, [lyrics]);
-
-  // Calculate active lyric index based on grouped lyrics to prevent scroll jank
+  // Calculate active lyric index based on lyrics to prevent scroll jank
   const activeLyricIndex = React.useMemo(() => {
-    if (groupedLyrics.length === 0) return -1;
-    if (currentTime < groupedLyrics[0].time) return -1;
+    if (lyrics.length === 0) return -1;
+    if (currentTime === 0 || currentTime < lyrics[0].time) return -1;
 
-    return groupedLyrics.findIndex((group, i) => {
-      return currentTime >= group.time && (i === groupedLyrics.length - 1 || currentTime < groupedLyrics[i + 1].time);
+    return lyrics.findIndex((line, i) => {
+      return currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time);
     });
-  }, [currentTime, groupedLyrics]);
+  }, [currentTime, lyrics]);
 
   // Auto-scroll lyrics only when the active line changes
   React.useEffect(() => {
@@ -459,7 +399,11 @@ export const MusicView: React.FC<MusicViewProps> = ({
 
     let activeLyrics = [];
     let activeTitle = getFallbackTitle(finalPrompt);
-    let activeArtist = 'Lyria';
+    
+    // Determine the exact artist name based on the active model
+    const activeModelObj = models.find(m => m.id === activeModelId);
+    let activeArtist = activeModelObj ? activeModelObj.name : 'Lyria';
+    
     let generatedAudioUrl = null;
 
     let lyriaLyrics = "";
@@ -513,10 +457,9 @@ export const MusicView: React.FC<MusicViewProps> = ({
       alert("Lyria 3 Generation Failed: Please check your API key and quotas.");
       setMusicStatus('idle'); // The main view condition uses `musicStatus === 'idle'` to show the prompt input
       setCoverStatus('idle');
-      setViewState('prompt'); // Reset viewState so it returns to the prompt screen instead of the editor screen
+      setViewState('initial'); // Reset viewState so it returns to the prompt screen instead of the editor screen
       setProgress(0);
       clearInterval(timer);
-      setIsGenerating(false); // Also reset `isGenerating` so the input is active again
       return;
     }
 
@@ -661,6 +604,22 @@ CRITICAL RULES:
     setProgress(100);
     setCoverStatus('completed');
     setMusicStatus('completed');
+
+    if (onSongGenerated) {
+      onSongGenerated({
+        id: 'song-' + Date.now() + '-' + Math.random().toString(36).substring(7),
+        kind: 'audio',
+        status: 'completed',
+        url: finalImageUrl,
+        audioUrl: generatedAudioUrl,
+        prompt: finalPrompt,
+        modelId: activeModelId,
+        modelName: activeArtist,
+        ratio: '1:1',
+        timestamp: Date.now(),
+        shortenedPrompt: activeTitle,
+      });
+    }
   };
 
   const togglePlay = () => {
@@ -869,7 +828,7 @@ CRITICAL RULES:
         {/* Editor Main Content: Three Column Layout when completed or generating */}
         <div 
           ref={editorContentRef}
-          className={`absolute z-10 top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'}`}
+          className={`absolute z-10 top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'} transition-opacity duration-300 ${((musicStatus === 'generating' || musicStatus === 'completed') && !isLayoutCalculated) ? 'opacity-0' : 'opacity-100'}`}
         >
           
           {/* Left Column / Center generating block */}
@@ -880,11 +839,11 @@ CRITICAL RULES:
               paddingRight: `${leftGap}px`,
               width: `${450 + leftGap * 2}px`
             } : {}}
-            className={`flex flex-col ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'items-start shrink-0 mb-0' : 'items-center mb-8'} animate-in fade-in duration-700`}
+            className={`flex flex-col ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'items-start shrink-0 mb-0' : 'items-center mb-8'}`}
           >
 
             {/* 1:1 Cover Art Container */}
-            <div className={`relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-lg bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8 transition-all duration-700`}>
+            <div className={`relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-lg bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8`}>
               <AnimatePresence>
                 {coverStatus === 'generating' && (
                   <motion.div 
@@ -988,20 +947,19 @@ CRITICAL RULES:
                            <div className="flex items-center w-full min-w-0">
                                <div 
                                  ref={titleContainerRef} 
-                                 className={`relative flex-1 min-w-0 overflow-hidden flex items-center ${isTitleOverflowing ? '-ml-4' : ''}`}
+                                 className={`relative overflow-hidden flex items-center ${isTitleOverflowing ? '-mx-4 w-[calc(100%+32px)] shrink-0' : 'flex-1 min-w-0'}`}
                                  style={isTitleOverflowing ? {
-                                   maskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 32px), transparent)',
-                                   WebkitMaskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 32px), transparent)'
+                                   maskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)',
+                                   WebkitMaskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)'
                                  } : {}}
                                >
-                                 <div className={isTitleOverflowing ? 'pl-4' : ''}>
+                                 <div className={isTitleOverflowing ? 'px-4' : ''}>
                                    <div className={`flex items-center whitespace-nowrap ${isTitleOverflowing ? 'animate-title-marquee' : ''}`}>
                                      <span ref={titleTextRef} className={isTitleOverflowing ? "pr-12" : "truncate"}>{songTitle}</span>
                                      {isTitleOverflowing && <span className="pr-12">{songTitle}</span>}
                                    </div>
                                  </div>
                                </div>
-                               <button className="text-gray-500 hover:text-white transition-colors cursor-pointer shrink-0 ml-3 z-20"><Pencil size={20} /></button>
                            </div>
                         )}
                      </h1>
@@ -1165,26 +1123,35 @@ CRITICAL RULES:
                           className="w-full flex flex-col items-start gap-4 animate-in fade-in zoom-in-[0.98] slide-in-from-bottom-6 duration-[1200ms]"
                           style={{ animationTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
                         >
-                          {groupedLyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
-                          {groupedLyrics.map((group, i) => {
+                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                          {lyrics.map((line, i) => {
                              const isPast = activeLyricIndex > i;
                              const isCurrent = activeLyricIndex === i;
                              
                              return (
-                               <MemoLyricLine 
+                               <div 
                                  key={i}
-                                 group={group}
-                                 isCurrent={isCurrent}
-                                 isPast={isPast}
-                                 activeTime={isCurrent ? currentTime : 0}
-                                 onClick={handleLyricClick}
-                               />
+                                 data-active={isCurrent}
+                                 onClick={() => {
+                                   if (audioRef.current) {
+                                     audioRef.current.currentTime = line.time;
+                                     if (!isPlaying) togglePlay();
+                                   }
+                                 }}
+                                 className={`text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] w-full py-2 origin-left text-[32px] font-bold tracking-tight ${
+                                   isCurrent ? 'text-white opacity-100 translate-y-0 scale-100' : 
+                                   isPast ? 'text-white opacity-30 -translate-y-2 scale-[0.95]' : 
+                                   'text-white opacity-50 translate-y-2 scale-[0.95]'
+                                 }`}
+                               >
+                                 {line.text}
+                               </div>
                              );
                           })}
-                          {groupedLyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
+                          {lyrics.length > 0 && <div style={{ height: `${spacerHeight}px` }} className="shrink-0 w-full pointer-events-none" />}
                         </div>
                      )}
-                     {musicStatus !== 'generating' && groupedLyrics.length === 0 && (
+                     {musicStatus !== 'generating' && lyrics.length === 0 && (
                        <div className="text-gray-500 italic text-[24px] font-semibold">No lyrics available</div>
                      )}
                   </div>
@@ -1204,7 +1171,7 @@ CRITICAL RULES:
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      if (editPrompt.trim() && musicStatus !== 'generating' && coverStatus !== 'generating') startGeneration();
+                      if (editPrompt.trim() && coverStatus !== 'generating') startGeneration();
                     }
                   }}
                   rows={1}
@@ -1261,10 +1228,10 @@ CRITICAL RULES:
 
             <button 
               onClick={() => {
-                  if (editPrompt.trim() && musicStatus !== 'generating' && coverStatus !== 'generating') startGeneration();
+                  if (editPrompt.trim() && coverStatus !== 'generating') startGeneration();
                 }}
                 className={`flex items-center justify-center w-8 h-8 rounded-full bg-[#27282b] hover:bg-[#40424a] transition-all cursor-pointer ${
-                  (musicStatus === 'generating' || coverStatus === 'generating') ? 'opacity-50 cursor-not-allowed' : ''
+                  (coverStatus === 'generating') ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" className="text-white">

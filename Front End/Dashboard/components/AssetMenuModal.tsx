@@ -9,12 +9,12 @@ interface AssetMenuModalProps {
   isOpen: boolean;
   onClose: () => void;
   buttonRef: React.RefObject<any>;
-  onAddPrompt?: (assetId: string, assetUrl?: string, assetTitle?: string, assetKind?: 'image' | 'video') => void;
+  onAddPrompt?: (assetId: string, assetUrl?: string, assetTitle?: string, assetKind?: 'image' | 'video' | 'audio') => void;
   onFileSelect?: () => void;
   projectName?: string;
   mediaItems?: Array<{
     id: string;
-    kind: 'image' | 'video';
+    kind: 'image' | 'video' | 'audio';
     status: string;
     url?: string;
     prompt: string;

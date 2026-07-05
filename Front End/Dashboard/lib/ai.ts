@@ -1009,7 +1009,7 @@ Adhere to the following rules and guidelines:
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
-        if (m.role === 'assistant' || m.role === 'model') {
+        if (m.role === 'assistant' || (m.role as any) === 'model') {
             cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
         }
 
@@ -1036,7 +1036,7 @@ Adhere to the following rules and guidelines:
 
     const responseInput = messages.map(m => {
         let text = m.content || '';
-        if (m.role === 'assistant' || m.role === 'model') {
+        if (m.role === 'assistant' || (m.role as any) === 'model') {
             text = text.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
         }
         const imageParts: any[] = [];

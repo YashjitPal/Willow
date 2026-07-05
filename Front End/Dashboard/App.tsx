@@ -429,7 +429,7 @@ const App: React.FC = () => {
     // Mark that we're navigating to staging via React Router (not a page refresh)
     sessionStorage.setItem('staging-nav', 'true');
     const encodedPrompt = encodeURIComponent(prompt);
-    navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`, { state: { initialAttachments: attachments } });
+    navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`, { state: { initialAttachments: attachments, isNewProject: true } });
   };
 
   // Helper to open settings to Drive connector

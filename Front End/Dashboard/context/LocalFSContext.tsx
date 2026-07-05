@@ -78,8 +78,8 @@ interface LocalFSContextType {
   saveLocalFSProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
   saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
   saveLocalFSProjectChat: (projectName: string, chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
-  saveLocalFSMedia: (projectName: string, kind: 'image' | 'video', fileName: string, blob: Blob) => Promise<string | null>;
-  deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video', fsName: string) => Promise<boolean>;
+  saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob) => Promise<string | null>;
+  deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<boolean>;
   renameLocalFSProject: (oldName: string, newName: string) => Promise<boolean>;
   saveLocalFSCover: (projectName: string, url: string) => Promise<boolean>;
   generateChatTitle: (userMessage: string, assistantMessage: string) => Promise<string>;
@@ -89,7 +89,7 @@ interface LocalFSContextType {
   loadLocalFSChat: (chatId: string) => Promise<any[] | null>;
   refreshLocalChats: () => Promise<void>;
   refreshLocalMedia: (projectId: string, projectName: string) => Promise<any[]>;
-  loadLocalFSMediaUrl: (projectName: string, kind: 'image' | 'video', fsName: string) => Promise<string | null>;
+  loadLocalFSMediaUrl: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<string | null>;
   deleteLocalFSChat: (chatId: string) => Promise<boolean>;
   deleteLocalFSProject: (projectId: string, projectName: string) => Promise<boolean>;
   renameLocalFSChat: (oldChatId: string, newChatId: string) => Promise<boolean>;
@@ -897,7 +897,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   /**
    * Save media creations locally
    */
-  const saveLocalFSMedia = useCallback(async (projectName: string, kind: 'image' | 'video', fileName: string, blob: Blob): Promise<string | null> => {
+  const saveLocalFSMedia = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return null;
 
@@ -914,8 +914,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       await projectDir.getDirectoryHandle('Scenes', { create: true });
       await projectDir.getDirectoryHandle('Music', { create: true });
       
-      // Write file to Images or Videos subfolder
-      const subFolder = kind === 'image' ? 'Images' : 'Videos';
+      // Write file to Images or Videos or Audio subfolder
+      const subFolder = kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio';
       const subDir = await projectDir.getDirectoryHandle(subFolder, { create: true });
       
       // If image kind, also pre-create "Characters" subfolder
@@ -964,7 +964,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * unavailable. This is the disk-as-source read path: heavy bytes live on disk,
    * not in IndexedDB, and are streamed via blob URLs.
    */
-  const loadLocalFSMediaUrl = useCallback(async (projectName: string, kind: 'image' | 'video', fsName: string): Promise<string | null> => {
+  const loadLocalFSMediaUrl = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<string | null> => {
     if (!projectName || !fsName) return null;
     const handle = directoryHandleRef.current;
     if (!handle) return null;
@@ -975,7 +975,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const workspaceDir = await handle.getDirectoryHandle(workspaceName, { create: true });
       const mediaDir = await workspaceDir.getDirectoryHandle('Media', { create: true });
       const projectDir = await mediaDir.getDirectoryHandle(projectName, { create: true });
-      const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : 'Videos');
+      const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
       const fileHandle = await subDir.getFileHandle(fsName);
       const file = await fileHandle.getFile();
       return URL.createObjectURL(file);
@@ -989,7 +989,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * disk. Used by in-app media-item deletion so the file is actually removed
    * (and the real-time poller won't re-ingest it). No-op if no folder/permission.
    */
-  const deleteLocalFSMediaFile = useCallback(async (projectName: string, kind: 'image' | 'video', fsName: string): Promise<boolean> => {
+  const deleteLocalFSMediaFile = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<boolean> => {
     if (!projectName || !fsName) return false;
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return false;

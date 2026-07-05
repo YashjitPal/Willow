@@ -43,6 +43,7 @@ import {
 import logoG from '../../src/assets/logog.png'; // Fallback avatar
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../ui/Avatar';
+import { getGeminiClient } from '../../lib/ai';
 import { useUserDataContext } from '../../context/UserDataContext';
 import { useLocalFS } from '../../context/LocalFSContext';
 import { AssetMenuModal } from '../AssetMenuModal';
@@ -218,16 +219,17 @@ interface ImageAttachment {
   url: string;
   name: string;
   file?: File;
-  kind?: 'image' | 'video';
+  kind?: MediaKind;
 }
 
-type MediaKind = 'image' | 'video';
+type MediaKind = 'image' | 'video' | 'audio';
 type MediaStatus = 'generating' | 'completed' | 'failed';
 type MediaItem = {
   id: string;
   kind: MediaKind;
   status: MediaStatus;
   url?: string;
+  audioUrl?: string;
   error?: string;
   prompt: string;
   shortenedPrompt?: string;
@@ -415,7 +417,8 @@ const TileContent = React.memo(({
   React.useEffect(() => {
     if (item.status !== 'generating') return;
     
-    const getEstimatedDuration = (modelId: string, kind: 'image' | 'video') => {
+    const getEstimatedDuration = (modelId: string, kind: MediaKind) => {
+      if (modelId === 'upload') return 1500;
       if (kind === 'image') {
         if (modelId === 'gemini-3-pro-image-preview') return 7000;
         return 5000;
@@ -942,11 +945,13 @@ const TileContent = React.memo(({
           </span>
         </div>
 
-        <div className="absolute bottom-3.5 left-3.5 right-[60px] flex items-center pointer-events-none z-30 min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out">
-          <span className="text-[12px] font-normal text-white/80 truncate max-w-full leading-normal">
-            {item.prompt}
-          </span>
-        </div>
+        {item.modelId !== 'upload' && (
+          <div className="absolute bottom-3.5 left-3.5 right-[60px] flex items-center pointer-events-none z-30 min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out">
+            <span className="text-[12px] font-normal text-white/80 truncate max-w-full leading-normal">
+              {item.prompt}
+            </span>
+          </div>
+        )}
 
         {/* Lower Right Re-prompt Button */}
         <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out pointer-events-none group-hover:pointer-events-auto z-30">
@@ -1438,14 +1443,78 @@ export const MediaView: React.FC = () => {
   const [dragMousePos, setDragMousePos] = React.useState({ x: 0, y: 0 });
   const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
   const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
+  
+  // React state for overlap calculations (can lag by 1 frame safely)
+  const [selectionBox, setSelectionBox] = React.useState<{ 
+    startX: number; 
+    startY: number; 
+    currentX: number; 
+    currentY: number;
+    startScrollTop: number;
+    startScrollLeft: number;
+  } | null>(null);
+  
+  // Refs for zero-latency direct DOM visual updates
+  const selectionBoxRef = React.useRef<HTMLDivElement>(null);
+  const selectionDragStartRef = React.useRef<{
+    startX: number;
+    startY: number;
+    startScrollTop: number;
+    startScrollLeft: number;
+  } | null>(null);
 
-  const [selectionBox, setSelectionBox] = React.useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
   const [selectedTileIds, setSelectedTileIds] = React.useState<Set<string>>(new Set());
+  const [isCreatingMusic, setIsCreatingMusic] = React.useState(false);
   const isSelectingRef = React.useRef(false);
+  const mouseViewportPosRef = React.useRef({ x: 0, y: 0 });
+
+  // Zero-latency visual updater
+  const updateSelectionBoxVisuals = React.useCallback(() => {
+    if (!selectionBoxRef.current || !mainRef.current || !isSelectingRef.current || !selectionDragStartRef.current) return;
+    
+    const el = mainRef.current;
+    const rect = el.getBoundingClientRect();
+    const dragStart = selectionDragStartRef.current;
+    
+    const scrollDiffX = el.scrollLeft - dragStart.startScrollLeft;
+    const scrollDiffY = el.scrollTop - dragStart.startScrollTop;
+    
+    const viewStartX = dragStart.startX - scrollDiffX;
+    const viewStartY = dragStart.startY - scrollDiffY;
+    const viewCurrentX = mouseViewportPosRef.current.x;
+    const viewCurrentY = mouseViewportPosRef.current.y;
+    
+    const rawLeft = Math.min(viewStartX, viewCurrentX);
+    const rawTop = Math.min(viewStartY, viewCurrentY);
+    const rawRight = Math.max(viewStartX, viewCurrentX);
+    const rawBottom = Math.max(viewStartY, viewCurrentY);
+    
+    const left = Math.max(rawLeft, rect.left);
+    const top = Math.max(rawTop, rect.top);
+    const right = Math.min(rawRight, rect.right);
+    const bottom = Math.min(rawBottom, rect.bottom);
+    
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+    
+    selectionBoxRef.current.style.left = `${left}px`;
+    selectionBoxRef.current.style.top = `${top}px`;
+    selectionBoxRef.current.style.width = `${width}px`;
+    selectionBoxRef.current.style.height = `${height}px`;
+    selectionBoxRef.current.style.display = (width === 0 || height === 0) ? 'none' : 'block';
+  }, []);
 
   React.useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isSelectingRef.current) return;
+      
+      // Track screen/viewport coordinates
+      mouseViewportPosRef.current = { x: e.clientX, y: e.clientY };
+      setDragMousePos({ x: e.clientX, y: e.clientY });
+
+      // Synchronous DOM update for zero lag
+      updateSelectionBoxVisuals();
+
       setSelectionBox(prev => {
         if (!prev) return null;
         return { ...prev, currentX: e.clientX, currentY: e.clientY };
@@ -1539,20 +1608,30 @@ export const MediaView: React.FC = () => {
 
   React.useEffect(() => {
     if (!selectionBox || !mainRef.current) return;
-    const startX = Math.min(selectionBox.startX, selectionBox.currentX);
-    const startY = Math.min(selectionBox.startY, selectionBox.currentY);
-    const endX = Math.max(selectionBox.startX, selectionBox.currentX);
-    const endY = Math.max(selectionBox.startY, selectionBox.currentY);
+    
+    // Calculate unclipped viewport coordinates of the selection box using initial and current scroll diffs
+    const scrollDiffX = mainRef.current.scrollLeft - selectionBox.startScrollLeft;
+    const scrollDiffY = mainRef.current.scrollTop - selectionBox.startScrollTop;
+    
+    const viewStartX = selectionBox.startX - scrollDiffX;
+    const viewStartY = selectionBox.startY - scrollDiffY;
+    const viewCurrentX = selectionBox.currentX;
+    const viewCurrentY = selectionBox.currentY;
+    
+    const boxLeft = Math.min(viewStartX, viewCurrentX);
+    const boxRight = Math.max(viewStartX, viewCurrentX);
+    const boxTop = Math.min(viewStartY, viewCurrentY);
+    const boxBottom = Math.max(viewStartY, viewCurrentY);
 
     const tiles = mainRef.current.querySelectorAll('.gallery-tile');
     const newSelected = new Set<string>();
     tiles.forEach(tile => {
       const tileRect = tile.getBoundingClientRect();
       const overlap = !(
-        tileRect.right < startX ||
-        tileRect.left > endX ||
-        tileRect.bottom < startY ||
-        tileRect.top > endY
+        tileRect.right < boxLeft ||
+        tileRect.left > boxRight ||
+        tileRect.bottom < boxTop ||
+        tileRect.top > boxBottom
       );
       if (overlap) {
         const id = (tile as HTMLElement).dataset.id;
@@ -1711,7 +1790,7 @@ export const MediaView: React.FC = () => {
 
   // Auto-scroll when dragging near edges
   React.useEffect(() => {
-    if (!draggingItemId) return;
+    if (!draggingItemId && !selectionBox) return;
 
     let animationFrameId: number;
     
@@ -1751,7 +1830,7 @@ export const MediaView: React.FC = () => {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [draggingItemId, dragMousePos]);
+  }, [draggingItemId, selectionBox !== null, dragMousePos]);
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -2306,6 +2385,21 @@ export const MediaView: React.FC = () => {
       }
     }
     lastScrollTop.current = scrollTop;
+
+    // Realtime update of the selection box boundaries on scroll
+    if (isSelectingRef.current && mainRef.current) {
+      // Synchronous DOM update for zero lag during scroll
+      updateSelectionBoxVisuals();
+      
+      setSelectionBox(prev => {
+        if (!prev) return null;
+        return { 
+          ...prev, 
+          currentX: mouseViewportPosRef.current.x, 
+          currentY: mouseViewportPosRef.current.y 
+        };
+      });
+    }
   };
 
   const [attachments, setAttachments] = React.useState<ImageAttachment[]>([]);
@@ -2379,21 +2473,124 @@ export const MediaView: React.FC = () => {
     }, 200);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processUploads = async (files: File[]) => {
+    if (files.length === 0) return;
+    
+    if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+      await authorizeLocalFolder();
+    }
+
+    for (const file of files) {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      const isAudio = file.type.startsWith('audio/');
+      
+      const fileKind: MediaKind = (isVideo || isAudio) ? 'video' : 'image';
+      const ext = file.type.split('/')[1] || (isImage ? 'png' : isVideo ? 'mp4' : 'mp3');
+      const fileTypeName = isImage ? 'image' : isVideo ? 'video' : 'audio';
+      const filename = file.name || `uploaded-${fileTypeName}-${Date.now()}.${ext}`;
+      const promptText = isImage ? 'Uploaded Image' : isVideo ? 'Uploaded Video' : 'Uploaded Audio';
+      
+      const url = URL.createObjectURL(file);
+      
+      const getAspectRatio = (): Promise<string> => {
+        if (isImage) {
+          return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              resolve(`${img.naturalWidth}:${img.naturalHeight}`);
+            };
+            img.onerror = () => resolve('16:9');
+            img.src = url;
+          });
+        } else if (isVideo) {
+          return new Promise((resolve) => {
+            const vid = document.createElement('video');
+            vid.onloadedmetadata = () => {
+              resolve(`${vid.videoWidth}:${vid.videoHeight}`);
+            };
+            vid.onerror = () => resolve('16:9');
+            vid.src = url;
+          });
+        } else {
+          return Promise.resolve('16:9');
+        }
+      };
+      
+      const ratio = await getAspectRatio();
+      
+      const newItem: MediaItem = {
+        id: `pasted-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        kind: fileKind,
+        status: 'generating',
+        prompt: promptText,
+        modelId: 'upload',
+        modelName: 'Upload',
+        ratio: ratio,
+        timestamp: Date.now(),
+      };
+      
+      setIsLayoutSuppressing(true);
+      setMediaItems(prev => [newItem, ...prev]);
+      setTimeout(() => {
+        setIsLayoutSuppressing(false);
+      }, 150);
+
+      setTimeout(() => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onloadend = async () => {
+          const base64Url = reader.result as string;
+          
+          let finalFsName = undefined;
+          let finalSavedToFS = false;
+          
+          if (isLocalFolderConnected && isLocalFolderAuthorized) {
+            try {
+              finalFsName = await saveLocalFSMedia(projectName || 'Default', fileKind, filename, file);
+              finalSavedToFS = true;
+            } catch (err) {
+              console.error("Failed to save to FS", err);
+            }
+          }
+          
+          const newAttachment: ImageAttachment = {
+            id: newItem.id,
+            url: url,
+            name: filename,
+            file: file,
+            kind: fileKind
+          };
+
+          setAttachments(prev => {
+            const next = [...prev, newAttachment];
+            return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
+          });
+
+          setMediaItems(currentItems => {
+            const updatedItems = currentItems.map(m => m.id === newItem.id ? { 
+              ...m, 
+              status: 'completed', 
+              url: base64Url,
+              isSavedToFS: finalSavedToFS,
+              fsName: finalFsName 
+            } as MediaItem : m);
+            if (projectId && !projectId.startsWith('temp_')) {
+              saveProjectMedia(projectId, updatedItems);
+            }
+            return updatedItems;
+          });
+        };
+      }, 1500);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const newAttachments: ImageAttachment[] = Array.from(e.target.files)
-      .filter(file => file.type.startsWith('image/'))
-      .map(file => ({
-        id: Math.random().toString(36).substring(7),
-        url: URL.createObjectURL(file),
-        name: file.name,
-        file,
-        kind: 'image'
-      }));
-    setAttachments(prev => {
-      const next = [...prev, ...newAttachments];
-      return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
-    });
+    const files = Array.from(e.target.files).filter(file => 
+      file.type.startsWith('image/') || file.type.startsWith('video/') || file.type.startsWith('audio/')
+    );
+    await processUploads(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -2401,6 +2598,52 @@ export const MediaView: React.FC = () => {
   const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
+  const displayMediaItems = React.useMemo(() => {
+    let filtered = mediaItems.filter((item) => {
+      if (activeSidebarTab === 'images') {
+        return item.kind === 'image';
+      }
+      if (activeSidebarTab === 'video') {
+        return item.kind === 'video';
+      }
+      if (activeSidebarTab === 'uploads') {
+        return item.modelId === 'upload';
+      }
+      if (activeSidebarTab === 'music') {
+        return item.kind === 'audio';
+      }
+      return true;
+    });
+
+    if (activeSidebarTab === 'music') {
+      filtered = [
+        {
+          id: 'new-music-button',
+          kind: 'audio',
+          status: 'completed',
+          url: '',
+          prompt: 'New Music',
+          modelId: 'ui',
+          modelName: 'UI',
+          ratio: '1:1',
+          timestamp: Date.now(),
+        } as MediaItem,
+        ...filtered
+      ];
+    }
+    return filtered;
+  }, [mediaItems, activeSidebarTab]);
+
+  React.useEffect(() => {
+    if (activeSidebarTab === 'music') {
+       const hasMusic = mediaItems.some(item => item.kind === 'audio' && item.id !== 'new-music-button');
+       if (!hasMusic) {
+         setIsCreatingMusic(true);
+       }
+    } else {
+       setIsCreatingMusic(false);
+    }
+  }, [activeSidebarTab, mediaItems]);
   const mediaLoadedRef = React.useRef(false);
   // Mirror of mediaItems for use inside non-reactive listeners.
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
@@ -2745,6 +2988,7 @@ export const MediaView: React.FC = () => {
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
   type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
   const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
+  const [musicModel, setMusicModel] = React.useState<string>('lyria-3-pro');
   const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
   const [imageModelDropDirection, setImageModelDropDirection] = React.useState<'down' | 'up'>('down');
   const imageModelDropdownRef = React.useRef<HTMLDivElement>(null);
@@ -2970,7 +3214,7 @@ export const MediaView: React.FC = () => {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [activeSidebarTab, updateCustomScrollbar]);
 
   // Viewer prompt-box height tracking. When the bottom "What do you want to
   // change?" card grows (attachments / multiline text), the flex-1 main area
@@ -3035,11 +3279,11 @@ export const MediaView: React.FC = () => {
 
   const prevItemCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (mediaItems.length > prevItemCountRef.current && mainRef.current) {
+    if (displayMediaItems.length > prevItemCountRef.current && mainRef.current) {
       mainRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    prevItemCountRef.current = mediaItems.length;
-  }, [mediaItems.length]);
+    prevItemCountRef.current = displayMediaItems.length;
+  }, [displayMediaItems.length]);
 
   const updateFades = (target: HTMLTextAreaElement) => {
     const scrollHeight = target.scrollHeight;
@@ -4284,6 +4528,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   };
 
   const handleRePromptItem = (targetItem: MediaItem) => {
+    if (targetItem.kind === 'audio') {
+      setIsCreatingMusic(true);
+      setMusicModel(targetItem.modelId);
+      return;
+    }
     // 1. Restore the mode (Image vs. Video)
     setModelMode(targetItem.kind);
 
@@ -4622,7 +4871,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
   let galleryLayoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> = [];
   
-  if (mediaItems.length > 0) {
+  if (displayMediaItems.length > 0) {
     const targetH = isSidebarCollapsed ? 230 : 270;
     const gap = 12;
     // Sidebar left edge is 356px from screen edge. We want a 12px gap to images.
@@ -4651,16 +4900,20 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     // We penalize the difference between the resulting height and our tuned ideal height
     const getDiff = (h: number) => Math.abs(h - layoutTargetH);
 
-    const sortedMediaItems = [...mediaItems].sort((a, b) => b.timestamp - a.timestamp);
-    sortedMediaItems.forEach((item) => {
-      const ratio = item.ratio;
-      let ar = 16 / 9;
-      if (ratio === '4:3') ar = 4 / 3;
-      else if (ratio === '1:1') ar = 1;
-      else if (ratio === '3:4') ar = 3 / 4;
-      else if (ratio === '9:16') ar = 9 / 16;
-      
-      const arWithItem = currentRowSumAR + ar;
+      const sortedMediaItems = [...displayMediaItems].sort((a, b) => b.timestamp - a.timestamp);
+      sortedMediaItems.forEach((item) => {
+        const ratio = item.ratio;
+        let ar = 16 / 9;
+        if (ratio === '4:3') ar = 4 / 3;
+        else if (ratio === '1:1') ar = 1;
+        else if (ratio === '3:4') ar = 3 / 4;
+        else if (ratio === '9:16') ar = 9 / 16;
+        else if (ratio.includes(':')) {
+          const [w, h] = ratio.split(':').map(Number);
+          if (w && h) ar = w / h;
+        }
+        
+        const arWithItem = currentRowSumAR + ar;
       const countWithItem = currentRow.length + 1;
       const heightWithItem = getRowHeight(arWithItem, countWithItem);
       
@@ -4725,7 +4978,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     return (
       <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
         <CharactersView 
-          onBack={() => navigate('/media')} 
+          onBack={() => navigate(-1)} 
           mediaItems={mediaItems} 
           onFileSelect={() => fileInputRef.current?.click()} 
           modelMode={modelMode}
@@ -4742,21 +4995,26 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     );
   }
 
-  if (activeSidebarTab === 'music') {
+  if (activeSidebarTab === 'music' && isCreatingMusic) {
     return (
       <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
         <MusicView 
-          onBack={() => navigate('/media')} 
+          onBack={() => setIsCreatingMusic(false)} 
           mediaItems={mediaItems} 
           onFileSelect={() => fileInputRef.current?.click()} 
           modelMode={modelMode}
-          activeModelId={modelMode === 'image' ? imageModel : videoModel}
+          activeModelId={musicModel}
           onModelChange={(id) => {
-            if (modelMode === 'image') {
-              setImageModel(id as any);
-            } else {
-              setVideoModel(id as any);
-            }
+            setMusicModel(id as string);
+          }}
+          onSongGenerated={(item: MediaItem) => {
+            setMediaItems(prev => {
+              const updated = [item, ...prev];
+              if (projectId && !projectId.startsWith('temp_')) {
+                saveProjectMedia(projectId, updated);
+              }
+              return updated;
+            });
           }}
         />
       </div>
@@ -4765,7 +5023,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
   return (
     <div
-      className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
+      className={`relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden ${
+        selectionBox !== null ? 'selecting-mode' : ''
+      }`}
       style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
       onContextMenu={handleCanvasContextMenu}
       onMouseDown={(e) => {
@@ -4775,19 +5035,36 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         const isClickable = target.closest('button, .gallery-tile, input, a, [draggable="true"], select, textarea, [role="button"], .interactive-element, .custom-scrollbar-thumb');
         const isExcludedArea = target.closest('.prompt-container-box') || target.closest('.agent-sidebar-container') || target.closest('.asset-menu-modal-container');
         
-        if (e.button === 0 && !isClickable && !isExcludedArea) {
+        if (e.button === 0 && !isClickable && !isExcludedArea && mainRef.current) {
           e.preventDefault(); // Prevents native text selection during drag
           if (document.activeElement instanceof HTMLElement) {
             document.activeElement.blur(); // Manually blur since preventDefault stops native blur
           }
           isSelectingRef.current = true;
           setSelectedTileIds(new Set());
+          
+          // Seed initial mouse viewport position
+          mouseViewportPosRef.current = { x: e.clientX, y: e.clientY };
+          setDragMousePos({ x: e.clientX, y: e.clientY });
+          
+          selectionDragStartRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            startScrollTop: mainRef.current.scrollTop,
+            startScrollLeft: mainRef.current.scrollLeft
+          };
+
           setSelectionBox({
             startX: e.clientX,
             startY: e.clientY,
             currentX: e.clientX,
-            currentY: e.clientY
+            currentY: e.clientY,
+            startScrollTop: mainRef.current.scrollTop,
+            startScrollLeft: mainRef.current.scrollLeft
           });
+          
+          // Force initial visual update
+          requestAnimationFrame(updateSelectionBoxVisuals);
         }
       }}
     >
@@ -4906,29 +5183,35 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }}
           >
             <button 
-              onClick={() => navigate('/media')}
+              onClick={() => navigate('/media' + location.search)}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'all' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <AllMediaIcon className="text-gray-300" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide">All Media</span>}
             </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <ImagesIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Images</span>}
-            </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <VideoIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Video</span>}
+            <button 
+              onClick={() => navigate('/media/images' + location.search)}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'images' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
+              <ImagesIcon className={activeSidebarTab === 'images' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
+              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'images' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Images</span>}
             </button>
             <button 
-              onClick={() => navigate('/media/characters')}
+              onClick={() => navigate('/media/video' + location.search)}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'video' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
+              <VideoIcon className={activeSidebarTab === 'video' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
+              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'video' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Video</span>}
+            </button>
+            <button 
+              onClick={() => navigate('/media/characters' + location.search)}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'characters' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <CharactersIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Characters</span>}
             </button>
             <button 
-              onClick={() => navigate('/media/music')}
+              onClick={() => navigate('/media/music' + location.search)}
               className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'music' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
             >
               <MusicIcon className="text-gray-200 group-hover:text-white transition-colors" />
@@ -4938,9 +5221,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               <ScenesIcon className="text-gray-200 group-hover:text-white transition-colors" />
               {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Scenes</span>}
             </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <UploadsIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Uploads</span>}
+            <button 
+              onClick={() => navigate('/media/uploads' + location.search)}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'uploads' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+            >
+              <UploadsIcon className={activeSidebarTab === 'uploads' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
+              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'uploads' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Uploads</span>}
             </button>
 
             <div className={`h-[1px] bg-white/20 ${isSidebarCollapsed ? 'mx-3' : 'mx-4'} my-2`} />
@@ -4990,7 +5276,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               onClick={() => setRenamingItemId(null)}
             />
           )}
-          {mediaItems.length > 0 && (
+          {displayMediaItems.length > 0 && (
             <div
               className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
               style={{ 
@@ -4998,6 +5284,28 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               }}
             >
               {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped, isLastRow }) => {
+                if (item.id === 'new-music-button') {
+                  return (
+                    <motion.div
+                      layout
+                      transition={{ 
+                        duration: isRightSidebarToggling ? 0.78 : 0, 
+                        ease: [0.16, 1, 0.3, 1] 
+                      }}
+                      key={item.id}
+                      onClick={() => setIsCreatingMusic(true)}
+                      style={{
+                        flexGrow: isLastRow ? 0 : ar,
+                        flexBasis: `${finalWidth}px`,
+                        height: `${finalHeight}px`,
+                      }}
+                      className={`gallery-tile relative rounded-[18px] bg-[#141517] hover:bg-[#1f2023] transition-colors shadow-2xl flex flex-col items-center justify-center cursor-pointer border-none group overflow-hidden`}
+                    >
+                       <Plus size={32} strokeWidth={1.5} className="text-[#a0a0a0] group-hover:text-white transition-colors mb-4" />
+                       <span className="text-[13px] font-medium text-[#a0a0a0] group-hover:text-white transition-colors tracking-wide">New music</span>
+                    </motion.div>
+                  );
+                }
                 return (
                     <motion.div
                       layout
@@ -5084,6 +5392,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             if (projectId) void saveProjectMedia(projectId, next);
                             return next;
                           });
+                          setAttachments(prev => prev.filter(a => a.id !== id));
                           // Remove the actual file from disk (disk = source of truth)
                           // so it doesn't reappear on the next reconcile.
                           if (item?.fsName && item.kind) {
@@ -5175,7 +5484,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       </div>
 
       {/* Centered Flower Empty State */}
-      {mediaItems.length === 0 && (
+      {displayMediaItems.length === 0 && (
         <div 
           className="absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
           style={{
@@ -5200,7 +5509,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </div>
 
           <p className="text-lg text-gray-500 font-medium">
-            Start creating or drop media
+            {activeSidebarTab === 'uploads' ? 'Start uploading or drop media' : 'Start creating or drop media'}
           </p>
         </div>
       )}
@@ -5401,7 +5710,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           <input 
             type="file" 
             multiple 
-            accept="image/*"
+            accept="image/*,video/*,audio/*"
             className="hidden" 
             ref={fileInputRef} 
             onChange={handleFileSelect} 
@@ -5551,6 +5860,18 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
           <style>{`
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+            
+            /* Suppress hovers and clicks on sidebars, prompt box, links, and buttons while actively drag-selecting */
+            .selecting-mode button,
+            .selecting-mode aside,
+            .selecting-mode a,
+            .selecting-mode [role="button"],
+            .selecting-mode .prompt-container-box,
+            .selecting-mode .gallery-tile {
+              pointer-events: none !important;
+              user-select: none !important;
+            }
+
             .no-scrollbar::-webkit-scrollbar {
               display: none;
             }
@@ -5692,28 +6013,20 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     handleGenerate();
                   }
                 }}
-                onPaste={(e) => {
+                onPaste={async (e) => {
                   const items = e.clipboardData?.items;
                   if (!items) return;
-                  const imageFiles: File[] = [];
+                  const files: File[] = [];
                   for (let i = 0; i < items.length; i++) {
-                    if (items[i].type.startsWith('image/')) {
+                    const type = items[i].type;
+                    if (type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/')) {
                       const file = items[i].getAsFile();
-                      if (file) imageFiles.push(file);
+                      if (file) files.push(file);
                     }
                   }
-                  if (imageFiles.length > 0) {
+                  if (files.length > 0) {
                     e.preventDefault();
-                    const newAttachments: ImageAttachment[] = imageFiles.map(file => ({
-                      id: Math.random().toString(36).substring(7),
-                      url: URL.createObjectURL(file),
-                      name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                      file
-                    }));
-                    setAttachments(prev => {
-                      const next = [...prev, ...newAttachments];
-                      return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
-                    });
+                    await processUploads(files);
                   }
                 }}
                 rows={1}
@@ -6798,11 +7111,21 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <img
-                          src={selectedItem.url}
-                          alt={selectedItem.shortenedPrompt || selectedItem.prompt}
-                          className="w-full h-full object-cover pointer-events-none"
-                        />
+                        <>
+                          <img
+                            src={selectedItem.url}
+                            alt={selectedItem.shortenedPrompt || selectedItem.prompt}
+                            className="w-full h-full object-cover pointer-events-none"
+                          />
+                          {selectedItem.kind === 'audio' && selectedItem.audioUrl && (
+                            <audio 
+                               src={selectedItem.audioUrl} 
+                               controls 
+                               autoPlay 
+                               className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[80%] max-w-[400px] z-50 rounded-full shadow-2xl"
+                            />
+                          )}
+                        </>
                       )}
                       
                       {/* Crop Box Overlay with Corner Vertices */}
@@ -7678,18 +8001,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Characters and Music views have been moved to early returns to completely unmount the canvas when active */}
 
-      {selectionBox && (
-        <div
-          className="fixed pointer-events-none z-[9999] bg-white/10 border-[1.5px] border-white border-dotted"
-          style={{
-            left: Math.min(selectionBox.startX, selectionBox.currentX),
-            top: Math.min(selectionBox.startY, selectionBox.currentY),
-            width: Math.abs(selectionBox.currentX - selectionBox.startX),
-            height: Math.abs(selectionBox.currentY - selectionBox.startY),
-          }}
-        />
-      )}
-
       {createPortal(
         canvasContextMenuCoords && (
           <div
@@ -7735,6 +8046,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </div>
         ),
         document.body
+      )}
+
+      {selectionBox && (
+        <div
+          ref={selectionBoxRef}
+          className="fixed pointer-events-none z-[9999] bg-white/10 border-[1.5px] border-white border-dotted"
+          style={{ display: 'none' }}
+        />
       )}
     </div>
   );
