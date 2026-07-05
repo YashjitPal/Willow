@@ -52,6 +52,7 @@ import { streamChat, ChatMessage, StreamPhase, generateSessionTitle, mockExecute
 import { TextShimmer } from '../ui/text-shimmer';
 import { CharactersView } from './CharactersView';
 import { MusicView } from './MusicView';
+import { MusicPlayerSidebar } from './MusicPlayerSidebar';
 
 const popupItemVariants = {
   hidden: { opacity: 0, y: 8, scale: 0.97 },
@@ -1378,12 +1379,15 @@ export const MediaView: React.FC = () => {
   const [isBottomFaded, setIsBottomFaded] = React.useState(false);
   const [isAgentActive, setIsAgentActive] = React.useState(false);
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = React.useState(false);
-  const prevIsAgentSidebarOpen = React.useRef(isAgentSidebarOpen);
-  const isRightSidebarToggling = prevIsAgentSidebarOpen.current !== isAgentSidebarOpen;
+  const [activeMusicItem, setActiveMusicItem] = React.useState<MediaItem | null>(null);
+
+  const isRightSidebarOpen = isAgentSidebarOpen || !!activeMusicItem;
+  const prevIsRightSidebarOpen = React.useRef(isRightSidebarOpen);
+  const isRightSidebarToggling = prevIsRightSidebarOpen.current !== isRightSidebarOpen;
   
   React.useEffect(() => {
-    prevIsAgentSidebarOpen.current = isAgentSidebarOpen;
-  }, [isAgentSidebarOpen]);
+    prevIsRightSidebarOpen.current = isRightSidebarOpen;
+  }, [isRightSidebarOpen]);
   const [agentAnimationKey, setAgentAnimationKey] = React.useState(0);
 
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
@@ -1836,6 +1840,7 @@ export const MediaView: React.FC = () => {
 
   // Full-screen Image viewer modal states
   const [selectedItem, setSelectedItem] = React.useState<MediaItem | null>(null);
+  const [fullscreenMusicItem, setFullscreenMusicItem] = React.useState<MediaItem | null>(null);
   const selectedItemRef = React.useRef(selectedItem);
   React.useEffect(() => {
     selectedItemRef.current = selectedItem;
@@ -2652,7 +2657,11 @@ export const MediaView: React.FC = () => {
   // Synchronously bind the canvas items & fullscreen viewer globally in the render body so StreamingMarkdown can preview them instantly during render
   (window as any).canvasMediaItems = mediaItems;
   (window as any).openCanvasItemInFullscreen = (item: MediaItem) => {
-    setSelectedItem(item);
+    if (item.kind === 'audio') {
+      setActiveMusicItem(item);
+    } else {
+      setSelectedItem(item);
+    }
   };
 
   // Clean up global window bindings on unmount
@@ -4880,7 +4889,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const activePaddingRight = Math.max(12, 368 - scrollbarWidth);
     // Subtract 2px of safety margin to absorb browser floating-point rounding errors and prevent accidental wrapping of tiles
     // Subtract 3px for the left padding added to prevent left-side outline clipping
-    const visibleWidth = Math.max(1, (isAgentSidebarOpen ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth)) - 5);
+    const visibleWidth = Math.max(1, ((isAgentSidebarOpen || !!activeMusicItem) ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth)) - 5);
     
     // We bias the target height up by 20% for layout calculations.
     // This perfectly tunes the algorithm's distance check to match your exact preferred rhythm:
@@ -5016,6 +5025,23 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               return updated;
             });
           }}
+        />
+      </div>
+    );
+  }
+
+  if (fullscreenMusicItem) {
+    return (
+      <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
+        <MusicView 
+          onBack={() => setFullscreenMusicItem(null)} 
+          mediaItems={mediaItems} 
+          modelMode={modelMode}
+          activeModelId={musicModel}
+          onModelChange={(id) => {
+            setMusicModel(id as string);
+          }}
+          initialItem={fullscreenMusicItem}
         />
       </div>
     );
@@ -5280,7 +5306,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             <div
               className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
               style={{ 
-                paddingRight: isAgentSidebarOpen ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
+                paddingRight: (isAgentSidebarOpen || !!activeMusicItem) ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
               }}
             >
               {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped, isLastRow }) => {
@@ -5352,7 +5378,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         if (wasDraggingRef.current) return;
                         if (renamingItemId === item.id) return;
                         if (item.status === 'completed' && item.url) {
-                          setSelectedItem(item);
+                          if (item.kind === 'audio') {
+                            setActiveMusicItem(item);
+                          } else {
+                            setSelectedItem(item);
+                          }
                         }
                       }}
                       onMouseEnter={() => {
@@ -5488,7 +5518,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         <div 
           className="absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
           style={{
-            left: isAgentSidebarOpen ? 'calc(50% - 178px)' : '50%',
+            left: (isAgentSidebarOpen || !!activeMusicItem) ? 'calc(50% - 178px)' : '50%',
             transform: 'translate(-50%, -50%)',
             transitionDuration: '0.5s',
             transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)'
@@ -5518,9 +5548,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       <div 
         className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out prompt-container-box"
         style={{
-          opacity: isAgentSidebarOpen ? 0 : 1,
+          opacity: (isAgentSidebarOpen || !!activeMusicItem) ? 0 : 1,
           transform: 'translate(-50%, 0px)',
-          pointerEvents: isAgentSidebarOpen ? 'none' : 'auto'
+          pointerEvents: (isAgentSidebarOpen || !!activeMusicItem) ? 'none' : 'auto'
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -7852,6 +7882,19 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           }
           setIsAssetMenuOpen(true);
         }}
+      />
+
+      <MusicPlayerSidebar
+        isOpen={!!activeMusicItem}
+        item={activeMusicItem}
+        onClose={() => setActiveMusicItem(null)}
+        onExpand={() => {
+          if (activeMusicItem) {
+            setFullscreenMusicItem(activeMusicItem);
+            setActiveMusicItem(null);
+          }
+        }}
+        isHeaderVisible={isHeaderVisible}
       />
 
       <AssetMenuModal

@@ -15,6 +15,7 @@ interface MusicViewProps {
   activeModelId: string;
   onModelChange: (id: any) => void;
   onSongGenerated?: (item: any) => void;
+  initialItem?: any;
 }
 
 const sampleMusic = [
@@ -48,7 +49,8 @@ export const MusicView: React.FC<MusicViewProps> = ({
   modelMode,
   activeModelId,
   onModelChange,
-  onSongGenerated
+  onSongGenerated,
+  initialItem
 }) => {
   const { userProfile, user } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -102,6 +104,20 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const titleTextRef = useRef<HTMLSpanElement>(null);
 
   const [isLayoutCalculated, setIsLayoutCalculated] = useState(false);
+
+  React.useEffect(() => {
+    if (initialItem) {
+      setViewState('editor');
+      setCoverStatus('completed');
+      setMusicStatus('completed');
+      setMusicImage(initialItem.url || null);
+      setSongTitle(initialItem.shortenedPrompt || initialItem.prompt || 'Untitled Music');
+      setSongArtist(initialItem.modelName || 'Unknown Artist');
+      setAudioSrc(initialItem.audioUrl || null);
+      setPrompt(initialItem.prompt || '');
+      setProgress(100);
+    }
+  }, [initialItem]);
 
   const handleLyricClick = React.useCallback((time: number) => {
     if (audioRef.current) {
