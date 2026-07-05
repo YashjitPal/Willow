@@ -56,15 +56,15 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const { apiKeys } = useUserDataContext();
   
   // Core View State: 'initial' = Grid view, 'editor' = Creating/Editing a track
-  const [viewState, setViewState] = useState<'initial' | 'editor'>('initial');
+  const [viewState, setViewState] = useState<'initial' | 'editor'>(initialItem ? 'editor' : 'initial');
   
   // Generation State inside Editor
-  const [coverStatus, setCoverStatus] = useState<'idle' | 'generating' | 'completed'>('idle');
-  const [musicStatus, setMusicStatus] = useState<'idle' | 'generating' | 'completed'>('idle');
-  const [progress, setProgress] = useState(0);
+  const [coverStatus, setCoverStatus] = useState<'idle' | 'generating' | 'completed'>(initialItem ? 'completed' : 'idle');
+  const [musicStatus, setMusicStatus] = useState<'idle' | 'generating' | 'completed'>(initialItem ? 'completed' : 'idle');
+  const [progress, setProgress] = useState(initialItem ? 100 : 0);
 
   // Prompt states
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialItem?.prompt || '');
   const [editPrompt, setEditPrompt] = useState('');
   
   // Editor UI states
@@ -81,16 +81,16 @@ export const MusicView: React.FC<MusicViewProps> = ({
 
   // Editor Music Info
   const [musicInfo, setMusicInfo] = useState('');
-  const [musicImage, setMusicImage] = useState<string | null>(null);
+  const [musicImage, setMusicImage] = useState<string | null>(initialItem?.url || null);
 
   // Lyrics & Audio State
   const [lyrics, setLyrics] = useState<{text: string; time: number}[]>([]);
-  const [songTitle, setSongTitle] = useState('Untitled Music');
-  const [songArtist, setSongArtist] = useState('');
+  const [songTitle, setSongTitle] = useState(initialItem?.shortenedPrompt || initialItem?.prompt || 'Untitled Music');
+  const [songArtist, setSongArtist] = useState(initialItem?.modelName || 'Unknown Artist');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [audioSrc, setAudioSrc] = useState<string | null>(initialItem?.audioUrl || null);
   const [showAmbientBackground, setShowAmbientBackground] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
@@ -105,8 +105,9 @@ export const MusicView: React.FC<MusicViewProps> = ({
 
   const [isLayoutCalculated, setIsLayoutCalculated] = useState(false);
 
+  // Use effects for other initial setup if needed
   React.useEffect(() => {
-    if (initialItem) {
+    if (initialItem && viewState !== 'editor') {
       setViewState('editor');
       setCoverStatus('completed');
       setMusicStatus('completed');
@@ -265,7 +266,11 @@ export const MusicView: React.FC<MusicViewProps> = ({
     if (audioRef.current) {
       audioRef.current.pause();
     }
-    setViewState('initial');
+    if (initialItem) {
+      onBack();
+    } else {
+      setViewState('initial');
+    }
   };
 
   // Synchronize dynamic time updates via audio element directly
@@ -803,12 +808,12 @@ CRITICAL RULES:
           {/* Base full blur to prevent dark spots */}
           <div 
             className={`absolute inset-0 bg-cover bg-center transition-opacity duration-2000 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'opacity-30' : 'opacity-0'}`}
-            style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none', filter: 'blur(140px) saturate(150%)' }}
+            style={{ backgroundImage: musicImage ? `url("${musicImage}")` : 'none', filter: 'blur(140px) saturate(150%)' }}
           />
-          <div className={`ambient-liquid-layer liquid-1 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
-          <div className={`ambient-liquid-layer liquid-2 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
-          <div className={`ambient-liquid-layer liquid-3 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
-          <div className={`ambient-liquid-layer liquid-4 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url(${musicImage})` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-1 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url("${musicImage}")` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-2 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url("${musicImage}")` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-3 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url("${musicImage}")` : 'none' }} />
+          <div className={`ambient-liquid-layer liquid-4 ${musicStatus === 'completed' && musicImage && showAmbientBackground ? 'visible' : ''}`} style={{ backgroundImage: musicImage ? `url("${musicImage}")` : 'none' }} />
           <div className="ambient-overlay" />
         </div>
 

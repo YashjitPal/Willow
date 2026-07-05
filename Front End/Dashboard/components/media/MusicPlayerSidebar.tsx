@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Maximize2, X, Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
+import { Maximize2, X, Play, Pause, SkipBack, SkipForward, Volume1, Volume2 } from 'lucide-react';
 
 export interface MusicSidebarItem {
   id: string;
@@ -30,6 +30,13 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
 
   // Auto-play when item changes and is open
   useEffect(() => {
@@ -65,11 +72,16 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    setCurrentTime(time);
+    const time = Number(e.target.value);
     if (audioRef.current) {
       audioRef.current.currentTime = time;
+      setCurrentTime(time);
     }
+  };
+
+  const handleVolumeSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
   };
 
   const formatTime = (time: number) => {
@@ -96,19 +108,153 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* Background blur/tint from cover */}
+      {/* Dynamic Ambient Background */}
       {item?.url && (
-        <div className="absolute inset-0 z-0 overflow-hidden rounded-[18px]">
-          <div 
-            className="absolute inset-0 bg-cover bg-center opacity-30"
-            style={{ 
-              backgroundImage: `url(${item.url})`,
-              filter: 'blur(40px) saturate(150%)',
-              transform: 'scale(1.2)'
-            }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#171719]/80 via-[#171719]/95 to-[#171719] z-1" />
-        </div>
+        <>
+          <style dangerouslySetInnerHTML={{__html: `
+            .ambient-sidebar-container {
+              position: absolute;
+              inset: 0;
+              overflow: hidden;
+              z-index: 0;
+              pointer-events: none;
+              border-radius: 18px;
+            }
+            
+            .ambient-sidebar-layer {
+              position: absolute;
+              background-size: cover;
+              background-repeat: no-repeat;
+              filter: blur(80px) saturate(200%);
+              opacity: 0;
+              transition: opacity 1.5s ease-in-out;
+              will-change: transform, border-radius;
+              mix-blend-mode: screen;
+            }
+            
+            .ambient-sidebar-layer.visible {
+              opacity: 0.50;
+            }
+
+            .liquid-s-1 {
+              top: -20%; left: -20%; width: 120%; height: 120%;
+              background-position: top left;
+              animation: blob-morph-1 25s infinite alternate ease-in-out;
+            }
+            
+            .liquid-s-2 {
+              bottom: -30%; right: -20%; width: 130%; height: 130%;
+              background-position: bottom right;
+              animation: blob-morph-2 32s infinite alternate-reverse ease-in-out;
+            }
+            
+            .liquid-s-3 {
+              top: 0%; left: 0%; width: 140%; height: 140%;
+              background-position: center;
+              animation: blob-morph-3 38s infinite alternate ease-in-out;
+              opacity: 0;
+            }
+            .liquid-s-3.visible { opacity: 0.40; }
+
+            .liquid-s-4 {
+              top: 20%; right: 20%; width: 100%; height: 100%;
+              background-position: top right;
+              animation: blob-morph-4 28s infinite alternate-reverse ease-in-out;
+              opacity: 0;
+            }
+            .liquid-s-4.visible { opacity: 0.30; }
+
+            .ambient-sidebar-overlay {
+              position: absolute;
+              inset: 0;
+              background: linear-gradient(to bottom, rgba(23,23,25,0.7) 0%, rgba(23,23,25,0.95) 100%);
+              z-index: 1;
+            }
+
+            @keyframes blob-morph-1 {
+              0% { 
+                border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+                transform: rotate(0deg) scale(1.1) translate(-5%, -5%); 
+              }
+              34% { 
+                border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%;
+                transform: rotate(45deg) scale(1.4) translate(15%, 20%); 
+              }
+              67% { 
+                border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%;
+                transform: rotate(-20deg) scale(1.2) translate(-15%, 30%); 
+              }
+              100% { 
+                border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+                transform: rotate(10deg) scale(1.1) translate(-5%, -5%); 
+              }
+            }
+            
+            @keyframes blob-morph-2 {
+              0% { 
+                border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+                transform: rotate(0deg) scale(1) translate(0, 0); 
+              }
+              34% { 
+                border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+                transform: rotate(-30deg) scale(1.3) translate(-20%, -15%); 
+              }
+              67% { 
+                border-radius: 50% 50% 40% 60% / 40% 40% 60% 50%;
+                transform: rotate(-60deg) scale(1.1) translate(15%, -25%); 
+              }
+              100% { 
+                border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+                transform: rotate(-10deg) scale(1.2) translate(5%, 10%); 
+              }
+            }
+            
+            @keyframes blob-morph-3 {
+              0% { 
+                border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+                transform: scale(1) translate(0, 0); 
+              }
+              34% { 
+                border-radius: 80% 20% 40% 60% / 60% 40% 80% 20%;
+                transform: scale(1.4) translate(-15%, 15%); 
+              }
+              67% { 
+                border-radius: 30% 70% 60% 40% / 40% 70% 30% 60%;
+                transform: scale(1.2) translate(20%, -15%); 
+              }
+              100% { 
+                border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+                transform: scale(1.1) translate(-5%, 5%); 
+              }
+            }
+
+            @keyframes blob-morph-4 {
+              0% { 
+                border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+                transform: rotate(0deg) scale(1) translate(0, 0); 
+              }
+              50% { 
+                border-radius: 70% 30% 30% 70% / 70% 70% 30% 30%;
+                transform: rotate(180deg) scale(1.5) translate(30%, 10%); 
+              }
+              100% { 
+                border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+                transform: rotate(360deg) scale(1) translate(-10%, -20%); 
+              }
+            }
+          `}} />
+          <div className="ambient-sidebar-container">
+            <div 
+              className={`absolute inset-0 bg-cover bg-center transition-opacity duration-1500 opacity-30`}
+              style={{ backgroundImage: `url("${item.url}")`, filter: 'blur(80px) saturate(150%)' }}
+            />
+            <div className={`ambient-sidebar-layer liquid-s-1 visible`} style={{ backgroundImage: `url("${item.url}")` }} />
+            <div className={`ambient-sidebar-layer liquid-s-2 visible`} style={{ backgroundImage: `url("${item.url}")` }} />
+            <div className={`ambient-sidebar-layer liquid-s-3 visible`} style={{ backgroundImage: `url("${item.url}")` }} />
+            <div className={`ambient-sidebar-layer liquid-s-4 visible`} style={{ backgroundImage: `url("${item.url}")` }} />
+            <div className="ambient-sidebar-overlay" />
+          </div>
+        </>
       )}
 
       {/* Top Bar */}
@@ -135,7 +281,7 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
         <div className="flex-1 flex flex-col items-center px-6 pb-8 pt-4 relative z-10 overflow-y-auto custom-scrollbar">
           
           {/* Cover Art */}
-          <div className="w-full aspect-square rounded-2xl overflow-hidden shadow-2xl mb-8 relative group shrink-0">
+          <div className="w-full aspect-square rounded-[8px] overflow-hidden shadow-2xl mb-8 relative group shrink-0">
             {item.url ? (
               <img src={item.url} alt={title} className="w-full h-full object-cover" />
             ) : (
@@ -147,48 +293,92 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
           </div>
 
           {/* Track Info */}
-          <div className="w-full text-center mb-8 shrink-0">
+          <div className="w-full text-left mb-8 shrink-0">
             <h2 className="text-xl font-bold text-white mb-1 line-clamp-1">{title}</h2>
-            <p className="text-sm text-gray-400 line-clamp-1">{artist}</p>
+            <p className="text-[17px] text-white/70 line-clamp-1">{artist}</p>
           </div>
 
           {/* Scrubber */}
-          <div className="w-full mb-8 shrink-0">
+          <div className="w-full mb-10 shrink-0">
+          <div className="relative w-full h-[6px] bg-white/15 rounded-full group">
+            {/* The filled track */}
+            <div 
+              className="absolute top-0 left-0 h-full bg-white/60 rounded-full pointer-events-none"
+              style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+            />
+            {/* The invisible range input to capture clicks and drags */}
             <input 
               type="range"
               min="0"
               max={duration || 100}
               value={currentTime}
               onChange={handleSeek}
-              className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
-              style={{
-                background: `linear-gradient(to right, white ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) ${(currentTime / (duration || 1)) * 100}%)`
-              }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0 p-0"
             />
-            <div className="flex justify-between mt-2 text-[11px] font-medium text-gray-400">
+          </div>
+            <div className="flex justify-between mt-3 text-[12px] font-medium text-white/50">
               <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
+              <span>-{formatTime(Math.max(0, duration - currentTime))}</span>
             </div>
           </div>
 
           {/* Controls */}
-          <div className="flex items-center justify-center gap-6 w-full shrink-0">
-            <button className="text-gray-400 hover:text-white transition-colors" disabled>
-              <SkipBack className="w-6 h-6 fill-current" />
+          <div className="flex items-center justify-center gap-12 w-full shrink-0 mb-12">
+            <button className="text-white hover:opacity-80 transition-opacity active:opacity-50" disabled>
+              <svg width="42" height="26" viewBox="0 0 42 26" fill="currentColor">
+                <path d="M19 4.5C19 2.5 16.5 1.2 14.8 2.5L2.8 11.5C1.2 12.5 1.2 14.5 2.8 15.5L14.8 24.5C16.5 25.8 19 24.5 19 22.5V4.5Z" />
+                <path d="M40 4.5C40 2.5 37.5 1.2 35.8 2.5L23.8 11.5C22.2 12.5 22.2 14.5 23.8 15.5L35.8 24.5C37.5 25.8 40 24.5 40 22.5V4.5Z" />
+              </svg>
             </button>
             <button 
               onClick={togglePlay}
-              className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
+              className="text-white hover:opacity-80 active:opacity-50 transition-opacity flex items-center justify-center"
             >
               {isPlaying ? (
-                <Pause className="w-7 h-7 fill-current" />
+                <svg width="32" height="38" viewBox="0 0 32 38" fill="currentColor">
+                  <rect x="2" y="2" width="10" height="34" rx="4" />
+                  <rect x="20" y="2" width="10" height="34" rx="4" />
+                </svg>
               ) : (
-                <Play className="w-7 h-7 fill-current translate-x-0.5" />
+                <svg width="34" height="40" viewBox="0 0 34 40" fill="currentColor">
+                  <path d="M6 5.5C6 2.5 9.2 0.8 11.8 2.5L32.8 17.5C35.2 19.2 35.2 22.8 32.8 24.5L11.8 39.5C9.2 41.2 6 39.5 6 36.5V5.5Z" />
+                </svg>
               )}
             </button>
-            <button className="text-gray-400 hover:text-white transition-colors" disabled>
-              <SkipForward className="w-6 h-6 fill-current" />
+            <button className="text-white hover:opacity-80 transition-opacity active:opacity-50" disabled>
+              <svg width="42" height="26" viewBox="0 0 42 26" fill="currentColor">
+                <path d="M23 4.5C23 2.5 25.5 1.2 27.2 2.5L39.2 11.5C40.8 12.5 40.8 14.5 39.2 15.5L27.2 24.5C25.5 25.8 23 24.5 23 22.5V4.5Z" />
+                <path d="M2 4.5C2 2.5 4.5 1.2 6.2 2.5L18.2 11.5C19.8 12.5 19.8 14.5 18.2 15.5L6.2 24.5C4.5 25.8 2 24.5 2 22.5V4.5Z" />
+              </svg>
             </button>
+          </div>
+
+          {/* Volume Control */}
+          <div className="flex items-center w-full shrink-0">
+            <Volume1 className="w-3.5 h-3.5 text-white/50 shrink-0 mr-3" />
+            <div className="relative w-full h-[4px] bg-white/15 rounded-full group flex-1">
+              {/* The filled track */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-white/60 rounded-full pointer-events-none"
+                style={{ width: `${volume * 100}%` }}
+              />
+              {/* The thumb */}
+              <div 
+                className="absolute top-1/2 -translate-y-1/2 w-[16px] h-[16px] bg-white rounded-full shadow-md pointer-events-none"
+                style={{ left: `calc(${volume * 100}% - 8px)` }}
+              />
+              {/* The invisible range input */}
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeSeek}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0 p-0"
+              />
+            </div>
+            <Volume2 className="w-4 h-4 text-white/50 shrink-0 ml-4" />
           </div>
           
         </div>
