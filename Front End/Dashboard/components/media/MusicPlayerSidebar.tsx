@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Maximize2, X, Play, Pause, SkipBack, SkipForward, Volume1, Volume2 } from 'lucide-react';
+import { Maximize2, X, Play, Pause, SkipBack, SkipForward, Volume1, Volume2, MessageSquareQuote, List } from 'lucide-react';
 
 export interface MusicSidebarItem {
   id: string;
@@ -278,7 +278,7 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
 
       {/* Main Content Area */}
       {item && (
-        <div className="flex-1 flex flex-col items-center px-6 pb-8 pt-4 relative z-10 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 flex flex-col items-center px-6 pb-8 pt-4 relative z-10">
           
           {/* Cover Art */}
           <div className="w-full aspect-square rounded-[8px] overflow-hidden shadow-2xl mb-8 relative group shrink-0">
@@ -332,7 +332,7 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
             </button>
             <button 
               onClick={togglePlay}
-              className="text-white hover:opacity-80 active:opacity-50 transition-opacity flex items-center justify-center"
+              className="w-[34px] h-[40px] text-white hover:opacity-80 active:opacity-50 transition-opacity flex items-center justify-center"
             >
               {isPlaying ? (
                 <svg width="32" height="38" viewBox="0 0 32 38" fill="currentColor">
@@ -379,6 +379,45 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
               />
             </div>
             <Volume2 className="w-4 h-4 text-white/50 shrink-0 ml-4" />
+          </div>
+
+          {/* Bottom Actions (Lyrics & List) */}
+          <div className="flex items-center justify-between w-full shrink-0 mt-10 mb-2 px-4">
+            <button className="text-white/50 hover:text-white transition-colors active:opacity-50 flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                {/* Hollow Speech Bubble Outline */}
+                <path 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="3.2" 
+                  strokeLinejoin="round" 
+                  strokeLinecap="round" 
+                  d="M 36 10 L 12 10 C 10.343 10 9 11.343 9 13 L 9 30 C 9 31.657 10.343 33 12 33 L 17 33 C 17.56 33 18 33.45 18 34 L 18 37.564 C 18 37.735 18.201 37.827 18.331 37.716 L 22.68 33.971 C 23.41 33.341 24.34 33 25.29 33 L 36 33 C 37.657 33 39 31.658 39 30 L 39 13 C 39 11.343 37.657 10 36 10 Z" 
+                />
+                
+                {/* Left Quote Mark */}
+                <path 
+                  fill="currentColor" 
+                  d="M 17.74 27 C 17.33 27 17 26.67 17 26.27 C 17 25.86 17.33 25.54 17.74 25.54 C 19.3 25.54 20.45 24.66 21.16 23.38 C 20.66 23.66 20.1 23.83 19.49 23.83 C 17.61 23.83 16.08 22.3 16.08 20.41 C 16.08 18.53 17.46 17 19.35 17 C 20.66 17 21.73 17.93 22.36 19 C 22.6 19.41 23 20.28 23 21.54 C 23 24.63 20.83 27 17.74 27 Z" 
+                />
+                
+                {/* Right Quote Mark */}
+                <path 
+                  fill="currentColor" 
+                  d="M 26.74 27 C 26.33 27 26 26.67 26 26.27 C 26 25.86 26.33 25.54 26.74 25.54 C 28.3 25.54 29.45 24.66 30.16 23.38 C 29.66 23.66 29.1 23.83 28.49 23.83 C 26.61 23.83 25.08 22.3 25.08 20.41 C 25.08 18.53 26.46 17 28.35 17 C 29.66 17 30.73 17.93 31.36 19 C 31.6 19.41 32 20.28 32 21.54 C 32 24.63 29.83 27 26.74 27 Z" 
+                />
+              </svg>
+            </button>
+            <button className="text-white/50 hover:text-white transition-colors active:opacity-50 flex items-center justify-center">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="5" cy="7" r="1.5" />
+                <rect x="9" y="5.5" width="11" height="3" rx="1.5" />
+                <circle cx="5" cy="12" r="1.5" />
+                <rect x="9" y="10.5" width="11" height="3" rx="1.5" />
+                <circle cx="5" cy="17" r="1.5" />
+                <rect x="9" y="15.5" width="11" height="3" rx="1.5" />
+              </svg>
+            </button>
           </div>
           
         </div>
