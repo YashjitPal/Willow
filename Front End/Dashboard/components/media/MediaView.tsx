@@ -241,6 +241,7 @@ type MediaItem = {
   attachments?: ImageAttachment[];
   isSavedToFS?: boolean;
   fsName?: string;
+  lyrics?: {time: number; text: string}[];
 };
 
 // Videos are stored durably as base64 data URLs (so they survive reload), but a
@@ -3210,10 +3211,19 @@ export const MediaView: React.FC = () => {
 
   const [canvasInnerWidth, setCanvasInnerWidth] = React.useState(0);
   const [scrollbarWidth, setScrollbarWidth] = React.useState(0);
-  React.useLayoutEffect(() => {
-    const el = mainRef.current;
+  // Measure via a callback ref, not an effect: the <main> node is destroyed and
+  // recreated by the early-return views (music creation, fullscreen player,
+  // characters) without activeSidebarTab changing, so an effect keyed on the tab
+  // never re-measures the new node — leaving the gallery laid out at ~1px wide.
+  const mainResizeObserverRef = React.useRef<ResizeObserver | null>(null);
+  const attachMainRef = React.useCallback((el: HTMLElement | null) => {
+    (mainRef as React.MutableRefObject<HTMLElement | null>).current = el;
+    mainResizeObserverRef.current?.disconnect();
+    mainResizeObserverRef.current = null;
     if (!el) return;
     const update = () => {
+      // A detaching node reports 0×0 — never bake that into layout state.
+      if (!el.isConnected) return;
       setCanvasInnerWidth(el.clientWidth - 12);
       // Determine OS scrollbar width (e.g. ~17px on Windows, 0px on macOS overlay)
       setScrollbarWidth(el.offsetWidth - el.clientWidth);
@@ -3222,8 +3232,15 @@ export const MediaView: React.FC = () => {
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [activeSidebarTab, updateCustomScrollbar]);
+    mainResizeObserverRef.current = ro;
+  }, [updateCustomScrollbar]);
+
+  // The observer only sees the node's own box — refresh the thumb when content
+  // height changes underneath it (tab switch, items added/removed).
+  React.useEffect(() => {
+    const el = mainRef.current;
+    if (el && el.isConnected) updateCustomScrollbar(el);
+  }, [activeSidebarTab, displayMediaItems.length, updateCustomScrollbar]);
 
   // Viewer prompt-box height tracking. When the bottom "What do you want to
   // change?" card grows (attachments / multiline text), the flex-1 main area
@@ -5279,9 +5296,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         </aside>
 
         {/* Center Canvas */}
-        <main 
-          ref={mainRef} 
-          onScroll={handleScroll} 
+        <main
+          ref={attachMainRef}
+          onScroll={handleScroll}
           className={`flex-1 bg-transparent relative z-[60] -ml-[3px] pl-[3px] no-scrollbar ${
             renamingItemId ? 'overflow-hidden' : 'overflow-y-scroll'
           }`}

@@ -639,6 +639,7 @@ CRITICAL RULES:
         ratio: '1:1',
         timestamp: Date.now(),
         shortenedPrompt: activeTitle,
+        lyrics: activeLyrics,
       });
     }
   };

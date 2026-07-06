@@ -9,6 +9,7 @@ export interface MusicSidebarItem {
   prompt: string;
   shortenedPrompt?: string;
   modelName?: string;
+  lyrics?: {time: number; text: string}[];
 }
 
 interface MusicPlayerSidebarProps {
@@ -31,6 +32,70 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+  const [showLyrics, setShowLyrics] = useState(false);
+  const lyricsContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialScrollRef = useRef(true);
+
+  const lyrics = item?.lyrics?.length ? item.lyrics : [
+    { time: 0, text: "Wait, the music is starting..." },
+    { time: 4, text: "I can feel the rhythm in the air" },
+    { time: 8, text: "Tonight is gonna be a good night" },
+    { time: 12, text: "Let the bass drop and take control" },
+    { time: 16, text: "We're dancing 'til the morning light" },
+    { time: 20, text: "(Instrumental Break)" },
+    { time: 28, text: "Every time I close my eyes" },
+    { time: 32, text: "I see the neon lights shining bright" },
+    { time: 36, text: "This feeling is taking over me" },
+    { time: 40, text: "I'm floating in the music's flight" }
+  ];
+
+  const activeLyricIndex = React.useMemo(() => {
+    if (lyrics.length === 0) return -1;
+    if (currentTime === 0 || currentTime < lyrics[0].time) return -1;
+    return lyrics.findIndex((line, i) => {
+      return currentTime >= line.time && (i === lyrics.length - 1 || currentTime < lyrics[i + 1].time);
+    });
+  }, [currentTime, lyrics]);
+
+  useEffect(() => {
+    if (!showLyrics) {
+      isInitialScrollRef.current = true;
+    }
+  }, [showLyrics]);
+
+  useEffect(() => {
+    if (lyricsContainerRef.current && showLyrics) {
+      const container = lyricsContainerRef.current;
+      const isInitial = isInitialScrollRef.current;
+      
+      const performScroll = () => {
+        const activeLyric = container.querySelector('[data-active="true"]') as HTMLElement | null;
+        const targetLyric = activeLyric || container.firstElementChild;
+        if (targetLyric) {
+          targetLyric.scrollIntoView({
+            behavior: isInitial ? 'auto' : 'smooth',
+            block: 'center'
+          });
+          
+          if (isInitial) {
+            isInitialScrollRef.current = false;
+          }
+        }
+      };
+
+      if (isInitial) {
+        // Double requestAnimationFrame + setTimeout ensures the browser has fully painted 
+        // the new layout and dimensions before we attempt to snap to the center.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(performScroll, 50);
+          });
+        });
+      } else {
+        performScroll();
+      }
+    }
+  }, [activeLyricIndex, showLyrics]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -278,58 +343,123 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
 
       {/* Main Content Area */}
       {item && (
-        <div className="flex-1 flex flex-col items-center px-6 pb-8 pt-4 relative z-10">
+        <div className="flex-1 w-full relative z-10">
           
-          {/* Cover Art */}
-          <div className="w-full aspect-square rounded-[8px] overflow-hidden shadow-2xl mb-8 relative group shrink-0">
-            {item.url ? (
-              <img src={item.url} alt={title} className="w-full h-full object-cover" />
+          {/* Top Section Wrapper - Absolutely positioned above the controls */}
+          <div className={`absolute left-0 right-0 bottom-[280px] px-6 flex flex-col items-center ${showLyrics ? 'top-[-8px] pt-0' : 'top-0 pt-4'}`}>
+            {!showLyrics ? (
+              <div className="w-full flex flex-col items-center animate-in fade-in zoom-in-95 duration-500">
+                {/* Cover Art */}
+                <div className="w-full aspect-square rounded-[8px] overflow-hidden shadow-2xl mb-8 relative group shrink-0">
+                  {item.url ? (
+                    <img src={item.url} alt={title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                      <Volume2 className="w-16 h-16 text-white/20" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-2xl pointer-events-none" />
+                </div>
+
+                {/* Track Info */}
+                <div className="w-full text-left shrink-0">
+                  <h2 className="text-xl font-bold text-white mb-1 line-clamp-1">{title}</h2>
+                  <p className="text-[17px] text-white/70 line-clamp-1">{artist}</p>
+                </div>
+              </div>
             ) : (
-              <div className="w-full h-full bg-white/5 flex items-center justify-center">
-                <Volume2 className="w-16 h-16 text-white/20" />
+              <div className="w-full h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Mini Header for Lyrics Mode */}
+                <div className="w-full flex items-center gap-4 mb-4 shrink-0 animate-in fade-in duration-500">
+                  <div className="w-12 h-12 rounded-md overflow-hidden shadow-lg shrink-0 relative">
+                    {item.url ? (
+                      <img src={item.url} alt={title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                        <Volume2 className="w-6 h-6 text-white/20" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-md pointer-events-none" />
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-center text-left">
+                    <h2 className="text-[15px] font-bold text-white leading-tight truncate">{title}</h2>
+                    <p className="text-[13px] text-white/70 leading-tight truncate">{artist}</p>
+                  </div>
+                </div>
+
+                {/* Scrollable Lyrics Container */}
+                <div 
+                  ref={lyricsContainerRef}
+                  className="relative flex-1 w-full overflow-y-auto min-h-0 no-scrollbar flex flex-col items-start gap-5 pb-[40vh] pt-4 animate-in fade-in duration-500"
+                  style={{ 
+                     maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 65%, transparent 95%)',
+                     WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 65%, transparent 95%)'
+                  }}
+                >
+                  {lyrics.map((line, i) => {
+                    const isPast = activeLyricIndex > i;
+                    const isCurrent = activeLyricIndex === i;
+                    
+                    return (
+                      <div 
+                        key={i}
+                        data-active={isCurrent}
+                        onClick={() => {
+                          if (audioRef.current) {
+                            audioRef.current.currentTime = line.time;
+                            if (!isPlaying) togglePlay();
+                          }
+                        }}
+                        className={`text-left cursor-pointer transition-all duration-500 ease-out w-full origin-left font-bold tracking-tight text-[26px] ${
+                          isCurrent ? 'text-white opacity-100 scale-100 blur-none' : 
+                          isPast ? 'text-white opacity-40 scale-[0.85] blur-[0.5px]' : 
+                          'text-white opacity-60 scale-[0.85] blur-[0.5px]'
+                        }`}
+                      >
+                        {line.text}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
-            <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-2xl pointer-events-none" />
           </div>
 
-          {/* Track Info */}
-          <div className="w-full text-left mb-8 shrink-0">
-            <h2 className="text-xl font-bold text-white mb-1 line-clamp-1">{title}</h2>
-            <p className="text-[17px] text-white/70 line-clamp-1">{artist}</p>
-          </div>
-
-          {/* Scrubber */}
-          <div className="w-full mb-10 shrink-0">
-          <div className="relative w-full h-[6px] bg-white/15 rounded-full group">
-            {/* The filled track */}
-            <div 
-              className="absolute top-0 left-0 h-full bg-white/60 rounded-full pointer-events-none"
-              style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-            />
-            {/* The invisible range input to capture clicks and drags */}
-            <input 
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={currentTime}
-              onChange={handleSeek}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0 p-0"
-            />
-          </div>
-            <div className="flex justify-between mt-3 text-[12px] font-medium text-white/50">
-              <span>{formatTime(currentTime)}</span>
-              <span>-{formatTime(Math.max(0, duration - currentTime))}</span>
+          {/* Controls Wrapper - Absolutely positioned at the bottom so it never shifts */}
+          <div className="absolute bottom-8 left-6 right-6 flex flex-col justify-end">
+            
+            {/* Scrubber */}
+            <div className="w-full mb-10 shrink-0">
+            <div className="relative w-full h-[6px] bg-white/15 rounded-full group">
+              {/* The filled track */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-white/60 rounded-full pointer-events-none"
+                style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+              />
+              {/* The invisible range input to capture clicks and drags */}
+              <input 
+                type="range"
+                min="0"
+                max={duration || 100}
+                value={currentTime}
+                onChange={handleSeek}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0 p-0"
+              />
             </div>
-          </div>
+              <div className="flex justify-between mt-3 text-[12px] font-medium text-white/50">
+                <span>{formatTime(currentTime)}</span>
+                <span>-{formatTime(Math.max(0, duration - currentTime))}</span>
+              </div>
+            </div>
 
-          {/* Controls */}
-          <div className="flex items-center justify-center gap-12 w-full shrink-0 mb-12">
-            <button className="text-white hover:opacity-80 transition-opacity active:opacity-50" disabled>
-              <svg width="42" height="26" viewBox="0 0 42 26" fill="currentColor">
-                <path d="M19 4.5C19 2.5 16.5 1.2 14.8 2.5L2.8 11.5C1.2 12.5 1.2 14.5 2.8 15.5L14.8 24.5C16.5 25.8 19 24.5 19 22.5V4.5Z" />
-                <path d="M40 4.5C40 2.5 37.5 1.2 35.8 2.5L23.8 11.5C22.2 12.5 22.2 14.5 23.8 15.5L35.8 24.5C37.5 25.8 40 24.5 40 22.5V4.5Z" />
-              </svg>
-            </button>
+            {/* Controls */}
+            <div className="flex items-center justify-center gap-12 w-full shrink-0 mb-12">
+              <button className="text-white hover:opacity-80 transition-opacity active:opacity-50" disabled>
+                <svg width="42" height="26" viewBox="0 0 42 26" fill="currentColor">
+                  <path d="M19 4.5C19 2.5 16.5 1.2 14.8 2.5L2.8 11.5C1.2 12.5 1.2 14.5 2.8 15.5L14.8 24.5C16.5 25.8 19 24.5 19 22.5V4.5Z" />
+                  <path d="M40 4.5C40 2.5 37.5 1.2 35.8 2.5L23.8 11.5C22.2 12.5 22.2 14.5 23.8 15.5L35.8 24.5C37.5 25.8 40 24.5 40 22.5V4.5Z" />
+                </svg>
+              </button>
             <button 
               onClick={togglePlay}
               className="w-[34px] h-[40px] text-white hover:opacity-80 active:opacity-50 transition-opacity flex items-center justify-center"
@@ -383,7 +513,10 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
 
           {/* Bottom Actions (Lyrics & List) */}
           <div className="flex items-center justify-between w-full shrink-0 mt-10 mb-2 px-4">
-            <button className="text-white/50 hover:text-white transition-colors active:opacity-50 flex items-center justify-center">
+            <button 
+              onClick={() => setShowLyrics(!showLyrics)}
+              className={`transition-colors active:opacity-50 flex items-center justify-center ${showLyrics ? 'text-white' : 'text-white/50 hover:text-white'}`}
+            >
               <svg width="24" height="24" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
                 {/* Hollow Speech Bubble Outline */}
                 <path 
@@ -419,9 +552,9 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
               </svg>
             </button>
           </div>
-          
         </div>
-      )}
+      </div>
+    )}
 
       {/* Hidden Audio Element */}
       {item?.audioUrl && (
