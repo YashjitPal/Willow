@@ -583,6 +583,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     
     setProviderState(newState);
     
+    // Sync to localStorage so useUserData (and the rest of the app) picks up the keys
+    localStorage.setItem('providerState', JSON.stringify(newState));
+    // Also write the flattened apiKeys format that useUserData reads directly
+    const flatKeys = {
+      gemini: newState.gemini.apiKey ? [newState.gemini.apiKey] : [],
+      openai: newState.openai.apiKey ? [newState.openai.apiKey] : [],
+      anthropic: newState.anthropic.apiKey ? [newState.anthropic.apiKey] : [],
+    };
+    localStorage.setItem('apiKeys', JSON.stringify(flatKeys));
+    // Dispatch a storage event so useUserData re-reads if listening
+    window.dispatchEvent(new Event('apikeys-updated'));
+    
     // Save to Firestore immediately
     await saveProviderStateToFirestore(newState);
   };

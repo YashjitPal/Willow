@@ -87,6 +87,12 @@ export const useUserData = () => {
       if (localApiKeys) return JSON.parse(localApiKeys);
     } catch {}
     
+    // Fallback to .env.local GEMINI_API_KEY (injected by Vite at build time)
+    const envKey = (process.env as any).GEMINI_API_KEY;
+    if (envKey) {
+      return { gemini: [envKey], openai: [], anthropic: [] };
+    }
+    
     return DEFAULT_API_KEYS;
   };
   
@@ -98,6 +104,16 @@ export const useUserData = () => {
   // Ref to avoid stale closure in callbacks while keeping deps stable
   const apiKeysRef = useRef(apiKeys);
   apiKeysRef.current = apiKeys;
+
+  // Listen for API key updates from SettingsModal (which saves to localStorage independently)
+  useEffect(() => {
+    const handleApiKeysUpdated = () => {
+      const updated = getInitialApiKeys();
+      setApiKeysState(updated);
+    };
+    window.addEventListener('apikeys-updated', handleApiKeysUpdated);
+    return () => window.removeEventListener('apikeys-updated', handleApiKeysUpdated);
+  }, []);
 
   // Load user data from Firestore
   useEffect(() => {
