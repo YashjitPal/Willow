@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocalFS } from '../context/LocalFSContext';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebaseConfig';
+import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab } from './settings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -97,18 +98,6 @@ const SettingsDropdownMenu: React.FC<{
       ))}
     </div>
   );
-};
-
-// Custom Bulb Icon that handles the "no base" requirement for active state
-// Custom Bulb Icon that handles the "no base" requirement for active state
-// Custom Bulb Icon: Uses standard Lightbulb but fills it when active (Reasoning On)
-const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean, className?: string, strokeWidth?: number }) => {
-    return (
-        <Lightbulb 
-            className={`${className} ${isActive ? "fill-current" : ""}`} 
-            strokeWidth={2} 
-        />
-    );
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, modelConfig, setModelConfig, initialTab, initialConnector }) => {
@@ -302,18 +291,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const [anthropicDirection, setAnthropicDirection] = useState<'down' | 'up'>('down');
 
   const determineDirection = (ref: React.RefObject<HTMLDivElement>) => {
-    if (!ref.current) return 'down';
+    if (!ref.current) return 'down' as const;
     const rect = ref.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
-    
-    // We assume a safe dropdown height of about 220px.
-    // If space below is less than 220px, and we have more space above than below, we open upwards.
     const dropdownHeight = 220; 
     if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
-      return 'up';
+      return 'up' as const;
     }
-    return 'down';
+    return 'down' as const;
   };
   
   // Helper functions to close dropdowns with animation
@@ -343,7 +329,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Check if clicked outside any dropdown
       if (!target.closest('[data-dropdown="gemini"]')) {
         if (geminiDropdownOpen && !geminiDropdownClosing) closeGeminiDropdown();
       }
@@ -375,7 +360,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const handleExitManageKeys = () => {
     setWasManagingKeys(true);
     setManagingProvider(null);
-    // Reset after animation completes
     setTimeout(() => setWasManagingKeys(false), 200);
   };
   
@@ -393,11 +377,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       const timer = setTimeout(() => {
         setShouldRender(false);
         setIsClosing(false);
-      }, 150); // Match CSS duration
+      }, 150);
       return () => clearTimeout(timer);
     }
     
-    // Reset managingProvider when modal closes
     if (!isOpen) {
       setManagingProvider(null);
     }
@@ -451,7 +434,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
           if (data.fields?.providerState?.mapValue?.fields) {
             const ps = data.fields.providerState.mapValue.fields;
             
-            // Fallback for old schema to ensure user doesn't lose their keys during transition
             const extractOldKey = (arr: any) => {
               if (!arr?.arrayValue?.values || arr.arrayValue.values.length === 0) return '';
               const activeKey = arr.arrayValue.values.find((v: any) => v.mapValue.fields.isActive?.booleanValue);
@@ -466,7 +448,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                   baseUrl: field.mapValue.fields.baseUrl?.stringValue || defaultBaseUrl
                 };
               }
-              // Fallback to extracting from the old geminiKeys format
               return { apiKey: extractOldKey(oldKeysField), baseUrl: defaultBaseUrl };
             };
             
@@ -528,7 +509,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   }, [providerState, user, hasLoadedInitially, isLoadingKeys]);
 
   const [tempKeyInput, setTempKeyInput] = React.useState('');
-  // Mock fetching state per provider if needed, or global
   const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
 
   // Direct save using Firestore REST API (bypasses SDK streaming issues)
@@ -536,7 +516,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     if (!user) return;
     
     try {
-      // Get the user's ID token for authentication
       const idToken = await user.getIdToken();
       
       const projectId = 'willow-64095';
@@ -583,7 +562,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     
     setProviderState(newState);
     
-    // Save to Firestore immediately
+    localStorage.setItem('providerState', JSON.stringify(newState));
+    const flatKeys = {
+      gemini: newState.gemini.apiKey ? [newState.gemini.apiKey] : [],
+      openai: newState.openai.apiKey ? [newState.openai.apiKey] : [],
+      anthropic: newState.anthropic.apiKey ? [newState.anthropic.apiKey] : [],
+    };
+    localStorage.setItem('apiKeys', JSON.stringify(flatKeys));
+    window.dispatchEvent(new Event('apikeys-updated'));
+    
     await saveProviderStateToFirestore(newState);
   };
 
@@ -597,12 +584,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     console.log('[Delete] Starting account deletion for:', user.email, 'UID:', user.uid);
     
     try {
-      // Delete the user from Firebase Auth directly
       console.log('[Delete] Calling user.delete()...');
       await user.delete();
       console.log('[Delete] SUCCESS - User account deleted!');
       
-      // Show success and redirect
       setIsDeleting(false);
       onClose();
       window.location.href = '/login';
@@ -618,14 +603,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     { 
         id: 'gemini-3-pro-preview', 
         name: 'Gemini 3 Pro', 
-        maxLevels: 2, // 1: low, 2: high
+        maxLevels: 2,
         hasNone: false,
         levelLabels: { 1: 'low', 2: 'high' }
     },
     { 
         id: 'gemini-3-flash-preview', 
         name: 'Gemini 3 Flash', 
-        maxLevels: 3, // 1: low, 2: medium, 3: high (None = minimal/no thinking)
+        maxLevels: 3,
         hasNone: true,
         noneLabel: 'None',
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
@@ -648,7 +633,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     { 
         id: 'gemini-3.1-pro-preview', 
         name: 'Gemini 3.1 Pro', 
-        maxLevels: 3, // 1: low, 2: medium, 3: high
+        maxLevels: 3,
         hasNone: false,
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
@@ -713,7 +698,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       
       <div className={`relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
         
-        {/* Close Button - absolute top right */}
+        {/* Close Button */}
         <button 
             onClick={onClose}
             className="absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
@@ -758,2243 +743,136 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         {/* Content */}
         <div className="flex-1 bg-[#1c1c1c] w-full overflow-hidden relative">
             {activeTab === 'workspace' && (
-                <div className="w-full h-full relative">
-                    <div className="px-12 py-10 overflow-y-auto h-full pb-24">
-                    <div className="flex items-center justify-between mb-2">
-                        <h1 className="text-[24px] font-bold text-white">Workspace settings</h1>
-                    </div>
-                    <div className="pb-6 border-b border-white/5 mb-6">
-                        <p className="text-[14px] text-zinc-400">
-                            Workspaces allow you to collaborate on projects in real time.
-                        </p>
-                    </div>
-
-                    {/* Workspace Avatar with Color Picker */}
-                    <div className="flex items-start gap-8 py-6 border-b border-white/5">
-                        <div className="w-[50%] shrink-0">
-                            <h3 className="text-[14px] font-bold text-white mb-1">Workspace avatar</h3>
-                            <p className="text-[14px] text-zinc-400">Set an avatar color for your workspace.</p>
-                        </div>
-                        <div className="flex-1 flex justify-end md:justify-start">
-                            <div className="relative" ref={colorPickerRef}>
-                                <button
-                                    onClick={() => {
-                                        if (showWorkspaceColorPicker) {
-                                            closeColorPicker();
-                                        } else {
-                                            setShowWorkspaceColorPicker(true);
-                                        }
-                                    }}
-                                    className={`w-10 h-10 rounded-lg flex items-center justify-center text-[16px] font-bold text-white shadow-inner cursor-pointer hover:opacity-90 transition-all ${getWorkspaceColorClass()}`}
-                                >
-                                    {workspaceInitial}
-                                </button>
-                                
-                                {/* Color Picker Slide-out */}
-                                {showWorkspaceColorPicker && (
-                                    <div className={`absolute left-12 top-0 bg-[#1a1a1a] border border-white/10 rounded-xl p-2 flex gap-2 shadow-xl z-50 ${colorPickerClosing ? 'animate-slide-out-left' : 'animate-slide-in-right'}`}>
-                                        {[
-                                            { id: 'green', color: 'bg-[#4a7c59]', label: 'Willow Green' },
-                                            { id: 'pink', color: 'bg-[#ec4899]', label: 'Pink' },
-                                            { id: 'yellow', color: 'bg-[#eab308]', label: 'Yellow' },
-                                            { id: 'orange', color: 'bg-[#f97316]', label: 'Orange' },
-                                        ].map((option) => (
-                                            <button
-                                                key={option.id}
-                                                onClick={() => {
-                                                    setLocalWorkspaceColor(option.id as "green" | "pink" | "yellow" | "orange");
-                                                    setWorkspaceSettingsChanged(true);
-                                                    closeColorPicker();
-                                                }}
-                                                className={`w-10 h-10 rounded-lg ${option.color} flex items-center justify-center transition-all hover:scale-110 ${localWorkspaceColor === option.id ? 'ring-2 ring-white ring-offset-2 ring-offset-[#1a1a1a]' : ''}`}
-                                                title={option.label}
-                                            >
-                                                {localWorkspaceColor === option.id && <Check size={16} className="text-white" />}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Workspace Name */}
-                    <div className="py-6 border-b border-white/5">
-                        <div className="flex items-start gap-8">
-                            <div className="w-[50%] shrink-0">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Workspace name</h3>
-                                <p className="text-[14px] text-zinc-400">Your full workspace name, as visible to others.</p>
-                            </div>
-                            <div className="flex-1">
-                                <input 
-                                    type="text" 
-                                    value={localWorkspaceName}
-                                    onChange={(e) => {
-                                        setLocalWorkspaceName(e.target.value);
-                                        setWorkspaceSettingsChanged(true);
-                                    }}
-                                    className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors"
-                                />
-                                <div className="text-right mt-1.5 text-[12px] text-zinc-500 font-mono">
-                                    {localWorkspaceName.length} / 100 characters
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Workspace Description */}
-                    <div className="py-6 border-b border-white/5">
-                        <div className="flex items-start gap-8">
-                             <div className="w-[50%] shrink-0">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Workspace description</h3>
-                                <p className="text-[14px] text-zinc-400">A short description about your workspace or team.</p>
-                            </div>
-                            <div className="flex-1">
-                                <textarea 
-                                    placeholder="Description"
-                                    value={localWorkspaceDescription}
-                                    onChange={(e) => {
-                                        setLocalWorkspaceDescription(e.target.value);
-                                        setWorkspaceSettingsChanged(true);
-                                    }}
-                                    maxLength={500}
-                                    className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors resize-y min-h-[100px]"
-                                />
-                                <div className="text-right mt-1.5 text-[12px] text-zinc-500 font-mono">
-                                    {localWorkspaceDescription.length} / 500 characters
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-
-                    {/* Leave Workspace */}
-                    <div className="py-6">
-                        <div className="flex items-start gap-8">
-                            <div className="w-[50%] shrink-0">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Leave workspace</h3>
-                                <p className="text-[14px] text-zinc-400 leading-relaxed">
-                                    You cannot leave your last workspace. Your account must be a member of at least one workspace.
-                                </p>
-                            </div>
-                            <div className="flex-1 flex justify-end">
-                                <button className="px-4 py-2 bg-[#2d1515] text-[#ff4d4d] text-[13px] font-medium rounded-lg hover:bg-[#3d1a1a] transition-colors border border-[#ff4d4d]/10">
-                                    Leave workspace
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    </div>
-                    
-                    {/* Floating Footer */}
-                    <div className="absolute bottom-0 w-full bg-[#1c1c1c] border-t border-white/10 px-8 py-4 flex items-center justify-end gap-3 z-10 shadow-2xl">
-                         <button 
-                            onClick={handleWorkspaceCancel}
-                            className="px-4 py-2 text-[13px] font-bold text-white hover:bg-white/5 rounded-lg transition-colors"
-                         >
-                            Cancel
-                        </button>
-                        <button 
-                            onClick={handleWorkspaceUpdate}
-                            disabled={!workspaceSettingsChanged}
-                            className="px-5 py-2 bg-white text-black text-[13px] font-bold rounded-lg hover:bg-zinc-100 transition-colors shadow-lg shadow-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            Update
-                        </button>
-                    </div>
-                </div>
+                <WorkspaceTab
+                  localWorkspaceName={localWorkspaceName}
+                  setLocalWorkspaceName={setLocalWorkspaceName}
+                  localWorkspaceDescription={localWorkspaceDescription}
+                  setLocalWorkspaceDescription={setLocalWorkspaceDescription}
+                  localWorkspaceColor={localWorkspaceColor}
+                  setLocalWorkspaceColor={setLocalWorkspaceColor}
+                  workspaceSettingsChanged={workspaceSettingsChanged}
+                  setWorkspaceSettingsChanged={setWorkspaceSettingsChanged}
+                  showWorkspaceColorPicker={showWorkspaceColorPicker}
+                  setShowWorkspaceColorPicker={setShowWorkspaceColorPicker}
+                  colorPickerClosing={colorPickerClosing}
+                  closeColorPicker={closeColorPicker}
+                  colorPickerRef={colorPickerRef}
+                  getWorkspaceColorClass={getWorkspaceColorClass}
+                  workspaceInitial={workspaceInitial}
+                  handleWorkspaceUpdate={handleWorkspaceUpdate}
+                  handleWorkspaceCancel={handleWorkspaceCancel}
+                />
             )}
 
             {activeTab === 'models' && (
-                <div className="w-full h-full px-12 py-10 overflow-y-auto relative">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-4">
-                            {managingProvider && (
-                                <button 
-                                    onClick={handleExitManageKeys}
-                                    className="p-1.5 -ml-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
-                                >
-                                    <ChevronDown className="rotate-90" size={20} />
-                                </button>
-                            )}
-                            <h1 className="text-[24px] font-bold text-white">
-                                {managingProvider ? `Manage ${managingProvider.charAt(0).toUpperCase() + managingProvider.slice(1)}` : 'Models & API'}
-                            </h1>
-                        </div>
-                    </div>
-                    
-                    {!managingProvider && (
-                        <div className="pb-6 border-b border-white/5 mb-8">
-                            <p className="text-[14px] text-zinc-400">
-                                Connect your AI providers and configure model settings.
-                            </p>
-                        </div>
-                    )}
-
-                    {/* Manage Keys View */}
-                    {managingProvider ? (
-                        <div className="animate-[fadeIn_150ms_ease-out] flex flex-col space-y-6 mt-8">
-                            <div className="bg-[#1c1c1c] border border-white/5 rounded-xl p-6">
-                                <h3 className="text-[14px] font-bold text-white mb-4">API Configuration</h3>
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[12px] font-semibold text-zinc-400">API Key</label>
-                                        <input 
-                                            type="password" 
-                                            placeholder={`Enter ${managingProvider.charAt(0).toUpperCase() + managingProvider.slice(1)} API Key...`}
-                                            className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors shadow-inner"
-                                            value={providerState[managingProvider].apiKey}
-                                            onChange={(e) => handleUpdateConfig(managingProvider, { ...providerState[managingProvider], apiKey: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[12px] font-semibold text-zinc-400">Base URL (Optional)</label>
-                                        <input 
-                                            type="text" 
-                                            placeholder="e.g., https://api.openai.com/v1"
-                                            className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors shadow-inner"
-                                            value={providerState[managingProvider].baseUrl}
-                                            onChange={(e) => handleUpdateConfig(managingProvider, { ...providerState[managingProvider], baseUrl: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                                <p className="text-[12px] text-zinc-500 mt-4">
-                                    Keys are stored locally in your browser session for security and synced securely via Firestore.
-                                </p>
-                            </div>
-
-                            {/* Active Provider Config */}
-                            <div className="pt-8">
-                                <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
-                                    <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                                        <defs>
-                                            <pattern id="wave-pattern" width="32" height="12" patternUnits="userSpaceOnUse">
-                                                <path 
-                                                    d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
-                                                    fill="none" 
-                                                    stroke="currentColor" 
-                                                    strokeWidth="1.5" 
-                                                    strokeLinecap="round" 
-                                                />
-                                            </pattern>
-                                        </defs>
-                                        <rect width="100%" height="100%" fill="url(#wave-pattern)" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                    {managingProvider === 'gemini' && "Gemini Settings"}
-                                    {managingProvider === 'openai' && "OpenAI Settings"}
-                                    {managingProvider === 'anthropic' && "Anthropic Settings"}
-                                </h2>
-
-                                <div className="bg-[#141414] border border-white/5 rounded-xl shadow-2xl shadow-black/50">
-                                    {/* Unified Panel Content */}
-                                    {managingProvider === 'gemini' && (
-                                        <div className="p-6 space-y-6">
-                                            {/* Model Selection */}
-                                            <div className="space-y-3">
-                                                <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" ref={geminiRef} data-dropdown="gemini">
-                                                     {/* Custom Dropdown Trigger */}
-                                                     <button
-                                                         onClick={() => {
-                                                             if (geminiDropdownOpen) {
-                                                                 closeGeminiDropdown();
-                                                             } else {
-                                                                 setGeminiDirection(determineDirection(geminiRef));
-                                                                 setGeminiDropdownOpen(true);
-                                                             }
-                                                         }}
-                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                     >
-                                                         <span>{GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.name || 'Select model'}</span>
-                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
-                                                     </button>
-                                                     
-                                                     {/* Custom Dropdown Menu */}
-                                                     {geminiDropdownOpen && (
-                                                         <div className={`absolute ${geminiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${geminiDropdownClosing ? (geminiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (geminiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                                                                {/* Corner Border Glow Effects */}
-                                                                <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                                                                {GEMINI_MODELS.map((model, index) => (
-                                                                    <button
-                                                                        key={model.id}
-                                                                        onClick={() => {
-                                                                            setModelConfig(prev => ({ ...prev, gemini: { ...prev.gemini, model: model.id } }));
-                                                                            closeGeminiDropdown();
-                                                                        }}
-                                                                        className={`
-                                                                            relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                                                            ${modelConfig.gemini.model === model.id 
-                                                                                ? 'bg-white/10 text-white' 
-                                                                                : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                                                            }
-                                                                            ${index === 0 ? 'rounded-t-lg' : ''}
-                                                                            ${index === GEMINI_MODELS.length - 1 ? 'rounded-b-lg' : ''}
-                                                                        `}
-                                                                    >
-                                                                        <span className="font-medium">{model.name}</span>
-                                                                        {modelConfig.gemini.model === model.id && (
-                                                                            <Check size={16} className="text-white" />
-                                                                        )}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Thinking Level */}
-                                            <div className="space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                                                    <span className="text-[11px] font-medium text-zinc-400">
-                                                        {modelConfig.gemini.thinkingLevel === 0 
-                                                            ? 'Off' 
-                                                            : GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.levelLabels?.[modelConfig.gemini.thinkingLevel as 1|2|3] || `Level ${modelConfig.gemini.thinkingLevel}`}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                                                    {/* None Option */}
-                                                    {GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.hasNone && (
-                                                        <button
-                                                            onClick={() => setModelConfig(prev => ({ ...prev, gemini: { ...prev.gemini, thinkingLevel: 0 } }))}
-                                                            className={`
-                                                                flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all
-                                                                ${modelConfig.gemini.thinkingLevel === 0 
-                                                                    ? 'bg-white/10 text-white' 
-                                                                    : 'text-zinc-500 hover:text-zinc-300'
-                                                                }
-                                                            `}
-                                                        >
-                                                            None
-                                                        </button>
-                                                    )}
-                                                    {Array.from({ length: GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.maxLevels || 0 }).map((_, i) => {
-                                                        const level = i + 1;
-                                                        const isActive = modelConfig.gemini.thinkingLevel === level;
-                                                        const levelLabel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.levelLabels?.[level as 1|2|3];
-                                                        return (
-                                                            <button
-                                                                key={level}
-                                                                onClick={() => setModelConfig(prev => ({ ...prev, gemini: { ...prev.gemini, thinkingLevel: level } }))}
-                                                                className={`
-                                                                    flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all
-                                                                    ${isActive 
-                                                                        ? 'bg-white/10 text-white' 
-                                                                        : 'text-zinc-500 hover:text-zinc-300'
-                                                                    }
-                                                                `}
-                                                            >
-                                                                {levelLabel || `${level}`}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-
-                                            {/* Add Button */}
-                                            <button 
-                                                onClick={() => {
-                                                    const selectedModel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model);
-                                                    if (selectedModel) {
-                                                        const isDuplicate = modelConfig.gemini.savedModels.some(
-                                                            m => m.modelId === selectedModel.id && m.thinkingLevel === modelConfig.gemini.thinkingLevel
-                                                        );
-                                                        if (isDuplicate) return;
-                                                        
-                                                        setModelConfig(prev => ({
-                                                            ...prev,
-                                                            gemini: {
-                                                                ...prev.gemini,
-                                                                savedModels: [
-                                                                    ...prev.gemini.savedModels,
-                                                                    {
-                                                                        id: Math.random().toString(36).substr(2, 9),
-                                                                        modelId: selectedModel.id,
-                                                                        name: selectedModel.name,
-                                                                        thinkingLevel: prev.gemini.thinkingLevel
-                                                                    }
-                                                                ]
-                                                            }
-                                                        }));
-                                                    }
-                                                }}
-                                                disabled={(() => {
-                                                    const selectedModel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model);
-                                                    if (!selectedModel) return true;
-                                                    return modelConfig.gemini.savedModels.some(
-                                                        m => m.modelId === selectedModel.id && m.thinkingLevel === modelConfig.gemini.thinkingLevel
-                                                    );
-                                                })()}
-                                                className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
-                                            >
-                                                Add to Models
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {managingProvider === 'openai' && (
-                                        <div className="p-6 space-y-6">
-                                            {/* Model Selection */}
-                                            <div className="space-y-3">
-                                                <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" ref={openaiRef} data-dropdown="openai">
-                                                     {/* Custom Dropdown Trigger */}
-                                                     <button
-                                                         onClick={() => {
-                                                             if (openaiDropdownOpen) {
-                                                                 closeOpenaiDropdown();
-                                                             } else {
-                                                                 setOpenaiDirection(determineDirection(openaiRef));
-                                                                 setOpenaiDropdownOpen(true);
-                                                             }
-                                                         }}
-                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                     >
-                                                         <span>{
-                                                             {
-                                                                 'gpt-5.2-thinking': 'GPT 5.2 Thinking',
-                                                                 'gpt-5.2-pro': 'GPT 5.2 Pro',
-                                                                 'gpt-5.1-codex-high-max': 'GPT 5.1 Codex High Max',
-                                                                 'gpt-5.2-codex': 'GPT 5.2 CODEX'
-                                                             }[modelConfig.openai.model] || 'Select model'
-                                                         }</span>
-                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
-                                                     </button>
-                                                     
-                                                     {/* Custom Dropdown Menu */}
-                                                     {openaiDropdownOpen && (
-                                                         <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                                                                {/* Corner Border Glow Effects */}
-                                                                <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                                                                {[
-                                                                    { id: 'gpt-5.2-thinking', name: 'GPT 5.2 Thinking' },
-                                                                    { id: 'gpt-5.2-pro', name: 'GPT 5.2 Pro' },
-                                                                    { id: 'gpt-5.1-codex-high-max', name: 'GPT 5.1 Codex High Max' },
-                                                                    { id: 'gpt-5.2-codex', name: 'GPT 5.2 CODEX' }
-                                                                ].map((model, index, arr) => (
-                                                                    <button
-                                                                        key={model.id}
-                                                                        onClick={() => {
-                                                                            setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, model: model.id } }));
-                                                                            closeOpenaiDropdown();
-                                                                        }}
-                                                                        className={`
-                                                                            relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                                                            ${modelConfig.openai.model === model.id 
-                                                                                ? 'bg-white/10 text-white' 
-                                                                                : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                                                            }
-                                                                            ${index === 0 ? 'rounded-t-lg' : ''}
-                                                                            ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
-                                                                        `}
-                                                                    >
-                                                                        <span className="font-medium">{model.name}</span>
-                                                                        {modelConfig.openai.model === model.id && (
-                                                                            <Check size={16} className="text-white" />
-                                                                        )}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Thinking Level */}
-                                            <div className="space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                                                    <span className="text-[11px] font-medium text-zinc-400">
-                                                        {modelConfig.openai.thinkingLevel === 0 ? 'Off' : ['Low', 'Medium', 'High'][modelConfig.openai.thinkingLevel - 1]}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                                                    <button
-                                                        onClick={() => setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, thinkingLevel: 0 } }))}
-                                                        className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.openai.thinkingLevel === 0 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                    >
-                                                        None
-                                                    </button>
-                                                    {['Low', 'Medium', 'High'].map((label, i) => (
-                                                        <button
-                                                            key={i + 1}
-                                                            onClick={() => setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, thinkingLevel: i + 1 } }))}
-                                                            className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.openai.thinkingLevel === i + 1 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                        >
-                                                            {label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Add Button */}
-                                            <button 
-                                                onClick={() => {
-                                                    const modelName = modelConfig.openai.model.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                                                    setModelConfig(prev => ({
-                                                        ...prev,
-                                                        openai: {
-                                                            ...prev.openai,
-                                                            savedModels: [
-                                                                ...prev.openai.savedModels,
-                                                                {
-                                                                    id: Math.random().toString(36).substr(2, 9),
-                                                                    modelId: prev.openai.model,
-                                                                    name: modelName,
-                                                                    thinkingLevel: prev.openai.thinkingLevel
-                                                                }
-                                                            ]
-                                                        }
-                                                    }));
-                                                }}
-                                                className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
-                                            >
-                                                Add to Models
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {managingProvider === 'anthropic' && (
-                                        <div className="p-6 space-y-6">
-                                            {/* Model Selection */}
-                                            <div className="space-y-3">
-                                                <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
-                                                <div className="relative" ref={anthropicRef} data-dropdown="anthropic">
-                                                     {/* Custom Dropdown Trigger */}
-                                                     <button
-                                                         onClick={() => {
-                                                             if (anthropicDropdownOpen) {
-                                                                 closeAnthropicDropdown();
-                                                             } else {
-                                                                 setAnthropicDirection(determineDirection(anthropicRef));
-                                                                 setAnthropicDropdownOpen(true);
-                                                             }
-                                                         }}
-                                                         className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                                     >
-                                                         <span>{
-                                                             {
-                                                                 'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet (New)',
-                                                                 'claude-3-opus-20240229': 'Claude 3 Opus',
-                                                                 'claude-3-haiku-20240307': 'Claude 3 Haiku'
-                                                             }[modelConfig.anthropic.model] || 'Select model'
-                                                         }</span>
-                                                         <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${anthropicDropdownOpen ? 'rotate-180' : ''}`} />
-                                                     </button>
-                                                     
-                                                     {/* Custom Dropdown Menu */}
-                                                     {anthropicDropdownOpen && (
-                                                         <div className={`absolute ${anthropicDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${anthropicDropdownClosing ? (anthropicDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (anthropicDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                                                                {/* Corner Border Glow Effects */}
-                                                                <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
-                                                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                                                                {[
-                                                                    { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (New)' },
-                                                                    { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-                                                                    { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
-                                                                ].map((model, index, arr) => (
-                                                                    <button
-                                                                        key={model.id}
-                                                                        onClick={() => {
-                                                                            setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, model: model.id } }));
-                                                                            closeAnthropicDropdown();
-                                                                        }}
-                                                                        className={`
-                                                                            relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                                                            ${modelConfig.anthropic.model === model.id 
-                                                                                ? 'bg-white/10 text-white' 
-                                                                                : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                                                            }
-                                                                            ${index === 0 ? 'rounded-t-lg' : ''}
-                                                                            ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
-                                                                        `}
-                                                                    >
-                                                                        <span className="font-medium">{model.name}</span>
-                                                                        {modelConfig.anthropic.model === model.id && (
-                                                                            <Check size={16} className="text-white" />
-                                                                        )}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Thinking Level */}
-                                            <div className="space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                                                    <span className="text-[11px] font-medium text-zinc-400">
-                                                        {modelConfig.anthropic.thinkingLevel === 0 ? 'Off' : ['Low', 'Medium', 'High'][modelConfig.anthropic.thinkingLevel - 1]}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                                                    <button
-                                                        onClick={() => setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, thinkingLevel: 0 } }))}
-                                                        className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.anthropic.thinkingLevel === 0 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                    >
-                                                        None
-                                                    </button>
-                                                    {['Low', 'Medium', 'High'].map((label, i) => (
-                                                        <button
-                                                            key={i + 1}
-                                                            onClick={() => setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, thinkingLevel: i + 1 } }))}
-                                                            className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.anthropic.thinkingLevel === i + 1 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                        >
-                                                            {label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Add Button */}
-                                            <button 
-                                                onClick={() => {
-                                                    const modelName = modelConfig.anthropic.model.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                                                    setModelConfig(prev => ({
-                                                        ...prev,
-                                                        anthropic: {
-                                                            ...prev.anthropic,
-                                                            savedModels: [
-                                                                ...prev.anthropic.savedModels,
-                                                                {
-                                                                    id: Math.random().toString(36).substr(2, 9),
-                                                                    modelId: prev.anthropic.model,
-                                                                    name: modelName,
-                                                                    thinkingLevel: prev.anthropic.thinkingLevel
-                                                                }
-                                                            ]
-                                                        }
-                                                    }));
-                                                }}
-                                                className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
-                                            >
-                                                Add to Models
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Unified Global Models List */}
-                                <div className="mt-8 pt-8">
-                                    <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
-                                        <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                                            <defs>
-                                                <pattern id="wave-pattern-2" width="32" height="12" patternUnits="userSpaceOnUse">
-                                                    <path 
-                                                        d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
-                                                        fill="none" 
-                                                        stroke="currentColor" 
-                                                        strokeWidth="1.5" 
-                                                        strokeLinecap="round" 
-                                                    />
-                                                </pattern>
-                                            </defs>
-                                            <rect width="100%" height="100%" fill="url(#wave-pattern-2)" />
-                                        </svg>
-                                    </div>
-                                    <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Models:</h2>
-                                    <div className="space-y-4">
-                                        {[
-                                            ...modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' as const })),
-                                            ...modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' as const })),
-                                            ...modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' as const }))
-                                        ].length === 0 ? (
-                                            <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl text-zinc-500 text-[13px]">
-                                                No model presets configured yet. Add one above to get started.
-                                            </div>
-                                        ) : (
-                                            [
-                                                ...modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' as const })),
-                                                ...modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' as const })),
-                                                ...modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' as const }))
-                                            ].map((saved) => (
-                                                <div key={saved.id} className="group relative bg-[#1c1c1c] border border-white/10 rounded-xl px-5 py-4 flex items-center justify-between transition-all hover:bg-white/5 shadow-sm">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={saved.provider === 'gemini' ? "text-[#fbbf24]" : "text-white"}>
-                                                            {saved.provider === 'gemini' && (
-                                                                <svg width="24" height="24" viewBox="0 0 512 512" fill="currentColor">
-                                                                    <path d="M256 0C256 0 292 200 512 256C292 312 256 512 256 512C256 512 220 312 0 256C220 200 256 0 256 0Z"/>
-                                                                </svg>
-                                                            )}
-                                                            {saved.provider === 'openai' && (
-                                                                <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.0462 6.0462 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729ZM12.72 1.2511a4.4938 4.4938 0 0 1 4.093 2.5022.7543.7543 0 0 1-.3682.9976l-1.6375.9463a.7543.7543 0 0 1-1.0116-.2716 3.013 3.013 0 0 0-2.6186-1.5037 3.013 3.013 0 0 0-2.6234 1.5037.7543.7543 0 0 1-1.0116.2716l-1.6375-.9463a.7543.7543 0 0 1-.3682-.9976 4.3989 4.3989 0 0 1 7.1837-2.5022Zm-9.2538 4.793a4.4938 4.4938 0 0 1 2.9818-3.0076.7543.7543 0 0 1 1.0164.3872l.9438 1.6385a.7543.7543 0 0 1-.3824 1.0543 2.9228 2.9228 0 0 0-1.8974 2.2109 2.9228 2.9228 0 0 0 1.2526 2.5211.7543.7543 0 0 1 .28.9833l-.939 1.6385a.7543.7543 0 0 1-1.026.316 4.3323 4.3323 0 0 1-2.2299-7.7423Zm13.5654 13.9048a.7543.7543 0 0 1-1.0165-.3872l-.9438-1.6384a.7543.7543 0 0 1 .3824-1.0544 2.9228 2.9228 0 0 0 1.8974-2.2108 2.9228 2.9228 0 0 0-1.2526-2.5212.7543.7543 0 0 1-.28-.9833l.939-1.6384a.7543.7543 0 0 1 1.026-.3161 4.3323 4.3323 0 0 1 2.2299 7.7424 4.4938 4.4938 0 0 1-2.9818 3.0074Zm-2.7505-1.5791-1.6375-.9462a.7543.7543 0 0 1-.3683-.9976 2.994 2.994 0 0 0 0-3.0075.7543.7543 0 0 1 .3683-.9976l1.6375-.9463a.7543.7543 0 0 1 1.0116.2716 4.3228 4.3228 0 0 1-.0047 5.352.7543.7543 0 0 1-1.0069.2716ZM8.5583 18.0664a.7543.7543 0 0 1-.3683.9976 4.4938 4.4938 0 0 1-4.093-2.5023.7543.7543 0 0 1 .3682-.9976l1.6375-.9463a.7543.7543 0 0 1 1.0116.2716 3.013 3.013 0 0 0 2.6186 1.5037 3.013 3.013 0 0 0 2.6234-1.5037.7543.7543 0 0 1 1.0116-.2716l1.6375.9463a.7543.7543 0 0 1 .3682.9976 4.3989 4.3989 0 0 1-7.1837 2.5022l-1.6316-.9975Z"/></svg>
-                                                            )}
-                                                            {saved.provider === 'anthropic' && (
-                                                                <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                                                                    <path d="M16.9 18.9h-1.9l-3.9-10.4h-0.1l-3.9 10.4h-1.9l5-12.8h1.7L16.9 18.9z M9.2 13h5.7L12 5.5h-0.1L9.2 13z" />
-                                                                </svg>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[14px] font-semibold text-white">{saved.name}</span>
-                                                            <span className="text-[11px] font-medium text-zinc-500 uppercase">
-                                                                {saved.provider === 'gemini' ? 'Google' : saved.provider === 'openai' ? 'OpenAI' : 'Anthropic'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="flex items-center gap-2">
-                                                            {[1, 2, 3].map((level) => {
-                                                                if (saved.provider === 'gemini') {
-                                                                    const geminiModel = GEMINI_MODELS.find(m => m.id === saved.modelId);
-                                                                    if (geminiModel && level > geminiModel.maxLevels) return null;
-                                                                }
-                                                                return (
-                                                                    <ReasoningBulb 
-                                                                        key={level}
-                                                                        isActive={level <= saved.thinkingLevel}
-                                                                        className={level <= saved.thinkingLevel ? "text-[#fbbf24] w-[20px] h-[20px]" : "text-zinc-600 w-[20px] h-[20px]"} 
-                                                                        strokeWidth={level <= saved.thinkingLevel ? 0 : 2}
-                                                                    />
-                                                                );
-                                                            })}
-                                                        </div>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setModelConfig(prev => {
-                                                                    const provider = saved.provider;
-                                                                    return {
-                                                                        ...prev,
-                                                                        [provider]: {
-                                                                            ...prev[provider],
-                                                                            savedModels: prev[provider].savedModels.filter(m => m.id !== saved.id)
-                                                                        }
-                                                                    };
-                                                                });
-                                                            }}
-                                                            className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-full hover:bg-white/5"
-                                                        >
-                                                            <X size={18} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        
-                        </div>
-                    ) : (
-                        // Overview Mode
-                        <div className={`space-y-10 ${wasManagingKeys ? 'animate-[fadeIn_150ms_ease-out]' : ''}`}>
-                            
-                            {/* Provider Cards */}
-                            <div className="grid grid-cols-3 gap-4">
-                                {/* Gemini Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.gemini.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setManagingProvider('gemini')}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
-                                            {/* Gemini Logo */}
-                                            <svg width="24" height="24" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-                                                <path d="M256 0C256 0 292 200 512 256C292 312 256 512 256 512C256 512 220 312 0 256C220 200 256 0 256 0Z"/>
-                                            </svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('gemini'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Google Gemini</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.gemini.apiKey ? 'Configured' : 'Not configured'}
-                                        </p>
-                                    </div>
-                                    {providerState.gemini.apiKey && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-
-                                {/* OpenAI Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.openai.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setManagingProvider('openai')}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
-                                             <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.896zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('openai'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">OpenAI</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.openai.apiKey ? 'Configured' : 'Not configured'}
-                                        </p>
-                                    </div>
-                                    {providerState.openai.apiKey && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-
-                                {/* Anthropic Card */}
-                                <div 
-                                    className={`
-                                        relative rounded-2xl p-5 border cursor-pointer group
-                                        bg-gradient-to-b from-[#1c1c1c] to-[#141414]
-                                        ${providerState.anthropic.apiKey ? 'border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'border-white/5 hover:border-white/10'}
-                                    `}
-                                    onClick={() => setManagingProvider('anthropic')}
-                                >
-                                    <div className="flex items-start justify-between mb-8">
-                                        <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
-                                            {/* Anthropic Logo */}
-                                            <svg viewBox="0 0 512 509.64" fill="currentColor" className="w-6 h-6">
-                                                <path fillRule="nonzero" d="M142.27 316.619l73.655-41.326 1.238-3.589-1.238-1.996-3.589-.001-12.31-.759-42.084-1.138-36.498-1.516-35.361-1.896-8.897-1.895-8.34-10.995.859-5.484 7.482-5.03 10.717.935 23.683 1.617 35.537 2.452 25.782 1.517 38.193 3.968h6.064l.86-2.451-2.073-1.517-1.618-1.517-36.776-24.922-39.81-26.338-20.852-15.166-11.273-7.683-5.687-7.204-2.451-15.721 10.237-11.273 13.75.935 3.513.936 13.928 10.716 29.749 23.027 38.848 28.612 5.687 4.727 2.275-1.617.278-1.138-2.553-4.271-21.13-38.193-22.546-38.848-10.035-16.101-2.654-9.655c-.935-3.968-1.617-7.304-1.617-11.374l11.652-15.823 6.445-2.073 15.545 2.073 6.547 5.687 9.655 22.092 15.646 34.78 24.265 47.291 7.103 14.028 3.791 12.992 1.416 3.968 2.449-.001v-2.275l1.997-26.641 3.69-32.707 3.589-42.084 1.239-11.854 5.863-14.206 11.652-7.683 9.099 4.348 7.482 10.716-1.036 6.926-4.449 28.915-8.72 45.294-5.687 30.331h3.313l3.792-3.791 15.342-20.372 25.782-32.227 11.374-12.789 13.27-14.129 8.517-6.724 16.1-.001 11.854 17.617-5.307 18.199-16.581 21.029-13.75 17.819-19.716 26.54-12.309 21.231 1.138 1.694 2.932-.278 44.536-9.479 24.062-4.347 28.714-4.928 12.992 6.066 1.416 6.167-5.106 12.613-30.71 7.583-36.018 7.204-53.636 12.689-.657.48.758.935 24.164 2.275 10.337.556h25.301l47.114 3.514 12.309 8.139 7.381 9.959-1.238 7.583-18.957 9.655-25.579-6.066-59.702-14.205-20.474-5.106-2.83-.001v1.694l17.061 16.682 31.266 28.233 39.152 36.397 1.997 8.999-5.03 7.102-5.307-.758-34.401-25.883-13.27-11.651-30.053-25.302-1.996-.001v2.654l6.926 10.136 36.574 54.975 1.895 16.859-2.653 5.485-9.479 3.311-10.414-1.895-21.408-30.054-22.092-33.844-17.819-30.331-2.173 1.238-10.515 113.261-4.929 5.788-11.374 4.348-9.478-7.204-5.03-11.652 5.03-23.027 6.066-30.052 4.928-23.886 4.449-29.674 2.654-9.858-.177-.657-2.173.278-22.37 30.71-34.021 45.977-26.919 28.815-6.445 2.553-11.173-5.789 1.037-10.337 6.243-9.2 37.257-47.392 22.47-29.371 14.508-16.961-.101-2.451h-.859l-98.954 64.251-17.618 2.275-7.583-7.103.936-11.652 3.589-3.791 29.749-20.474-.101.102.024.101z"/>
-                                            </svg>
-                                        </div>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setManagingProvider('anthropic'); }}
-                                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-white transition-colors border border-white/5"
-                                        >
-                                            Manage
-                                        </button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-[16px] font-bold text-white group-hover:text-zinc-200 transition-colors">Anthropic</h3>
-                                        <p className="text-[12px] text-zinc-500">
-                                            {providerState.anthropic.apiKey ? 'Configured' : 'Not configured'}
-                                        </p>
-                                    </div>
-                                    {providerState.anthropic.apiKey && (
-                                        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent" />
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* System Default Models Section */}
-                            <div className="pt-8 mt-4">
-                                <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
-                                    <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                                        <defs>
-                                            <pattern id="wave-pattern-3" width="32" height="12" patternUnits="userSpaceOnUse">
-                                                <path 
-                                                    d="M 0 6 C 4 2, 12 2, 16 6 C 20 10, 28 10, 32 6" 
-                                                    fill="none" 
-                                                    stroke="currentColor" 
-                                                    strokeWidth="1.5" 
-                                                    strokeLinecap="round" 
-                                                />
-                                            </pattern>
-                                        </defs>
-                                        <rect width="100%" height="100%" fill="url(#wave-pattern-3)" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-6">System Defaults</h2>
-                                <div className="space-y-4">
-                                    {/* Chat Renaming Model */}
-                                    <div className="flex items-center justify-between py-2">
-                                        <div className="flex flex-col">
-                                            <span className="text-[14px] font-semibold text-white">Chat Naming Model</span>
-                                            <span className="text-[12px] text-zinc-500">Model used to automatically generate chat titles.</span>
-                                        </div>
-                                        <div className="relative w-64" ref={geminiRef} data-dropdown="chat-renaming">
-                                            <button
-                                                onClick={() => {
-                                                    if (geminiDropdownOpen) closeGeminiDropdown();
-                                                    else {
-                                                        setGeminiDirection(determineDirection(geminiRef));
-                                                        setGeminiDropdownOpen(true);
-                                                    }
-                                                }}
-                                                className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                            >
-                                                <span>
-                                                    {[
-                                                        ...modelConfig.gemini.savedModels,
-                                                        ...modelConfig.openai.savedModels,
-                                                        ...modelConfig.anthropic.savedModels
-                                                    ].find(m => m.modelId === modelConfig.systemDefaults?.chatRenaming)?.name || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : modelConfig.systemDefaults?.chatRenaming) || 'Select model'}
-                                                </span>
-                                                <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
-                                            </button>
-                                            
-                                            {geminiDropdownOpen && (
-                                                <div className={`absolute ${geminiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${geminiDropdownClosing ? (geminiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (geminiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                                                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                                                        {[
-                                                            ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
-                                                            ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
-                                                            ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
-                                                        ].length === 0 ? (
-                                                            <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
-                                                                No models saved or no API keys configured. Manage a provider above.
-                                                            </div>
-                                                        ) : (
-                                                            [
-                                                                ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
-                                                                ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
-                                                                ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
-                                                            ].map((model, index, arr) => (
-                                                                <button
-                                                                    key={`${model.provider}-${model.id}`}
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        setModelConfig(prev => ({ 
-                                                                            ...prev, 
-                                                                            systemDefaults: { 
-                                                                                ...prev.systemDefaults, 
-                                                                                chatRenaming: model.modelId 
-                                                                            } 
-                                                                        }));
-                                                                        closeGeminiDropdown();
-                                                                    }}
-                                                                    className={`
-                                                                        w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group
-                                                                        ${modelConfig.systemDefaults?.chatRenaming === model.modelId 
-                                                                            ? 'bg-white/10 text-white' 
-                                                                            : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                                                        }
-                                                                    `}
-                                                                >
-                                                                    <span className="font-medium">{model.name}</span>
-                                                                    {modelConfig.systemDefaults?.chatRenaming === model.modelId && (
-                                                                        <Check size={14} className="text-white" />
-                                                                    )}
-                                                                </button>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Computer Use Model */}
-                                    <div className="flex items-center justify-between py-2">
-                                        <div className="flex flex-col">
-                                            <span className="text-[14px] font-semibold text-white">Computer Use Model</span>
-                                            <span className="text-[12px] text-zinc-500">Model used for the automated test agent.</span>
-                                        </div>
-                                        <div className="relative w-64" ref={openaiRef} data-dropdown="computer-use">
-                                            <button
-                                                onClick={() => {
-                                                    if (openaiDropdownOpen) closeOpenaiDropdown();
-                                                    else {
-                                                        setOpenaiDirection(determineDirection(openaiRef));
-                                                        setOpenaiDropdownOpen(true);
-                                                    }
-                                                }}
-                                                className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                                            >
-                                                <span>
-                                                    {[
-                                                        ...modelConfig.gemini.savedModels,
-                                                        ...modelConfig.openai.savedModels,
-                                                        ...modelConfig.anthropic.savedModels
-                                                    ].find(m => m.modelId === modelConfig.systemDefaults?.computerUse)?.name || (modelConfig.systemDefaults?.computerUse === 'claude-sonnet-4.5' ? 'Claude Sonnet 4.5' : modelConfig.systemDefaults?.computerUse) || 'Select model'}
-                                                </span>
-                                                <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
-                                            </button>
-                                            
-                                            {openaiDropdownOpen && (
-                                                <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                                                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                                                        {[
-                                                            ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
-                                                            ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
-                                                            ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
-                                                        ].length === 0 ? (
-                                                            <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
-                                                                No models saved or no API keys configured. Manage a provider above.
-                                                            </div>
-                                                        ) : (
-                                                            [
-                                                                ...(providerState.gemini.apiKey ? modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' })) : []),
-                                                                ...(providerState.openai.apiKey ? modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' })) : []),
-                                                                ...(providerState.anthropic.apiKey ? modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' })) : [])
-                                                            ].map((model, index, arr) => (
-                                                                <button
-                                                                    key={`${model.provider}-${model.id}`}
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        setModelConfig(prev => ({ 
-                                                                            ...prev, 
-                                                                            systemDefaults: { 
-                                                                                ...prev.systemDefaults, 
-                                                                                computerUse: model.modelId 
-                                                                            } 
-                                                                        }));
-                                                                        closeOpenaiDropdown();
-                                                                    }}
-                                                                    className={`
-                                                                        w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group
-                                                                        ${modelConfig.systemDefaults?.computerUse === model.modelId 
-                                                                            ? 'bg-white/10 text-white' 
-                                                                            : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                                                        }
-                                                                    `}
-                                                                >
-                                                                    <span className="font-medium">{model.name}</span>
-                                                                    {modelConfig.systemDefaults?.computerUse === model.modelId && (
-                                                                        <Check size={14} className="text-white" />
-                                                                    )}
-                                                                </button>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <ModelsTab
+                  modelConfig={modelConfig}
+                  setModelConfig={setModelConfig}
+                  managingProvider={managingProvider}
+                  setManagingProvider={setManagingProvider}
+                  wasManagingKeys={wasManagingKeys}
+                  handleExitManageKeys={handleExitManageKeys}
+                  providerState={providerState}
+                  handleUpdateConfig={handleUpdateConfig}
+                  GEMINI_MODELS={GEMINI_MODELS}
+                  geminiRef={geminiRef}
+                  geminiDropdownOpen={geminiDropdownOpen}
+                  setGeminiDropdownOpen={setGeminiDropdownOpen}
+                  geminiDropdownClosing={geminiDropdownClosing}
+                  geminiDirection={geminiDirection}
+                  setGeminiDirection={setGeminiDirection}
+                  closeGeminiDropdown={closeGeminiDropdown}
+                  openaiRef={openaiRef}
+                  openaiDropdownOpen={openaiDropdownOpen}
+                  setOpenaiDropdownOpen={setOpenaiDropdownOpen}
+                  openaiDropdownClosing={openaiDropdownClosing}
+                  openaiDirection={openaiDirection}
+                  setOpenaiDirection={setOpenaiDirection}
+                  closeOpenaiDropdown={closeOpenaiDropdown}
+                  anthropicRef={anthropicRef}
+                  anthropicDropdownOpen={anthropicDropdownOpen}
+                  setAnthropicDropdownOpen={setAnthropicDropdownOpen}
+                  anthropicDropdownClosing={anthropicDropdownClosing}
+                  anthropicDirection={anthropicDirection}
+                  setAnthropicDirection={setAnthropicDirection}
+                  closeAnthropicDropdown={closeAnthropicDropdown}
+                  determineDirection={determineDirection}
+                />
             )}
 
             {activeTab === 'people' && (
-                <div className="w-full h-full px-12 py-10 flex flex-col overflow-y-auto">
-                    <div className="flex items-center justify-between mb-2">
-                        <h1 className="text-[24px] font-bold text-white">People</h1>
-                    </div>
-                    
-                    <div className="pb-6 mb-6">
-                        <p className="text-[14px] text-zinc-400">
-                             Inviting people to <span className="text-white font-medium">{userProfile?.workspaceName || "My Willow"}</span> gives access to workspace shared projects and credits. You have 1 builder in this workspace.
-                        </p>
-                    </div>
-
-                    {/* Tabs */}
-                    <div className="flex items-center gap-1 mb-8">
-                        {['All', 'Invitations', 'Collaborators'].map((tab) => (
-                            <button 
-                                key={tab}
-                                className={`px-4 py-1.5 text-[13px] font-medium rounded-full transition-colors
-                                    ${tab === 'All' 
-                                        ? 'bg-[#27272a] text-white' 
-                                        : 'text-zinc-500 hover:text-white'
-                                    }`}
-                            >
-                                {tab}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Search and Action Bar */}
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
-                                <input 
-                                    type="text" 
-                                    placeholder="Search..."
-                                    className="bg-transparent border border-white/10 rounded-lg pl-9 pr-3 py-1.5 text-[13px] text-white w-64 focus:outline-none focus:border-white/20 transition-colors"
-                                />
-                            </div>
-                            <button className="flex items-center justify-between gap-2 bg-transparent border border-white/10 rounded-lg px-3 py-1.5 text-[13px] text-white w-32 hover:bg-white/5 transition-colors">
-                                <span>All roles</span>
-                                <ChevronDown size={14} className="text-zinc-500" />
-                            </button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button className="flex items-center gap-2 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-white/5 rounded-lg transition-colors border border-white/5">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                <span>Export</span>
-                            </button>
-                            <button className="flex items-center gap-2 px-4 py-1.5 bg-white text-black text-[13px] font-bold rounded-lg hover:bg-zinc-200 transition-colors">
-                                <Users size={16} />
-                                <span>Invite members</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Table Container */}
-                    <div className="flex-1 min-h-0 flex flex-col border border-white/5 rounded-xl bg-[#1c1c1c] overflow-hidden">
-                        <div className="grid grid-cols-[1fr_120px_140px_120px_120px_120px_40px] px-4 py-3 bg-[#242424]/40 border-b border-white/5 text-[12px] font-medium text-zinc-500">
-                            {[
-                                { label: 'Name', sortable: true },
-                                { label: 'Role', sortable: true },
-                                { label: 'Joined date', sortable: true },
-                                { label: 'Dec usage', sortable: true },
-                                { label: 'Total usage', sortable: true },
-                                { label: 'Credit limit', sortable: true },
-                            ].map((col) => (
-                                <div key={col.label} className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
-                                    <span>{col.label}</span>
-                                    {col.sortable && (
-                                        <div className="flex flex-col gap-0.5 opacity-50">
-                                            <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[4px] border-b-current" />
-                                            <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-current" />
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            <div />
-                        </div>
-                        
-                        <div className="divide-y divide-white/5">
-                            <div className="grid grid-cols-[1fr_120px_140px_120px_120px_120px_40px] px-4 py-4 items-center group hover:bg-white/[0.02] transition-colors">
-                                <div className="flex items-center gap-3">
-                                    {userProfile?.photoURL ? (
-                                        <img 
-                                            src={userProfile.photoURL} 
-                                            alt="User" 
-                                            className="w-10 h-10 rounded-full border border-white/10 object-cover" 
-                                        />
-                                    ) : (
-                                        <div className="w-10 h-10 rounded-full border border-white/10 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white font-medium">
-                                            {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
-                                        </div>
-                                    )}
-                                    <div className="flex flex-col">
-                                        <span className="text-[13px] font-bold text-white">{userProfile?.displayName || 'User'} (you)</span>
-                                        <span className="text-[12px] text-zinc-500">{user?.email || ''}</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[13px] text-zinc-300">
-                                    <span>Owner</span>
-                                    <ChevronDown size={14} className="text-zinc-500" />
-                                </div>
-                                <div className="text-[13px] text-zinc-300">Jun 17, 2025</div>
-                                <div className="text-[13px] text-white font-bold">6 credits</div>
-                                <div className="text-[13px] text-white font-bold">33 credits</div>
-                                <div className="text-[13px] text-zinc-300"></div>
-                                <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button className="p-1 hover:text-white transition-colors">
-                                        <MoreHorizontal size={18} />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <PeopleTab
+                  userProfile={userProfile}
+                  user={user}
+                />
             )}
 
             {activeTab === 'privacy' && (
-                <div className="w-full h-full px-12 py-10 overflow-y-auto">
-                    <div className="flex items-center justify-between mb-2">
-                        <h1 className="text-[24px] font-bold text-white">Privacy & security</h1>
-                    </div>
-                    
-                    <div className="pb-6 border-b border-white/5 mb-0">
-                        <p className="text-[14px] text-zinc-400">
-                            Manage privacy and security settings for your workspace.
-                        </p>
-                    </div>
-
-                    <div className="space-y-0 pb-10">
-                        {/* Default project visibility */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Default project visibility</h3>
-                                <p className="text-[14px] text-zinc-400">Choose whether new projects start as public, private (workspace-only), or drafts.</p>
-                            </div>
-                            <div className="relative">
-                                <button 
-                                    onClick={() => setShowVisibilityMenu(!showVisibilityMenu)}
-                                    className="flex items-center gap-3 px-3 py-1.5 bg-[#242424]/40 border border-white/5 rounded-lg text-[13px] text-zinc-300 hover:bg-white/5 transition-colors group"
-                                >
-                                    {defaultVisibility === 'public' && <Globe size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    {defaultVisibility === 'workspace' && <LayoutGrid size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    {defaultVisibility === 'personal' && <FileText size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    
-                                    <span className="font-semibold capitalize">{defaultVisibility}</span>
-                                    <ChevronDown size={14} className="text-zinc-500" />
-                                </button>
-                                
-                                {showVisibilityMenu && (
-                                    <SettingsDropdownMenu 
-                                        current={defaultVisibility}
-                                        options={[
-                                            { id: 'public', label: 'Public', icon: Globe },
-                                            { id: 'workspace', label: 'Workspace', icon: LayoutGrid },
-                                            { id: 'personal', label: 'Personal', icon: FileText },
-                                        ]}
-                                        onSelect={setDefaultVisibility}
-                                        onClose={() => setShowVisibilityMenu(false)}
-                                        width="180px"
-                                    />
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Default website access */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white">Default website access</h3>
-                                <p className="text-[14px] text-zinc-400">Choose if new published websites are public or only accessible to logged in workspace members.</p>
-                            </div>
-                            <div className="relative">
-                                <button 
-                                    onClick={() => setShowWebsiteMenu(!showWebsiteMenu)}
-                                    className="flex items-center gap-3 px-3 py-1.5 bg-[#242424]/40 border border-white/5 rounded-lg text-[13px] text-zinc-300 hover:bg-white/5 transition-colors group min-w-[120px]"
-                                >
-                                    {websiteAccess === 'anyone' ? (
-                                        <Globe size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />
-                                    ) : (
-                                        <Lock size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />
-                                    )}
-                                    <span className="font-semibold capitalize">{websiteAccess}</span>
-                                    <ChevronDown size={14} className="text-zinc-500" />
-                                </button>
-                                
-                                {showWebsiteMenu && (
-                                    <SettingsDropdownMenu 
-                                        current={websiteAccess}
-                                        options={[
-                                            { id: 'anyone', label: 'Anyone', icon: Globe },
-                                            { id: 'workspace', label: 'Workspace', icon: Lock },
-                                        ]}
-                                        onSelect={setWebsiteAccess}
-                                        onClose={() => setShowWebsiteMenu(false)}
-                                        width="160px"
-                                    />
-                                )}
-                            </div>
-                        </div>
-
-                        {/* MCP servers access */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white">MCP servers access</h3>
-                                <p className="text-[14px] text-zinc-400">Enable or disable MCP servers for all workspace members.</p>
-                            </div>
-                            <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-                            </div>
-                        </div>
-
-
-                        {/* Restrict workspace invitations */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Restrict workspace invitations</h3>
-                                <p className="text-[14px] text-zinc-400">When enabled, only admins and owners can invite members to this workspace.</p>
-                            </div>
-                            <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-                            </div>
-                        </div>
-
-                        {/* Who can publish externally */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Who can publish externally</h3>
-                                <p className="text-[14px] text-zinc-400">Control who can publish and deploy projects to the web.</p>
-                            </div>
-                            <div className="relative">
-                                <button 
-                                    onClick={() => setShowPublishMenu(!showPublishMenu)}
-                                    className="flex items-center gap-3 px-3 py-1.5 bg-[#242424]/40 border border-white/5 rounded-lg text-[13px] text-zinc-300 hover:bg-white/5 transition-colors group min-w-[160px]"
-                                >
-                                    {publishAccess === 'editors' && <PenLine size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    {publishAccess === 'admins' && <Shield size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    {publishAccess === 'owners' && <Crown size={14} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />}
-                                    
-                                    <span className="font-semibold truncate">
-                                        {publishAccess === 'editors' && 'Editors and above'}
-                                        {publishAccess === 'admins' && 'Admins and owners'}
-                                        {publishAccess === 'owners' && 'Owners only'}
-                                    </span>
-                                    <ChevronDown size={14} className="text-zinc-500" />
-                                </button>
-                                
-                                {showPublishMenu && (
-                                    <SettingsDropdownMenu 
-                                        current={publishAccess}
-                                        options={[
-                                            { id: 'editors', label: 'Editors and above', icon: PenLine },
-                                            { id: 'admins', label: 'Admins and owners', icon: Shield },
-                                            { id: 'owners', label: 'Owners only', icon: Crown },
-                                        ]}
-                                        onSelect={setPublishAccess}
-                                        onClose={() => setShowPublishMenu(false)}
-                                        width="200px"
-                                    />
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Disable share preview */}
-                        <div className="py-6 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Disable share preview</h3>
-                                <p className="text-[14px] text-zinc-400">When enabled, users will not be able to create temporary public app preview links, which are accessible to anyone.</p>
-                            </div>
-                            <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <PrivacyTab
+                  defaultVisibility={defaultVisibility}
+                  setDefaultVisibility={setDefaultVisibility}
+                  showVisibilityMenu={showVisibilityMenu}
+                  setShowVisibilityMenu={setShowVisibilityMenu}
+                  websiteAccess={websiteAccess}
+                  setWebsiteAccess={setWebsiteAccess}
+                  showWebsiteMenu={showWebsiteMenu}
+                  setShowWebsiteMenu={setShowWebsiteMenu}
+                  publishAccess={publishAccess}
+                  setPublishAccess={setPublishAccess}
+                  showPublishMenu={showPublishMenu}
+                  setShowPublishMenu={setShowPublishMenu}
+                  SettingsDropdownMenu={SettingsDropdownMenu}
+                />
             )}
-
 
             {activeTab === 'labs' && (
-                <div className="w-full h-full px-12 py-10 overflow-y-auto">
-                    <div className="flex items-center justify-between mb-2">
-                        <h1 className="text-[24px] font-bold text-white">Labs</h1>
-                    </div>
-                    
-                    <div className="pb-6 border-b border-white/5 mb-0">
-                        <p className="text-[14px] text-zinc-400">
-                            These are experimental features, that might be modified or removed.
-                        </p>
-                    </div>
-
-                    <div className="space-y-0 pb-10">
-                        {/* GitHub branch switching */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[60%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">GitHub branch switching</h3>
-                                <p className="text-[14px] text-zinc-400">Select the branch to make edits to in your GitHub repository.</p>
-                            </div>
-                            <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all group-hover:bg-zinc-500 translate-x-[16px] !bg-white" />
-                            </div>
-                        </div>
-
-                         {/* Prototyping */}
-                         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[60%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Prototyping</h3>
-                                <p className="text-[14px] text-zinc-400">Build and share AI-powered mini-apps using natural language prompts.</p>
-                            </div>
-                             <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-                            </div>
-                        </div>
-
-                         {/* Designing */}
-                         <div className="py-6 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[60%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Designing</h3>
-                                <p className="text-[14px] text-zinc-400">Generate production-ready UI designs and code from text or sketches.</p>
-                            </div>
-                             <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <LabsTab />
             )}
 
-
             {activeTab === 'account' && (
-                <div className="w-full h-full relative flex flex-col">
-                    <div className="flex-1 overflow-y-auto px-12 py-10 pb-32">
-                        <div className="flex items-center justify-between mb-2">
-                            <h1 className="text-[24px] font-bold text-white">Account settings</h1>
-                        </div>
-                        <div className="pb-6 border-b border-white/5 mb-6">
-                            <p className="text-[14px] text-zinc-400">
-                                 Personalize how others see and interact with you on Willow.
-                            </p>
-                        </div>
-
-                        {/* Avatar */}
-                         <div className="flex items-start gap-8 py-6 border-b border-white/5">
-                            <div className="w-[50%] shrink-0">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Your avatar</h3>
-                                <p className="text-[14px] text-zinc-400">Your avatar is either fetched from your linked identity provider or automatically generated based on your account.</p>
-                            </div>
-                            <div className="flex-1 flex justify-end">
-                                <div className="relative group cursor-pointer">
-                                    <input
-                                        type="file"
-                                        id="account-avatar-upload"
-                                        accept="image/*"
-                                        onChange={(e) => {
-                                            if (e.target.files && e.target.files[0]) {
-                                                const file = e.target.files[0];
-                                                const imageUrl = URL.createObjectURL(file);
-                                                setLocalPhotoURL(imageUrl);
-                                                setAccountSettingsChanged(true);
-                                            }
-                                        }}
-                                        className="hidden"
-                                    />
-                                    <label htmlFor="account-avatar-upload" className="cursor-pointer block relative">
-                                        {localPhotoURL ? (
-                                            <img 
-                                                src={localPhotoURL} 
-                                                alt="User Avatar" 
-                                                className="w-[64px] h-[64px] rounded-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="w-[64px] h-[64px] rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center">
-                                                <span className="text-white text-xl font-medium">
-                                                    {localDisplayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {/* Hover overlay */}
-                                        <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                            <PenLine size={20} className="text-white" />
-                                        </div>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Username */}
-                        <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Username</h3>
-                                    <p className="text-[14px] text-zinc-400">Your public identifier and profile URL. No spaces allowed.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <input 
-                                        type="text" 
-                                        value={localUsername}
-                                        onChange={(e) => {
-                                            // Remove spaces from username
-                                            const noSpaces = e.target.value.replace(/\s+/g, '');
-                                            setLocalUsername(noSpaces);
-                                            setAccountSettingsChanged(true);
-                                        }}
-                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors mb-2"
-                                    />
-                                    <a href="#" className="text-[13px] text-zinc-500 hover:text-zinc-400 transition-colors flex items-center gap-1">
-                                        willow.dev/@{localUsername || 'user'} 
-                                        <ArrowUpRight size={13} />
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-
-                         {/* Email */}
-                         <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Email</h3>
-                                    <p className="text-[14px] text-zinc-400">Your email address associated with your account.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <input 
-                                        type="email" 
-                                        value={user?.email || ''}
-                                        readOnly
-                                        className="w-full bg-[#1c1c1c] border border-white/5 rounded-xl px-4 py-2.5 text-[14px] text-zinc-400 focus:outline-none cursor-not-allowed"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Name */}
-                        <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Name</h3>
-                                    <p className="text-[14px] text-zinc-400">Your full name, as visible to others.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <input 
-                                        type="text" 
-                                        value={localDisplayName}
-                                        onChange={(e) => {
-                                            setLocalDisplayName(e.target.value);
-                                            setAccountSettingsChanged(true);
-                                        }}
-                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Description */}
-                        <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Description</h3>
-                                    <p className="text-[14px] text-zinc-400">A short description of yourself or your work.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <textarea 
-                                        value={localDescription}
-                                        onChange={(e) => {
-                                            setLocalDescription(e.target.value);
-                                            setAccountSettingsChanged(true);
-                                        }}
-                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors resize-y min-h-[100px]"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Location */}
-                        <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Location</h3>
-                                    <p className="text-[14px] text-zinc-400">Where you're based.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <input 
-                                        type="text"
-                                        value={localLocation}
-                                        onChange={(e) => {
-                                            setLocalLocation(e.target.value);
-                                            setAccountSettingsChanged(true);
-                                        }}
-                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Link */}
-                        <div className="py-6 border-b border-white/5">
-                            <div className="flex items-start gap-8">
-                                 <div className="w-[50%] shrink-0">
-                                    <h3 className="text-[14px] font-bold text-white mb-1">Link</h3>
-                                    <p className="text-[14px] text-zinc-400">Add a link to your personal website or portfolio.</p>
-                                </div>
-                                <div className="flex-1">
-                                    <input 
-                                        type="text" 
-                                        className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-2.5 text-[14px] text-white focus:outline-none focus:border-white/20 transition-colors"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Hide profile picture */}
-                        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Hide profile picture</h3>
-                            </div>
-                            <div className="w-4 h-4 rounded border border-white/10 bg-transparent cursor-pointer flex items-center justify-center">
-                                 {/* Checkbox Placeholder - assuming functionality not required yet or simple div */}
-                            </div>
-                        </div>
-
-                        {/* Chat suggestions */}
-                        <div className="py-6 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Chat suggestions</h3>
-                                <p className="text-[14px] text-zinc-400">Show helpful suggestions in the chat interface to enhance your experience.</p>
-                            </div>
-                             <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-                                <div className="w-3.5 h-3.5 rounded-full bg-white transition-all translate-x-[16px]" />
-                            </div>
-                        </div>
-
-                        {/* Generation complete sound */}
-                        <div className="py-6 border-t border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[50%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Generation complete sound</h3>
-                                 <p className="text-[14px] text-zinc-400">Plays a satisfying sound notification when a generation is finished.</p>
-                            </div>
-                             <div className="space-y-2">
-                                 <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full border border-white/20 flex items-center justify-center">
-                                        <div className="w-2 h-2 bg-white rounded-full"></div>
-                                    </div>
-                                    <span className="text-[14px] text-white">First generation</span>
-                                </div>
-                                 <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full border border-white/20"></div>
-                                    <span className="text-[14px] text-zinc-400">Always</span>
-                                </div>
-                                 <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full border border-white/20"></div>
-                                    <span className="text-[14px] text-zinc-400">Never</span>
-                                </div>
-                            </div>
-                        </div>
-
-                         {/* Linked sign-in providers */}
-                        <div className="py-6 border-t border-white/5 flex items-start justify-between gap-8">
-                            <div className="flex-1 max-w-[100%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Linked sign-in providers</h3>
-                                 <p className="text-[14px] text-zinc-400 mb-3">Manage authentication providers linked to your account.</p>
-                                 
-                                 <div className="w-full bg-[#1c1c1c] border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between">
-                                      <div className="flex items-center gap-3">
-                                            <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-1">
-                                                {/* Google G SVG */}
-                                                <svg viewBox="0 0 24 24" className="w-full h-full">
-                                                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                                                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                                                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                                                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <div className="text-[13px] font-medium text-white flex items-center gap-2">
-                                                    Google 
-                                                    <span className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Primary</span>
-                                                </div>
-                                                <div className="text-[13px] text-zinc-500">{user?.email || ''}</div>
-                                            </div>
-                                      </div>
-                                 </div>
-                            </div>
-                        </div>
-
-
-                         {/* Delete account */}
-                         <div className="py-6 border-t border-white/5 flex items-center justify-between gap-8 mb-8">
-                            <div className="flex-1 max-w-[60%]">
-                                <h3 className="text-[14px] font-bold text-white mb-1">Delete account</h3>
-                                 <p className="text-[14px] text-zinc-400">Permanently delete your Willow account. This cannot be undone.</p>
-                            </div>
-                            <button 
-                              onClick={() => setShowDeleteConfirmation(true)}
-                              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[13px] font-medium rounded-lg transition-colors"
-                            >
-                                Delete account
-                            </button>
-                        </div>
-
-                        {/* Delete Account Confirmation Dialog */}
-                        {showDeleteConfirmation && (
-                          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]">
-                            <div className="bg-[#1c1c1c] border border-white/10 rounded-[2rem] p-8 max-w-md w-full mx-4 shadow-2xl">
-                              <div className="flex items-center gap-3 mb-6">
-                                <div className="w-12 h-12 rounded-full bg-red-600/20 flex items-center justify-center">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
-                                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                                    <path d="M12 9v4"/>
-                                    <path d="M12 17h.01"/>
-                                  </svg>
-                                </div>
-                                <h2 className="text-[20px] font-bold text-white">Delete your account?</h2>
-                              </div>
-                              
-                              <div className="bg-red-600/10 border border-red-600/20 rounded-xl p-4 mb-6">
-                                <p className="text-[14px] text-red-200">
-                                  <strong>Warning:</strong> This action is permanent and cannot be undone. All of the following will be deleted:
-                                </p>
-                                <ul className="text-[14px] text-red-200/80 mt-2 space-y-1 list-disc list-inside">
-                                  <li>All your projects and code</li>
-                                  <li>Your profile and settings</li>
-                                  <li>All data in Google Drive (Willow Apps folder)</li>
-                                  <li>Your account credentials</li>
-                                </ul>
-                              </div>
-                              
-                              {deleteError && (
-                                <div className="bg-red-600/20 border border-red-600/30 rounded-xl p-3 mb-4">
-                                  <p className="text-[13px] text-red-300">{deleteError}</p>
-                                </div>
-                              )}
-                              
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => {
-                                    setShowDeleteConfirmation(false);
-                                    setDeleteError(null);
-                                  }}
-                                  className="flex-1 px-4 py-3 text-[14px] font-semibold text-white bg-white/5 hover:bg-white/10 rounded-xl transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={handleDeleteAccount}
-                                  disabled={isDeleting}
-                                  className="flex-1 px-4 py-3 text-[14px] font-semibold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                >
-                                  {isDeleting ? (
-                                    <>
-                                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                      </svg>
-                                      Deleting...
-                                    </>
-                                  ) : (
-                                    'Delete permanently'
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Spacer for floating footer */}
-                        <div className="h-10"></div>
-                    </div>
-                    
-                    {/* Floating Footer */}
-                    <div className="absolute bottom-0 w-full bg-[#1c1c1c] border-t border-white/10 px-8 py-4 flex items-center justify-end gap-3 z-10 shadow-2xl">
-                         <button 
-                            onClick={handleAccountCancel}
-                            className="px-4 py-2 text-[13px] font-bold text-white hover:bg-white/5 rounded-lg transition-colors"
-                         >
-                            Cancel
-                        </button>
-                        <button 
-                            onClick={handleAccountUpdate}
-                            disabled={!accountSettingsChanged}
-                            className="px-5 py-2 bg-white text-black text-[13px] font-bold rounded-lg hover:bg-zinc-100 transition-colors shadow-lg shadow-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            Update
-                        </button>
-                    </div>
-                </div>
+                <AccountTab
+                  user={user}
+                  userProfile={userProfile}
+                  localDisplayName={localDisplayName}
+                  setLocalDisplayName={setLocalDisplayName}
+                  localUsername={localUsername}
+                  setLocalUsername={setLocalUsername}
+                  localPhotoURL={localPhotoURL}
+                  setLocalPhotoURL={setLocalPhotoURL}
+                  localLocation={localLocation}
+                  setLocalLocation={setLocalLocation}
+                  localDescription={localDescription}
+                  setLocalDescription={setLocalDescription}
+                  accountSettingsChanged={accountSettingsChanged}
+                  setAccountSettingsChanged={setAccountSettingsChanged}
+                  showDeleteConfirmation={showDeleteConfirmation}
+                  setShowDeleteConfirmation={setShowDeleteConfirmation}
+                  isDeleting={isDeleting}
+                  deleteError={deleteError}
+                  setDeleteError={setDeleteError}
+                  handleDeleteAccount={handleDeleteAccount}
+                  handleAccountUpdate={handleAccountUpdate}
+                  handleAccountCancel={handleAccountCancel}
+                />
             )}
 
             {activeTab === 'connectors' && (
-                !activeConnector ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto">
-                        <div className="flex items-center justify-between mb-2">
-                            <h1 className="text-[24px] font-bold text-white">Connectors</h1>
-                        </div>
-
-                        {/* Enabled connectors */}
-                        <div className="mt-8">
-                            <h2 className="text-[16px] font-bold text-white mb-1">Enabled connectors</h2>
-                            <p className="text-[14px] text-zinc-400 mb-4 max-w-2xl">
-                                Add functionality to your apps. Configured once by admins, available to everyone in your workspace.
-                            </p>
-                            
-                            <div className="grid grid-cols-2 gap-4">
-                                {/* Webcontainers */}
-                                <div 
-                                    onClick={() => setActiveConnector('webcontainers')}
-                                    className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 flex items-center justify-center">
-                                            <Cloud size={20} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-0.5">
-                                                <span className="text-[14px] font-bold text-white">Webcontainers</span>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
-                                            </div>
-                                            <div className="text-[13px] text-zinc-400">Browser-based Node.js runtime</div>
-                                        </div>
-                                    </div>
-                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                </div>
-
-                                {/* Willow AI */}
-                                <div 
-                                    onClick={() => setActiveConnector('willow-ai')}
-                                    className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 flex items-center justify-center">
-                                            <FlaskConical size={20} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-0.5">
-                                                <span className="text-[14px] font-bold text-white">Willow AI</span>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
-                                            </div>
-                                            <div className="text-[13px] text-zinc-400">Unlock powerful AI features</div>
-                                        </div>
-                                    </div>
-                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                </div>
-
-                                {/* Local Folder Sync (if connected) */}
-                                {isLocalFolderConnected && (
-                                    <div 
-                                        onClick={() => setActiveConnector('localfs')}
-                                        className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors animate-[fadeIn_150ms_ease-out]"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 flex items-center justify-center">
-                                                <FolderOpen size={20} className="text-white" />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                    <span className="text-[14px] font-bold text-white">Local Folder</span>
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] shrink-0" />
-                                                </div>
-                                                <div className="text-[13px] text-zinc-400 truncate max-w-[200px]">Synced to: {localFolderName}</div>
-                                            </div>
-                                        </div>
-                                        <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Available connectors */}
-                        <div className="mt-10 mb-12">
-                            <h2 className="text-[16px] font-bold text-white mb-1">Available connectors</h2>
-                            <p className="text-[14px] text-zinc-400 mb-4 max-w-2xl">
-                                Connect your personal tools to provide context while building. Only you can access your connections.
-                            </p>
-                            
-                            <div className="grid grid-cols-2 gap-4">
-                                {/* Search */}
-                                <div 
-                                    onClick={() => setActiveConnector('search')}
-                                    className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 flex items-center justify-center">
-                                            <Search size={20} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <div className="text-[14px] font-bold text-white mb-0.5">Search</div>
-                                            <div className="text-[13px] text-zinc-400">Allow AI Agent to search through the web</div>
-                                        </div>
-                                    </div>
-                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                </div>
-
-                                {/* Drive */}
-                                <div 
-                                    onClick={() => setActiveConnector('drive')}
-                                    className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 flex items-center justify-center">
-                                            <HardDrive size={20} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <div className="text-[14px] font-bold text-white mb-0.5">Drive</div>
-                                            <div className="text-[13px] text-zinc-400">Save and share your projects</div>
-                                        </div>
-                                    </div>
-                                    <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                </div>
-
-                                {/* Local Folder Sync (if not connected) */}
-                                {!isLocalFolderConnected && (
-                                    <div 
-                                        onClick={() => setActiveConnector('localfs')}
-                                        className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 flex items-center justify-center">
-                                                <FolderOpen size={20} className="text-white" />
-                                            </div>
-                                            <div>
-                                                <div className="text-[14px] font-bold text-white mb-0.5">Local Folder</div>
-                                                <div className="text-[13px] text-zinc-400">Save projects & chats locally</div>
-                                            </div>
-                                        </div>
-                                        <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                ) : activeConnector === 'willow-ai' ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
-                        <button 
-                            onClick={() => setActiveConnector(null)}
-                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
-                        >
-                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
-                            <span>Connectors</span>
-                        </button>
-
-                        <div className="flex items-center justify-center mb-10">
-                             <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 flex items-center justify-center">
-                                    <FlaskConical size={32} className="text-white" />
-                                </div>
-                                <div>
-                                    <div className="flex items-center justify-center gap-2.5 mb-1">
-                                        <h1 className="text-[24px] font-bold text-white">Willow AI</h1>
-                                        <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
-                                    </div>
-                                    <p className="text-[16px] text-zinc-400">Unlock powerful AI features</p>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div className="space-y-10 max-w-3xl mx-auto">
-                            {/* Overview */}
-                            <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Overview</h2>
-                                <p className="text-[14px] leading-relaxed text-zinc-400">
-                                    Enable to use AI models without needing to provide an API key and centralized billing. 
-                                    Willow AI seamlessly integrates with your workflow to provide intelligent assistance, code generation, and more.
-                                </p>
-                            </div>
-
-                            {/* Available models */}
-                            <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Available models</h2>
-                                <p className="text-[14px] text-zinc-400 mb-6">
-                                    AI models you can use through Willow AI Gateway.
-                                </p>
-                                
-                                <div className="bg-[#272729] border border-white/5 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-6">
-                                    <div>
-                                        <h3 className="text-[15px] font-bold text-white mb-1">Manage Models & API Keys</h3>
-                                        <p className="text-[13px] text-zinc-400">
-                                            Configure your model providers, API keys, and selected models in the settings menu.
-                                        </p>
-                                    </div>
-                                    <button 
-                                        onClick={() => setActiveTab('models')}
-                                        className="px-4 py-2 bg-white text-black text-[13px] font-bold rounded-lg hover:bg-zinc-200 transition-colors whitespace-nowrap"
-                                    >
-                                        Open Settings
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ) : activeConnector === 'webcontainers' ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
-                        <button 
-                            onClick={() => setActiveConnector(null)}
-                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
-                        >
-                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
-                            <span>Connectors</span>
-                        </button>
-
-                        <div className="flex items-center justify-center mb-10">
-                             <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 flex items-center justify-center">
-                                    <Cloud size={32} className="text-white" />
-                                </div>
-                                <div>
-                                    <div className="flex items-center justify-center gap-2.5 mb-1">
-                                        <h1 className="text-[24px] font-bold text-white">Webcontainers</h1>
-                                        <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
-                                    </div>
-                                    <p className="text-[16px] text-zinc-400">Browser-based Node.js runtime</p>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div className="space-y-10 max-w-3xl mx-auto">
-                            {/* Overview */}
-                            <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Overview</h2>
-                                <p className="text-[14px] leading-relaxed text-zinc-400">
-                                    Webcontainers allow you to run Node.js directly in your browser. This technology powers the instant development environment, enabling you to run build tools, servers, and scripts without any local setup or cloud latency.
-                                </p>
-                            </div>
-
-                             {/* Features / Details */}
-                             <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Capabilities</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                         <h3 className="text-[14px] font-bold text-white mb-1">Instant Boot</h3>
-                                         <p className="text-[13px] text-zinc-400">Environments start in milliseconds.</p>
-                                    </div>
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                         <h3 className="text-[14px] font-bold text-white mb-1">Secure by Default</h3>
-                                         <p className="text-[13px] text-zinc-400">Code runs entirely within your browser sandbox.</p>
-                                    </div>
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                         <h3 className="text-[14px] font-bold text-white mb-1">Full Node.js API</h3>
-                                         <p className="text-[13px] text-zinc-400">Support for standard Node.js binaries and packages.</p>
-                                    </div>
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                         <h3 className="text-[14px] font-bold text-white mb-1">Offline Capable</h3>
-                                         <p className="text-[13px] text-zinc-400">Works even without an internet connection once loaded.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ) : activeConnector === 'search' ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
-                        <button 
-                            onClick={() => setActiveConnector(null)}
-                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
-                        >
-                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
-                            <span>Connectors</span>
-                        </button>
-
-                         <div className="flex items-center justify-center mb-10">
-                             <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 flex items-center justify-center">
-                                    <Search size={32} className="text-white" />
-                                </div>
-                                <div>
-                                     <div className="flex items-center justify-center gap-3 mb-1">
-                                        <h1 className="text-[24px] font-bold text-white">Search</h1>
-                                    </div>
-                                    <p className="text-[16px] text-zinc-400">Allow AI Agent to search through the web</p>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div className="max-w-xl mx-auto space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-[14px] font-medium text-white">Google Custom Search API Key</label>
-                                <input 
-                                    type="password"
-                                    placeholder="Enter your API key"
-                                    className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/20 transition-all placeholder:text-zinc-600"
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-[14px] font-medium text-white">Search Engine ID (CX)</label>
-                                <input 
-                                    type="text"
-                                    placeholder="Enter your Search Engine ID"
-                                    className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[14px] text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/20 transition-all placeholder:text-zinc-600"
-                                />
-                            </div>
-
-                             <div className="pt-4 flex justify-end">
-                                <button className="px-6 py-2.5 bg-white text-black text-[14px] font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5">
-                                    Save Configuration
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                ) : activeConnector === 'localfs' ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
-                        <button 
-                            onClick={() => setActiveConnector(null)}
-                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
-                        >
-                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
-                            <span>Connectors</span>
-                        </button>
-
-                         <div className="flex items-center justify-center mb-10">
-                             <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 flex items-center justify-center">
-                                    <FolderOpen size={32} className="text-white" />
-                                </div>
-                                <div>
-                                     <div className="flex items-center justify-center gap-2.5 mb-1">
-                                        <h1 className="text-[24px] font-bold text-white">Local Folder Sync</h1>
-                                        {isLocalFolderConnected && (
-                                            <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
-                                        )}
-                                    </div>
-                                    <p className="text-[16px] text-zinc-400">Save your projects, chats, and media directly on your device</p>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div className="max-w-xl mx-auto space-y-8">
-                            {/* Overview */}
-                            <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Overview</h2>
-                                <p className="text-[14px] leading-relaxed text-zinc-400">
-                                    Synchronize your chats, media generations, and vibecoded apps directly to a folder on your computer. 
-                                    Once set up, the application will write checkpoints and files in real-time.
-                                </p>
-                            </div>
-
-                            {/* FSAA Browser Support check */}
-                            {!isLocalFSSupported ? (
-                                <div className="bg-red-900/20 border border-red-900/30 rounded-xl p-4 flex items-start gap-3">
-                                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={18} />
-                                    <div>
-                                        <h4 className="text-[14px] font-bold text-white mb-1">Not Supported</h4>
-                                        <p className="text-[13px] text-zinc-300">
-                                            Your browser does not support the File System Access API. Please use a modern Chromium-based browser (e.g. Chrome, Edge, Brave, or Opera).
-                                        </p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    {/* Connection Status & Action */}
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-6">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 flex items-center justify-center">
-                                                    {isLocalFolderConnected ? (
-                                                        <Check size={24} className="text-[#4ade80]" />
-                                                    ) : (
-                                                        <FolderOpen size={24} className="text-zinc-500" />
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-[15px] font-bold text-white mb-0.5">
-                                                        {isLocalFolderConnected ? 'Local Folder Connected' : 'Local Folder'}
-                                                    </h3>
-                                                    <p className="text-[13px] text-zinc-400">
-                                                        {isLocalFolderConnected 
-                                                            ? `Synced to: ${localFolderName}` 
-                                                            : 'Connect a folder on your hard drive'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            
-                                            {isLocalFolderConnected ? (
-                                                <button 
-                                                    onClick={disconnectLocalFolder}
-                                                    className="px-4 py-2 bg-[#1c1c1c] text-zinc-400 text-[13px] font-medium rounded-lg hover:bg-[#2a2a2a] hover:text-white transition-colors border border-white/10"
-                                                >
-                                                    Disconnect
-                                                </button>
-                                            ) : (
-                                                <button 
-                                                    onClick={async () => {
-                                                        await connectLocalFolder();
-                                                    }}
-                                                    className="px-5 py-2.5 bg-white text-black text-[13px] font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5 flex items-center gap-2"
-                                                >
-                                                    Select Folder
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Permissions Information Box */}
-                                    <div className="bg-blue-900/10 border border-blue-900/20 rounded-xl p-5 text-zinc-300">
-                                        <h3 className="text-[14px] font-bold text-white mb-2 flex items-center gap-2">
-                                            <Shield size={16} className="text-blue-400" />
-                                            Bypassing Permission Prompts
-                                        </h3>
-                                        <p className="text-[13px] leading-relaxed mb-3">
-                                            For security, your browser resets local folder permissions when you reload the page, requiring you to grant access again. To prevent this and allow silent auto-saving:
-                                        </p>
-                                        <ol className="text-[13px] list-decimal list-inside space-y-1 ml-1 text-zinc-400">
-                                            <li>Click the <strong className="text-white">lock/settings icon</strong> to the left of the URL in your browser's address bar.</li>
-                                            <li>Find the <strong className="text-white">File System</strong> or <strong className="text-white">Edit files on your device</strong> setting.</li>
-                                            <li>Change its value to <strong className="text-white">Allow</strong>.</li>
-                                        </ol>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                ) : activeConnector === 'drive' ? (
-                    <div className="w-full h-full px-12 py-10 overflow-y-auto animate-[fadeIn_150ms_ease-out]">
-                        <button 
-                            onClick={() => setActiveConnector(null)}
-                            className="flex items-center gap-2 text-[14px] text-zinc-400 hover:text-white transition-colors mb-6 group"
-                        >
-                            <ChevronDown className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16} />
-                            <span>Connectors</span>
-                        </button>
-
-                         <div className="flex items-center justify-center mb-10">
-                             <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="w-16 h-16 flex items-center justify-center">
-                                    <HardDrive size={32} className="text-white" />
-                                </div>
-                                <div>
-                                     <div className="flex items-center justify-center gap-2.5 mb-1">
-                                        <h1 className="text-[24px] font-bold text-white">Drive</h1>
-                                        {isDriveConnected && (
-                                            <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0 animate-pulse" />
-                                        )}
-                                    </div>
-                                    <p className="text-[16px] text-zinc-400">Save and share your projects</p>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div className="max-w-xl mx-auto space-y-8">
-                            {/* Overview */}
-                            <div>
-                                <h2 className="text-[18px] font-bold text-white mb-3">Overview</h2>
-                                <p className="text-[14px] leading-relaxed text-zinc-400">
-                                    Connect your Google Drive to save and share your projects seamlessly. Your projects will be 
-                                    stored in a dedicated folder, making it easy to access them from anywhere and collaborate with your team.
-                                </p>
-                            </div>
-
-                            {/* Connection Status & Action */}
-                            <div className="bg-[#272729] border border-white/5 rounded-xl p-6">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 flex items-center justify-center">
-                                            {isDriveConnected ? (
-                                                <Check size={24} className="text-[#4ade80]" />
-                                            ) : (
-                                                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none">
-                                                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                                                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                                                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                                                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                                                </svg>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <h3 className="text-[15px] font-bold text-white mb-0.5">
-                                                {isDriveConnected ? 'Google Drive Connected' : 'Google Drive'}
-                                            </h3>
-                                            <p className="text-[13px] text-zinc-400">
-                                                {isDriveConnected 
-                                                    ? 'Your projects are being synced to Drive' 
-                                                    : 'Connect to save projects to your Drive'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    
-                                    {isDriveConnected ? (
-                                        <button 
-                                            onClick={disconnectDrive}
-                                            className="px-4 py-2 bg-[#1c1c1c] text-zinc-400 text-[13px] font-medium rounded-lg hover:bg-[#2a2a2a] hover:text-white transition-colors border border-white/10"
-                                        >
-                                            Disconnect
-                                        </button>
-                                    ) : (
-                                        <button 
-                                            onClick={connectDrive}
-                                            className="px-5 py-2.5 bg-white text-black text-[13px] font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5 flex items-center gap-2"
-                                        >
-                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                                                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                                                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                                                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                                            </svg>
-                                            Connect Google Drive
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Benefits */}
-                            {!isDriveConnected && (
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                        <h3 className="text-[14px] font-bold text-white mb-1">Cloud Backup</h3>
-                                        <p className="text-[13px] text-zinc-400">Your projects are safely stored in the cloud.</p>
-                                    </div>
-                                    <div className="bg-[#272729] border border-white/5 rounded-xl p-4">
-                                        <h3 className="text-[14px] font-bold text-white mb-1">Easy Sharing</h3>
-                                        <p className="text-[13px] text-zinc-400">Share projects with anyone via Drive links.</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ) : null
+                <ConnectorsTab
+                  activeConnector={activeConnector}
+                  setActiveConnector={setActiveConnector}
+                  setActiveTab={setActiveTab}
+                  isLocalFSSupported={isLocalFSSupported}
+                  isLocalFolderConnected={isLocalFolderConnected}
+                  localFolderName={localFolderName}
+                  connectLocalFolder={connectLocalFolder}
+                  disconnectLocalFolder={disconnectLocalFolder}
+                  isDriveConnected={isDriveConnected}
+                  connectDrive={connectDrive}
+                  disconnectDrive={disconnectDrive}
+                />
             )}
 
-
-
-            {activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && (
+            {activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && activeTab !== 'models' && (
                 <div className="w-full h-full flex items-center justify-center text-zinc-500 italic">
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings coming soon...
                 </div>
