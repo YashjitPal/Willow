@@ -38,6 +38,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
 import { loadAllProjectCovers, deleteProjectData } from '../lib/mediaStorage';
+import { deleteCodeSessions } from '../lib/willowDB';
 import { useLocalFS } from '../context/LocalFSContext';
 
 interface ProjectCardProps {
@@ -347,6 +348,9 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     try {
       await deleteProjectData(id);
       await deleteLocalFSProject(id, title);
+      // Code-editor sessions are keyed by project NAME — remove them too so a
+      // "permanent" delete doesn't leave orphaned session data in IndexedDB.
+      void deleteCodeSessions(`willow_chat_sessions_${title}`);
       const stored = localStorage.getItem('willow_projects_list');
       if (stored) {
         const list = JSON.parse(stored);
@@ -370,13 +374,16 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     hours = hours % 12;
     hours = hours ? hours : 12;
     const hoursStr = String(hours).padStart(2, '0');
-    return `${month} ${day}, ${hoursStr}:${minutes} ${ampm}`;
+    // "10.15", not "10:15" — the name becomes the project's disk folder name,
+    // and ':' is a reserved character on Windows: getDirectoryHandle threw
+    // "Name is not allowed" on every save, so default-named projects silently
+    // never appeared in the connected folder until manually renamed.
+    return `${month} ${day}, ${hoursStr}.${minutes} ${ampm}`;
   };
 
   const handleCreateNewProject = () => {
-    const tempId = `temp_#${Math.floor(1000 + Math.random() * 9000)}`;
     const dateName = formatProjectDate(new Date());
-    
+
     const stored = localStorage.getItem('willow_projects_list');
     let existingProjects: any[] = [];
     if (stored) {
@@ -384,7 +391,17 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
         existingProjects = JSON.parse(stored);
       } catch (e) {}
     }
-    
+
+    // Mint an id no existing project already uses — the temp id's "#XXXX"
+    // suffix becomes the real project id on materialization, and a duplicate
+    // id cross-links two projects' covers/media in IndexedDB.
+    const usedIds = new Set(existingProjects.map((p: any) => p?.id).filter(Boolean));
+    let mintedId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    while (usedIds.has(mintedId)) {
+      mintedId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+    const tempId = `temp_${mintedId}`;
+
     let uniqueName = dateName;
     let counter = 1;
     while (existingProjects.some(p => p.name.toLowerCase() === uniqueName.toLowerCase())) {

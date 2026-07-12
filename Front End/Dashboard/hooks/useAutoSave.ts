@@ -36,14 +36,16 @@ export function useAutoSave(projectName: string, enabled: boolean = true, deboun
   // Debounced save when files change
   useEffect(() => {
     if (!enabled || (!isReady && !isLocalFolderConnected)) return;
-    
+
     // Clear previous timer
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
-    
-    // Set new timer
+
+    // Set new timer. Null the ref when it fires so "timerRef.current is set"
+    // always means "a save is still pending" (the unmount flush relies on it).
     timerRef.current = setTimeout(() => {
+      timerRef.current = null;
       save();
     }, debounceMs);
 
@@ -58,9 +60,26 @@ export function useAutoSave(projectName: string, enabled: boolean = true, deboun
   const saveNow = useCallback(async () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
     await save();
   }, [save]);
+
+  // Flush a pending debounced save on unmount. The debounce timer dies with the
+  // component, so without this the last <debounceMs of edits before leaving the
+  // editor never reached Drive / the local folder. save() itself no-ops when
+  // the store has no files, so a teardown-time flush can never save an empty
+  // project over a real one.
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; }, [save]);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        void saveRef.current();
+      }
+    };
+  }, []);
 
   return {
     isSaving,

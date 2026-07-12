@@ -80,7 +80,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 }) => {
   const { apiKeys } = useUserDataContext();
   const { background } = useBackground();
-  const { isLocalFolderConnected, saveLocalFSChat, generateChatTitle, activeChatId, loadLocalFSChat } = useLocalFS();
+  const { isLocalFolderConnected, saveLocalFSChat, generateChatTitle, activeChatId, loadLocalFSChat, localChats } = useLocalFS();
 
   // Unique session ID for auto-saving chats locally
   const [chatSessionId, setChatSessionId] = useState(() => {
@@ -176,9 +176,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // Generate chat title using the user's selected Chat Naming Model once we have the first user prompt.
   // Instantly renames the chat session from its temporary ID to the new title.
+  // localChats is read via a ref (not a dep) so poll-driven list reorders can't
+  // re-trigger this effect, and an in-flight ref guards against a second
+  // generation firing while the first is still awaiting the naming model.
+  const localChatsRef = useRef(localChats);
+  useEffect(() => { localChatsRef.current = localChats; }, [localChats]);
+  const titleGenInFlightRef = useRef(false);
   useEffect(() => {
     if (isIncognito) return;
-    if (isLocalFolderConnected && messages.length >= 2 && !chatTitle) {
+    if (isLocalFolderConnected && messages.length >= 2 && !chatTitle && !titleGenInFlightRef.current) {
+      titleGenInFlightRef.current = true;
       const userMsg = messages[0].content;
       const assistantMsg = messages[1].content;
       
@@ -198,7 +205,19 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         }
 
         if (title) {
-          setChatTitle(title);
+          // A generated title can collide with an EXISTING chat's name (two
+          // conversations about the same topic name identically) — and
+          // saveLocalFSChat would then silently overwrite that older chat's
+          // body in IndexedDB and on disk. Uniquify against the known chat
+          // list first ("Title", "Title (1)", …).
+          const taken = new Set(localChatsRef.current.filter((c) => c !== chatSessionId));
+          let uniqueTitle = title;
+          let suffix = 1;
+          while (taken.has(uniqueTitle)) {
+            uniqueTitle = `${title} (${suffix})`;
+            suffix++;
+          }
+          setChatTitle(uniqueTitle);
           // Rename to the title AND persist the FULL conversation under it (not
           // just the first message). Saving only the user message left a
           // truncated chat on disk, and the follow-up full save was skipped
@@ -207,7 +226,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           const fullStripped = messages.map(
             ({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest
           );
-          void saveLocalFSChat(title, fullStripped, chatSessionId);
+          void saveLocalFSChat(uniqueTitle, fullStripped, chatSessionId);
         }
       };
       void fetchTitle();

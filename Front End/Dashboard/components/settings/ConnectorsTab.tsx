@@ -11,7 +11,7 @@ interface ConnectorsTabProps {
   isLocalFSSupported: boolean;
   isLocalFolderConnected: boolean;
   localFolderName: string | null;
-  connectLocalFolder: () => Promise<void>;
+  connectLocalFolder: () => Promise<boolean>;
   disconnectLocalFolder: () => void;
   // Drive
   isDriveConnected: boolean;

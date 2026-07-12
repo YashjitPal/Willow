@@ -47,7 +47,8 @@ import {
   MessagesSquare,
   Library,
   Layout,
-  Component
+  Component,
+  FileText
 } from 'lucide-react';
 import { AgentIcon } from '../ui/AgentIcon';
 import { CanvasIcon } from '../ui/CanvasIcon';
@@ -74,6 +75,7 @@ import { VisualEditorSelectMenu } from './VisualEditorSelectMenu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
+import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '../../lib/stores/agent-builder-store';
 import { newChatSignal } from '../../lib/stores/chat-store';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
 import { useLocalFS } from '../../context/LocalFSContext';
@@ -538,6 +540,7 @@ interface SidebarProps {
   activeTab: string;
   onTabChange: (id: string) => void;
   isChatMode?: boolean;
+  onHomeClick?: () => void;
   modelConfig: any;
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
@@ -1625,7 +1628,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
@@ -1633,6 +1636,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [sidebarView, setSidebarViewRaw] = useState<'chat' | 'visual-edit'>('chat');
   const hasUnsaved = useStore(hasUnsavedChanges);
   const [showExitModal, setShowExitModal] = useState(false);
+  // Agent Builder: saved-workflow list + backend status for the Library card
+  const abWorkflows = useStore(agentWorkflowList);
+  const abStatus = useStore(abBackendStatus);
+  const [showAgentLibrary, setShowAgentLibrary] = useState(false);
 
   const [pendingExitAction, setPendingExitAction] = useState<(() => void) | null>(null);
 
@@ -3131,6 +3138,12 @@ User Prompt:
 
   // Handle Initial Prompt Display & UI Status (both chat mode and staging mode)
   const initialPromptDisplayed = useRef(false);
+  // True only when THIS mount is starting a genuinely fresh generation (a brand
+  // new project). Stays false when we're merely returning to an existing project
+  // from another page (e.g. /media) with ?prompt= still in the URL — which must
+  // NOT re-trigger generation. Guards the fire-generation effect below so the
+  // preview never re-enters the generation animation on back-navigation.
+  const shouldFireInitialGenRef = useRef(false);
   useEffect(() => {
     if (prompt && !initialPromptDisplayed.current) {
       initialPromptDisplayed.current = true;
@@ -3147,6 +3160,10 @@ User Prompt:
       if (isNewProject) {
         navigate(location.pathname + location.search, { replace: true, state: { ...location.state, isNewProject: false } });
       }
+
+      // This mount is performing a genuine fresh generation (not a return to an
+      // existing project) — allow the fire-generation effect below to run once.
+      shouldFireInitialGenRef.current = true;
 
       // Reset stores for fresh session
       sandpackStore.reset();
@@ -3224,7 +3241,10 @@ User Prompt:
   // Handle Initial AI Generation - Fire immediately since keys are loaded synchronously
   const initialAiTriggered = useRef(false);
   useEffect(() => {
-    if (prompt && !initialAiTriggered.current && messages.length > 0) {
+    // shouldFireInitialGenRef gates out back-navigation returns: on a return to an
+    // existing project the display effect above early-returns without setting it,
+    // so we must not re-fire generation (which would show the stuck animation).
+    if (prompt && !initialAiTriggered.current && messages.length > 0 && shouldFireInitialGenRef.current) {
       initialAiTriggered.current = true;
 
       // Process initial attachments for sending to AI
@@ -3672,6 +3692,11 @@ User Prompt:
       setIsCurrentlyThinking(false);
       setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+    } finally {
+      // Always clear the global generating flag so the preview can never get
+      // stuck on the loading animation after a stream error/abort. Without this,
+      // a failed generation left isGenerating=true forever (showFullLoading).
+      workbenchStore.isGenerating.set(false);
     }
   };
 
@@ -3981,6 +4006,9 @@ CODING RULES:
       setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       isSwarmRunning.set(false);
+      // Clear the global generating flag so the preview never sticks on the
+      // loading animation after a swarm error/abort.
+      workbenchStore.isGenerating.set(false);
 
       // Add error as assistant message
       const errorMessage: ChatMessage = {
@@ -4485,6 +4513,7 @@ CODING RULES:
   }, [isToolsMenuOpen, shouldRenderToolsMenu]);
 
   const TOOLS = [
+    { id: 'plan', label: 'Plan', icon: FileText },
     { id: 'image', label: 'Image', icon: ImageIcon },
     { id: 'design', label: 'Design', icon: Palette },
     { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
@@ -4608,6 +4637,14 @@ CODING RULES:
       }
     };
   }, [promptValue]);
+
+  // Focus textarea on mount to keep keyboard/glowing ring active during swap
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, []);
+
   return (
     <>
       <UnsavedChangesModal 
@@ -4756,7 +4793,7 @@ CODING RULES:
           <div className="flex items-center min-w-0 h-full" style={{ paddingLeft: '10px' }}>
             {/* Logo Button - Squircle hover background, Dashboard link */}
             <button 
-              onClick={() => navigate('/')}
+              onClick={() => onHomeClick ? onHomeClick() : navigate('/')}
               className="flex items-center justify-center p-1.5 hover:bg-white/5 transition-colors rounded-xl flex-shrink-0"
               title="Back to Dashboard"
             >
@@ -4949,13 +4986,20 @@ CODING RULES:
                <div className="h-[40px]" />
 
                {/* Builder Card */}
-               <div 
+               <div
                  onClick={() => onTabChange('agent-builder')}
                  className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
                >
                   <div className="flex flex-col gap-[14px]">
-                     <div className="text-white">
+                     <div className="text-white flex items-center justify-between">
                         <AgentIcon size={20} />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); requestedWorkflowId.set('__new__'); onTabChange('agent-builder'); }}
+                          className="text-[12px] font-medium text-gray-400 hover:text-white transition-colors flex items-center gap-1"
+                          title="Create a new workflow"
+                        >
+                          <Plus size={14} /> New
+                        </button>
                      </div>
                      <div className="flex items-end justify-between">
                         <div>
@@ -4968,20 +5012,49 @@ CODING RULES:
                </div>
 
                {/* Library Card */}
-               <div className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
+               <div
+                 onClick={() => setShowAgentLibrary((v) => !v)}
+                 className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200">
                   <div className="flex flex-col gap-[14px]">
-                     <div className="text-white">
+                     <div className="text-white flex items-center justify-between">
                         <Library size={20} strokeWidth={1.5} />
+                        <span className={`w-2 h-2 rounded-full ${abStatus === 'up' ? 'bg-green-400' : abStatus === 'down' ? 'bg-red-400' : 'bg-yellow-400'}`} title={`Backend ${abStatus}`} />
                      </div>
                      <div className="flex items-end justify-between">
                         <div>
                            <div className="text-[16px] font-semibold text-white mb-1">Library</div>
-                           <div className="text-[14px] text-gray-400 font-medium">View and interact with your built Agents</div>
+                           <div className="text-[14px] text-gray-400 font-medium">
+                             {abStatus === 'down' ? 'Backend offline — start it to load agents' : `${abWorkflows.length} saved workflow${abWorkflows.length === 1 ? '' : 's'}`}
+                           </div>
                         </div>
-                        <ChevronRight size={20} className="text-gray-500 group-hover:text-white transition-colors translate-y-[1px]" />
+                        <ChevronRight size={20} className={`text-gray-500 group-hover:text-white transition-transform translate-y-[1px] ${showAgentLibrary ? 'rotate-90' : ''}`} />
                      </div>
                   </div>
                </div>
+
+               {/* Saved workflows list */}
+               {showAgentLibrary && (
+                 <div className="flex flex-col gap-2 pl-1">
+                   {abWorkflows.length === 0 && (
+                     <div className="text-[13px] text-gray-500 px-2 py-1">
+                       {abStatus === 'up' ? 'No saved workflows yet. Open the Builder to create one.' : 'Start the Agent Builder backend to see your workflows.'}
+                     </div>
+                   )}
+                   {abWorkflows.map((w) => (
+                     <div
+                       key={w.id}
+                       onClick={() => { requestedWorkflowId.set(w.id); onTabChange('agent-builder'); }}
+                       className="group flex items-center justify-between bg-[#232326] hover:bg-[#2c2c30] rounded-xl px-3.5 py-2.5 cursor-pointer transition-colors"
+                     >
+                       <div className="min-w-0">
+                         <div className="text-[14px] font-medium text-white truncate">{w.name}</div>
+                         <div className="text-[12px] text-gray-500">{w.nodeCount} nodes · {w.latestVersion > 0 ? `v${w.latestVersion}` : 'draft'}</div>
+                       </div>
+                       <ChevronRight size={16} className="text-gray-600 group-hover:text-white transition-colors shrink-0" />
+                     </div>
+                   ))}
+                 </div>
+               )}
             </div>
           ) : activeTab === 'canvas' && !isChatMode ? (
             <div className="space-y-4">
@@ -5028,7 +5101,7 @@ CODING RULES:
             </div>
            ) : (
           <div className="space-y-12">
-            {activeConversationMessages.length === 0 && (
+            {activeConversationMessages.length === 0 && !prompt && (
               <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
                 <div className="text-[#3f3f46] mb-6">
                   <GeminiLogo size={48} />
@@ -5521,7 +5594,7 @@ CODING RULES:
                {/* Attachments Area (includes screen selections + file/image attachments in one row) */}
                <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasVisibleAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                  <div className="overflow-hidden">
-                   <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-1 px-1 transition-[padding] duration-[250ms] ease-in-out ${showContextHeader ? 'pt-2' : 'pt-0'}`}>
+                   <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-1 px-1 transition-[padding] duration-[250ms] ease-in-out ${showContextHeader ? 'pt-2' : 'pt-2'}`}>
                      {/* Screen attachments from canvas selection */}
                      {activeTab === 'canvas-screens' && displayedScreens.map((screen) => (
                        <div key={`screen-${screen.id}`} className={`relative group flex-shrink-0 transition-[opacity,transform] duration-200 ${fadingOutScreenIds.has(screen.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100'}`}>
@@ -5701,17 +5774,6 @@ CODING RULES:
                   </div>
                   
                   <div className="flex items-center gap-2">
-                     <button 
-                        disabled={hasUnsaved}
-                        className={`flex items-center gap-2 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-all text-[13px] font-medium flex-shrink-0 h-[36px]
-                          ${isCompact ? 'px-2.5 justify-center' : 'px-4'}
-                          ${hasUnsaved ? 'opacity-40 pointer-events-none' : ''}
-                        `}
-                        title="Chat"
-                     >
-                        <MessageSquare size={16} />
-                        {!isCompact && <span>Chat</span>}
-                     </button>
                       <div className="relative" ref={modelsMenuRef}>
                         {shouldRenderModelsMenu && (
                           <div 

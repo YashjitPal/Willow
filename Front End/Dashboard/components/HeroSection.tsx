@@ -3,6 +3,7 @@ import { InputBar } from './InputBar';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
 import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
+import { renameCodeSessions, deleteCodeSessions } from '../lib/willowDB';
 import { useLocalFS } from '../context/LocalFSContext';
 
 // @ts-ignore
@@ -171,7 +172,9 @@ export const HeroSection: React.FC<{
   // operate on the FULL localStorage list directly and then dispatch
   // `willow_projects_updated`, which refreshes the filtered display below.
   const persistProjectRename = React.useCallback((projectId: string, rawName: string) => {
-    const baseName = rawName.trim();
+    // Strip filesystem-illegal characters — the name becomes a folder name on
+    // disk, and an unusable one silently breaks every later folder operation.
+    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
     if (!baseName) return;
     try {
       const stored = localStorage.getItem('willow_projects_list');
@@ -191,7 +194,12 @@ export const HeroSection: React.FC<{
       window.dispatchEvent(new Event('willow_projects_updated'));
       // Keep the disk folder in lock-step so the disk-authoritative reconciler
       // doesn't revert the rename (and so saves target the right folder).
-      if (oldName) void renameLocalFSProject(oldName, uniqueName);
+      if (oldName) {
+        void renameLocalFSProject(oldName, uniqueName);
+        // Code-editor sessions are keyed by project NAME — migrate them too,
+        // or the renamed project opens with an empty chat/snapshot history.
+        void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
+      }
     } catch {}
   }, [renameLocalFSProject]);
 
@@ -205,17 +213,46 @@ export const HeroSection: React.FC<{
     hours = hours % 12;
     hours = hours ? hours : 12;
     const hoursStr = String(hours).padStart(2, '0');
-    return `${month} ${day}, ${hoursStr}:${minutes} ${ampm}`;
+    // "10.15", not "10:15" — the name becomes the project's disk folder name,
+    // and ':' is a reserved character on Windows: getDirectoryHandle threw
+    // "Name is not allowed" on every save, so default-named projects silently
+    // never appeared in the connected folder until manually renamed.
+    return `${month} ${day}, ${hoursStr}.${minutes} ${ampm}`;
   };
 
   const handleCreateNewProject = () => {
-    const tempId = `temp_#${Math.floor(1000 + Math.random() * 9000)}`;
+    // Mint an id no existing project already uses — check the FULL registry
+    // (the display list here is filtered in Media mode), because the temp id's
+    // "#XXXX" suffix becomes the real project id on materialization and a
+    // duplicate id cross-links two projects' covers/media in IndexedDB.
+    const usedIds = new Set<string>();
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      const list = stored ? JSON.parse(stored) : [];
+      if (Array.isArray(list)) for (const p of list) if (p?.id) usedIds.add(p.id);
+    } catch {}
+    let mintedId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    while (usedIds.has(mintedId)) {
+      mintedId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+    const tempId = `temp_${mintedId}`;
     const dateName = formatProjectDate(new Date());
-    
-    // We check against the current projectsList to ensure a unique name is proposed
+
+    // Dedupe the proposed name against the FULL registry, not the filtered
+    // display list — in Media mode `projectsList` hides code projects, and a
+    // code project created in the same minute shares this exact date-name.
+    // A name collision cross-links disk folders and name-keyed session records.
+    const allNames = new Set<string>();
+    try {
+      const storedList = localStorage.getItem('willow_projects_list');
+      const full = storedList ? JSON.parse(storedList) : [];
+      if (Array.isArray(full)) {
+        for (const p of full) if (typeof p?.name === 'string') allNames.add(p.name.toLowerCase());
+      }
+    } catch {}
     let uniqueName = dateName;
     let counter = 1;
-    while (projectsList.some(p => p.name.toLowerCase() === uniqueName.toLowerCase())) {
+    while (allNames.has(uniqueName.toLowerCase())) {
       uniqueName = `${dateName} (${counter})`;
       counter++;
     }

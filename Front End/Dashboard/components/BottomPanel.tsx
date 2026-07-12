@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { RECENT_PROJECTS } from '../constants';
 import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
+import { deleteCodeSessions } from '../lib/willowDB';
 
 interface ProjectMenuProps {
   onClose: () => void;
@@ -122,6 +123,9 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
     try {
       await deleteProjectData(id);
       await deleteLocalFSProject(id, name);
+      // Code-editor sessions are keyed by project NAME — remove them too so a
+      // "permanent" delete doesn't leave orphaned session data in IndexedDB.
+      void deleteCodeSessions(`willow_chat_sessions_${name}`);
       const stored = localStorage.getItem('willow_projects_list');
       if (stored) {
         const list = JSON.parse(stored);

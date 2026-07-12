@@ -61,7 +61,11 @@ class DriveService {
    * Find a folder by name within a parent folder
    */
   async findFolder(name: string, parentId?: string): Promise<DriveFile | null> {
-    let query = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    // Escape backslashes and single quotes: AI-generated project names can contain
+    // apostrophes (e.g. "Bob's App"), which would otherwise break the Drive `q`
+    // syntax and 400 the request — silently failing every save for that project.
+    const escapedName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    let query = `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     if (parentId) {
       query += ` and '${parentId}' in parents`;
     }
@@ -159,9 +163,17 @@ class DriveService {
   async saveCheckpoint(projectName: string, files: FileContent[]): Promise<string> {
     const projectFolderId = await this.getOrCreateProjectFolder(projectName);
     
-    // Get existing checkpoints to determine next number
+    // Get existing checkpoints to determine next number. Use the MAX existing
+    // suffix + 1 rather than count + 1 — otherwise deleting a middle checkpoint
+    // (001,002,003 → delete 002 → count 2 → "003") collides with an existing name
+    // and Drive silently creates a duplicate checkpoint_003.
     const existingCheckpoints = await this.listCheckpoints(projectName);
-    const nextNumber = existingCheckpoints.length + 1;
+    const maxNumber = existingCheckpoints.reduce((max, cp) => {
+      const m = /checkpoint_(\d+)/.exec(cp.name || '');
+      const n = m ? parseInt(m[1], 10) : 0;
+      return n > max ? n : max;
+    }, 0);
+    const nextNumber = maxNumber + 1;
     const checkpointName = `checkpoint_${String(nextNumber).padStart(3, '0')}`;
     
     console.log('[DriveService] Saving checkpoint:', checkpointName);
@@ -188,21 +200,27 @@ class DriveService {
    */
   private async updateLatestFolder(projectFolderId: string, files: FileContent[]): Promise<void> {
     let latestFolder = await this.findFolder('latest', projectFolderId);
-    
+
+    // Capture the previous generation's files, but do NOT delete them yet.
+    let staleFiles: DriveFile[] = [];
     if (latestFolder) {
-      // Delete existing files in latest folder
-      const existingFiles = await this.listFilesInFolder(latestFolder.id);
-      for (const file of existingFiles) {
-        await this.deleteFile(file.id);
-      }
+      staleFiles = await this.listFilesInFolder(latestFolder.id);
     } else {
       latestFolder = await this.createFolder('latest', projectFolderId);
     }
-    
-    // Save current files
+
+    // Write the new files FIRST. Deleting before writing left `latest/` empty (or
+    // half-populated) if the save was interrupted mid-rewrite — the project then
+    // opened blank. Writing first means latest/ always holds a complete set; the
+    // brief same-name duplicates are removed below and self-heal on the next save.
     for (const file of files) {
       const mimeType = this.getMimeType(file.name);
       await this.createFile(file.name, file.content, latestFolder.id, mimeType);
+    }
+
+    // Now remove the previous generation's files.
+    for (const file of staleFiles) {
+      await this.deleteFile(file.id);
     }
   }
 

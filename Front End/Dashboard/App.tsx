@@ -13,6 +13,7 @@ import { RainbowButton } from './components/ui/rainbow-button';
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
 import { DashboardChat } from './components/DashboardChat';
+import { CodeWorkspace } from './components/CodeWorkspace';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
@@ -76,6 +77,7 @@ const DashboardLayout: React.FC<{
   onIncognitoChat: () => void;
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
+  isSidebarHidden?: boolean;
 }> = ({
   isSearchOpen,
   setIsSearchOpen,
@@ -91,7 +93,8 @@ const DashboardLayout: React.FC<{
   isIncognito,
   onIncognitoChat,
   isSidebarCollapsed,
-  setIsSidebarCollapsed
+  setIsSidebarCollapsed,
+  isSidebarHidden = false
 }) => {
   const { background } = useBackground();
   const { 
@@ -138,6 +141,7 @@ const DashboardLayout: React.FC<{
           }}
           isIncognito={isIncognito}
           onIncognitoChat={onIncognitoChat}
+          isHidden={isSidebarHidden}
         />
       )}
       
@@ -363,6 +367,7 @@ const App: React.FC = () => {
 
   // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
@@ -490,6 +495,7 @@ const App: React.FC = () => {
               onIncognitoChat={handleIncognitoChat}
               isSidebarCollapsed={isSidebarCollapsed}
               setIsSidebarCollapsed={setIsSidebarCollapsed}
+              isSidebarHidden={isSidebarHidden}
             >
               {currentView === 'home' ? (
                 dashboardMode === 'chat' ? (
@@ -547,21 +553,24 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col min-h-full" key="develop">
-                    <HeroSection
-                      onPromptSubmit={handlePromptSubmit}
-                      modelConfig={modelConfig}
-                      selectedModelId={selectedModelId}
-                      setSelectedModelId={setSelectedModelId}
-                      onAuthRequired={!user ? () => navigate('/login') : undefined}
-                      isAuthenticated={!!user}
-                      agentSwarmEnabled={agentSwarmEnabled}
-                      onSwarmToggle={setAgentSwarmEnabled}
-                      dashboardMode="develop"
-                      isSidebarCollapsed={isSidebarCollapsed}
-                    />
-                    {/* BottomPanel showcase is only for Media mode */}
-                  </div>
+                  <CodeWorkspace
+                    key={`develop-${chatResetKey}`}
+                    chatResetKey={chatResetKey}
+                    modelConfig={modelConfig}
+                    setModelConfig={setModelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    isAuthenticated={!!user}
+                    onAuthRequired={!user ? () => navigate('/login') : undefined}
+                    agentSwarmEnabled={agentSwarmEnabled}
+                    onSwarmToggle={setAgentSwarmEnabled}
+                    onSettingsClick={(tab) => {
+                      if (tab) setSettingsInitialTab(tab);
+                      setIsSettingsOpen(true);
+                    }}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    onWorkspaceActive={setIsSidebarHidden}
+                  />
                 )
               ) : (
                 <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
