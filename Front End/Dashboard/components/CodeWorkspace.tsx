@@ -9,6 +9,7 @@ import { useLocalFS } from '../context/LocalFSContext';
 import { useBackground } from '../context/BackgroundContext';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { workbenchStore } from '../lib/sandpack';
+import { getCachedFirstName, cacheFirstName } from '../lib/displayName';
 import { MessageLoading } from './ui/message-loading';
 import logoG from '../src/assets/logog.png';
 import { PROJECT_NAME_MODEL } from '@models';
@@ -76,6 +77,28 @@ const getSmallCard2Image = (category: string) => {
     case 'aiapps': return presetImg;
     default: return null;
   }
+};
+
+// Warms the default-category ('foryou') card images. App.tsx gates the lazy
+// CodeWorkspace chunk on this so the bento grid appears fully formed instead
+// of images popping in one by one; capped so a slow image can never block the
+// UI for long — the hidden preloader below warms the rest after mount.
+export const preloadIdleImages = () => {
+  const firstPaintImages = [portfolioImg, pomodoroImg, devcheatsheetImg, newspaperImg, teamworkImg];
+  return Promise.race([
+    Promise.all(
+      firstPaintImages.map(
+        (src) =>
+          new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = src;
+          })
+      )
+    ),
+    new Promise<void>((resolve) => setTimeout(resolve, 800)),
+  ]);
 };
 
 // Lazy load heavy staging components — they stay in memory once loaded
@@ -582,7 +605,14 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   }, []);
 
   // ── Get user's name for heading ──────────────────────────────────────────
-  const firstName = userProfile?.displayName?.split(' ')[0] || 'there';
+  // Fall back to the locally cached name while the Firestore profile loads so
+  // the greeting never flashes "there" → real name; re-cache once known.
+  const [cachedFirstName] = useState(getCachedFirstName);
+  const profileFirstName = userProfile?.displayName?.split(' ')[0];
+  const firstName = profileFirstName || cachedFirstName || 'there';
+  useEffect(() => {
+    if (profileFirstName) cacheFirstName(profileFirstName);
+  }, [profileFirstName]);
 
   const containerStyle = isChatMode
     ? { width: '100%' }
