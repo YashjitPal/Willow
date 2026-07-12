@@ -25,6 +25,9 @@
       ],
       "@models": [
         "../../defaultmodel"
+      ],
+      "@agentbuilder": [
+        "../../Back End/agent-builder/client/index.ts"
       ]
     },
     "allowImportingTsExtensions": true,

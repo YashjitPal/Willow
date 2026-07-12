@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useUserDataContext } from '../../context/UserDataContext';
+import { useStore as useNanoStore } from '@nanostores/react';
+import { useAgentBuilderBackend } from '../../hooks/useAgentBuilderBackend';
+import { RunPanel } from './RunPanel';
+import { CodeExportModal } from './CodeExportModal';
+import { NodeConfigPanel } from './NodeConfigPanel';
+import { backendStatus, saveStatus, currentWorkflow } from '../../lib/stores/agent-builder-store';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ReactFlow, 
@@ -565,6 +571,11 @@ interface AgentConfigPanelProps {
   onNameChange: (newName: string) => void;
   instructions: string;
   onInstructionsChange: (newInstructions: string) => void;
+  // Backend persistence (optional so the panel still works standalone)
+  initialModelId?: string;
+  initialOutputFormat?: string;
+  onModelChange?: (modelName: string) => void;
+  onOutputFormatChange?: (fmt: string) => void;
 }
 
 interface APIModel {
@@ -577,7 +588,7 @@ const formatModelName = (displayName: string) => {
   return displayName.replace(/^Gemini\s+/, '').replace(/\s+Preview$|\s+Experimental$/, '');
 };
 
-const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameChange, instructions, onInstructionsChange }) => {
+const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameChange, instructions, onInstructionsChange, initialModelId, initialOutputFormat, onModelChange, onOutputFormatChange }) => {
   const { apiKeys } = useUserDataContext();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -593,11 +604,15 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [models, setModels] = useState<APIModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<APIModel | null>({
-    name: 'models/gemini-3-flash',
-    displayName: 'Gemini 3 Flash',
-    description: ''
-  });
+  const [selectedModel, setSelectedModel] = useState<APIModel | null>(
+    initialModelId
+      ? { name: initialModelId.startsWith('models/') ? initialModelId : `models/${initialModelId}`, displayName: formatModelName(initialModelId.replace(/^models\//, '')), description: '' }
+      : {
+          name: 'models/gemini-3-flash',
+          displayName: 'Gemini 3 Flash',
+          description: ''
+        }
+  );
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, right: 0, width: 0 });
 
@@ -606,7 +621,9 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const agentFormatDropdownRef = useRef<HTMLDivElement>(null);
   const agentFormatDropdownButtonRef = useRef<HTMLDivElement>(null);
   const [agentFormatDropdownPosition, setAgentFormatDropdownPosition] = useState({ top: 0, left: 0, right: 0, width: 0 });
-  const [selectedAgentFormat, setSelectedAgentFormat] = useState('Text');
+  const [selectedAgentFormat, setSelectedAgentFormat] = useState(
+    initialOutputFormat ? (initialOutputFormat.charAt(0).toUpperCase() + initialOutputFormat.slice(1)) : 'Text'
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -743,13 +760,16 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
 
           if (filtered.length > 0) {
             setModels(filtered);
-            // Default to the first "3 flash" or "flash" model found in the real data
-            // Default to '3 flash' -> any '3' -> any 'flash' -> first model found
-            const defaultModel = filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3') && m.name.toLowerCase().includes('flash')) || 
-                                 filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3')) || 
-                                 filtered.find((m: any) => m.name.toLowerCase().includes('flash')) || 
-                                 filtered[0];
-            setSelectedModel(defaultModel);
+            // Don't override a model that was restored from the saved workflow.
+            if (!initialModelId) {
+              // Default to the first "3 flash" or "flash" model found in the real data
+              // Default to '3 flash' -> any '3' -> any 'flash' -> first model found
+              const defaultModel = filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3') && m.name.toLowerCase().includes('flash')) ||
+                                   filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3')) ||
+                                   filtered.find((m: any) => m.name.toLowerCase().includes('flash')) ||
+                                   filtered[0];
+              setSelectedModel(defaultModel);
+            }
           }
         }
       } catch (error) {
@@ -994,6 +1014,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                         key={model.name}
                         onClick={() => {
                           setSelectedModel(model);
+                          onModelChange?.(model.name.replace(/^models\//, ''));
                           setIsModelDropdownOpen(false);
                         }}
                         className="flex items-center gap-3 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors hover:bg-[#252525]"
@@ -1155,6 +1176,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedAgentFormat(formatOption);
+                          onOutputFormatChange?.(formatOption === 'JSON' ? 'json' : formatOption === 'Image' ? 'text' : 'text');
                           setIsAgentFormatDropdownOpen(false);
                         }}
                         className={`w-full text-left px-3.5 py-2 text-[13.5px] flex items-center justify-between transition-colors ${
@@ -2706,6 +2728,20 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const { screenToFlowPosition } = useReactFlow();
 
+  // Backend wiring: autosave, run/preview streaming, publish, code export.
+  const backend = useAgentBuilderBackend(nodes, edges, setNodes, setEdges);
+  const backendState = useNanoStore(backendStatus);
+  const saveState = useNanoStore(saveStatus);
+  const wfInfo = useNanoStore(currentWorkflow);
+
+  // Helper: patch a node's data (used by config panels to persist config).
+  const patchNodeData = useCallback((nodeId: string, patch: Record<string, unknown>) => {
+    setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)));
+  }, []);
+  const patchNodeConfig = useCallback((nodeId: string, config: Record<string, unknown>) => {
+    setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, config } } : n)));
+  }, []);
+
   // Selector to grab the numeric zoom level from the internal React Flow store
   const zoom = useStore((s) => s.transform[2]);
   const zoomPercentage = Math.round(zoom * 100);
@@ -3209,11 +3245,15 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
               {isSidebarCollapsed && nodes.find(n => n.selected && n.type === 'agent') && (() => {
                 const selectedAgentNode = nodes.find(n => n.selected && n.type === 'agent');
                 return selectedAgentNode ? (
-                  <AgentConfigPanel 
+                  <AgentConfigPanel
                     key="agent-panel"
                     nodeName={(selectedAgentNode.data?.label as string) || ''}
+                    initialModelId={(selectedAgentNode.data?.model as string) || undefined}
+                    initialOutputFormat={(selectedAgentNode.data?.outputFormat as string) || undefined}
+                    onModelChange={(modelName) => patchNodeData(selectedAgentNode.id, { model: modelName })}
+                    onOutputFormatChange={(fmt) => patchNodeData(selectedAgentNode.id, { outputFormat: fmt })}
                     onNameChange={(newName) => {
-                      setNodes((nds) => 
+                      setNodes((nds) =>
                         nds.map((n) => {
                           if (n.id === selectedAgentNode.id) {
                             return { ...n, data: { ...n.data, label: newName } };
@@ -3224,7 +3264,7 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                     }}
                     instructions={(selectedAgentNode.data?.instructions as string) || ''}
                     onInstructionsChange={(newInst) => {
-                      setNodes((nds) => 
+                      setNodes((nds) =>
                         nds.map((n) => {
                           if (n.id === selectedAgentNode.id) {
                             return { ...n, data: { ...n.data, instructions: newInst } };
@@ -3274,7 +3314,35 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                   />
                 ) : null;
               })()}
+
+              {isSidebarCollapsed && (() => {
+                const CONFIGURABLE = new Set(['start', 'end', 'note', 'fileSearch', 'mcp', 'ifElse', 'while', 'userApproval', 'transform', 'setState']);
+                const sel = nodes.find(n => n.selected && CONFIGURABLE.has(n.type as string));
+                return sel ? (
+                  <NodeConfigPanel
+                    key={`cfg-${sel.id}`}
+                    nodeType={sel.type as string}
+                    nodeName={(sel.data?.label as string) || ''}
+                    config={(sel.data?.config as Record<string, any>) || {}}
+                    onNameChange={(name) => patchNodeData(sel.id, { label: name })}
+                    onConfigChange={(cfg) => patchNodeConfig(sel.id, cfg)}
+                  />
+                ) : null;
+              })()}
             </AnimatePresence>
+
+            <Panel position="top-left" className="mt-6 ml-6">
+              <div className="flex items-center gap-2.5 px-3 py-1.5 h-8 bg-black/40 backdrop-blur-md rounded-xl text-white text-xs font-medium shadow-xl">
+                <span className="truncate max-w-[160px]">{wfInfo?.name ?? 'Workflow'}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${backendState === 'up' ? 'bg-green-400' : backendState === 'down' ? 'bg-red-400' : 'bg-yellow-400'}`} title={`Backend ${backendState}`} />
+                {saveState === 'saving' && <span className="text-[#a1a1aa]">Saving…</span>}
+                {saveState === 'saved' && <span className="text-green-400">Saved</span>}
+                {saveState === 'error' && <span className="text-red-400">Save failed</span>}
+                {wfInfo && !wfInfo.valid && wfInfo.errors.length > 0 && (
+                  <span className="text-orange-300" title={wfInfo.errors.join('\n')}>⚠ {wfInfo.errors.length}</span>
+                )}
+              </div>
+            </Panel>
 
             <Panel position="top-right" className="mt-6 mr-6">
               <div className="flex items-center justify-center px-3 py-1.5 h-8 bg-black/40 backdrop-blur-md rounded-xl text-white text-xs font-semibold shadow-xl">
@@ -3316,6 +3384,10 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
           </ReactFlow>
         </div>
       </div>
+
+      {/* Backend-driven overlays (portaled to document.body) */}
+      <RunPanel backend={backend} />
+      <CodeExportModal backend={backend} />
     </div>
   );
 };

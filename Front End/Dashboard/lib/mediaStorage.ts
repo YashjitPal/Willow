@@ -4,6 +4,8 @@
  * to bypass browser-enforced 5MB localStorage quotas.
  */
 
+import { renameCodeSessions } from './willowDB';
+
 const DB_NAME = 'WillowMediaDB';
 const STORE_NAME = 'project_media';
 const COVERS_STORE = 'project_covers';
@@ -45,9 +47,19 @@ export async function saveProjectMedia(projectId: string, mediaItems: any[]): Pr
     // the UI can tell which projects have media without touching IndexedDB.
     updateMediaIndex(projectId, items);
 
-    const toStore = items.map((m: any) =>
-      (m && m.isSavedToFS && m.fsName) ? { ...m, url: '' } : m
-    );
+    const toStore = items.map((m: any) => {
+      if (!m) return m;
+      let out = (m.isSavedToFS && m.fsName) ? { ...m, url: '' } : m;
+      // blob: object URLs are session-scoped (hydrated from disk files) — they
+      // are dead after a reload, so never persist them as media/audio bytes.
+      if (typeof out.url === 'string' && out.url.startsWith('blob:')) {
+        out = out === m ? { ...m, url: '' } : { ...out, url: '' };
+      }
+      if (typeof out.audioUrl === 'string' && out.audioUrl.startsWith('blob:')) {
+        out = out === m ? { ...m, audioUrl: '' } : { ...out, audioUrl: '' };
+      }
+      return out;
+    });
     const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -138,15 +150,19 @@ export async function rebuildMediaIndex(): Promise<void> {
 export async function loadProjectMedia(projectId: string): Promise<any[]> {
   try {
     const db = await getDB();
-    const diskItems = await new Promise<any[]>((resolve, reject) => {
+    const diskItems = await new Promise<any[] | undefined>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const request = store.get(projectId);
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
 
-    if (diskItems && diskItems.length > 0) {
+    // A present record is authoritative — even an empty array, which means the
+    // user deleted all media. Only fall through to the legacy-localStorage
+    // migration when there is NO record at all. Previously an empty array was
+    // treated as "no data" and the migration resurrected deleted media.
+    if (diskItems !== undefined) {
       return diskItems;
     }
 
@@ -247,6 +263,11 @@ export async function deleteProjectData(projectId: string): Promise<void> {
       }
     }
   } catch {}
+  // Also drop any leftover legacy per-project media key, otherwise a deleted
+  // project's media resurrects via loadProjectMedia's migration fallback.
+  try {
+    localStorage.removeItem(`willow_project_media_${projectId}`);
+  } catch {}
   try {
     const db = await getDB();
 
@@ -338,7 +359,8 @@ export async function autoDetectProjectKinds(): Promise<boolean> {
       const isGenericMediaName =
         typeof p.name === 'string' &&
         (p.name.startsWith('Project #') ||
-          /^\w{3}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+(AM|PM)$/.test(p.name));
+          // Both the legacy "10:15" and the filesystem-safe "10.15" time formats.
+          /^\w{3}\s+\d{1,2},\s+\d{1,2}[:.]\d{2}\s+(AM|PM)$/.test(p.name));
       const kind: 'media' | 'code' = (mediaIds.has(p.id) || isGenericMediaName) ? 'media' : 'code';
       return { ...p, kind };
     });
@@ -357,10 +379,79 @@ export async function autoDetectProjectKinds(): Promise<boolean> {
 }
 
 /**
+ * One-time repair of project names containing filesystem-illegal characters.
+ *
+ * Default project names used to embed a colon ("Jul 11, 10:15 AM"), which is a
+ * reserved character on Windows — every getDirectoryHandle for such a name
+ * threw "Name is not allowed" inside fail-soft catches, so the project
+ * SILENTLY never got a disk folder (it only appeared in the connected folder
+ * once the user manually renamed it). New names are generated safe; this
+ * migrates existing broken ones: ':' → '.', other reserved chars stripped,
+ * deduped against the registry.
+ *
+ * Only touches rows NOT marked onDisk: a browser-only row is exactly the
+ * broken case, while an onDisk row means the folder exists (a case-tolerant
+ * OS), where renaming here would fight the disk-authoritative reconciler.
+ */
+export async function sanitizeProjectNames(): Promise<boolean> {
+  try {
+    const stored = localStorage.getItem('willow_projects_list');
+    if (!stored) return false;
+    const list = JSON.parse(stored);
+    if (!Array.isArray(list) || list.length === 0) return false;
+
+    const sanitize = (name: string): string =>
+      name.replace(/:/g, '.').replace(/[\/*?"<>|\\]/g, '').trim();
+
+    const taken = new Set(
+      list.map((p: any) => (typeof p?.name === 'string' ? p.name.toLowerCase() : '')).filter(Boolean)
+    );
+
+    let changed = false;
+    const renames: Array<{ from: string; to: string }> = [];
+    const updated = list.map((p: any) => {
+      if (!p || typeof p.name !== 'string' || p.onDisk) return p;
+      const clean = sanitize(p.name);
+      if (!clean || clean === p.name) return p;
+      // Dedupe the repaired name against every other project name.
+      let unique = clean;
+      let counter = 1;
+      while (taken.has(unique.toLowerCase())) {
+        unique = `${clean} (${counter})`;
+        counter++;
+      }
+      taken.delete(p.name.toLowerCase());
+      taken.add(unique.toLowerCase());
+      renames.push({ from: p.name, to: unique });
+      changed = true;
+      return { ...p, name: unique };
+    });
+
+    if (!changed) return false;
+
+    localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+    // Code-editor sessions are keyed by project NAME — move them with the
+    // repair (cheap no-op for media projects).
+    for (const r of renames) {
+      void renameCodeSessions(`willow_chat_sessions_${r.from}`, `willow_chat_sessions_${r.to}`);
+    }
+    window.dispatchEvent(new Event('willow_projects_updated'));
+    return true;
+  } catch (err) {
+    console.error('Project name sanitation failed:', err);
+    return false;
+  }
+}
+
+/**
  * Legacy migration stub - replaced by autoDetectProjectKinds
  */
 export async function migrateProjectKinds(): Promise<boolean> {
-  return autoDetectProjectKinds();
+  // Repair filesystem-illegal names first so kind-tagging (and everything
+  // else this mount) sees the final names.
+  const namesChanged = await sanitizeProjectNames();
+  const kindsChanged = await autoDetectProjectKinds();
+  return namesChanged || kindsChanged;
 }
 
 /**

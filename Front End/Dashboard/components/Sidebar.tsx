@@ -42,9 +42,13 @@ import {
 import logo from '../src/assets/logo.png';
 import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
-import { useLocalFS } from '../context/LocalFSContext';
+import { useLocalFS, parseTempIdTimestamp } from '../context/LocalFSContext';
 import { useBackground, BackgroundType } from '../context/BackgroundContext';
-import { DiscordIcon, MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu } from './sidebar';
+// NOTE: import from './sidebar/index' (not './sidebar'). On a case-insensitive
+// filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
+// causing a circular self-import whose named exports are undefined — which crashed
+// the whole app to a black screen. '/index' forces the folder to resolve.
+import { DiscordIcon, MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu } from './sidebar/index';
 
 // ── Inline menus (used once, kept here) ──────────────────────────────────────
 
@@ -303,6 +307,7 @@ interface SidebarProps {
   onNewChat?: () => void;
   isIncognito?: boolean;
   onIncognitoChat?: () => void;
+  isHidden?: boolean;
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -320,7 +325,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   hasActiveChat = false,
   onNewChat,
   isIncognito = false,
-  onIncognitoChat
+  onIncognitoChat,
+  isHidden = false
 }) => {
   const { user, userProfile } = useAuth();
   const { 
@@ -421,6 +427,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const success = await renameLocalFSChat(editingChatId!, trimmed);
       if (!success) {
         alert("Failed to rename chat file.");
+      } else if (pinnedChats.includes(editingChatId!)) {
+        // The pin list stores chat ids (= names) — carry the pin across the
+        // rename or the chat silently loses it.
+        const next = pinnedChats.map((c) => (c === editingChatId ? trimmed : c));
+        setPinnedChats(next);
+        localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
       }
     }
     setEditingChatId(null);
@@ -447,6 +459,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const success = await deleteLocalFSChat(chatToDelete);
       if (!success) {
         alert("Failed to delete chat file.");
+      }
+      // Drop any pin pointing at the deleted chat so it can't linger as a
+      // stale entry in the pinned list.
+      if (pinnedChats.includes(chatToDelete)) {
+        const next = pinnedChats.filter((c) => c !== chatToDelete);
+        setPinnedChats(next);
+        localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
       }
       triggerCloseDelete();
     }
@@ -516,12 +535,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside 
-      className={`group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50 ${isCollapsed ? 'w-[64px]' : 'w-[260px]'}`}
+      className={`group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50`}
       style={{ 
-        transition: 'width 280ms cubic-bezier(0.32, 0.72, 0, 1)'
+        width: isHidden ? '0px' : (isCollapsed ? '64px' : '260px'),
+        transform: isHidden ? 'translateX(-100%)' : 'translateX(0)',
+        opacity: isHidden ? 0 : 1,
+        transition: 'width 280ms cubic-bezier(0.32, 0.72, 0, 1), transform 280ms cubic-bezier(0.32, 0.72, 0, 1), opacity 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+        pointerEvents: isHidden ? 'none' : 'auto'
       }}
     >
-      <div className="h-16 flex items-center relative">
+      <div className="h-16 flex items-center relative min-w-[64px]">
         <div className="w-[64px] flex items-center justify-center shrink-0">
           <button 
             onClick={onToggleCollapse}
@@ -682,14 +705,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="space-y-0.5">
                     {localChats.length === 0 ? null : (
                       (() => {
+                        // Read the timestamp map ONCE per render — calling
+                        // getChatTimestamp inside the comparator re-parsed the
+                        // whole localStorage JSON O(n log n) times per render.
+                        let tsMap: Record<string, number> = {};
+                        try {
+                          const rawTs = localStorage.getItem('willow_chat_timestamps');
+                          if (rawTs) tsMap = JSON.parse(rawTs) || {};
+                        } catch {}
+                        const chatTs = (id: string) => tsMap[id] || parseTempIdTimestamp(id);
                         const sortedChats = [...localChats].sort((a, b) => {
                           const aPinned = pinnedChats.includes(a);
                           const bPinned = pinnedChats.includes(b);
                           if (aPinned && !bPinned) return -1;
                           if (!aPinned && bPinned) return 1;
-                          
-                          const tA = getChatTimestamp(a);
-                          const tB = getChatTimestamp(b);
+
+                          const tA = chatTs(a);
+                          const tB = chatTs(b);
                           if (tB !== tA) {
                             return tB - tA;
                           }

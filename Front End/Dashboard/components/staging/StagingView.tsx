@@ -43,10 +43,64 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   const [projectName, setProjectName] = useState('');
   const [isGeneratingName, setIsGeneratingName] = useState(false);
   const nameGeneratedRef = React.useRef(false);
+  // Capture whether THIS mount is a genuinely new project at first render. A new
+  // project arrives with location.state.isNewProject === true; on a later return
+  // the sidebar has flipped it to false. Captured in a ref so a concurrent flip
+  // can't change it mid-effect.
+  const isNewProjectRef = React.useRef(location.state?.isNewProject === true);
+
+  // Register a brand-new code project in the localStorage registry, returning the
+  // name actually used. For a genuinely new project a colliding name is
+  // disambiguated ("Name (2)") instead of being dropped — dropping was why new
+  // projects with a duplicate generated name silently never appeared. On a return
+  // to an existing project we reuse its entry by name so we never create dupes.
+  const registerCodeProject = useCallback((desiredName: string): string => {
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      let list = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(list)) list = [];
+      const existing = list.find((p: any) => p?.name?.toLowerCase() === desiredName.toLowerCase());
+      if (existing) {
+        if (!isNewProjectRef.current) {
+          // Return to an existing project — reuse it, don't duplicate.
+          return existing.name;
+        }
+        // Different new project that happens to share a name — disambiguate.
+        let counter = 2;
+        let candidate = `${desiredName} (${counter})`;
+        while (list.some((p: any) => p?.name?.toLowerCase() === candidate.toLowerCase())) {
+          counter++;
+          candidate = `${desiredName} (${counter})`;
+        }
+        desiredName = candidate;
+      }
+      // Mint an id no existing project already uses — the 4-digit space is
+      // small enough for birthday collisions, and a duplicate id cross-links
+      // two projects' covers/media in IndexedDB.
+      const usedIds = new Set(list.map((p: any) => p?.id).filter(Boolean));
+      let newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+      while (usedIds.has(newId)) {
+        newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+      list.push({ id: newId, name: desiredName, kind: 'code' });
+      localStorage.setItem('willow_projects_list', JSON.stringify(list));
+      window.dispatchEvent(new Event('willow_projects_updated'));
+      return desiredName;
+    } catch {
+      return desiredName;
+    }
+  }, []);
 
   // Generate project name from prompt using AI
   useEffect(() => {
-    if (!prompt || nameGeneratedRef.current || !apiKeys.gemini?.[0]) return;
+    if (!prompt || nameGeneratedRef.current) return;
+    // Need at least one provider key to attempt naming AND to register the
+    // project. Previously this required a GEMINI key specifically, so a user whose
+    // naming provider is Claude/OpenAI (no gemini key) never got their project
+    // registered in willow_projects_list — it silently never appeared. Proceed if
+    // ANY provider key is present; the provider is chosen below, and if naming
+    // fails we still register a fallback name so the project always shows up.
+    if (!apiKeys.gemini?.[0] && !apiKeys.openai?.[0] && !apiKeys.anthropic?.[0]) return;
 
     const generateProjectName = async () => {
       nameGeneratedRef.current = true;
@@ -137,50 +191,33 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
         }
 
         if (!name) name = 'New Project';
-        // Clean up: remove quotes if present, limit length
-        const cleanName = (name.replace(/^["']|["']$/g, '').substring(0, 30) || 'New Project').trim();
-        
-        // Save to willow_projects_list in localStorage
-        try {
-          const stored = localStorage.getItem('willow_projects_list');
-          let list = stored ? JSON.parse(stored) : [];
-          if (!Array.isArray(list)) list = [];
-          if (!list.some((p: any) => p.name.toLowerCase() === cleanName.toLowerCase())) {
-            const newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
-            list.push({ id: newId, name: cleanName, kind: 'code' });
-            localStorage.setItem('willow_projects_list', JSON.stringify(list));
-            window.dispatchEvent(new Event('willow_projects_updated'));
-          }
-        } catch (e) {
-          // Fail silently
-        }
+        // Clean up: remove quotes if present, strip filesystem-illegal
+        // characters (the name becomes the Code/<name> folder on disk — ':'
+        // etc. make every folder operation throw "Name is not allowed" on
+        // Windows and the project silently never syncs), limit length.
+        const cleanName = (name.replace(/^["']|["']$/g, '').replace(/[\/:*?"<>|]/g, '').substring(0, 30) || 'New Project').trim() || 'New Project';
 
-        setProjectName(cleanName);
+        // Register in willow_projects_list (disambiguates instead of dropping).
+        const registeredName = registerCodeProject(cleanName);
+
+        setProjectName(registeredName);
       } catch (error) {
         const fallbackName = 'New Project';
-        try {
-          const stored = localStorage.getItem('willow_projects_list');
-          let list = stored ? JSON.parse(stored) : [];
-          if (!Array.isArray(list)) list = [];
-          if (!list.some((p: any) => p.name.toLowerCase() === fallbackName.toLowerCase())) {
-            const newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
-            list.push({ id: newId, name: fallbackName, kind: 'code' });
-            localStorage.setItem('willow_projects_list', JSON.stringify(list));
-            window.dispatchEvent(new Event('willow_projects_updated'));
-          }
-        } catch (e) {}
-        setProjectName(fallbackName);
+        const registeredName = registerCodeProject(fallbackName);
+        setProjectName(registeredName);
       } finally {
         setIsGeneratingName(false);
       }
     };
 
     generateProjectName();
-  }, [prompt, apiKeys.gemini]);
+  }, [prompt, apiKeys.gemini, apiKeys.openai, apiKeys.anthropic]);
 
   // Auto-save when logged in (Google Drive) or when local folder is connected
   const { isLocalFolderConnected } = useLocalFS();
-  const { isSaving, saveNow } = useAutoSave(projectName || 'Untitled', !!accessToken || isLocalFolderConnected);
+  // Gate autosave on a resolved projectName so an early save can't create a
+  // phantom "Untitled" folder/project before the AI name (or fallback) is set.
+  const { isSaving, saveNow } = useAutoSave(projectName || 'Untitled', (!!accessToken || isLocalFolderConnected) && !!projectName);
 
   // Initialize chat mode if URL mode is 'chat'
   const [isChatMode, setIsChatMode] = useState(urlMode === 'chat');

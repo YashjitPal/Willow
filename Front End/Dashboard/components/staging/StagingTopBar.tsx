@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { 
+import { firePreview, fireCode, runPanelOpen } from '../../lib/stores/agent-builder-store';
+import {
   Palette, 
   Code2, 
   Plus, 
@@ -350,15 +351,21 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           </button>
         ) : activeTab === 'agent-builder' ? (
           <>
-            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+            <button
+              onClick={() => runPanelOpen.set(true)}
+              className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
               <Compass size={14} className="text-white" />
               <span>Evaluate</span>
             </button>
-            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+            <button
+              onClick={() => fireCode()}
+              className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
               <CodeXml size={14} className="text-white" />
               <span>Code</span>
             </button>
-            <button className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
+            <button
+              onClick={() => firePreview()}
+              className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
               <Play size={14} className="fill-white" />
               <span>Preview</span>
             </button>

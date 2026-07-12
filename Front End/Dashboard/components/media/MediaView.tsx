@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
+import { renameCodeSessions } from '../../lib/willowDB';
 import { extractVideoFrame } from '../../lib/coverUtils';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -629,14 +630,13 @@ const TileContent = React.memo(({
             try {
               const response = await fetch(item.url);
               const blob = await response.blob();
-              if (isLocalFolderConnected) {
-                let authorized = isLocalFolderAuthorized;
-                if (!authorized) {
-                  authorized = await authorizeLocalFolder();
-                }
-                if (authorized) {
-                  void saveLocalFSMedia(projectName, item.kind, filename, blob);
-                }
+              if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+                // Prompt for folder access while we're in a user gesture; the
+                // auto-sync backfill effect then persists any unsaved items
+                // (recording fsName). Do NOT also save directly here — an
+                // already-saved item would get a second "name (1).png" on disk,
+                // which the reconciler ingests as a phantom duplicate tile.
+                await authorizeLocalFolder();
               }
               const blobUrl = URL.createObjectURL(blob);
               const a = document.createElement('a');
@@ -1240,6 +1240,168 @@ const TileContent = React.memo(({
 });
 TileContent.displayName = 'TileContent';
 
+// Returns a function whose identity never changes but which always invokes the
+// latest render's implementation. Lets memoized tiles receive stable handler
+// props (so React.memo actually holds) without freezing any state they read.
+function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = React.useRef(fn);
+  React.useLayoutEffect(() => { ref.current = fn; });
+  return React.useMemo(() => ((...args: any[]) => ref.current(...args)) as T, []);
+}
+
+// One gallery tile: the framer-motion wrapper + TileContent + overlays, memoized
+// so a hover / prompt keystroke / streaming token only re-renders the tiles whose
+// own flags actually changed. All props are primitives or stable callbacks.
+// During a sidebar toggle `layoutDuration` changes for every tile, so every tile
+// re-renders and participates in the 0.78s FLIP — the animation is untouched.
+const GalleryTile = React.memo(({
+  item,
+  projectName,
+  ar,
+  finalWidth,
+  finalHeight,
+  isLastRow,
+  layoutDuration,
+  isMenuOpen,
+  isHovered,
+  isRenaming,
+  isDragging,
+  isSelected,
+  dimmed,
+  interactionsMuted,
+  onTileMouseDown,
+  onTileClick,
+  onTileMouseEnter,
+  onTileMouseLeave,
+  onMenuOpenChange,
+  onCancel,
+  onRefresh,
+  onRePrompt,
+  onDelete,
+  onRename,
+  onSetIsRenaming,
+  onSetAsCover,
+  onAddToPrompt,
+  onAnimate
+}: {
+  item: MediaItem;
+  projectName: string;
+  ar: number;
+  finalWidth: number;
+  finalHeight: number;
+  isLastRow: boolean;
+  layoutDuration: number;
+  isMenuOpen: boolean;
+  isHovered: boolean;
+  isRenaming: boolean;
+  isDragging: boolean;
+  isSelected: boolean;
+  dimmed: boolean;
+  interactionsMuted: boolean;
+  onTileMouseDown: (item: MediaItem, e: React.MouseEvent) => void;
+  onTileClick: (item: MediaItem) => void;
+  onTileMouseEnter: (item: MediaItem) => void;
+  onTileMouseLeave: (item: MediaItem) => void;
+  onMenuOpenChange: (itemId: string, open: boolean, isContext?: boolean) => void;
+  onCancel: (id: string) => void;
+  onRefresh: (item: MediaItem) => void;
+  onRePrompt: (item: MediaItem) => void;
+  onDelete: (id: string) => void;
+  onRename: (id: string, newName: string) => void;
+  onSetIsRenaming: (itemId: string, renaming: boolean) => void;
+  onSetAsCover: (url: string, isVideo?: boolean) => void;
+  onAddToPrompt: (item: MediaItem) => void;
+  onAnimate: (item: MediaItem) => void;
+}) => {
+  const handleMenuOpenChange = React.useCallback(
+    (open: boolean, isContext?: boolean) => onMenuOpenChange(item.id, open, isContext),
+    [onMenuOpenChange, item.id]
+  );
+  const handleSetIsRenaming = React.useCallback(
+    (renaming: boolean) => onSetIsRenaming(item.id, renaming),
+    [onSetIsRenaming, item.id]
+  );
+
+  return (
+    <motion.div
+      layout
+      transition={{
+        duration: layoutDuration,
+        ease: [0.16, 1, 0.3, 1]
+      }}
+      onMouseDown={(e: React.MouseEvent) => onTileMouseDown(item, e)}
+      style={{
+        flexGrow: isLastRow ? 0 : ar,
+        flexBasis: `${finalWidth}px`,
+        height: `${finalHeight}px`,
+        borderWidth: item.status === 'completed' ? '0.5px' : '0px',
+        borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
+        cursor: isRenaming ? 'default' : isDragging ? 'grabbing' : 'grab',
+      }}
+      data-id={item.id}
+      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
+        interactionsMuted ? '' : 'group'
+      } ${
+        item.status === 'completed' ? 'border' : 'border-none'
+      } ${
+        isRenaming
+          ? 'overflow-visible z-50'
+          : isMenuOpen
+            ? 'overflow-visible z-40'
+            : isDragging
+              ? 'overflow-visible z-50'
+              : isSelected
+                ? 'overflow-visible z-[75]'
+                : 'overflow-hidden z-10'
+      }`}
+      onClick={() => onTileClick(item)}
+      onMouseEnter={() => onTileMouseEnter(item)}
+      onMouseLeave={() => onTileMouseLeave(item)}
+    >
+      <TileContent
+        item={item}
+        projectName={projectName}
+        isMenuOpen={isMenuOpen}
+        onMenuOpenChange={handleMenuOpenChange}
+        isHovered={isHovered}
+        onCancel={onCancel}
+        onRefresh={onRefresh}
+        onRePrompt={onRePrompt}
+        onDelete={onDelete}
+        onRename={onRename}
+        isRenaming={isRenaming}
+        setIsRenaming={handleSetIsRenaming}
+        onSetAsCover={onSetAsCover}
+        onAddToPrompt={onAddToPrompt}
+        onAnimate={onAnimate}
+      />
+
+      {/* Smooth fading local dark overlay for all other images/videos */}
+      <div
+        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[400ms] ${
+          dimmed
+            ? 'opacity-100'
+            : 'opacity-0'
+        }`}
+      />
+
+      {/* Selection white border overlay to prevent any gap */}
+      <div
+        className={`absolute rounded-[18px] pointer-events-none z-[38] transition-opacity duration-300 ease-in-out ${
+          isSelected ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          top: item.status === 'completed' ? '-0.5px' : '0px',
+          left: item.status === 'completed' ? '-0.5px' : '0px',
+          right: item.status === 'completed' ? '-0.5px' : '0px',
+          bottom: item.status === 'completed' ? '-0.5px' : '0px',
+          border: '2.2px solid white',
+        }}
+      />
+    </motion.div>
+  );
+});
+
 const getSvgPathD = (points: { x: number; y: number }[]) => {
   if (points.length === 0) return '';
   if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x} ${points[0].y}`;
@@ -1256,7 +1418,7 @@ const SUNFLOWER_BOX_SHADOW: string = "160px 42px #cacaca, 120px 50px #9e9e9e, 12
 export const MediaView: React.FC = () => {
   const { user, userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, loadLocalFSMediaUrl } = useLocalFS();
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1336,6 +1498,97 @@ export const MediaView: React.FC = () => {
     return () => window.removeEventListener('willow_projects_updated', updateProjectName);
   }, [projectId]);
 
+  // ── Top-left project rename ─────────────────────────────────────────────
+  const [isEditingProjectName, setIsEditingProjectName] = React.useState(false);
+  const [editingProjectNameValue, setEditingProjectNameValue] = React.useState('');
+  // Set when Enter/Escape already resolved the edit, so the input's onBlur
+  // (which fires as it unmounts) doesn't commit a second time / after cancel.
+  const projectRenameResolvedRef = React.useRef(false);
+
+  // Commit a rename typed into the header. Mirrors HeroSection's
+  // persistProjectRename write path exactly — registry write → event dispatch
+  // → disk folder rename → name-keyed session migration — with an extra branch
+  // for temp_ projects, which only exist in the URL + component state.
+  const commitProjectRename = React.useCallback((rawName: string) => {
+    setIsEditingProjectName(false);
+    // Strip filesystem-illegal characters (the name becomes a folder name on
+    // disk — same regex every other disk-name path uses). A name like "24/7"
+    // would otherwise stick in the registry but silently fail every folder
+    // operation, and the reconciler would revert it within a tick.
+    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
+    const oldName = projectNameRef.current;
+    if (!baseName || !projectId || baseName === oldName) return;
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      const list = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(list)) return;
+
+      // Find the registry row. A temp_ project's disk folder can already have
+      // been ADOPTED by the disk reconciler under a minted id (temp-phase
+      // saves write to disk before materialization), so also match by real id
+      // and by the current name — a hit means the registered path applies.
+      // The by-name fallback is media-scoped: an unrelated CODE project can
+      // legitimately share this date-format name, and renaming it from here
+      // would move its folder and sessions out from under the user.
+      const realId = projectId.startsWith('temp_') ? projectId.replace('temp_', '') : projectId;
+      const row = list.find((p: any) => p?.id === projectId)
+        || list.find((p: any) => p?.id === realId)
+        || (projectId.startsWith('temp_') ? list.find((p: any) => p?.name === oldName && p?.kind === 'media') : undefined);
+
+      // Uniqueness against the FULL registry (never a filtered view), case-
+      // insensitive, excluding the project's own row. Materialization writes
+      // the name verbatim with no dedup, so this guard matters for temp
+      // projects too — a duplicate name permanently cross-links two projects'
+      // disk folders and their name-keyed session records.
+      let uniqueName = baseName;
+      let counter = 1;
+      while (list.some((p: any) => p !== row && typeof p?.name === 'string' && p.name.toLowerCase() === uniqueName.toLowerCase())) {
+        uniqueName = `${baseName} (${counter})`;
+        counter++;
+      }
+
+      if (row) {
+        if (row.name === uniqueName) return;
+        // Registry write FIRST, then dispatch — the event is synchronous and
+        // this component's own updateProjectName listener re-reads the
+        // registry to apply the new name everywhere.
+        const updated = list.map((p: any) => (p === row ? { ...p, name: uniqueName } : p));
+        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+        // Sync the ref BEFORE any state/event churn (its mirror effect runs
+        // post-render) so async disk writers already in flight target the new
+        // folder name instead of resurrecting Media/<oldName>/.
+        projectNameRef.current = uniqueName;
+        setProjectName(uniqueName);
+        window.dispatchEvent(new Event('willow_projects_updated'));
+      } else if (projectId.startsWith('temp_')) {
+        // True temp project — the registry has no row; component state + the
+        // ?tempName= URL param are its only persistence (the name-sync
+        // listener skips temp_ ids and the state initializer prefers
+        // tempName on a reload). Materialization later registers whatever
+        // projectName holds and deletes the param itself.
+        projectNameRef.current = uniqueName;
+        setProjectName(uniqueName);
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('tempName', uniqueName);
+          return next;
+        }, { replace: true });
+      } else {
+        // Unknown id (project deleted elsewhere?) — nothing consistent to rename.
+        return;
+      }
+
+      // Keep the disk folder in lock-step so the disk-authoritative reconciler
+      // adopts the rename instead of reverting it within one poll tick. Temp
+      // projects can already own a folder (generation saves don't wait for
+      // materialization); a missing folder is a harmless no-op inside.
+      void renameLocalFSProject(oldName, uniqueName);
+      // Code-editor sessions are keyed by project NAME — migrate them too
+      // (a cheap no-op for pure media projects).
+      void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
+    } catch {}
+  }, [projectId, renameLocalFSProject, setSearchParams]);
+
 
   // Media loading is consolidated into ONE projectId-keyed effect below
   // ("Unified media load"). It reconciles with disk when a folder is connected
@@ -1357,15 +1610,29 @@ export const MediaView: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
+  // Item ids with a disk write currently in flight. Generation completion
+  // (saveGeneratedMedia) and the auto-sync backfill effect can both see the
+  // same just-completed unsaved item at the same moment; without this guard
+  // both saved it and the collision numbering minted "X.png" + "X (1).png",
+  // which the reconciler then ingested as a phantom duplicate tile.
+  const fsSaveInFlightRef = React.useRef<Set<string>>(new Set());
+
   const saveGeneratedMedia = React.useCallback(async (item: MediaItem, url: string) => {
     if (!isLocalFolderConnected) return;
+    // If the user switched projects while this generation was in flight, the
+    // item no longer exists in the current gallery — bail, or the file would
+    // be written into the NEW project's folder (projectNameRef tracks the
+    // current project) and reconcile in as a foreign tile there.
+    if (!mediaItemsRef.current.some(m => m.id === item.id)) return;
+    if (fsSaveInFlightRef.current.has(item.id)) return;
+    fsSaveInFlightRef.current.add(item.id);
     try {
       const currentProjectName = projectNameRef.current;
       const name = item.shortenedPrompt || item.prompt;
       const ext = item.kind === 'video' ? 'mp4' : 'png';
       const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
       const filename = `${cleanName}.${ext}`;
-      
+
       const response = await fetch(url);
       const blob = await response.blob();
       const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob);
@@ -1374,6 +1641,8 @@ export const MediaView: React.FC = () => {
       }
     } catch (err) {
       // Ignored to prevent debugging logs in production
+    } finally {
+      fsSaveInFlightRef.current.delete(item.id);
     }
   }, [isLocalFolderConnected, saveLocalFSMedia]);
   const [isTopFaded, setIsTopFaded] = React.useState(false);
@@ -2554,7 +2823,10 @@ export const MediaView: React.FC = () => {
           if (isLocalFolderConnected && isLocalFolderAuthorized) {
             try {
               finalFsName = await saveLocalFSMedia(projectName || 'Default', fileKind, filename, file);
-              finalSavedToFS = true;
+              // saveLocalFSMedia FAILS by returning null (it doesn't throw) —
+              // only mark saved when we actually got a disk filename back,
+              // otherwise the auto-sync backfill skips this item forever.
+              finalSavedToFS = !!finalFsName;
             } catch (err) {
               console.error("Failed to save to FS", err);
             }
@@ -2769,6 +3041,11 @@ export const MediaView: React.FC = () => {
   // Load generation token so concurrent loads (project switch + a realtime
   // disk-change refresh) can't clobber each other — only the latest applies.
   const loadGenRef = React.useRef(0);
+  // The projectId whose media state currently occupies mediaItems. Lets the
+  // temp-project branch below distinguish a real project SWITCH (wipe to a
+  // fresh canvas) from a mere loadMedia identity change (folder authorization
+  // flip, projectName resolving, …) which must NOT wipe in-flight generations.
+  const lastLoadedProjectIdRef = React.useRef<string | null>(null);
 
   // Load the gallery and hydrate disk-backed items into streaming blob: URLs.
   // • Folder connected → reconcile against disk (source of truth) + hydrate.
@@ -2777,6 +3054,25 @@ export const MediaView: React.FC = () => {
   // clobbers an in-progress generation.
   const loadMedia = React.useCallback(async (skipIfGenerating: boolean) => {
     if (!projectId) { revokeMediaBlobUrls(); setMediaItems([]); return; }
+    // A temp_ project is by definition brand new — never read stored media for
+    // it. An abandoned earlier session could have left a record under a
+    // colliding random id, and its items would resurrect here as ghost tiles.
+    // Marking loaded=true arms the debounced save so generations made during
+    // the temp phase persist (under the real id) as usual.
+    if (projectId.startsWith('temp_')) {
+      // Realtime disk-change refreshes have nothing to reconcile for a temp
+      // project — and must never wipe its in-flight generations.
+      if (skipIfGenerating) return;
+      // Only wipe when actually ENTERING this temp project, not when loadMedia
+      // is merely recreated (authorization flip etc.) while we're already on it.
+      if (lastLoadedProjectIdRef.current !== projectId) {
+        revokeMediaBlobUrls();
+        setMediaItems([]);
+      }
+      lastLoadedProjectIdRef.current = projectId;
+      mediaLoadedRef.current = true;
+      return;
+    }
     if (skipIfGenerating && mediaItemsRef.current.some(i => i.status === 'generating')) return;
     const gen = ++loadGenRef.current;
     const connected = isLocalFolderConnected && isLocalFolderAuthorized && !!projectName;
@@ -2784,12 +3080,37 @@ export const MediaView: React.FC = () => {
       ? await refreshLocalMedia(projectId, projectName)
       : await loadProjectMedia(projectId);
 
+    // Crash recovery: a freshly loaded record can't legitimately be
+    // mid-generation — a stale 'generating' entry (browser closed mid-run)
+    // would otherwise show a spinner forever. Surface it as failed instead.
+    const loaded = (items || []).map((m: any) =>
+      m?.status === 'generating' ? { ...m, status: 'failed' } : m
+    );
+
     const freshBlobUrls: string[] = [];
-    const hydrated = await Promise.all((items || []).map(async (m: any) => {
+    const hydrated = await Promise.all(loaded.map(async (m: any) => {
       if (m?.url) return m; // browser-only base64 (or already hydrated) — use as-is
       if (connected && m?.fsName && m?.kind) {
         const blobUrl = await loadLocalFSMediaUrl(projectName, m.kind, m.fsName);
-        if (blobUrl) { freshBlobUrls.push(blobUrl); return { ...m, url: blobUrl }; }
+        if (blobUrl) {
+          // For audio items the Audio/ file is usually the cover ART (an image
+          // written at save time). But an externally dropped song file (.mp3
+          // etc.) IS the audio — route that to audioUrl so the player works,
+          // instead of pointing an <img> at an audio blob.
+          if (m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(m.fsName)) {
+            // Re-hydrate over an empty OR stale blob: audioUrl (object URLs are
+            // session-scoped; a persisted one is dead). Keep real data:/http
+            // audio untouched.
+            if (m.audioUrl && !m.audioUrl.startsWith('blob:')) {
+              try { URL.revokeObjectURL(blobUrl); } catch {}
+              return m;
+            }
+            freshBlobUrls.push(blobUrl);
+            return { ...m, audioUrl: blobUrl };
+          }
+          freshBlobUrls.push(blobUrl);
+          return { ...m, url: blobUrl };
+        }
       }
       return m; // disk-backed but no folder/file → no displayable url
     }));
@@ -2802,6 +3123,7 @@ export const MediaView: React.FC = () => {
     const keptUrls = revokeMediaBlobUrls(); // release previous URLs not in use by attachments
     mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
     setMediaItems(hydrated);
+    lastLoadedProjectIdRef.current = projectId;
     mediaLoadedRef.current = true;
   }, [projectId, projectName, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
 
@@ -2824,11 +3146,43 @@ export const MediaView: React.FC = () => {
     return () => { if (t) window.clearTimeout(t); window.removeEventListener('willow_disk_changed', onDiskChanged); };
   }, [loadMedia]);
 
-  // Save media items on changes with IndexedDB — only after initial load completes
+  // Save media items on changes with IndexedDB — only after initial load completes.
+  // Debounced: with a large library, cloning every base64 payload into IndexedDB is
+  // expensive, and doing it on every state change (e.g. the placeholder insert the
+  // moment a generation starts) visibly stalled the UI.
+  // Persist under the REAL project id even while the URL still carries the
+  // temp_ prefix — records written under "temp_#1234" were orphaned at
+  // materialization (the view reloads under "#1234" and finds nothing, wiping
+  // the first generations from a folderless session).
+  const persistProjectId = projectId && projectId.startsWith('temp_')
+    ? projectId.replace('temp_', '')
+    : projectId;
+  const saveDebounceRef = React.useRef<number | null>(null);
   React.useEffect(() => {
-    if (!projectId || !mediaLoadedRef.current) return;
-    saveProjectMedia(projectId, mediaItems);
-  }, [projectId, mediaItems]);
+    if (!persistProjectId || !mediaLoadedRef.current) return;
+    if (saveDebounceRef.current !== null) window.clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = window.setTimeout(() => {
+      saveDebounceRef.current = null;
+      saveProjectMedia(persistProjectId, mediaItemsRef.current);
+    }, 600);
+  }, [persistProjectId, mediaItems]);
+  // Flush any pending save when the project changes, the view unmounts, or the
+  // tab is being hidden/closed, so the debounce can never drop the last write.
+  React.useEffect(() => {
+    if (!persistProjectId) return;
+    const flushPendingSave = () => {
+      if (saveDebounceRef.current !== null) {
+        window.clearTimeout(saveDebounceRef.current);
+        saveDebounceRef.current = null;
+        if (mediaLoadedRef.current) saveProjectMedia(persistProjectId, mediaItemsRef.current);
+      }
+    };
+    window.addEventListener('pagehide', flushPendingSave);
+    return () => {
+      window.removeEventListener('pagehide', flushPendingSave);
+      flushPendingSave();
+    };
+  }, [persistProjectId]);
 
   // Auto-sync completed items to disk once folder gets authorized
   React.useEffect(() => {
@@ -2840,6 +3194,15 @@ export const MediaView: React.FC = () => {
     const syncUnsaved = async () => {
       for (const item of unsaved) {
         if (!item.url) continue;
+        // Skip items whose disk write is already in flight elsewhere
+        // (saveGeneratedMedia on generation completion) — double-saving minted
+        // "X.png" + "X (1).png" duplicates that reconciled back as extra tiles.
+        if (fsSaveInFlightRef.current.has(item.id)) continue;
+        // `unsaved` is a snapshot; re-check live state in case the item was
+        // saved (and marked) while earlier items in this loop were awaited.
+        const live = mediaItemsRef.current.find(m => m.id === item.id);
+        if (live?.isSavedToFS) continue;
+        fsSaveInFlightRef.current.add(item.id);
         try {
           const name = item.shortenedPrompt || item.prompt;
           const ext = item.kind === 'video' ? 'mp4' : 'png';
@@ -2854,6 +3217,8 @@ export const MediaView: React.FC = () => {
           }
         } catch (e) {
           // Ignore write lock issues
+        } finally {
+          fsSaveInFlightRef.current.delete(item.id);
         }
       }
     };
@@ -2871,7 +3236,7 @@ export const MediaView: React.FC = () => {
     const firstCompleted = completedItems[completedItems.length - 1];
     if (!firstCompleted || !firstCompleted.url) return;
     
-    const realProjectId = projectId.replace('temp_', '');
+    let realProjectId = projectId.replace('temp_', '');
     const stored = localStorage.getItem('willow_projects_list');
     let projects: any[] = [];
     if (stored) {
@@ -2879,7 +3244,20 @@ export const MediaView: React.FC = () => {
         projects = JSON.parse(stored);
       } catch (e) {}
     }
-    
+
+    // Temp-phase saves write to disk BEFORE materialization, so the disk
+    // reconciler may have already ADOPTED this project's folder into the
+    // registry under a minted id. Reuse that row (adopting ITS id) instead of
+    // appending a second row with the same name — a name-duplicate permanently
+    // cross-links two registry entries to one disk folder.
+    const adopted = projects.find((p: any) =>
+      p?.id !== realProjectId && p?.kind === 'media' &&
+      typeof p?.name === 'string' && p.name.toLowerCase() === (projectName || '').toLowerCase()
+    );
+    if (adopted?.id) {
+      realProjectId = adopted.id;
+    }
+
     const projIndex = projects.findIndex((p: any) => p.id === realProjectId);
     if (projIndex === -1) {
       const newProj = {
@@ -2892,7 +3270,7 @@ export const MediaView: React.FC = () => {
       try {
         localStorage.setItem('willow_projects_list', JSON.stringify(updatedProjects));
       } catch (err) {}
-      
+
       window.dispatchEvent(new CustomEvent('willow_projects_updated'));
     }
     
@@ -4895,8 +5273,155 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     setViewerRemovingIds(new Set());
   };
 
-  let galleryLayoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> = [];
-  
+  // Stable tile handlers: their identity never changes across renders
+  // (useEventCallback), so the memoized GalleryTile props stay shallow-equal and
+  // a hover, prompt keystroke or agent streaming token no longer re-renders
+  // every tile in the gallery — only tiles whose own flags changed.
+  const onTileMouseDown = useEventCallback((item: MediaItem, e: React.MouseEvent) => {
+    if (e.button !== 0 || renamingItemId || activeMenuId !== null) return;
+    setHoveredTileId(null);
+    setActiveMenuId(null);
+    customDragStartRef.current = {
+      itemId: item.id,
+      startX: e.clientX,
+      startY: e.clientY
+    };
+  });
+  const onTileClick = useEventCallback((item: MediaItem) => {
+    if (wasDraggingRef.current) return;
+    if (renamingItemId === item.id) return;
+    if (item.status === 'completed' && item.url) {
+      if (item.kind === 'audio') {
+        setActiveMusicItem(item);
+      } else {
+        setSelectedItem(item);
+      }
+    }
+  });
+  const onTileMouseEnter = useEventCallback((item: MediaItem) => {
+    if (isModelMenuOpen || isAssetMenuOpen || (activeMenuId !== null && activeMenuId.endsWith('-context'))) return;
+    setHoveredTileId(item.id);
+  });
+  const onTileMouseLeave = useEventCallback((item: MediaItem) => {
+    if (hoveredTileId === item.id) setHoveredTileId(null);
+    if (activeMenuId === item.id) setActiveMenuId(null);
+  });
+  const onTileMenuOpenChange = useEventCallback((itemId: string, open: boolean, isContext?: boolean) => {
+    if (open && isContext) {
+      setHoveredTileId(null);
+      setCanvasContextMenuCoords(null);
+    }
+    setActiveMenuId(open ? (isContext ? `${itemId}-context` : itemId) : null);
+  });
+  const onTileCancel = useEventCallback((id: string) => {
+    setMediaItems(prev => prev.filter(m => m.id !== id));
+  });
+  const onTileRefresh = useEventCallback(handleRefreshItem);
+  const onTileRePrompt = useEventCallback(handleRePromptItem);
+  const onTileSetAsCover = useEventCallback(handleSetAsCover);
+  const onTileDelete = useEventCallback((id: string) => {
+    const item = mediaItemsRef.current.find(m => m.id === id);
+    // If this item was shown via a disk blob: URL, revoke it.
+    if (item?.url && item.url.startsWith('blob:')) {
+      try { URL.revokeObjectURL(item.url); } catch {}
+      mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.url);
+    }
+    setMediaItems(prev => {
+      const next = prev.filter(m => m.id !== id);
+      // Persist removal to IndexedDB (unified on the real project id).
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+      return next;
+    });
+    setAttachments(prev => prev.filter(a => a.id !== id));
+    // Remove the actual file from disk (disk = source of truth)
+    // so it doesn't reappear on the next reconcile.
+    if (item?.fsName && item.kind) {
+      void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
+    }
+  });
+  const onTileRename = useEventCallback((id: string, newName: string) => {
+    const baseName = newName.trim();
+    const items = mediaItemsRef.current;
+    const target = items.find(m => m.id === id);
+    if (!target) return;
+
+    // Unique display name among the other tiles.
+    let uniqueName = baseName;
+    let counter = 1;
+    while (items.some(m => m.id !== id && (m.shortenedPrompt || m.prompt || '').toLowerCase() === uniqueName.toLowerCase())) {
+      uniqueName = `${baseName} (${counter})`;
+      counter++;
+    }
+
+    // Optimistic display rename + IMMEDIATE IndexedDB persistence. The old
+    // debounce-only path had a revert race: a focus/disk-change reconcile
+    // landing inside the 600ms window read the STALE stored name back over
+    // the state (and the re-armed debounce then persisted the reverted list).
+    setMediaItems(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName } : m);
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+      return next;
+    });
+
+    // Realtime disk rename: keep the on-disk file in lock-step with the tile's
+    // display name (so the folder and future downloads agree). fsName and the
+    // IndexedDB record are updated the moment the move completes — the disk
+    // watcher reconciles from IndexedDB, and a stale fsName there would make
+    // it treat the renamed file as foreign and drop this item's metadata.
+    const targetKind = target.kind;
+    const targetFsName = target.fsName;
+    if (baseName && target.isSavedToFS && targetFsName && targetKind && isLocalFolderConnected) {
+      void (async () => {
+        const finalFsName = await renameLocalFSMediaFile(projectNameRef.current, targetKind, targetFsName, uniqueName);
+        if (!finalFsName || finalFsName === targetFsName) return; // no folder/file → metadata-only rename
+        setMediaItems(prev => {
+          const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName, fsName: finalFsName } : m);
+          if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+          return next;
+        });
+      })();
+    }
+  });
+  const onTileSetRenaming = useEventCallback((itemId: string, renaming: boolean) => {
+    setRenamingItemId(renaming ? itemId : null);
+  });
+  const onTileAddToPrompt = useEventCallback((targetItem: MediaItem) => {
+    if (targetItem.url) {
+      setAttachments(prev => {
+        if (prev.some(att => att && att.url === targetItem.url)) return prev;
+        return [...prev, {
+          id: targetItem.id,
+          url: targetItem.url,
+          name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
+          kind: targetItem.kind
+        }];
+      });
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+  });
+  const onTileAnimate = useEventCallback((targetItem: MediaItem) => {
+    setModelMode('video');
+    setVideoMode('frames');
+    if (targetItem.url) {
+      setAttachments(prev => {
+        if (prev.some(att => att && att.url === targetItem.url)) return prev;
+        const next = [...prev, {
+          id: targetItem.id,
+          url: targetItem.url,
+          name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
+          kind: targetItem.kind
+        }];
+        return next.slice(0, 2);
+      });
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+  });
+
+  const galleryLayoutItems = React.useMemo((): Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> => {
   if (displayMediaItems.length > 0) {
     const targetH = isSidebarCollapsed ? 230 : 270;
     const gap = 12;
@@ -4995,8 +5520,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         });
       });
     });
-    galleryLayoutItems = layoutItems;
+    return layoutItems;
   }
+  return [];
+  }, [displayMediaItems, isSidebarCollapsed, scrollbarWidth, isAgentSidebarOpen, activeMusicItem, canvasInnerWidth]);
 
   const isContextMenuActive = activeMenuId !== null && activeMenuId.endsWith('-context');
 
@@ -5149,9 +5676,50 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           >
             <ArrowLeft size={24} className="text-white" />
           </button>
-          <span className="text-sm font-medium text-white tracking-wide">
-            {projectName}
-          </span>
+          {isEditingProjectName ? (
+            <input
+              type="text"
+              value={editingProjectNameValue}
+              onChange={(e) => setEditingProjectNameValue(e.target.value)}
+              onKeyDown={(e) => {
+                // isComposing: an IME (CJK input) Enter confirms the composition,
+                // not the rename — committing there would rename to half-typed text.
+                if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
+                  projectRenameResolvedRef.current = true;
+                  commitProjectRename(editingProjectNameValue);
+                } else if (e.key === 'Escape') {
+                  projectRenameResolvedRef.current = true;
+                  setIsEditingProjectName(false);
+                }
+              }}
+              onBlur={() => {
+                // Enter/Escape already resolved this edit — the blur fired by
+                // the input unmounting must not commit again (or at all,
+                // after a cancel).
+                if (projectRenameResolvedRef.current) {
+                  projectRenameResolvedRef.current = false;
+                  return;
+                }
+                commitProjectRename(editingProjectNameValue);
+              }}
+              onFocus={(e) => e.currentTarget.select()}
+              className="bg-transparent border-none outline-none text-sm font-medium text-white tracking-wide w-[190px]"
+              autoFocus
+              spellCheck={false}
+            />
+          ) : (
+            <span
+              className="text-sm font-medium text-white tracking-wide cursor-text hover:bg-white/10 rounded-md px-1.5 py-0.5 -ml-1.5 transition-colors truncate max-w-[210px]"
+              title="Rename project"
+              onClick={() => {
+                projectRenameResolvedRef.current = false;
+                setEditingProjectNameValue(projectName);
+                setIsEditingProjectName(true);
+              }}
+            >
+              {projectName}
+            </span>
+          )}
           <button className="p-1 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white">
             <MoreVertical size={20} />
           </button>
@@ -5350,179 +5918,41 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   );
                 }
                 return (
-                    <motion.div
-                      layout
-                      transition={{ 
-                        duration: isRightSidebarToggling ? 0.78 : 0, 
-                        ease: [0.16, 1, 0.3, 1] 
-                      }}
+                    <GalleryTile
                       key={item.id}
-                      onMouseDown={(e: React.MouseEvent) => {
-                        if (e.button !== 0 || renamingItemId || activeMenuId !== null) return;
-                        setHoveredTileId(null);
-                        setActiveMenuId(null);
-                        customDragStartRef.current = {
-                          itemId: item.id,
-                          startX: e.clientX,
-                          startY: e.clientY
-                        };
-                      }}
-                      style={{
-                        flexGrow: isLastRow ? 0 : ar,
-                        flexBasis: `${finalWidth}px`,
-                        height: `${finalHeight}px`,
-                        borderWidth: item.status === 'completed' ? '0.5px' : '0px',
-                        borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
-                        cursor: renamingItemId === item.id ? 'default' : draggingItemId === item.id ? 'grabbing' : 'grab',
-                      }}
-                      data-id={item.id}
-                      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
-                        (draggingItemId || selectionBox !== null || isContextMenuActive) ? '' : 'group'
-                      } ${
-                        item.status === 'completed' ? 'border' : 'border-none'
-                      } ${
-                        renamingItemId === item.id 
-                          ? 'overflow-visible z-50' 
-                          : (activeMenuId === item.id || activeMenuId === `${item.id}-context`)
-                            ? 'overflow-visible z-40' 
-                            : draggingItemId === item.id
-                              ? 'overflow-visible z-50'
-                              : selectedTileIds.has(item.id)
-                                ? 'overflow-visible z-[75]'
-                                : 'overflow-hidden z-10'
-                      }`}
-                      onClick={() => {
-                        if (wasDraggingRef.current) return;
-                        if (renamingItemId === item.id) return;
-                        if (item.status === 'completed' && item.url) {
-                          if (item.kind === 'audio') {
-                            setActiveMusicItem(item);
-                          } else {
-                            setSelectedItem(item);
-                          }
-                        }
-                      }}
-                      onMouseEnter={() => {
-                        if (isModelMenuOpen || isAssetMenuOpen || isContextMenuActive) return;
-                        setHoveredTileId(item.id);
-                      }}
-                      onMouseLeave={() => {
-                        if (hoveredTileId === item.id) setHoveredTileId(null);
-                        if (activeMenuId === item.id) setActiveMenuId(null);
-                      }}
-                    >
-                      <TileContent 
-                        item={item} 
-                        projectName={projectName}
-                        isMenuOpen={activeMenuId === item.id || activeMenuId === `${item.id}-context`} 
-                        onMenuOpenChange={(open, isContext) => {
-                          if (open && isContext) {
-                            setHoveredTileId(null);
-                            setCanvasContextMenuCoords(null);
-                          }
-                          setActiveMenuId(open ? (isContext ? `${item.id}-context` : item.id) : null);
-                        }} 
-                        isHovered={hoveredTileId === item.id && selectionBox === null && draggingItemId === null}
-                        onCancel={(id) => setMediaItems(prev => prev.filter(m => m.id !== id))}
-                        onRefresh={handleRefreshItem}
-                        onRePrompt={handleRePromptItem}
-                        onDelete={(id) => {
-                          const item = mediaItemsRef.current.find(m => m.id === id);
-                          // If this item was shown via a disk blob: URL, revoke it.
-                          if (item?.url && item.url.startsWith('blob:')) {
-                            try { URL.revokeObjectURL(item.url); } catch {}
-                            mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.url);
-                          }
-                          setMediaItems(prev => {
-                            const next = prev.filter(m => m.id !== id);
-                            // Persist removal to IndexedDB (unified on projectId).
-                            if (projectId) void saveProjectMedia(projectId, next);
-                            return next;
-                          });
-                          setAttachments(prev => prev.filter(a => a.id !== id));
-                          // Remove the actual file from disk (disk = source of truth)
-                          // so it doesn't reappear on the next reconcile.
-                          if (item?.fsName && item.kind) {
-                            void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
-                          }
-                        }}
-                        onRename={(id, newName) => {
-                          setMediaItems(prev => {
-                            const baseName = newName.trim();
-                            let uniqueName = baseName;
-                            let counter = 1;
-                            while (prev.some(m => m.id !== id && (m.shortenedPrompt || m.prompt || '').toLowerCase() === uniqueName.toLowerCase())) {
-                              uniqueName = `${baseName} (${counter})`;
-                              counter++;
-                            }
-                            return prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName } : m);
-                          });
-                        }}
-                        isRenaming={renamingItemId === item.id}
-                        setIsRenaming={(renaming) => setRenamingItemId(renaming ? item.id : null)}
-                        onSetAsCover={handleSetAsCover}
-                        onAddToPrompt={(targetItem) => {
-                          if (targetItem.url) {
-                            setAttachments(prev => {
-                              if (prev.some(att => att && att.url === targetItem.url)) return prev;
-                              return [...prev, {
-                                id: targetItem.id,
-                                url: targetItem.url,
-                                name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
-                                kind: targetItem.kind
-                              }];
-                            });
-                            setTimeout(() => {
-                              textareaRef.current?.focus();
-                            }, 50);
-                          }
-                        }}
-                        onAnimate={(targetItem) => {
-                          setModelMode('video');
-                          setVideoMode('frames');
-                          if (targetItem.url) {
-                            setAttachments(prev => {
-                              if (prev.some(att => att && att.url === targetItem.url)) return prev;
-                              const next = [...prev, {
-                                id: targetItem.id,
-                                url: targetItem.url,
-                                name: targetItem.shortenedPrompt || targetItem.prompt || 'Attached Media',
-                                kind: targetItem.kind
-                              }];
-                              return next.slice(0, 2);
-                            });
-                            setTimeout(() => {
-                              textareaRef.current?.focus();
-                            }, 50);
-                          }
-                        }}
-                      />
-                      
-                      {/* Smooth fading local dark overlay for all other images/videos */}
-                      <div 
-                        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[400ms] ${
-                          (renamingItemId && renamingItemId !== item.id) || 
-                          (draggingItemId && draggingItemId !== item.id) ||
-                          (selectedTileIds.size > 0 && !selectedTileIds.has(item.id))
-                            ? 'opacity-100' 
-                            : 'opacity-0'
-                        }`}
-                      />
-
-                      {/* Selection white border overlay to prevent any gap */}
-                      <div 
-                        className={`absolute rounded-[18px] pointer-events-none z-[38] transition-opacity duration-300 ease-in-out ${
-                          selectedTileIds.has(item.id) ? 'opacity-100' : 'opacity-0'
-                        }`}
-                        style={{
-                          top: item.status === 'completed' ? '-0.5px' : '0px',
-                          left: item.status === 'completed' ? '-0.5px' : '0px',
-                          right: item.status === 'completed' ? '-0.5px' : '0px',
-                          bottom: item.status === 'completed' ? '-0.5px' : '0px',
-                          border: '2.2px solid white',
-                        }}
-                      />
-                    </motion.div>
+                      item={item}
+                      projectName={projectName}
+                      ar={ar}
+                      finalWidth={finalWidth}
+                      finalHeight={finalHeight}
+                      isLastRow={isLastRow}
+                      layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+                      isMenuOpen={activeMenuId === item.id || activeMenuId === `${item.id}-context`}
+                      isHovered={hoveredTileId === item.id && selectionBox === null && draggingItemId === null}
+                      isRenaming={renamingItemId === item.id}
+                      isDragging={draggingItemId === item.id}
+                      isSelected={selectedTileIds.has(item.id)}
+                      dimmed={Boolean(
+                        (renamingItemId && renamingItemId !== item.id) ||
+                        (draggingItemId && draggingItemId !== item.id) ||
+                        (selectedTileIds.size > 0 && !selectedTileIds.has(item.id))
+                      )}
+                      interactionsMuted={Boolean(draggingItemId || selectionBox !== null || isContextMenuActive)}
+                      onTileMouseDown={onTileMouseDown}
+                      onTileClick={onTileClick}
+                      onTileMouseEnter={onTileMouseEnter}
+                      onTileMouseLeave={onTileMouseLeave}
+                      onMenuOpenChange={onTileMenuOpenChange}
+                      onCancel={onTileCancel}
+                      onRefresh={onTileRefresh}
+                      onRePrompt={onTileRePrompt}
+                      onDelete={onTileDelete}
+                      onRename={onTileRename}
+                      onSetIsRenaming={onTileSetRenaming}
+                      onSetAsCover={onTileSetAsCover}
+                      onAddToPrompt={onTileAddToPrompt}
+                      onAnimate={onTileAnimate}
+                    />
                   );
                 })}
             </div>
@@ -6675,9 +7105,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       try {
                         const response = await fetch(selectedItem.url);
                         const blob = await response.blob();
-                        if (isLocalFolderConnected) {
-                          void saveLocalFSMedia(projectName, selectedItem.kind, filename, blob);
-                        }
+                        // No direct FS save here — the auto-sync backfill effect
+                        // already persists unsaved items (with fsName recorded);
+                        // saving again minted "name (1).png" duplicates on disk
+                        // that reconciled back in as phantom tiles.
                         const blobUrl = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = blobUrl;
