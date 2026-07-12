@@ -13,7 +13,7 @@ import { RainbowButton } from './components/ui/rainbow-button';
 import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
 import { DashboardChat } from './components/DashboardChat';
-import { CodeWorkspace } from './components/CodeWorkspace';
+import { CodeWorkspaceSkeleton } from './components/CodeWorkspaceSkeleton';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
@@ -24,6 +24,15 @@ import { migrateProjectKinds, rebuildMediaIndex } from './lib/mediaStorage';
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
 const MediaView = React.lazy(() => import('./components/media/MediaView'));
+// Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
+// never ships while on Home; resolve only after the default card images are
+// warmed so the bento grid appears fully formed (skeleton shows meanwhile).
+const CodeWorkspace = React.lazy(() =>
+  import('./components/CodeWorkspace').then(async (m) => {
+    await m.preloadIdleImages();
+    return { default: m.CodeWorkspace };
+  })
+);
 
 // Dynamic background renderer based on context
 const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
@@ -553,24 +562,26 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <CodeWorkspace
-                    key={`develop-${chatResetKey}`}
-                    chatResetKey={chatResetKey}
-                    modelConfig={modelConfig}
-                    setModelConfig={setModelConfig}
-                    selectedModelId={selectedModelId}
-                    setSelectedModelId={setSelectedModelId}
-                    isAuthenticated={!!user}
-                    onAuthRequired={!user ? () => navigate('/login') : undefined}
-                    agentSwarmEnabled={agentSwarmEnabled}
-                    onSwarmToggle={setAgentSwarmEnabled}
-                    onSettingsClick={(tab) => {
-                      if (tab) setSettingsInitialTab(tab);
-                      setIsSettingsOpen(true);
-                    }}
-                    isSidebarCollapsed={isSidebarCollapsed}
-                    onWorkspaceActive={setIsSidebarHidden}
-                  />
+                  <Suspense fallback={<CodeWorkspaceSkeleton />}>
+                    <CodeWorkspace
+                      key={`develop-${chatResetKey}`}
+                      chatResetKey={chatResetKey}
+                      modelConfig={modelConfig}
+                      setModelConfig={setModelConfig}
+                      selectedModelId={selectedModelId}
+                      setSelectedModelId={setSelectedModelId}
+                      isAuthenticated={!!user}
+                      onAuthRequired={!user ? () => navigate('/login') : undefined}
+                      agentSwarmEnabled={agentSwarmEnabled}
+                      onSwarmToggle={setAgentSwarmEnabled}
+                      onSettingsClick={(tab) => {
+                        if (tab) setSettingsInitialTab(tab as any);
+                        setIsSettingsOpen(true);
+                      }}
+                      isSidebarCollapsed={isSidebarCollapsed}
+                      onWorkspaceActive={setIsSidebarHidden}
+                    />
+                  </Suspense>
                 )
               ) : (
                 <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
