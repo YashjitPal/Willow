@@ -670,7 +670,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
           </div>
 
-          {user && (
+          {(user || isLocalFolderConnected) && (
             <>
               <SectionHeader title="Projects" isCollapsed={isCollapsed} />
               <div className="space-y-0.5">

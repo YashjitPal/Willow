@@ -111,7 +111,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
-  const { deleteLocalFSProject } = useLocalFS();
+  const { deleteLocalFSProject, isLocalFolderConnected } = useLocalFS();
 
   const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean; coverUrl?: string }[]>([]);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
@@ -225,7 +225,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
       `}</style>
 
       {/* Drive Not Connected Overlay */}
-      {!isDriveConnected && (
+      {(!isDriveConnected && !isLocalFolderConnected) && (
         <div className="absolute inset-0 z-30 rounded-[2rem] overflow-hidden">
           <div className="absolute inset-0 backdrop-blur-md bg-[#0d0d0d]/80" />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
