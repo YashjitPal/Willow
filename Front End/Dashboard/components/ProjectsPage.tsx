@@ -332,7 +332,7 @@ const FilterButton: React.FC<{
 export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () => void }> = ({ view = 'projects', onOpenDriveSettings }) => {
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
-  const { deleteLocalFSProject } = useLocalFS();
+  const { deleteLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [projectsData, setProjectsData] = useState<ProjectCardProps[]>([]);
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
@@ -539,7 +539,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
       `}</style>
 
       {/* Drive Not Connected Overlay */}
-      {!isDriveConnected && (
+      {(!isDriveConnected && !isLocalFolderConnected) && (
         <div className="absolute inset-0 z-30 overflow-hidden">
           <div className="absolute inset-0 backdrop-blur-md bg-[#1c1c1c]/90" />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
