@@ -99,6 +99,25 @@ describe('API: workflow lifecycle', () => {
     assert.equal(versions.data.versions[0].notes, 'first');
   });
 
+  it('restores a published version into the draft', async () => {
+    const changed = await api('PUT', `/api/v1/workflows/${wfId}/draft`, {
+      graph: {
+        nodes: [
+          { id: 's', type: 'start', data: {} },
+          { id: 'e', type: 'end', config: { output: 'changed' } },
+        ],
+        edges: [{ id: 'se', source: 's', target: 'e' }],
+      },
+    });
+    assert.equal(changed.data.workflow.draft.nodes.length, 2);
+
+    const restored = await api('POST', `/api/v1/workflows/${wfId}/versions/1/restore`);
+    assert.equal(restored.status, 200);
+    assert.equal(restored.data.validation.valid, true);
+    assert.equal(restored.data.workflow.draft.nodes.length, 3);
+    assert.equal(restored.data.workflow.latestVersion, 1);
+  });
+
   it('refuses to publish an invalid draft', async () => {
     const bad = await api('POST', '/api/v1/workflows', {
       name: 'broken',
@@ -200,11 +219,140 @@ describe('API: workflow lifecycle', () => {
     assert.equal(run.output, 'YES');
   });
 
+  it('validates and coerces declared workflow inputs', async () => {
+    const created = await api('POST', '/api/v1/workflows', {
+      name: 'typed inputs',
+      graph: {
+        nodes: [
+          {
+            id: 's',
+            type: 'start',
+            config: {
+              inputVariables: [{ name: 'count', type: 'number' }],
+              stateVariables: [{ name: 'enabled', type: 'boolean', initialValue: false }],
+            },
+          },
+          { id: 'e', type: 'end', config: { output: '$cel:workflow.count' } },
+        ],
+        edges: [{ id: 'se', source: 's', target: 'e' }],
+      },
+    });
+    const id = created.data.workflow.id;
+
+    const started = await api('POST', `/api/v1/workflows/${id}/runs`, {
+      input: {
+        variables: { count: '4' },
+        state_variables: { enabled: 'true' },
+      },
+    });
+    assert.equal(started.status, 200);
+    let run: any;
+    for (let i = 0; i < 100; i++) {
+      run = (await api('GET', `/api/v1/runs/${started.data.run.id}`)).data.run;
+      if (['completed', 'failed'].includes(run.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(run.status, 'completed', run.error);
+    assert.equal(run.output, 4);
+    assert.equal(run.input.variables.count, 4);
+    assert.equal(run.state.enabled, true);
+
+    const unknown = await api('POST', `/api/v1/workflows/${id}/runs`, {
+      input: { variables: { missing: 'value' } },
+    });
+    assert.equal(unknown.status, 422);
+    assert.match(unknown.data.error.message, /unknown workflow variable 'missing'/);
+  });
+
   it('deletes a workflow', async () => {
     const created = await api('POST', '/api/v1/workflows', { name: 'temp' });
     const id = created.data.workflow.id;
     assert.equal((await api('DELETE', `/api/v1/workflows/${id}`)).status, 200);
     assert.equal((await api('GET', `/api/v1/workflows/${id}`)).status, 404);
+  });
+});
+
+describe('API: workflow templates and data contracts', () => {
+  it('lists templates and creates a validated router template', async () => {
+    const templates = await api('GET', '/api/v1/workflow-templates');
+    assert.equal(templates.status, 200);
+    assert.ok(templates.data.templates.some((t: any) => t.id === 'router'));
+
+    const created = await api('POST', '/api/v1/workflows/from-template', {
+      templateId: 'router',
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.data.validation.valid, true, JSON.stringify(created.data.validation.errors));
+    assert.ok(created.data.validation.contracts.some((c: any) => c.nodeType === 'agent'));
+    assert.equal(created.data.workflow.name, 'Router and specialists');
+  });
+
+  it('returns a useful not-found error for unknown templates', async () => {
+    const response = await api('POST', '/api/v1/workflows/from-template', { templateId: 'missing' });
+    assert.equal(response.status, 404);
+    assert.match(response.data.error.message, /template 'missing'/);
+  });
+});
+
+describe('API: trace evaluations', () => {
+  it('runs deterministic graders against a workflow trace', async () => {
+    const created = await api('POST', '/api/v1/workflows', {
+      name: 'evaluated',
+      graph: {
+        nodes: [
+          { id: 's', type: 'start', data: {} },
+          { id: 'a', type: 'agent', data: { label: 'Answer', model: 'mock/echo', instructions: 'Echo the input.' } },
+          { id: 'e', type: 'end', data: { label: 'End', config: { output: '{{answer.output_text}}' } } },
+        ],
+        edges: [
+          { id: 'sa', source: 's', target: 'a' },
+          { id: 'ae', source: 'a', target: 'e' },
+        ],
+      },
+    });
+    const workflowId = created.data.workflow.id;
+    const started = await api('POST', `/api/v1/workflows/${workflowId}/runs`, {
+      input: { input_as_text: 'evaluation marker' },
+    });
+    let run: any;
+    for (let i = 0; i < 100; i++) {
+      run = (await api('GET', `/api/v1/runs/${started.data.run.id}`)).data.run;
+      if (['completed', 'failed'].includes(run.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(run.status, 'completed', run.error);
+
+    const definition = await api('POST', `/api/v1/workflows/${workflowId}/evaluations`, {
+      name: 'Smoke graders',
+      graders: [
+        { id: 'status', name: 'Completed', type: 'run_status', expected: 'completed' },
+        { id: 'marker', name: 'Contains marker', type: 'contains', expected: 'evaluation marker' },
+        { id: 'nodes', name: 'Has node trace', type: 'event_count', eventType: 'node.completed', expected: 1 },
+      ],
+    });
+    assert.equal(definition.status, 200);
+    const evaluated = await api('POST', `/api/v1/evaluations/${definition.data.evaluation.id}/run`, {
+      runIds: [run.id],
+    });
+    assert.equal(evaluated.status, 200);
+    assert.equal(evaluated.data.run.results[0].score, 1);
+
+    const updated = await api('PATCH', `/api/v1/evaluations/${definition.data.evaluation.id}`, {
+      name: 'Updated graders',
+      graders: [{ id: 'status', type: 'run_status', expected: 'completed' }],
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.data.evaluation.name, 'Updated graders');
+    assert.equal(updated.data.evaluation.graders.length, 1);
+
+    const history = await api('GET', `/api/v1/evaluations/${definition.data.evaluation.id}/runs`);
+    assert.equal(history.status, 200);
+    assert.equal(history.data.runs.length, 1);
+
+    const removed = await api('DELETE', `/api/v1/evaluations/${definition.data.evaluation.id}`);
+    assert.equal(removed.status, 200);
+    const missing = await api('GET', `/api/v1/evaluations/${definition.data.evaluation.id}`);
+    assert.equal(missing.status, 404);
   });
 });
 

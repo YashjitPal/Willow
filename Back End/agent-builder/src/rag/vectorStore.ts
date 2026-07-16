@@ -14,7 +14,7 @@ import type {
 import { COLLECTIONS, type Storage } from '../storage/index.ts';
 import { ids, nowIso } from '../util/id.ts';
 import { chunkText } from './chunker.ts';
-import { cosineSimilarity, embedderById, selectEmbedder } from './embeddings.ts';
+import { cosineSimilarity, createLocalEmbedder, embedderById, selectEmbedder } from './embeddings.ts';
 
 interface StoredChunk {
   id: string;
@@ -99,8 +99,20 @@ export class VectorStoreService {
     try {
       const chunks = chunkText(content);
       if (!chunks.length) throw new Error('file contains no extractable text');
-      const embedder = embedderById(store.embedder, keys);
-      const embeddings = await embedder.embed(chunks.map((c) => c.text));
+      let embedder = embedderById(store.embedder, keys);
+      let embeddings: number[][];
+      try {
+        embeddings = await embedder.embed(chunks.map((c) => c.text));
+      } catch (error) {
+        // Keep File Search usable when a configured remote key is expired or
+        // temporarily unavailable. Persist the fallback space so later
+        // queries use the same dimensions as the ingested chunks.
+        if (embedder.id === 'local') throw error;
+        embedder = createLocalEmbedder();
+        embeddings = await embedder.embed(chunks.map((c) => c.text));
+        store.embedder = embedder.id;
+        await this.storage.put(COLLECTIONS.vectorStores, store.id, store);
+      }
       for (let i = 0; i < chunks.length; i++) {
         const chunk: StoredChunk = {
           id: `${file.id}_c${i}`,

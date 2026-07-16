@@ -103,9 +103,13 @@ import { HardDrive } from 'lucide-react';
 interface BottomPanelProps {
   onOpenDriveSettings?: () => void;
   mode?: 'media' | 'develop';
+  /** Render even when the background is 'solid' (e.g. the Code view paints its own bg). */
+  forceVisible?: boolean;
+  /** Show every matching project instead of only the top 9. */
+  showAll?: boolean;
 }
 
-export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, mode }) => {
+export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, mode, forceVisible, showAll }) => {
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
@@ -155,7 +159,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           } else if (mode === 'develop') {
             filtered = list.filter((p: any) => p.kind === 'code');
           }
-          setProjectsList(filtered.slice(0, 9)); // Show top 9 projects
+          setProjectsList(showAll ? filtered : filtered.slice(0, 9)); // Show top 9 projects (or all)
           setStarredProjects(new Set(list.filter((p: any) => p.isStarred).map((p: any) => p.id)));
 
           loadAllProjectCovers().then(covers => {
@@ -172,7 +176,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
       window.removeEventListener('willow_projects_updated', loadProjects);
       window.removeEventListener('willow_media_updated', loadProjects);
     };
-  }, [mode]);
+  }, [mode, showAll]);
 
   const toggleStar = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -203,12 +207,15 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
     setOpenMenuId(openMenuId === id ? null : id);
   };
 
-  if (background === 'solid') {
+  if (background === 'solid' && !forceVisible) {
     return null;
   }
 
-  // Match sidebar opacity (90%) for waves, keep original (70%) for others
-  const panelBgClass = background === 'waves'
+  // Match sidebar opacity (90%) for waves, keep original (70%) for others.
+  // When forced visible over a solid backdrop (Code view), use an opaque panel.
+  const panelBgClass = forceVisible && background === 'solid'
+    ? 'bg-[#0d0d0d]'
+    : background === 'waves'
     ? 'bg-[#0d0d0d]/90'
     : 'bg-[#0d0d0d]/70';
 
@@ -225,7 +232,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
       `}</style>
 
       {/* Drive Not Connected Overlay */}
-      {(!isDriveConnected && !isLocalFolderConnected) && (
+      {(!forceVisible && !isDriveConnected && !isLocalFolderConnected) && (
         <div className="absolute inset-0 z-30 rounded-[2rem] overflow-hidden">
           <div className="absolute inset-0 backdrop-blur-md bg-[#0d0d0d]/80" />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">

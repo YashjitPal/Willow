@@ -14,7 +14,7 @@ import { useUserDataContext } from './UserDataContext';
 import { designNodesStore } from '../lib/stores/design-store';
 import { loadProjectMedia, saveProjectMedia, deleteProjectData, saveProjectCover, loadProjectCover } from '../lib/mediaStorage';
 import { extractVideoFrame } from '../lib/coverUtils';
-import { saveChatBody, loadChatBody, deleteChatBody, renameChatBody, renameCodeSessions } from '../lib/willowDB';
+import { saveChatBody, loadChatBody, deleteChatBody, renameChatBody, renameCodeSessions, deleteCodeSessions } from '../lib/willowDB';
 
 interface FileContent {
   name: string;
@@ -32,7 +32,12 @@ export const parseTempIdTimestamp = (chatId: string): number => {
     if (tIdx !== -1) {
       const datePart = firstPart.slice(0, tIdx); // "2026-06-06"
       const timePart = firstPart.slice(tIdx + 1).replace(/-/g, ':'); // "06:44:09"
-      const dateStr = `${datePart}T${timePart}`;
+      // The id is built from new Date().toISOString() — i.e. UTC wall-clock —
+      // so parse it back as UTC. Without the 'Z', new Date() treats a
+      // time-bearing string with no offset as LOCAL time, dating every
+      // brand-new chat off by the viewer's UTC offset (e.g. −5h at UTC+5),
+      // which could sort a just-created chat below older ones.
+      const dateStr = `${datePart}T${timePart}Z`;
       const parsedTime = new Date(dateStr).getTime();
       if (!isNaN(parsedTime)) {
         return parsedTime;
@@ -78,7 +83,18 @@ export const sortChatsNewestToOldest = (chats: string[]): string[] => {
     } catch {}
   }
   const ts = (chatId: string): number => stored[chatId] || parseTempIdTimestamp(chatId);
-  return [...chats].sort((a, b) => ts(b) - ts(a));
+  // Deterministic TOTAL order: newest first, then a stable id tiebreaker. The
+  // tiebreaker is essential — without it, chats with equal or missing
+  // timestamps keep whatever order the input happened to have (disk
+  // enumeration order, which varies), so the persisted list and the sidebar's
+  // render-sort could disagree and the list visibly reshuffled on open. This
+  // MUST match the comparator the sidebar uses (see Sidebar.tsx).
+  return [...chats].sort((a, b) => {
+    const tA = ts(a);
+    const tB = ts(b);
+    if (tB !== tA) return tB - tA;
+    return a.localeCompare(b);
+  });
 };
 
 interface LocalFSContextType {
@@ -149,6 +165,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // the reconciler skips adopting a disk name that is a rename's in-flight
   // old name.
   const recentProjectRenamesRef = useRef<Map<string, { newName: string; ts: number }>>(new Map());
+  // >0 while a project-folder move is executing on disk; the timestamp keeps
+  // the guard up ~800ms after it completes so the FileSystemObserver's last
+  // debounced event can pass. refreshLocalMedia consults these: reconciling a
+  // half-copied folder makes every not-yet-copied file look externally
+  // deleted, and the reconcile PERSISTS that loss (invariant #13).
+  const projectRenameOpsRef = useRef(0);
+  const projectRenameSettleUntilRef = useRef(0);
 
   // Follow the rename chain (A→B→C) for a project name captured before one or
   // more renames landed. Entries expire after 60s — long enough for any
@@ -338,6 +361,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           // -> genuinely deleted externally. Remove it and clean its IndexedDB data.
           changed = true;
           void deleteProjectData(p.id);
+          // deleteProjectData only clears media + covers. Code-editor sessions
+          // (and their content-addressed blobs) are keyed by project NAME —
+          // clear them too, exactly like the in-app delete surfaces do, or an
+          // externally-deleted code project leaks its whole session history in
+          // IndexedDB forever.
+          void deleteCodeSessions(`willow_chat_sessions_${p.name}`);
         } else {
           // Browser-only project (never saved to a folder) -> keep as-is.
           next.push(p);
@@ -458,22 +487,41 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
 
       if (changed) {
-        // Re-read the registry right before writing. Another writer (e.g. a brand
-        // new project just registered by StagingView, or a media project) may have
-        // appended an entry between our initial read and now; blindly writing our
-        // stale `next` would clobber it and the new project would vanish. Preserve
-        // any entry whose id we never saw (a concurrent addition) while still
-        // honoring our own deliberate removals (ids we saw but intentionally dropped).
+        // Re-read the registry right before writing. The reconcile above ran
+        // many awaits (manifest reads, cover hydration — seconds), and another
+        // writer may have mutated the registry in that window. Blindly writing
+        // our stale `next` would clobber those edits.
         try {
           const originalIds = new Set(projectsList.map((p) => p?.id).filter(Boolean));
-          const nextIds = new Set(next.map((p) => p.id));
+          const nextById = new Map(next.map((p) => [p.id, p]));
           const freshStored = localStorage.getItem('willow_projects_list');
           const freshList = freshStored ? JSON.parse(freshStored) : [];
           if (Array.isArray(freshList)) {
             for (const p of freshList) {
-              if (p?.id && !originalIds.has(p.id) && !nextIds.has(p.id)) {
-                next.push(p);
-                nextIds.add(p.id);
+              if (!p?.id) continue;
+              const mine = nextById.get(p.id);
+              if (!mine) {
+                // A concurrent ADDITION we never saw (new project just
+                // registered) — preserve it, unless it's an id we deliberately
+                // dropped (saw in the original snapshot and removed on purpose).
+                if (!originalIds.has(p.id)) {
+                  next.push(p);
+                  nextById.set(p.id, p);
+                }
+              } else {
+                // An entry we kept. `isStarred` is a user preference the
+                // reconcile has no authority over and never sets — adopt the
+                // fresh value so a star toggled DURING our long await isn't
+                // reverted. Disk-authoritative fields (name/kind/onDisk/
+                // hasCover) keep the reconcile's disk-derived values.
+                if (!!p.isStarred !== !!mine.isStarred) {
+                  mine.isStarred = p.isStarred;
+                }
+                // hasCover only ever flips false→true (a cover got saved) —
+                // adopting a concurrent `true` can never lose information.
+                if (p.hasCover && !mine.hasCover) {
+                  mine.hasCover = true;
+                }
               }
             }
           }
@@ -765,22 +813,56 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const designsDir = await projectDir.getDirectoryHandle('Designs', { create: true });
       await projectDir.getDirectoryHandle('Agents', { create: true });
 
-      try {
-        for await (const entry of (codebaseDir as any).values()) {
-          // Codebase/ mirrors the editor's current file set, so stale entries
-          // must go — RECURSIVELY: files are written via nested paths (e.g.
-          // src/App.tsx), and clearing only root-level files left deleted or
-          // renamed files behind in src//components/... forever. Dot-entries
-          // (.git, .vscode, …) are user-owned and preserved.
-          if (typeof entry.name === 'string' && entry.name.startsWith('.')) continue;
-          await codebaseDir.removeEntry(entry.name, { recursive: entry.kind === 'directory' });
-        }
-      } catch {}
-
-      // Save codebase files: /[workspace]/Code/[projectName]/Codebase/
+      // Write the new file set FIRST, then prune stale entries — never the other
+      // way round. The old code deleted the whole Codebase/ tree up front and
+      // then rewrote file-by-file; an interruption in that window (tab close,
+      // crash, permission downgrade, the unmount-flush firing mid-teardown)
+      // left Codebase/ empty or truncated on disk. Write-then-prune means an
+      // interruption at worst leaves a few extra stale files, never an empty
+      // tree, and the next successful save cleans them up.
+      const writtenPaths = new Set<string>();
+      // Mirror writeFileRecursively's own normalization EXACTLY so the prune
+      // pass below recognises each just-written file: backslashes → '/', drop a
+      // leading '/', and drop '.'/'..' path segments (it skips those when
+      // creating dirs, so the on-disk path has them removed too).
+      const normalizeWritten = (p: string): string =>
+        p.replace(/\\/g, '/').replace(/^\//, '').split('/').filter((s) => s !== '.' && s !== '..').join('/');
       for (const file of files) {
         await writeFileRecursively(codebaseDir, file.name, file.content);
+        writtenPaths.add(normalizeWritten(file.name));
       }
+
+      // Prune files no longer in the editor's set (handles deletes/renames),
+      // recursively. Dot-entries (.git, .vscode, …) are user-owned — never
+      // touched. Empty non-dot directories left after pruning are removed too.
+      const pruneStale = async (dir: any, prefix: string): Promise<boolean> => {
+        // Returns true if `dir` still holds anything after pruning. Collect the
+        // full entry list BEFORE mutating — removing during the async
+        // directory iteration can skip siblings on some implementations.
+        const files: string[] = [];
+        const childDirs: { name: string; handle: any }[] = [];
+        let kept = 0;
+        for await (const entry of dir.values()) {
+          if (typeof entry.name === 'string' && entry.name.startsWith('.')) { kept++; continue; }
+          if (entry.kind === 'directory') childDirs.push({ name: entry.name, handle: entry });
+          else files.push(entry.name);
+        }
+        for (const name of files) {
+          const rel = prefix ? `${prefix}/${name}` : name;
+          if (writtenPaths.has(rel)) { kept++; }
+          else { try { await dir.removeEntry(name); } catch {} }
+        }
+        for (const child of childDirs) {
+          const childPrefix = prefix ? `${prefix}/${child.name}` : child.name;
+          const childKept = await pruneStale(child.handle, childPrefix);
+          if (childKept) { kept++; }
+          else { try { await dir.removeEntry(child.name, { recursive: true }); } catch {} }
+        }
+        return kept > 0;
+      };
+      try {
+        await pruneStale(codebaseDir, '');
+      } catch {}
 
       // Save design nodes from store: /[workspace]/Code/[projectName]/Designs/
       try {
@@ -849,8 +931,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             localStorage.setItem('willow_chat_timestamps', JSON.stringify(ts));
           }
         } catch {}
+        // Fire the body delete OUTSIDE the state updater below — React may
+        // invoke updaters more than once (StrictMode/concurrent), and side
+        // effects don't belong in them.
+        void deleteChatBody(oldChatId);
       }
-      
+
       setLocalChats((prev) => {
         let next = prev;
         if (!prev.includes(chatId)) {
@@ -858,7 +944,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         }
         if (oldChatId && oldChatId !== chatId) {
           next = next.filter((c) => c !== oldChatId);
-          void deleteChatBody(oldChatId);
         }
         const sorted = sortChatsNewestToOldest(next);
         localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
@@ -1238,6 +1323,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       return true;
     };
 
+    projectRenameOpsRef.current++;
     try {
       const workspaceName = getSanitizedWorkspaceName();
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
@@ -1257,6 +1343,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } catch (err) {
       console.error('Error renaming project folder', err);
       return false;
+    } finally {
+      projectRenameOpsRef.current--;
+      projectRenameSettleUntilRef.current = Date.now() + 800;
     }
   }, [getActiveHandle, getSanitizedWorkspaceName]);
 
@@ -1584,6 +1673,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     try {
       const hasAccess = await verifyPermission(rootHandle, false, false);
       if (!hasAccess) return await loadProjectMedia(projectId);
+
+      // INVARIANT #13 (STORAGE_SYNC.md): never reconcile while a project
+      // folder is mid-rename (copy-then-delete). Scanning the target folder
+      // half-copied makes every not-yet-copied file look externally deleted;
+      // the saveProjectMedia below would PERSIST that loss, and the files
+      // would later re-ingest as anonymous "External Source" items — the
+      // user's prompts/model metadata gone for good. Serve IndexedDB as-is;
+      // the realtime watcher reconciles once the move (+800ms settle) is done.
+      if (projectRenameOpsRef.current > 0 || Date.now() < projectRenameSettleUntilRef.current) {
+        return await loadProjectMedia(projectId);
+      }
 
       const workspaceName = getSanitizedWorkspaceName();
       // Read-only reconcile: never create workspace/Media/project folders here.

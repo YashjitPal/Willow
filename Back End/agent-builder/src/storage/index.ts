@@ -43,6 +43,8 @@ export const COLLECTIONS = {
   vectorChunks: 'vector_chunks',
   sessions: 'sessions',
   threads: 'threads',
+  evaluations: 'evaluations',
+  evaluationRuns: 'evaluation_runs',
   settings: 'settings',
 } as const;
 

@@ -10,7 +10,9 @@ import { getProvider, resolveKey } from '../providers/index.ts';
 import type { VectorStoreService } from '../rag/vectorStore.ts';
 import type { RunEngine } from '../engine/executor.ts';
 import type { ChatService } from '../services/chat.ts';
+import type { EvaluationGrader, EvaluationService, GraderType } from '../services/evaluations.ts';
 import type { WorkflowService } from '../services/workflows.ts';
+import { WORKFLOW_TEMPLATES } from '../services/templates.ts';
 import { COLLECTIONS, type Storage } from '../storage/index.ts';
 import { HANDLED, HttpError, openSse, Router, type RequestCtx } from '../http/router.ts';
 
@@ -19,6 +21,7 @@ export interface ApiServices {
   workflows: WorkflowService;
   engine: RunEngine;
   chat: ChatService;
+  evaluations: EvaluationService;
   mcp: McpManager;
   vectorStores: VectorStoreService;
 }
@@ -43,6 +46,33 @@ function str(v: unknown, name: string): string {
 
 function optStr(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
+}
+
+function parseEvaluationGraders(body: JsonObject): EvaluationGrader[] {
+  const rawGraders = Array.isArray(body.graders) ? body.graders : [];
+  if (rawGraders.length === 0) {
+    throw new HttpError(400, 'an evaluation needs at least one grader');
+  }
+  const allowed = new Set<GraderType>(['contains', 'equals', 'regex', 'run_status', 'event_count']);
+  return rawGraders.map((value, index) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new HttpError(400, `grader ${index + 1} must be an object`);
+    }
+    const grader = value as JsonObject;
+    const type = optStr(grader.type) as GraderType | undefined;
+    if (!type || !allowed.has(type)) {
+      throw new HttpError(400, `grader ${index + 1} has an unknown type`);
+    }
+    if (!('expected' in grader)) throw new HttpError(400, `grader ${index + 1} needs expected`);
+    return {
+      id: optStr(grader.id) ?? `grader_${index + 1}`,
+      name: optStr(grader.name) ?? `Grader ${index + 1}`,
+      type,
+      target: optStr(grader.target) === 'error' ? 'error' : 'output',
+      expected: grader.expected as JsonValue,
+      eventType: optStr(grader.eventType),
+    };
+  });
 }
 
 /** Per-request provider keys: x-provider-keys header (JSON) or body.provider_keys. */
@@ -71,7 +101,7 @@ function maskKey(key: string): string {
 }
 
 export function registerRoutes(router: Router, services: ApiServices): void {
-  const { storage, workflows, engine, chat, mcp, vectorStores } = services;
+  const { storage, workflows, engine, chat, evaluations, mcp, vectorStores } = services;
 
   // ------------------------------------------------------------------
   // health
@@ -163,6 +193,22 @@ export function registerRoutes(router: Router, services: ApiServices): void {
     };
   });
 
+  router.get('/api/v1/workflow-templates', () => ({
+    templates: WORKFLOW_TEMPLATES.map(({ graph: _graph, ...template }) => template),
+  }));
+
+  router.post('/api/v1/workflows/from-template', async (ctx) => {
+    const body = requireBody(ctx);
+    const templateId = str(body.templateId ?? body.template_id, 'templateId');
+    const result = await workflows.createFromTemplate({
+      templateId,
+      name: optStr(body.name),
+      description: optStr(body.description),
+    });
+    if (!result) throw new HttpError(404, `workflow template '${templateId}' not found`);
+    return result;
+  });
+
   router.post('/api/v1/workflows', async (ctx) => {
     const body = (ctx.body ?? {}) as JsonObject;
     const { workflow, validation } = await workflows.create({
@@ -242,6 +288,18 @@ export function registerRoutes(router: Router, services: ApiServices): void {
     return { version: ver };
   });
 
+  router.post('/api/v1/workflows/:id/versions/:version/restore', async (ctx) => {
+    const version = Number.parseInt(ctx.params.version, 10);
+    if (!Number.isInteger(version) || version < 1) {
+      throw new HttpError(400, `'version' must be a positive integer`);
+    }
+    const restored = await workflows.restoreVersion(ctx.params.id, version);
+    if (!restored) {
+      throw new HttpError(404, `workflow '${ctx.params.id}' or version ${version} not found`);
+    }
+    return restored;
+  });
+
   router.post('/api/v1/workflows/:id/export', async (ctx) => {
     const body = (ctx.body ?? {}) as JsonObject;
     const format = (optStr(body.format) ?? 'typescript').toLowerCase();
@@ -296,11 +354,72 @@ export function registerRoutes(router: Router, services: ApiServices): void {
     return { runs: await engine.listRuns(ctx.params.id, limit) };
   });
 
+  // ------------------------------------------------------------------
+  // trace evaluation
+  // ------------------------------------------------------------------
+  router.get('/api/v1/workflows/:id/evaluations', async (ctx) => {
+    const wf = await workflows.get(ctx.params.id);
+    if (!wf) throw new HttpError(404, `workflow '${ctx.params.id}' not found`);
+    return { evaluations: await evaluations.list(ctx.params.id) };
+  });
+
+  router.post('/api/v1/workflows/:id/evaluations', async (ctx) => {
+    const wf = await workflows.get(ctx.params.id);
+    if (!wf) throw new HttpError(404, `workflow '${ctx.params.id}' not found`);
+    const body = requireBody(ctx);
+    const graders = parseEvaluationGraders(body);
+    return { evaluation: await evaluations.create({
+      workflowId: ctx.params.id,
+      name: optStr(body.name) ?? 'Untitled evaluation',
+      graders,
+    }) };
+  });
+
   router.get('/api/v1/runs/:id', async (ctx) => {
     const run = await engine.getRun(ctx.params.id);
     if (!run) throw new HttpError(404, `run '${ctx.params.id}' not found`);
     const publicRun = publicRunView(run);
     return { run: publicRun };
+  });
+
+  router.get('/api/v1/evaluations/:id', async (ctx) => {
+    const evaluation = await evaluations.get(ctx.params.id);
+    if (!evaluation) throw new HttpError(404, `evaluation '${ctx.params.id}' not found`);
+    return { evaluation };
+  });
+
+  router.patch('/api/v1/evaluations/:id', async (ctx) => {
+    const evaluation = await evaluations.get(ctx.params.id);
+    if (!evaluation) throw new HttpError(404, `evaluation '${ctx.params.id}' not found`);
+    const body = requireBody(ctx);
+    const updated = await evaluations.update(ctx.params.id, {
+      name: optStr(body.name),
+      graders: body.graders === undefined ? undefined : parseEvaluationGraders(body),
+    });
+    return { evaluation: updated };
+  });
+
+  router.delete('/api/v1/evaluations/:id', async (ctx) => {
+    const ok = await evaluations.remove(ctx.params.id);
+    if (!ok) throw new HttpError(404, `evaluation '${ctx.params.id}' not found`);
+    return { ok: true };
+  });
+
+  router.get('/api/v1/evaluations/:id/runs', async (ctx) => {
+    const evaluation = await evaluations.get(ctx.params.id);
+    if (!evaluation) throw new HttpError(404, `evaluation '${ctx.params.id}' not found`);
+    return { runs: await evaluations.listRuns(ctx.params.id) };
+  });
+
+  router.post('/api/v1/evaluations/:id/run', async (ctx) => {
+    const evaluation = await evaluations.get(ctx.params.id);
+    if (!evaluation) throw new HttpError(404, `evaluation '${ctx.params.id}' not found`);
+    const body = (ctx.body ?? {}) as JsonObject;
+    const requestedRunIds = body.runIds ?? body.run_ids;
+    const runIds = Array.isArray(requestedRunIds)
+      ? (requestedRunIds as unknown[]).filter((value): value is string => typeof value === 'string')
+      : undefined;
+    return { run: await evaluations.evaluate(ctx.params.id, runIds) };
   });
 
   router.get('/api/v1/runs/:id/trace', async (ctx) => {

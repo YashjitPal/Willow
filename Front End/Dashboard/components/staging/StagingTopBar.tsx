@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { firePreview, fireCode, runPanelOpen } from '../../lib/stores/agent-builder-store';
+import { firePreview, fireCode, firePublish, evaluationPanelOpen } from '../../lib/stores/agent-builder-store';
 import {
   Palette, 
   Code2, 
@@ -211,6 +211,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
           return (
             <button
               key={item.id}
+              aria-label={item.label}
               onClick={() => handleTabChange(item.id)}
               style={{
                 width: isLeaving ? '0px' : (isActive ? '112px' : '40px'),
@@ -249,6 +250,8 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
         <div className="relative">
           <button
             ref={buttonRef}
+            aria-label="Add tool"
+            title="Add tool"
             onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
             className={`
               flex items-center justify-center w-10 h-10 rounded-full text-[#a1a1aa] hover:text-white hover:bg-[#27272a]/30 transition-colors duration-200 border border-[#1c1c1c]
@@ -352,7 +355,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
         ) : activeTab === 'agent-builder' ? (
           <>
             <button
-              onClick={() => runPanelOpen.set(true)}
+              onClick={() => evaluationPanelOpen.set(true)}
               className="flex items-center gap-2 h-8 px-4 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none">
               <Compass size={14} className="text-white" />
               <span>Evaluate</span>
@@ -408,6 +411,8 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
               className="h-10 text-sm"
               shimmerColor="#ffffff"
               background="rgba(28, 28, 28, 1)"
+              onClick={() => firePublish()}
+              title="Publish workflow"
             >
               <span className="text-white font-medium">Publish</span>
             </ShimmerButton>

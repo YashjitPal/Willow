@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, startTransition } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { useStore } from '@nanostores/react';
@@ -11,6 +12,7 @@ import { useAutoSave } from '../hooks/useAutoSave';
 import { workbenchStore } from '../lib/sandpack';
 import { getCachedFirstName, cacheFirstName } from '../lib/displayName';
 import { MessageLoading } from './ui/message-loading';
+import { BottomPanel } from './BottomPanel';
 import logoG from '../src/assets/logog.png';
 import { PROJECT_NAME_MODEL } from '@models';
 import newspaperImg from '../../Images for prompt suggestions (Willow Code)/Newspaper.png';
@@ -256,6 +258,29 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // 'active' = StagingView layout inline (chat → workspace morph)
   const [phase, setPhase] = useState<'idle' | 'active'>('idle');
 
+  // ── Saved-projects count (drives the empty-state in the scroll-down panel) ──
+  // Cheap localStorage read; stays in sync via the same event the rest of the
+  // app dispatches when the project registry changes.
+  const [codeProjectCount, setCodeProjectCount] = useState(0);
+  useEffect(() => {
+    const recount = () => {
+      try {
+        const stored = localStorage.getItem('willow_projects_list');
+        const list = stored ? JSON.parse(stored) : [];
+        setCodeProjectCount(Array.isArray(list) ? list.filter((p: any) => p?.kind === 'code').length : 0);
+      } catch {
+        setCodeProjectCount(0);
+      }
+    };
+    recount();
+    window.addEventListener('willow_projects_updated', recount);
+    window.addEventListener('willow_media_updated', recount);
+    return () => {
+      window.removeEventListener('willow_projects_updated', recount);
+      window.removeEventListener('willow_media_updated', recount);
+    };
+  }, []);
+
   // ── 3D Tilt Hover Effects for Bento Cards ──────────────────────────────────
   const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
     const card = e.currentTarget;
@@ -304,6 +329,11 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       return () => clearTimeout(timer);
     }
   }, [attachments]);
+
+  // ── Idle-phase snap scrolling (hero ⇄ "Your apps") ───────────────────────
+  // Native CSS scroll snapping keeps wheel and trackpad movement directly
+  // coupled to the page, then returns to the nearest full-height section.
+  const [idleComposerHost, setIdleComposerHost] = useState<HTMLDivElement | null>(null);
 
   // ── Active-phase (StagingView) state ─────────────────────────────────────
   const [isChatMode, setIsChatMode] = useState(true);
@@ -354,6 +384,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   const [projectName, setProjectName] = useState('');
   const [isGeneratingName, setIsGeneratingName] = useState(false);
   const nameGeneratedRef = useRef(false);
+  const projectRegisteredRef = useRef(false);
 
   // Watch workbenchStore.hasUserCode to auto-flip isChatMode
   const hasUserCode = useStore(workbenchStore.hasUserCode);
@@ -398,6 +429,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setIsChatMode(true);
       setProjectName('');
       nameGeneratedRef.current = false;
+      projectRegisteredRef.current = false;
       workbenchStore.reset();
       workbenchStore.resetToTemplate();
     }
@@ -443,25 +475,6 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           name = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
         name = name.replace(/^["']|["']$/g, '').trim() || 'New Project';
-        // Register in project list
-        try {
-          const stored = localStorage.getItem('willow_projects_list');
-          let list = stored ? JSON.parse(stored) : [];
-          if (!Array.isArray(list)) list = [];
-          const existing = list.find((p: any) => p?.name?.toLowerCase() === name.toLowerCase());
-          if (existing) {
-            let counter = 2;
-            let candidate = `${name} (${counter})`;
-            while (list.some((p: any) => p?.name?.toLowerCase() === candidate.toLowerCase())) { counter++; candidate = `${name} (${counter})`; }
-            name = candidate;
-          }
-          const usedIds = new Set(list.map((p: any) => p?.id).filter(Boolean));
-          let newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
-          while (usedIds.has(newId)) { newId = `#${Math.floor(1000 + Math.random() * 9000)}`; }
-          list.push({ id: newId, name, kind: 'code' });
-          localStorage.setItem('willow_projects_list', JSON.stringify(list));
-          window.dispatchEvent(new Event('willow_projects_updated'));
-        } catch {}
         setProjectName(name);
       } catch {
         setProjectName('New Project');
@@ -472,8 +485,42 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     generateProjectName();
   }, [phase, initialPrompt, apiKeys, modelConfig]);
 
-  // Auto-save
-  const { isSaving } = useAutoSave(projectName || 'Untitled', (!!accessToken || isLocalFolderConnected) && !!projectName);
+  // A Code-mode conversation remains an inbox chat until the workbench receives
+  // its first real file mutation. Only then does it become a project.
+  useEffect(() => {
+    if (!hasUserCode || !projectName || projectRegisteredRef.current) return;
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      let list = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(list)) list = [];
+
+      let finalName = projectName;
+      if (list.some((p: any) => p?.name?.toLowerCase() === finalName.toLowerCase())) {
+        let counter = 2;
+        let candidate = `${finalName} (${counter})`;
+        while (list.some((p: any) => p?.name?.toLowerCase() === candidate.toLowerCase())) {
+          counter++;
+          candidate = `${finalName} (${counter})`;
+        }
+        finalName = candidate;
+        setProjectName(finalName);
+      }
+
+      const usedIds = new Set(list.map((p: any) => p?.id).filter(Boolean));
+      let newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+      while (usedIds.has(newId)) newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+      list.push({ id: newId, name: finalName, kind: 'code' });
+      localStorage.setItem('willow_projects_list', JSON.stringify(list));
+      projectRegisteredRef.current = true;
+      window.dispatchEvent(new Event('willow_projects_updated'));
+    } catch {}
+  }, [hasUserCode, projectName]);
+
+  // Project files reach Drive/disk only after promotion.
+  const { isSaving } = useAutoSave(
+    projectName || 'Untitled',
+    hasUserCode && (!!accessToken || isLocalFolderConnected) && !!projectName
+  );
 
   // ── Resize logic (from StagingView) ──────────────────────────────────────
   useEffect(() => { return () => { if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current); }; }, []);
@@ -624,6 +671,11 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       
       {phase === 'idle' && (
         <>
+          <div
+            className="absolute inset-0 overflow-y-auto no-scrollbar overscroll-contain snap-y snap-mandatory"
+          >
+          {/* ── Snap section 1: hero — layout untouched, now the first full-height section ── */}
+          <div className="relative h-full snap-start snap-always overflow-hidden">
           <div className="absolute top-14 left-0 right-0 flex flex-col items-center justify-center z-10 pointer-events-none">
             <div className="pointer-events-auto flex flex-col items-center gap-1.5">
               <h2 
@@ -995,11 +1047,11 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               <img src={gameImg} alt="" />
             </div>
 
-            {/* Fixed-height slot (136px = inner box 120px + pb-4 16px) — keeps the bento grid
-                pinned in place; the auto-expanding textarea grows UPWARD out of the slot
-                instead of pushing the grid up */}
+            {/* Preserve the hero geometry while the shared composer is rendered
+                in the persistent viewport-level host below. */}
             <div className="relative h-[136px] bg-[#1c1c1c] pointer-events-auto z-50">
-              <div className="absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto">
+              {idleComposerHost && createPortal(
+                <div className="absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto pointer-events-auto">
                 <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
                   {/* Attachments Area */}
                   <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
@@ -1233,9 +1285,42 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                     </div>
                   </div>
                 </div>
+                </div>,
+                idleComposerHost
+              )}
+            </div>
+          </div>
+          </div>
+
+          {/* ── Snap section 2: saved projects ("Your apps") — scroll down to reach ── */}
+          <div id="bottom-panel" className="relative h-full snap-start snap-always bg-[#1c1c1c]">
+            <div
+              className="absolute inset-0 overflow-y-auto custom-scrollbar flex flex-col pt-10 pb-[176px]"
+            >
+              <div className="my-auto w-full">
+                {codeProjectCount > 0 ? (
+                  <BottomPanel
+                    mode="develop"
+                    showAll
+                    forceVisible
+                    onOpenDriveSettings={() => onSettingsClick?.('connectors')}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-2 text-center px-8">
+                    <p className="text-[16px] font-semibold text-gray-300">No apps yet</p>
+                    <p className="text-[13px] text-[#71717a] max-w-[360px]">
+                      Apps you build with Willow Code are saved here automatically. Head back up and create your first one.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
+          </div>
+          <div
+            ref={setIdleComposerHost}
+            className="absolute inset-x-0 bottom-0 h-[136px] z-[60] pointer-events-none"
+          />
         </>
       )}
 
@@ -1312,6 +1397,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                   setSelectedModelId={setSelectedModelId}
                   isResizing={isDragging}
                   projectName={projectName}
+                  isProjectPromoted={hasUserCode}
                   isGeneratingName={isGeneratingName}
                   onSettingsClick={onSettingsClick}
                   agentSwarmEnabled={agentSwarmEnabled}

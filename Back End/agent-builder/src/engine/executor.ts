@@ -15,6 +15,7 @@ import type {
   Run,
   RunEvent,
   RunInput,
+  StartNodeConfig,
   Workflow,
   WorkflowGraph,
   WorkflowVersion,
@@ -27,6 +28,7 @@ import { COLLECTIONS, type Storage } from '../storage/index.ts';
 import { ids, nowIso } from '../util/id.ts';
 import { createLogger } from '../util/log.ts';
 import type { EngineCheckpoint, RunContext } from './context.ts';
+import { coerceToVarType } from './jsonSchema.ts';
 import { initialState, NODE_EXECUTORS } from './nodes/index.ts';
 
 const log = createLogger('engine');
@@ -45,6 +47,60 @@ type Subscriber = (event: RunEvent) => void;
 interface PersistedEvent {
   seq: number;
   event: RunEvent;
+}
+
+function normalizeRunInput(graph: WorkflowGraph, raw: RunInput | undefined): RunInput {
+  const input = structuredClone(raw ?? {});
+  if (input.input_as_text !== undefined && typeof input.input_as_text !== 'string') {
+    throw new Error("invalid run input: 'input_as_text' must be a string");
+  }
+
+  const start = graph.nodes.find((node) => node.type === 'start');
+  const config = (start?.config ?? {}) as unknown as StartNodeConfig;
+  const inputDecls = new Map(
+    (config.inputVariables ?? [])
+      .filter((decl) => decl.name !== 'input_as_text')
+      .map((decl) => [decl.name, decl]),
+  );
+  const stateDecls = new Map((config.stateVariables ?? []).map((decl) => [decl.name, decl]));
+
+  if (input.variables) {
+    const normalized: JsonObject = {};
+    for (const [name, value] of Object.entries(input.variables)) {
+      const declaration = inputDecls.get(name);
+      if (!declaration) {
+        throw new Error(`invalid run input: unknown workflow variable '${name}'`);
+      }
+      try {
+        normalized[name] = coerceToVarType(value, declaration.type) as JsonObject[string];
+      } catch (error) {
+        throw new Error(
+          `invalid run input: workflow variable '${name}' must be ${declaration.type}: ${(error as Error).message}`,
+        );
+      }
+    }
+    input.variables = normalized;
+  }
+
+  if (input.state_variables) {
+    const normalized: JsonObject = {};
+    for (const [name, value] of Object.entries(input.state_variables)) {
+      const declaration = stateDecls.get(name);
+      if (!declaration) {
+        throw new Error(`invalid run input: unknown state variable '${name}'`);
+      }
+      try {
+        normalized[name] = coerceToVarType(value, declaration.type) as JsonObject[string];
+      } catch (error) {
+        throw new Error(
+          `invalid run input: state variable '${name}' must be ${declaration.type}: ${(error as Error).message}`,
+        );
+      }
+    }
+    input.state_variables = normalized;
+  }
+
+  return input;
 }
 
 export class RunEngine {
@@ -181,6 +237,7 @@ export class RunEngine {
         `workflow graph is invalid: ${validation.errors.map((e) => e.message).join('; ')}`,
       );
     }
+    const normalizedInput = normalizeRunInput(graph, input.input);
 
     const run: Run = {
       id: ids.run(),
@@ -188,7 +245,7 @@ export class RunEngine {
       workflowVersion: version,
       sessionId: input.sessionId,
       status: 'queued',
-      input: input.input ?? {},
+      input: normalizedInput,
       usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0, toolCalls: 0 },
       createdAt: nowIso(),
     };
@@ -196,17 +253,17 @@ export class RunEngine {
     const start = graph.nodes.find((n) => n.type === 'start')!;
     const checkpoint: EngineCheckpoint = {
       currentNodeId: start.id,
-      state: initialState(graph, input.input?.state_variables),
+      state: initialState(graph, normalizedInput.state_variables),
       nodeOutputs: {},
-      history: [...(input.input?.history ?? [])],
+      history: [...(normalizedInput.history ?? [])],
       whileCounters: {},
       lastAgentText: '',
     };
     // record the current user input into history for chat semantics
-    if (input.input?.input_as_text) {
+    if (normalizedInput.input_as_text) {
       checkpoint.history.push({
         role: 'user',
-        content: input.input.input_as_text,
+        content: normalizedInput.input_as_text,
         at: nowIso(),
       });
     }
