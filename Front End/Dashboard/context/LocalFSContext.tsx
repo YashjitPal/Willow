@@ -119,7 +119,7 @@ interface LocalFSContextType {
   selectLocalFSInboxChat: (chatId: string | null) => void | Promise<void>;
   loadLocalFSChat: (chatId: string) => Promise<any[] | null>;
   refreshLocalChats: () => Promise<void>;
-  refreshLocalMedia: (projectId: string, projectName: string) => Promise<any[]>;
+  refreshLocalMedia: (projectId: string, projectName: string, liveItems?: any[]) => Promise<any[]>;
   loadLocalFSMediaUrl: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<string | null>;
   deleteLocalFSChat: (chatId: string) => Promise<boolean>;
   deleteLocalFSProject: (projectId: string, projectName: string) => Promise<boolean>;
@@ -1666,13 +1666,36 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // disk: in-progress, failed, or generated before a folder was connected) keep
   // their base64 url. Items previously on disk whose file is now gone are dropped
   // (external delete reflected). Persists the reconciled metadata by projectId.
-  const refreshLocalMedia = useCallback(async (projectId: string, projectName: string): Promise<any[]> => {
+  const refreshLocalMedia = useCallback(async (projectId: string, projectName: string, liveItems?: any[]): Promise<any[]> => {
+    // Overlay the caller's LIVE in-memory items over what IndexedDB has. The
+    // gallery's IndexedDB persist is debounced (~600ms) while the disk watcher
+    // reconciles ~300ms after a file lands — so right after a generation batch
+    // completes, the stored record still shows the items as 'generating' with
+    // no fsName (or missing entirely). Matching disk files against that stale
+    // record degraded to prompt-matching, and a batch shares ONE prompt — the
+    // files paired with the WRONG items (tiles visibly swapped/rearranged) and
+    // the mangled mapping was then persisted. Live state is the truth the UI
+    // holds; by-id it always wins, and live-only items are appended so a
+    // just-completed, not-yet-persisted item can't be dropped or re-ingested
+    // as an anonymous "External Source" tile.
+    const loadBaseline = async (): Promise<any[]> => {
+      const stored = (await loadProjectMedia(projectId)) || [];
+      if (!liveItems || liveItems.length === 0) return stored;
+      const liveById = new Map(liveItems.filter((m: any) => m?.id).map((m: any) => [m.id, m]));
+      const merged = stored.map((m: any) => liveById.get(m?.id) ?? m);
+      const storedIds = new Set(stored.map((m: any) => m?.id));
+      for (const m of liveItems) {
+        if (m?.id && !storedIds.has(m.id)) merged.push(m);
+      }
+      return merged;
+    };
+
     const rootHandle = directoryHandleRef.current;
-    if (!rootHandle) return await loadProjectMedia(projectId);
+    if (!rootHandle) return await loadBaseline();
 
     try {
       const hasAccess = await verifyPermission(rootHandle, false, false);
-      if (!hasAccess) return await loadProjectMedia(projectId);
+      if (!hasAccess) return await loadBaseline();
 
       // INVARIANT #13 (STORAGE_SYNC.md): never reconcile while a project
       // folder is mid-rename (copy-then-delete). Scanning the target folder
@@ -1682,7 +1705,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // user's prompts/model metadata gone for good. Serve IndexedDB as-is;
       // the realtime watcher reconciles once the move (+800ms settle) is done.
       if (projectRenameOpsRef.current > 0 || Date.now() < projectRenameSettleUntilRef.current) {
-        return await loadProjectMedia(projectId);
+        return await loadBaseline();
       }
 
       const workspaceName = getSanitizedWorkspaceName();
@@ -1696,7 +1719,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const mediaDir = await workspaceDir.getDirectoryHandle('Media');
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
 
-      const dbMedia = (await loadProjectMedia(projectId)) || [];
+      const dbMedia = await loadBaseline();
       const onDisk: any[] = [];
       const consumedDbIds = new Set<string>();
 
@@ -1785,7 +1808,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (err?.name !== 'NotFoundError') {
         console.error('Error refreshing local media', err);
       }
-      return await loadProjectMedia(projectId);
+      return await loadBaseline();
     }
   }, [getSanitizedWorkspaceName]);
 
@@ -1977,6 +2000,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * Rename a local chat file
    */
   const renameLocalFSChat = useCallback(async (oldChatId: string, newChatId: string): Promise<boolean> => {
+    // The chat id doubles as the on-disk filename (Chats/<id>.json) — strip
+    // filesystem-illegal characters exactly like every project-name path does.
+    // Without this, a rename to e.g. "Plan: v2?" renamed the IndexedDB body
+    // but silently failed the disk write, and after the 20s grace window the
+    // poller treated the chat as externally deleted and reaped it.
+    newChatId = newChatId.replace(/[\/:*?"<>|]/g, '').trim();
+    if (!newChatId || newChatId === oldChatId) return false;
     // Mark both ids as just-written so the disk poller won't delete them mid-rename.
     recentChatWritesRef.current.set(oldChatId, Date.now());
     recentChatWritesRef.current.set(newChatId, Date.now());

@@ -334,6 +334,16 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // Native CSS scroll snapping keeps wheel and trackpad movement directly
   // coupled to the page, then returns to the nearest full-height section.
   const [idleComposerHost, setIdleComposerHost] = useState<HTMLDivElement | null>(null);
+  const [scrollRatio, setScrollRatio] = useState(0);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const height = target.clientHeight || window.innerHeight;
+    if (height > 0) {
+      const ratio = Math.min(target.scrollTop / (height * 0.45), 1);
+      setScrollRatio(ratio);
+    }
+  };
 
   // ── Active-phase (StagingView) state ─────────────────────────────────────
   const [isChatMode, setIsChatMode] = useState(true);
@@ -672,6 +682,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       {phase === 'idle' && (
         <>
           <div
+            onScroll={handleScroll}
             className="absolute inset-0 overflow-y-auto no-scrollbar overscroll-contain snap-y snap-mandatory"
           >
           {/* ── Snap section 1: hero — layout untouched, now the first full-height section ── */}
@@ -976,11 +987,14 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               </div>
 
               {/* "Your apps" pill button centered below suggestions */}
-              <div className={`absolute bottom-[18px] left-1/2 -translate-x-1/2 z-20 transition-all duration-300
-                ${(!promptText.trim() && attachments.length === 0) 
-                  ? 'opacity-100 scale-100 pointer-events-auto' 
-                  : 'opacity-0 scale-95 pointer-events-none'
-                }`}
+              <div 
+                className="absolute bottom-[18px] left-1/2 z-20 pointer-events-none"
+                style={{
+                  opacity: (!promptText.trim() && attachments.length === 0) ? (1 - scrollRatio) : 0,
+                  transform: `translateX(-50%) scale(${(!promptText.trim() && attachments.length === 0) ? (1 - 0.25 * scrollRatio) : 0.95})`,
+                  pointerEvents: (!promptText.trim() && attachments.length === 0 && scrollRatio < 0.9) ? 'auto' : 'none',
+                  transition: scrollRatio > 0 ? 'none' : 'opacity 300ms cubic-bezier(0.4, 0, 0.2, 1), transform 300ms cubic-bezier(0.4, 0, 0.2, 1)'
+                }}
               >
                 <button 
                   onClick={() => {
@@ -1295,7 +1309,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           {/* ── Snap section 2: saved projects ("Your apps") — scroll down to reach ── */}
           <div id="bottom-panel" className="relative h-full snap-start snap-always bg-[#1c1c1c]">
             <div
-              className="absolute inset-0 overflow-y-auto custom-scrollbar flex flex-col pt-10 pb-[176px]"
+              className="absolute inset-0 overflow-y-auto no-scrollbar flex flex-col pt-10 pb-[176px]"
             >
               <div className="my-auto w-full">
                 {codeProjectCount > 0 ? (

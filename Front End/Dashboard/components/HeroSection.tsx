@@ -117,11 +117,14 @@ export const HeroSection: React.FC<{
         // Media tab shows projects tagged 'media' OR any project that actually
         // has media (per the realtime media index) — so media you generated into
         // a 'code' project still appears here.
+        // Registry array order is CREATION order (new projects are appended),
+        // so reverse for display: newest first. Display-only — the registry is
+        // never written back reordered (invariant #1).
         if (dashboardMode === 'media') {
           const idx = getMediaIndex();
-          return allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0);
+          return allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0).reverse();
         }
-        return allProjects;
+        return allProjects.reverse();
       } catch (e) {
         /* ignore fallback */
       }
@@ -147,11 +150,12 @@ export const HeroSection: React.FC<{
         try {
           const allProjects = JSON.parse(stored);
           // Media tab shows 'media'-tagged projects OR any project that has media.
+          // Reverse for display: registry order is creation order → newest first.
           if (dashboardMode === 'media') {
             const idx = getMediaIndex();
-            setProjectsList(allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0));
+            setProjectsList(allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0).reverse());
           } else {
-            setProjectsList(allProjects);
+            setProjectsList(allProjects.reverse());
           }
         } catch (e) {}
       }
