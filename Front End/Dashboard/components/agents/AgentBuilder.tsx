@@ -1,12 +1,29 @@
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useUserDataContext } from '../../context/UserDataContext';
+import {
+  getAgentBuilderClient,
+  type McpConnector,
+  type McpServer,
+  type NodeDataContract,
+  type VectorStore,
+  type VectorStoreFile,
+  type WorkflowTemplate,
+} from '../../lib/agentBuilder';
 import { useStore as useNanoStore } from '@nanostores/react';
 import { useAgentBuilderBackend } from '../../hooks/useAgentBuilderBackend';
 import { RunPanel } from './RunPanel';
 import { CodeExportModal } from './CodeExportModal';
+import { EvaluationPanel } from './EvaluationPanel';
+import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { NodeConfigPanel } from './NodeConfigPanel';
-import { backendStatus, saveStatus, currentWorkflow } from '../../lib/stores/agent-builder-store';
+import {
+  backendStatus,
+  saveStatus,
+  currentWorkflow,
+  requestedWorkflowId,
+  versionPanelOpen,
+} from '../../lib/stores/agent-builder-store';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ReactFlow, 
@@ -68,7 +85,14 @@ import {
   Settings,
   X,
   Plus as PlusIcon,
-  Wand2
+  Wand2,
+  LayoutTemplate,
+  Loader2,
+  CircleAlert,
+  TriangleAlert,
+  History,
+  Upload,
+  FilePlus2
 } from 'lucide-react';
 
 // Custom node types
@@ -568,14 +592,19 @@ const InstructionsModal = ({
 
 interface AgentConfigPanelProps {
   nodeName: string;
+  contract?: NodeDataContract;
   onNameChange: (newName: string) => void;
   instructions: string;
   onInstructionsChange: (newInstructions: string) => void;
+  userMessage?: string;
+  onUserMessageChange?: (newMessage: string) => void;
   // Backend persistence (optional so the panel still works standalone)
   initialModelId?: string;
   initialOutputFormat?: string;
   onModelChange?: (modelName: string) => void;
   onOutputFormatChange?: (fmt: string) => void;
+  config?: Record<string, any>;
+  onConfigChange?: (patch: Record<string, any>) => void;
 }
 
 interface APIModel {
@@ -588,7 +617,21 @@ const formatModelName = (displayName: string) => {
   return displayName.replace(/^Gemini\s+/, '').replace(/\s+Preview$|\s+Experimental$/, '');
 };
 
-const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameChange, instructions, onInstructionsChange, initialModelId, initialOutputFormat, onModelChange, onOutputFormatChange }) => {
+const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
+  nodeName,
+  contract,
+  onNameChange,
+  instructions,
+  onInstructionsChange,
+  userMessage,
+  onUserMessageChange,
+  initialModelId,
+  initialOutputFormat,
+  onModelChange,
+  onOutputFormatChange,
+  config,
+  onConfigChange,
+}) => {
   const { apiKeys } = useUserDataContext();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -598,7 +641,33 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   // Local state for the input to allow immediate typing before the flow state updates
   const [localName, setLocalName] = useState(nodeName);
   const [localInstructions, setLocalInstructions] = useState(instructions);
+  const [localUserMessage, setLocalUserMessage] = useState(userMessage ?? '');
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
+  const [includeChatHistory, setIncludeChatHistory] = useState(config?.includeChatHistory !== false);
+  const [writeToConversationHistory, setWriteToConversationHistory] = useState(Boolean(config?.writeToConversationHistory));
+  const [continueOnError, setContinueOnError] = useState(Boolean(config?.continueOnError));
+  const [reasoningEffort, setReasoningEffort] = useState(config?.reasoningEffort ?? 'medium');
+  const [verbosity, setVerbosity] = useState(config?.verbosity ?? 'medium');
+  const [maxTurns, setMaxTurns] = useState<number>(Number(config?.maxTurns ?? 8));
+  const [modelParams, setModelParams] = useState({
+    temperature: Number(config?.modelParams?.temperature ?? 1),
+    maxTokens: Number(config?.modelParams?.maxTokens ?? 2048),
+    topP: Number(config?.modelParams?.topP ?? 1),
+  });
+  const updateConfig = (patch: Record<string, any>) => onConfigChange?.(patch);
+  const configuredTools = Array.isArray(config?.tools) ? config.tools as Array<Record<string, any>> : [];
+  const addAgentTool = (tool: Record<string, any>) => {
+    const singleton = tool.kind === 'web_search' || tool.kind === 'code_interpreter';
+    const identity = tool.name ?? tool.serverId ?? (Array.isArray(tool.vectorStoreIds) ? tool.vectorStoreIds.join(',') : '');
+    if (configuredTools.some((candidate) =>
+      candidate.kind === tool.kind &&
+      (singleton || (candidate.name ?? candidate.serverId ?? (Array.isArray(candidate.vectorStoreIds) ? candidate.vectorStoreIds.join(',') : '')) === identity)
+    )) return;
+    updateConfig({ tools: [...configuredTools, tool] });
+  };
+  const removeAgentTool = (index: number) => {
+    updateConfig({ tools: configuredTools.filter((_, candidateIndex) => candidateIndex !== index) });
+  };
 
   // Model Selector State
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -606,7 +675,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const [models, setModels] = useState<APIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<APIModel | null>(
     initialModelId
-      ? { name: initialModelId.startsWith('models/') ? initialModelId : `models/${initialModelId}`, displayName: formatModelName(initialModelId.replace(/^models\//, '')), description: '' }
+      ? { name: initialModelId.replace(/^models\//, ''), displayName: formatModelName(initialModelId.replace(/^models\//, '')), description: '' }
       : {
           name: 'models/gemini-3-flash',
           displayName: 'Gemini 3 Flash',
@@ -660,7 +729,8 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const [isMCPModalOpen, setIsMCPModalOpen] = useState(false);
   const [mcpTab, setMcpTab] = useState<'All' | 'Hosted' | 'Third-party'>('All');
   const [mcpView, setMcpView] = useState<'list' | 'connect' | 'connector'>('list');
-  const [selectedConnector, setSelectedConnector] = useState<{name: string, iconUrl: string, color: string, features?: string[]} | null>(null);
+  type ConnectorPresentation = McpConnector & { iconUrl?: string; color?: string };
+  const [selectedConnector, setSelectedConnector] = useState<ConnectorPresentation | null>(null);
   const [mcpForm, setMcpForm] = useState({
     url: '',
     label: '',
@@ -670,6 +740,10 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   });
   const [isMcpAuthDropdownOpen, setIsMcpAuthDropdownOpen] = useState(false);
   const mcpAuthDropdownRef = useRef<HTMLDivElement>(null);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpConnectors, setMcpConnectors] = useState<McpConnector[]>([]);
+  const [toolDialogBusy, setToolDialogBusy] = useState(false);
+  const [toolDialogError, setToolDialogError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -689,12 +763,31 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
 
   // File Search Modal State
   const [isFileSearchModalOpen, setIsFileSearchModalOpen] = useState(false);
+  const [vectorStores, setVectorStores] = useState<VectorStore[]>([]);
+  const [selectedVectorStoreIds, setSelectedVectorStoreIds] = useState<string[]>([]);
+  const [selectedVectorStoreId, setSelectedVectorStoreId] = useState<string | null>(null);
+  const [selectedVectorStoreFiles, setSelectedVectorStoreFiles] = useState<VectorStoreFile[]>([]);
+  const [newVectorStoreName, setNewVectorStoreName] = useState('');
+  const [vectorStoreBusy, setVectorStoreBusy] = useState(false);
+  const vectorFileInputRef = useRef<HTMLInputElement>(null);
 
   // Code Interpreter Modal State
   const [isCodeInterpreterModalOpen, setIsCodeInterpreterModalOpen] = useState(false);
 
   // Function Modal State
   const [isFunctionModalOpen, setIsFunctionModalOpen] = useState(false);
+  const [functionDefinition, setFunctionDefinition] = useState(
+    '{\n' +
+    '  "name": "lookup",\n' +
+    '  "description": "Look up a value",\n' +
+    '  "parameters": {\n' +
+    '    "type": "object",\n' +
+    '    "properties": { "query": { "type": "string" } },\n' +
+    '    "required": ["query"]\n' +
+    '  },\n' +
+    '  "execution": { "mode": "js", "code": "return args.query;" }\n' +
+    '}',
+  );
 
   // JSON Schema Modal State
   const [isJsonSchemaModalOpen, setIsJsonSchemaModalOpen] = useState(false);
@@ -702,11 +795,48 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   const [jsonSchemaName, setJsonSchemaName] = useState('response_schema');
   const [jsonSchemaProperties, setJsonSchemaProperties] = useState<Array<{ id: number, name: string, type: string, description: string }>>([{ id: Date.now(), name: '', type: 'String', description: '' }]);
   const [jsonSchemaRaw, setJsonSchemaRaw] = useState('{\n  "type": "object",\n  "properties": {\n    \n  }\n}');
+  const saveJsonSchema = () => {
+    let schema: Record<string, any>;
+    if (jsonSchemaMode === 'Advanced') {
+      try {
+        const parsed = JSON.parse(jsonSchemaRaw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        schema = parsed as Record<string, any>;
+      } catch {
+        return;
+      }
+    } else {
+      const properties: Record<string, any> = {};
+      const required: string[] = [];
+      for (const property of jsonSchemaProperties) {
+        const name = property.name.trim();
+        if (!name) continue;
+        const typeMap: Record<string, string> = {
+          String: 'string',
+          Number: 'number',
+          Boolean: 'boolean',
+          Object: 'object',
+          Array: 'array',
+        };
+        properties[name] = {
+          type: typeMap[property.type] ?? 'string',
+          ...(property.description.trim() ? { description: property.description.trim() } : {}),
+        };
+        required.push(name);
+      }
+      schema = { type: 'object', properties, ...(required.length ? { required } : {}) };
+    }
+    updateConfig({ outputSchema: schema, outputSchemaName: jsonSchemaName.trim() || 'response_schema', outputFormat: 'json' });
+    setSelectedAgentFormat('JSON');
+    setIsJsonSchemaModalOpen(false);
+  };
 
   // Custom Tool Modal State
   const [isCustomToolModalOpen, setIsCustomToolModalOpen] = useState(false);
   const [isFormatDropdownOpen, setIsFormatDropdownOpen] = useState(false);
   const [selectedFormat, setSelectedFormat] = useState('Text');
+  const [customToolName, setCustomToolName] = useState('');
+  const [customToolDescription, setCustomToolDescription] = useState('');
   const formatDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -725,6 +855,68 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
     };
   }, [isFormatDropdownOpen]);
 
+  useEffect(() => {
+    if (!isMCPModalOpen) return;
+    let cancelled = false;
+    setToolDialogError(null);
+    Promise.all([
+      getAgentBuilderClient(apiKeys).listMcpServers(),
+      getAgentBuilderClient(apiKeys).listMcpConnectors(),
+    ])
+      .then(([serversResponse, connectorsResponse]) => {
+        if (cancelled) return;
+        setMcpServers(serversResponse.servers);
+        setMcpConnectors(connectorsResponse.connectors);
+      })
+      .catch((error) => {
+        if (!cancelled) setToolDialogError((error as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKeys, isMCPModalOpen]);
+
+  const refreshVectorStores = useCallback(async () => {
+    const response = await getAgentBuilderClient(apiKeys).listVectorStores();
+    setVectorStores(response.stores);
+    setSelectedVectorStoreId((current) => {
+      if (current && response.stores.some((store) => store.id === current)) return current;
+      return response.stores[0]?.id ?? null;
+    });
+    return response.stores;
+  }, [apiKeys]);
+
+  useEffect(() => {
+    if (!isFileSearchModalOpen) return;
+    let cancelled = false;
+    setToolDialogError(null);
+    refreshVectorStores()
+      .catch((error) => {
+        if (!cancelled) setToolDialogError((error as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isFileSearchModalOpen, refreshVectorStores]);
+
+  useEffect(() => {
+    if (!selectedVectorStoreId) {
+      setSelectedVectorStoreFiles([]);
+      return;
+    }
+    let cancelled = false;
+    getAgentBuilderClient(apiKeys).getVectorStore(selectedVectorStoreId)
+      .then((response) => {
+        if (!cancelled) setSelectedVectorStoreFiles(response.files);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedVectorStoreFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKeys, selectedVectorStoreId]);
+
   useOnViewportChange({
     onStart: () => {
       setIsModelDropdownOpen(false);
@@ -733,43 +925,28 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
     }
   });
 
-  // Fetch Models from Gemini API using user's API key from Settings
-  const geminiApiKey = apiKeys?.gemini?.[0];
+  // Discover provider models through the Agent Builder backend. This keeps
+  // provider keys in request headers and exposes the same model ids used by
+  // the run engine (Gemini, OpenAI, Anthropic, and mock).
   useEffect(() => {
     const fetchModels = async () => {
-      if (!geminiApiKey) return;
-
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (!data.models || !Array.isArray(data.models)) {
-            return;
-          }
-
-          // Filter to only models matching user's requested keywords: flash, pro, flash-lite
-          const filtered = data.models.filter((m: any) => {
-            const lowerName = m.name.toLowerCase();
-            return lowerName.includes('flash') || lowerName.includes('pro');
-          }).map((m: any) => ({
-            name: m.name,
-            displayName: m.displayName || m.name.split('/').pop() || m.name,
-            description: m.description || '',
-          }));
-
-          if (filtered.length > 0) {
-            setModels(filtered);
-            // Don't override a model that was restored from the saved workflow.
-            if (!initialModelId) {
-              // Default to the first "3 flash" or "flash" model found in the real data
-              // Default to '3 flash' -> any '3' -> any 'flash' -> first model found
-              const defaultModel = filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3') && m.name.toLowerCase().includes('flash')) ||
-                                   filtered.find((m: any) => m.name.toLowerCase().includes('gemini-3')) ||
-                                   filtered.find((m: any) => m.name.toLowerCase().includes('flash')) ||
-                                   filtered[0];
-              setSelectedModel(defaultModel);
-            }
+        const response = await getAgentBuilderClient(apiKeys).listModels();
+        const discovered = response.models.map((model) => ({
+          name: model.id,
+          displayName: model.displayName || model.id,
+          description: model.description || '',
+        }));
+        if (discovered.length > 0) {
+          setModels(discovered);
+          // Don't override a model that was restored from the saved workflow.
+          if (!initialModelId) {
+            const defaultModel =
+              discovered.find((model) => model.id === 'mock/echo') ||
+              discovered.find((model) => model.id.toLowerCase().includes('flash')) ||
+              discovered[0];
+            setSelectedModel(defaultModel);
+            onModelChange?.(defaultModel.name);
           }
         }
       } catch (error) {
@@ -778,7 +955,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
     };
 
     fetchModels();
-  }, [geminiApiKey]);
+  }, [apiKeys, initialModelId]);
 
   // Handle Model Dropdown Click Outside
   useEffect(() => {
@@ -865,7 +1042,216 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
   useEffect(() => {
     setLocalName(nodeName);
     setLocalInstructions(instructions);
-  }, [nodeName, instructions]);
+    setLocalUserMessage(userMessage ?? '');
+    setIncludeChatHistory(config?.includeChatHistory !== false);
+    setWriteToConversationHistory(Boolean(config?.writeToConversationHistory));
+    setContinueOnError(Boolean(config?.continueOnError));
+    setReasoningEffort(config?.reasoningEffort ?? 'medium');
+    setVerbosity(config?.verbosity ?? 'medium');
+    setMaxTurns(Number(config?.maxTurns ?? 8));
+    setModelParams({
+      temperature: Number(config?.modelParams?.temperature ?? 1),
+      maxTokens: Number(config?.modelParams?.maxTokens ?? 2048),
+      topP: Number(config?.modelParams?.topP ?? 1),
+    });
+  }, [nodeName, instructions, userMessage, config]);
+
+  const attachFunctionTool = () => {
+    setToolDialogError(null);
+    try {
+      const parsed = JSON.parse(functionDefinition) as Record<string, any>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Function definition must be a JSON object.');
+      }
+      if (typeof parsed.name !== 'string' || !parsed.name.trim()) {
+        throw new Error('Function definition needs a name.');
+      }
+      const execution = parsed.execution;
+      if (!execution || typeof execution !== 'object' ||
+          !['js', 'http', 'client'].includes(execution.mode)) {
+        throw new Error("Function execution.mode must be 'js', 'http', or 'client'.");
+      }
+      if (execution.mode === 'js' && typeof execution.code !== 'string') {
+        throw new Error('JavaScript functions need execution.code.');
+      }
+      if (execution.mode === 'http' && typeof execution.url !== 'string') {
+        throw new Error('HTTP functions need execution.url.');
+      }
+      addAgentTool({
+        kind: 'function',
+        name: parsed.name.trim(),
+        description: typeof parsed.description === 'string' ? parsed.description : '',
+        parameters: parsed.parameters && typeof parsed.parameters === 'object'
+          ? parsed.parameters
+          : { type: 'object', properties: {} },
+        execution,
+      });
+      setIsFunctionModalOpen(false);
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    }
+  };
+
+  const attachCustomTool = () => {
+    const name = customToolName.trim();
+    if (!name) {
+      setToolDialogError('Custom tools need a name.');
+      return;
+    }
+    addAgentTool({
+      kind: 'custom',
+      name,
+      description: customToolDescription.trim(),
+      format: selectedFormat === 'JSON' ? 'json' : 'text',
+    });
+    setCustomToolName('');
+    setCustomToolDescription('');
+    setToolDialogError(null);
+    setIsCustomToolModalOpen(false);
+  };
+
+  const attachFileSearchTool = () => {
+    if (!selectedVectorStoreIds.length) {
+      setToolDialogError('Select at least one vector store.');
+      return;
+    }
+    addAgentTool({
+      kind: 'file_search',
+      vectorStoreIds: selectedVectorStoreIds,
+      maxResults: 8,
+    });
+    setSelectedVectorStoreIds([]);
+    setToolDialogError(null);
+    setIsFileSearchModalOpen(false);
+  };
+
+  const createVectorStore = async () => {
+    const name = newVectorStoreName.trim();
+    if (!name) {
+      setToolDialogError('Give the vector store a name.');
+      return;
+    }
+    setVectorStoreBusy(true);
+    setToolDialogError(null);
+    try {
+      const response = await getAgentBuilderClient(apiKeys).createVectorStore(name);
+      const stores = await refreshVectorStores();
+      const created = stores.find((store) => store.id === response.store.id) ?? response.store;
+      setSelectedVectorStoreId(created.id);
+      setNewVectorStoreName('');
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    } finally {
+      setVectorStoreBusy(false);
+    }
+  };
+
+  const uploadVectorStoreFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !selectedVectorStoreId) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setToolDialogError('Files must be 10 MB or smaller.');
+      return;
+    }
+    setVectorStoreBusy(true);
+    setToolDialogError(null);
+    try {
+      const content = await file.text();
+      if (!content.trim()) throw new Error('The selected file is empty.');
+      await getAgentBuilderClient(apiKeys).addVectorStoreFile(selectedVectorStoreId, file.name, content);
+      await refreshVectorStores();
+      const response = await getAgentBuilderClient(apiKeys).getVectorStore(selectedVectorStoreId);
+      setSelectedVectorStoreFiles(response.files);
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    } finally {
+      setVectorStoreBusy(false);
+    }
+  };
+
+  const deleteVectorStoreFile = async (fileId: string) => {
+    if (!selectedVectorStoreId) return;
+    setVectorStoreBusy(true);
+    setToolDialogError(null);
+    try {
+      await getAgentBuilderClient(apiKeys).deleteVectorStoreFile(selectedVectorStoreId, fileId);
+      await refreshVectorStores();
+      const response = await getAgentBuilderClient(apiKeys).getVectorStore(selectedVectorStoreId);
+      setSelectedVectorStoreFiles(response.files);
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    } finally {
+      setVectorStoreBusy(false);
+    }
+  };
+
+  const deleteVectorStore = async (storeId: string) => {
+    setVectorStoreBusy(true);
+    setToolDialogError(null);
+    try {
+      await getAgentBuilderClient(apiKeys).deleteVectorStore(storeId);
+      setSelectedVectorStoreIds((current) => current.filter((id) => id !== storeId));
+      await refreshVectorStores();
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    } finally {
+      setVectorStoreBusy(false);
+    }
+  };
+
+  const attachMcpServer = async (server: McpServer) => {
+    setToolDialogBusy(true);
+    setToolDialogError(null);
+    try {
+      const response = await getAgentBuilderClient(apiKeys).listMcpTools(server.id);
+      addAgentTool({
+        kind: 'mcp',
+        serverId: server.id,
+        allowedTools: (response.tools ?? []).map((tool) => tool.name),
+        requireApproval: 'never',
+      });
+      setIsMCPModalOpen(false);
+      setMcpView('list');
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+    } finally {
+      setToolDialogBusy(false);
+    }
+  };
+
+  const connectAndAttachMcp = async () => {
+    if (mcpForm.authType === 'Basic Auth') {
+      setToolDialogError('Basic Auth needs username/password fields; use a token or no authentication here.');
+      return;
+    }
+    if (!mcpForm.url.trim()) {
+      setToolDialogError('MCP server URL is required.');
+      return;
+    }
+    setToolDialogBusy(true);
+    setToolDialogError(null);
+    try {
+      const response = await getAgentBuilderClient(apiKeys).addMcpServer({
+        url: mcpForm.url.trim(),
+        label: mcpForm.label.trim() || 'mcp_server',
+        connector: selectedConnector?.key,
+        description: mcpForm.description.trim() || undefined,
+        authType: mcpForm.authType,
+        token: mcpForm.token || undefined,
+        connect: true,
+      });
+      if (response.warning) throw new Error(response.warning);
+      setMcpServers((current) => [
+        response.server,
+        ...current.filter((server) => server.id !== response.server.id),
+      ]);
+      await attachMcpServer(response.server);
+    } catch (error) {
+      setToolDialogError((error as Error).message);
+      setToolDialogBusy(false);
+    }
+  };
 
   return (
     <motion.div 
@@ -949,11 +1335,33 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           </div>
         </div>
 
+        <div className="flex flex-col gap-2 mt-1 shrink-0">
+          <label className="text-white text-[14.5px] font-medium">User message</label>
+          <textarea
+            value={localUserMessage}
+            onChange={(event) => {
+              setLocalUserMessage(event.target.value);
+              onUserMessageChange?.(event.target.value);
+            }}
+            placeholder="Optional message template for this agent"
+            className="w-full h-16 bg-[#2b2b2b] rounded-xl p-3 text-white text-[13px] resize-none outline-none placeholder:text-[#6a6a6a]"
+          />
+        </div>
+
         <div className="flex items-center justify-between mt-1 shrink-0">
           <label className="text-white text-[14.5px] font-medium">Include chat history</label>
-          <div className="w-[42px] h-[24px] bg-white rounded-full flex items-center justify-end px-0.5 cursor-pointer">
-            <div className="w-[20px] h-[20px] bg-black rounded-full shadow-sm" />
-          </div>
+          <button
+            type="button"
+            aria-pressed={includeChatHistory}
+            onClick={() => {
+              const next = !includeChatHistory;
+              setIncludeChatHistory(next);
+              updateConfig({ includeChatHistory: next });
+            }}
+            className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer ${includeChatHistory ? 'bg-white justify-end' : 'bg-[#404040] justify-start'}`}
+          >
+            <span className={`w-[20px] h-[20px] rounded-full shadow-sm ${includeChatHistory ? 'bg-black' : 'bg-[#a1a1aa]'}`} />
+          </button>
         </div>
 
         <div className="flex items-center justify-between shrink-0 relative">
@@ -1048,6 +1456,21 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
           >
             <Plus size={18} strokeWidth={2.5} />
           </button>
+          {configuredTools.length > 0 && (
+            <div className="absolute left-0 top-8 flex flex-wrap gap-1.5 max-w-[260px]">
+              {configuredTools.map((tool, index) => (
+                <button
+                  key={`${tool.kind}-${index}`}
+                  title={`Remove ${String(tool.name ?? tool.kind)}`}
+                  onClick={() => removeAgentTool(index)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#252525] text-[#c4c4c4] hover:text-white text-[10px]"
+                >
+                  {String(tool.name ?? tool.kind).replace('_', ' ')}
+                  <X size={10} />
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Tools Selector Dropdown (Portaled to avoid clipping) */}
           {createPortal(
@@ -1072,6 +1495,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <button 
                       onClick={() => {
                         setIsToolsDropdownOpen(false);
+                        setToolDialogError(null);
                         setIsMCPModalOpen(true);
                       }}
                       className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
@@ -1082,6 +1506,8 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <button 
                       onClick={() => {
                         setIsToolsDropdownOpen(false);
+                        setToolDialogError(null);
+                        setSelectedVectorStoreIds([]);
                         setIsFileSearchModalOpen(true);
                       }}
                       className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
@@ -1089,13 +1515,20 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       <Database size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       File search
                     </button>
-                    <button className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group">
+                    <button
+                      onClick={() => {
+                        addAgentTool({ kind: 'web_search', maxResults: 5 });
+                        setIsToolsDropdownOpen(false);
+                      }}
+                      className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
+                    >
                       <Globe size={15} strokeWidth={1.5} className="text-[#a1a1aa] group-hover:text-white transition-colors" />
                       Web search
                     </button>
                     <button 
                       onClick={() => {
                         setIsToolsDropdownOpen(false);
+                        setToolDialogError(null);
                         setIsCodeInterpreterModalOpen(true);
                       }}
                       className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
@@ -1111,6 +1544,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <button 
                       onClick={() => {
                         setIsToolsDropdownOpen(false);
+                        setToolDialogError(null);
                         setIsFunctionModalOpen(true);
                       }}
                       className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
@@ -1123,6 +1557,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <button 
                       onClick={() => {
                         setIsToolsDropdownOpen(false);
+                        setToolDialogError(null);
                         setIsCustomToolModalOpen(true);
                       }}
                       className="flex items-center gap-[11px] px-3 py-2 text-left text-[13px] text-[#e0e0e0] hover:bg-[#2b2b2b] transition-colors w-full group"
@@ -1294,39 +1729,77 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 {/* Model parameters */}
               <div className="flex flex-col gap-4">
                 <h3 className="text-[#a1a1aa] text-[13px] font-medium tracking-wide">Model parameters</h3>
-                
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-white text-[14px]">Temperature</label>
-                    <span className="text-white text-[14px]">1.00</span>
-                  </div>
-                  <div className="w-full h-1 bg-[#404040] rounded-full relative mt-1">
-                    <div className="absolute left-0 top-0 h-full w-1/2 bg-[#a1a1aa] rounded-full"></div>
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full border-2 border-[#1a1a1a]"></div>
-                  </div>
+                {([
+                  ['temperature', 'Temperature', 0, 2, 0.05],
+                  ['maxTokens', 'Max tokens', 1, 8192, 1],
+                  ['topP', 'Top P', 0, 1, 0.05],
+                ] as const).map(([key, label, min, max, step]) => (
+                  <label key={key} className="flex flex-col gap-1.5">
+                    <span className="flex items-center justify-between text-white text-[14px]">
+                      <span>{label}</span>
+                      <span className="text-[#a1a1aa] text-[12px]">
+                        {key === 'maxTokens' ? modelParams.maxTokens : Number(modelParams[key]).toFixed(2)}
+                      </span>
+                    </span>
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={modelParams[key]}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        const next = { ...modelParams, [key]: value };
+                        setModelParams(next);
+                        updateConfig({ modelParams: next });
+                      }}
+                      className="w-full accent-white"
+                    />
+                  </label>
+                ))}
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5 text-white text-[13px]">
+                    Reasoning
+                    <select
+                      value={reasoningEffort}
+                      onChange={(event) => {
+                        setReasoningEffort(event.target.value);
+                        updateConfig({ reasoningEffort: event.target.value });
+                      }}
+                      className="h-8 bg-[#2b2b2b] rounded-md px-2 text-[#d4d4d4] outline-none"
+                    >
+                      {['minimal', 'low', 'medium', 'high'].map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-white text-[13px]">
+                    Verbosity
+                    <select
+                      value={verbosity}
+                      onChange={(event) => {
+                        setVerbosity(event.target.value);
+                        updateConfig({ verbosity: event.target.value });
+                      }}
+                      className="h-8 bg-[#2b2b2b] rounded-md px-2 text-[#d4d4d4] outline-none"
+                    >
+                      {['low', 'medium', 'high'].map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
                 </div>
-
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-white text-[14px]">Max tokens</label>
-                    <span className="text-white text-[14px]">2048</span>
-                  </div>
-                  <div className="w-full h-1 bg-[#404040] rounded-full relative mt-1">
-                    <div className="absolute left-0 top-0 h-full w-[10%] bg-[#a1a1aa] rounded-full"></div>
-                    <div className="absolute left-[10%] top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full border-2 border-[#1a1a1a]"></div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-white text-[14px]">Top P</label>
-                    <span className="text-white text-[14px]">1.00</span>
-                  </div>
-                  <div className="w-full h-1 bg-[#404040] rounded-full relative mt-1">
-                    <div className="absolute left-0 top-0 h-full w-full bg-[#a1a1aa] rounded-full"></div>
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full border-2 border-[#1a1a1a]"></div>
-                  </div>
-                </div>
+                <label className="flex items-center justify-between text-white text-[13px]">
+                  Max agent turns
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    value={maxTurns}
+                    onChange={(event) => {
+                      const value = Math.max(1, Math.min(32, Number(event.target.value) || 1));
+                      setMaxTurns(value);
+                      updateConfig({ maxTurns: value });
+                    }}
+                    className="w-20 h-8 bg-[#2b2b2b] rounded-md px-2 text-right outline-none"
+                  />
+                </label>
               </div>
 
               {/* ChatKit */}
@@ -1361,22 +1834,57 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 
                 <div className="flex items-center justify-between">
                   <label className="text-white text-[14px]">Continue on error</label>
-                  <div className="w-[42px] h-[24px] bg-[#404040] rounded-full flex items-center justify-start px-0.5 cursor-pointer">
-                    <div className="w-[20px] h-[20px] bg-[#a1a1aa] rounded-full shadow-sm" />
-                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={continueOnError}
+                    onClick={() => {
+                      const next = !continueOnError;
+                      setContinueOnError(next);
+                      updateConfig({ continueOnError: next });
+                    }}
+                    className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer ${continueOnError ? 'bg-white justify-end' : 'bg-[#404040] justify-start'}`}
+                  >
+                    <span className={`w-[20px] h-[20px] rounded-full shadow-sm ${continueOnError ? 'bg-black' : 'bg-[#a1a1aa]'}`} />
+                  </button>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <label className="text-white text-[14px]">Write to conversation history</label>
-                  <div className="w-[42px] h-[24px] bg-white rounded-full flex items-center justify-end px-0.5 cursor-pointer">
-                    <div className="w-[20px] h-[20px] bg-black rounded-full shadow-sm" />
-                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={writeToConversationHistory}
+                    onClick={() => {
+                      const next = !writeToConversationHistory;
+                      setWriteToConversationHistory(next);
+                      updateConfig({ writeToConversationHistory: next });
+                    }}
+                    className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer ${writeToConversationHistory ? 'bg-white justify-end' : 'bg-[#404040] justify-start'}`}
+                  >
+                    <span className={`w-[20px] h-[20px] rounded-full shadow-sm ${writeToConversationHistory ? 'bg-black' : 'bg-[#a1a1aa]'}`} />
+                  </button>
                 </div>
               </div>
                 </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
+
+          {contract && (
+            <div className="flex flex-col gap-2 pt-[18px] mt-[18px] border-t border-[#333]">
+              <h3 className="text-[#a1a1aa] text-[13px] font-medium tracking-wide">Data contract</h3>
+              {[['Inputs', contract.inputs], ['Outputs', contract.outputs]].map(([title, fields]) => (
+                <div key={title as string} className="flex flex-col gap-1.5">
+                  <span className="text-[#777] text-[10px] font-semibold uppercase tracking-wide">{title as string}</span>
+                  {(fields as NodeDataContract['inputs']).map((field) => (
+                    <div key={`${title}-${field.name}`} className="flex items-center justify-between gap-2 bg-[#222] rounded-md px-2.5 py-1.5">
+                      <span className="text-[#d4d4d4] text-[11.5px] font-mono truncate">{field.name}</span>
+                      <span className="text-[#777] text-[10px] uppercase shrink-0">{field.type}{field.required ? ' *' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>
@@ -1521,6 +2029,38 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                         className="px-6 pb-6 overflow-y-auto flex-1 [&::-webkit-scrollbar]:hidden"
                         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                       >
+                        {mcpServers.length > 0 && (
+                          <div className="mb-8">
+                            <h3 className="text-[14px] font-medium text-black dark:text-white mb-3 mt-2">Connected servers</h3>
+                            <div className="flex flex-col gap-2">
+                              {mcpServers.map((server) => (
+                                <div
+                                  key={server.id}
+                                  className="flex items-center gap-3 rounded-[8px] border border-gray-200 dark:border-[#333] px-3 py-3"
+                                >
+                                  <Blocks size={16} className="text-gray-500 dark:text-[#a1a1aa]" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[13px] font-medium text-black dark:text-white truncate">{server.label}</div>
+                                    <div className="text-[11px] text-gray-500 dark:text-[#777]">{server.status}</div>
+                                  </div>
+                                  <button
+                                    disabled={toolDialogBusy}
+                                    onClick={() => void attachMcpServer(server)}
+                                    className="h-8 px-3 rounded-[8px] bg-[#1a1a1a] dark:bg-white text-white dark:text-black text-[12px] font-medium disabled:opacity-40"
+                                  >
+                                    Attach
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {toolDialogError && (
+                          <div className="mb-4 rounded-[8px] bg-red-50 dark:bg-[#2a1717] px-3 py-2 text-red-600 dark:text-red-300 text-[12px]">
+                            {toolDialogError}
+                          </div>
+                        )}
+
                         {/* Built-in Section */}
                         {(mcpTab === 'All' || mcpTab === 'Hosted') && (
                           <div className="mb-8">
@@ -1542,14 +2082,19 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                                 <div 
                                   key={connector.name} 
                                   onClick={() => {
-                                    setSelectedConnector(connector);
+                                    const catalog = mcpConnectors.find((entry) => entry.name === connector.name);
+                                    setSelectedConnector({ ...(catalog ?? {
+                                      key: connector.name.toLowerCase().replace(/\s+/g, '_'),
+                                      name: connector.name,
+                                      tier: 'hosted',
+                                    }), iconUrl: connector.iconUrl, color: connector.color });
                                     setMcpView('connector');
                                     // Pre-fill form for this connector
                                     setMcpForm({
-                                      url: `https://mcp.${connector.name.toLowerCase().replace(' ', '')}.com/api/mcp/mcp`,
+                                      url: catalog?.url ?? '',
                                       label: `${connector.name.toLowerCase().replace(' ', '_')}_mcp`,
                                       description: '',
-                                      authType: 'Access token / API key',
+                                      authType: catalog?.authHint === 'none' ? 'None' : 'Access token / API key',
                                       token: ''
                                     });
                                   }}
@@ -1588,14 +2133,19 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                                 <div 
                                   key={connector.name} 
                                   onClick={() => {
-                                    setSelectedConnector(connector);
+                                    const catalog = mcpConnectors.find((entry) => entry.name === connector.name);
+                                    setSelectedConnector({ ...(catalog ?? {
+                                      key: connector.name.toLowerCase().replace(/\s+/g, '_'),
+                                      name: connector.name,
+                                      tier: 'third-party',
+                                    }), iconUrl: connector.iconUrl, color: connector.color });
                                     setMcpView('connector');
                                     // Pre-fill form for this connector
                                     setMcpForm({
-                                      url: `https://mcp.${connector.name.toLowerCase().replace(' ', '')}.com/api/mcp/mcp`,
+                                      url: catalog?.url ?? '',
                                       label: `${connector.name.toLowerCase().replace(' ', '_')}_mcp`,
                                       description: '',
-                                      authType: 'Access token / API key',
+                                      authType: catalog?.authHint === 'none' ? 'None' : 'Access token / API key',
                                       token: ''
                                     });
                                   }}
@@ -1692,7 +2242,8 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       </div>
 
                       {/* Footer Actions (sticky at bottom) */}
-                      <div className="flex items-center justify-between w-full px-8 pb-6 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                      <div className="relative flex items-center justify-between w-full px-8 pb-6 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                        {toolDialogError && <span className="absolute left-8 bottom-16 text-red-500 text-[12px] max-w-[420px]">{toolDialogError}</span>}
                         <button 
                           onClick={() => setMcpView('list')}
                           className="flex items-center gap-1.5 px-3 py-2 bg-[#f4f4f4] dark:bg-[#2b2b2b] hover:bg-[#eaeaea] dark:hover:bg-[#3d3d3d] rounded-[10px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
@@ -1700,7 +2251,11 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                           <svg className="w-4 h-4 ml-[-2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
                           Back
                         </button>
-                        <button className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                        <button
+                          disabled={toolDialogBusy}
+                          onClick={() => void connectAndAttachMcp()}
+                          className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e] disabled:opacity-40"
+                        >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="13 2 13 9 20 9" />
                             <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
@@ -1866,6 +2421,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
 
                       {/* Footer Actions (sticky at bottom) */}
                       <div className="flex items-center justify-between w-full px-8 pb-8 pt-4 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e] relative z-10">
+                        {toolDialogError && <span className="absolute left-8 bottom-20 text-red-500 text-[12px] max-w-[420px]">{toolDialogError}</span>}
                         <button 
                           onClick={() => setMcpView('list')}
                           className="flex items-center gap-1.5 px-3 py-2 bg-[#f4f4f4] dark:bg-[#2b2b2b] hover:bg-[#eaeaea] dark:hover:bg-[#3d3d3d] rounded-[10px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
@@ -1873,7 +2429,11 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                           <svg className="w-4 h-4 ml-[-2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
                           Back
                         </button>
-                        <button className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                        <button
+                          disabled={toolDialogBusy}
+                          onClick={() => void connectAndAttachMcp()}
+                          className="flex items-center gap-2 px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[10px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e] disabled:opacity-40"
+                        >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="13 2 13 9 20 9" />
                             <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
@@ -1913,7 +2473,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[500px] h-[500px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
+                className="relative bg-[#fafafa] dark:bg-[#1e1e1e] w-full max-w-[560px] h-[620px] rounded-[16px] shadow-2xl overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Header */}
@@ -1922,22 +2482,131 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 </div>
 
                 {/* Body Content */}
-                <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#fafafa] dark:bg-[#1e1e1e]">
-                  <div className="flex flex-col items-center justify-center w-full max-w-[320px] mx-auto cursor-pointer">
-                    <div className="w-12 h-12 bg-white dark:bg-[#2b2b2b] rounded-xl shadow-sm border border-gray-100 dark:border-[#333] flex items-center justify-center mb-4">
-                      <svg className="w-6 h-6 text-black dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                    </div>
-                    <h3 className="text-[15.5px] font-semibold text-black dark:text-white mb-2 transition-colors">Drag your files here or click to upload</h3>
-                    <p className="text-[13px] text-gray-500 dark:text-[#a1a1aa] text-center mb-5">Information in attached files will be available to this response.</p>
-                    <div className="flex items-center justify-center w-full">
-                      <button className="px-4 py-2 bg-gray-200 dark:bg-[#333] hover:bg-gray-300 dark:hover:bg-[#404040] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors">
-                        Upload
-                      </button>
-                    </div>
+                <div className="flex-1 overflow-y-auto p-6 bg-[#fafafa] dark:bg-[#1e1e1e]">
+                  <p className="text-[13px] text-gray-500 dark:text-[#a1a1aa] mb-4">
+                    Create a store, upload source files, then choose which stores this agent may search.
+                  </p>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      value={newVectorStoreName}
+                      onChange={(event) => setNewVectorStoreName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void createVectorStore();
+                      }}
+                      placeholder="New vector store name"
+                      className="min-w-0 flex-1 rounded-[8px] border border-gray-200 dark:border-[#333] bg-white dark:bg-[#242424] px-3 py-2 text-[12px] text-black dark:text-white outline-none focus:border-black dark:focus:border-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void createVectorStore()}
+                      disabled={vectorStoreBusy || !newVectorStoreName.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#1a1a1a] dark:bg-white px-3 py-2 text-[12px] font-medium text-white dark:text-black disabled:opacity-40"
+                    >
+                      {vectorStoreBusy ? <Loader2 size={13} className="animate-spin" /> : <FilePlus2 size={13} />}
+                      Create
+                    </button>
                   </div>
+                  <div className="flex flex-col gap-2">
+                    {vectorStores.map((store) => {
+                      const checked = selectedVectorStoreIds.includes(store.id);
+                      const active = selectedVectorStoreId === store.id;
+                      return (
+                        <React.Fragment key={store.id}>
+                        <div
+                          className={`flex items-center gap-3 rounded-[8px] border px-3 py-3 cursor-pointer ${
+                            checked
+                              ? 'border-black dark:border-white bg-white dark:bg-[#292929]'
+                              : 'border-gray-200 dark:border-[#333] hover:bg-white dark:hover:bg-[#242424]'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setSelectedVectorStoreIds((current) =>
+                              checked ? current.filter((id) => id !== store.id) : [...current, store.id]
+                            )}
+                            className="accent-black dark:accent-white"
+                          />
+                          <Database size={16} className="text-gray-500 dark:text-[#a1a1aa]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-medium text-black dark:text-white truncate">{store.name}</div>
+                            <div className="text-[11px] text-gray-500 dark:text-[#777]">{store.fileCount} files · {store.chunkCount} chunks</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedVectorStoreId(store.id)}
+                            className="shrink-0 rounded-[6px] border border-gray-200 dark:border-[#3a3a3a] px-2 py-1 text-[11px] font-medium text-black dark:text-white"
+                          >
+                            {active ? 'Selected' : 'Manage'}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${store.name}`}
+                            title="Delete vector store"
+                            onClick={() => void deleteVectorStore(store.id)}
+                            disabled={vectorStoreBusy}
+                            className="shrink-0 rounded-[6px] p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-[#2a1717] disabled:opacity-40"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        {active && (
+                          <div className="mt-2 rounded-[8px] border border-gray-200 bg-white p-3 dark:border-[#333] dark:bg-[#242424]">
+                            <div className="mb-2 flex items-center justify-between">
+                              <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-[#777]">Source files</span>
+                              <button
+                                type="button"
+                                onClick={() => vectorFileInputRef.current?.click()}
+                                disabled={vectorStoreBusy}
+                                className="inline-flex items-center gap-1 rounded-[6px] border border-gray-200 dark:border-[#3a3a3a] px-2 py-1 text-[11px] font-medium text-black dark:text-white disabled:opacity-40"
+                              >
+                                <Upload size={12} />
+                                Upload text
+                              </button>
+                            </div>
+                            {selectedVectorStoreFiles.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                  {selectedVectorStoreFiles.map((file) => (
+                                    <div key={file.id} className="flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-[#999]">
+                                      <span className="min-w-0 truncate">{file.filename}</span>
+                                      <span className="flex shrink-0 items-center gap-2">
+                                        <span className={file.status === 'error' ? 'text-red-500' : ''}>{file.status}</span>
+                                        <button
+                                          type="button"
+                                          aria-label={`Delete ${file.filename}`}
+                                          title="Delete file"
+                                          onClick={() => void deleteVectorStoreFile(file.id)}
+                                          disabled={vectorStoreBusy}
+                                          className="text-gray-400 hover:text-red-500 disabled:opacity-40"
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-gray-400 dark:text-[#777]">No files yet.</div>
+                            )}
+                          </div>
+                        )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {vectorStores.length === 0 && (
+                      <div className="rounded-[8px] border border-dashed border-gray-300 dark:border-[#3a3a3a] p-6 text-center text-[12px] text-gray-500 dark:text-[#777]">
+                        Create a vector store above to get started.
+                      </div>
+                    )}
+                  </div>
+                  {toolDialogError && <div className="text-red-500 text-[12px] mt-3">{toolDialogError}</div>}
+                  <input
+                    ref={vectorFileInputRef}
+                    type="file"
+                    accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,application/json,text/csv"
+                    onChange={(event) => void uploadVectorStoreFile(event)}
+                    className="hidden"
+                  />
                 </div>
 
                 {/* Footer Buttons */}
@@ -1949,7 +2618,11 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     >
                       Cancel
                     </button>
-                    <button className="px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] dark:text-[#555] text-gray-400 rounded-[8px] text-[13.5px] font-medium transition-colors cursor-not-allowed">
+                    <button
+                      disabled={!selectedVectorStoreIds.length}
+                      onClick={attachFileSearchTool}
+                      className="px-4 py-2 bg-[#1a1a1a] dark:bg-white text-white dark:text-black rounded-[8px] text-[13.5px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
                       Attach
                     </button>
                   </div>
@@ -2013,7 +2686,13 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     >
                       Cancel
                     </button>
-                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                    <button
+                      onClick={() => {
+                        addAgentTool({ kind: 'code_interpreter' });
+                        setIsCodeInterpreterModalOpen(false);
+                      }}
+                      className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]"
+                    >
                       Add
                     </button>
                   </div>
@@ -2075,8 +2754,13 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                   {/* Code Editor Area */}
                   <div className="w-full bg-white dark:bg-[#252525] border border-gray-200 dark:border-[#333] rounded-[10px] flex flex-col overflow-hidden h-[260px]">
                     <textarea 
+                      value={functionDefinition}
+                      onChange={(event) => {
+                        setFunctionDefinition(event.target.value);
+                        setToolDialogError(null);
+                      }}
                       className="flex-1 w-full p-4 font-mono text-[13px] text-gray-800 dark:text-[#e0e0e0] leading-[1.6] bg-transparent resize-none outline-none focus:ring-0 placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
-                      placeholder="Write your function definition here..."
+                      placeholder="Write a JSON function definition..."
                     />
                     
                     {/* Inline Footer of Code Block */}
@@ -2092,13 +2776,17 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                 {/* Footer Buttons */}
                 <div className="flex items-center justify-end w-full px-7 py-5 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
                   <div className="flex items-center gap-3">
+                    {toolDialogError && <span className="text-red-500 text-[12px] max-w-[260px]">{toolDialogError}</span>}
                     <button 
                       onClick={() => setIsFunctionModalOpen(false)}
                       className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
                     >
                       Cancel
                     </button>
-                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                    <button
+                      onClick={attachFunctionTool}
+                      className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]"
+                    >
                       Add
                     </button>
                   </div>
@@ -2294,6 +2982,7 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                       Cancel
                     </button>
                     <button 
+                      onClick={saveJsonSchema}
                       className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]"
                     >
                       Update
@@ -2342,6 +3031,11 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <input 
                       type="text" 
                       placeholder="coding_tool"
+                      value={customToolName}
+                      onChange={(event) => {
+                        setCustomToolName(event.target.value);
+                        setToolDialogError(null);
+                      }}
                       className="w-full border border-gray-200 dark:border-[#333] rounded-[8px] px-3.5 py-2.5 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
                     />
                   </div>
@@ -2350,6 +3044,8 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
                     <label className="text-[14px] font-semibold text-black dark:text-white">Description</label>
                     <textarea 
                       placeholder="Describe what your tool should do, e.g. execute arbitrary code."
+                      value={customToolDescription}
+                      onChange={(event) => setCustomToolDescription(event.target.value)}
                       className="w-full h-[180px] resize-none border border-gray-200 dark:border-[#333] rounded-[8px] px-3.5 py-3 text-[14px] outline-none hover:border-gray-300 dark:hover:border-[#444] focus:border-black dark:focus:border-white transition-colors bg-transparent text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#6a6a6a]"
                     />
                   </div>
@@ -2413,13 +3109,17 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({ nodeName, onNameCha
 
                 <div className="flex items-center justify-end w-full px-7 py-5 shrink-0 bg-[#fafafa] dark:bg-[#1e1e1e]">
                   <div className="flex items-center gap-3">
+                    {toolDialogError && <span className="text-red-500 text-[12px] max-w-[260px]">{toolDialogError}</span>}
                     <button 
                       onClick={() => setIsCustomToolModalOpen(false)}
                       className="px-4 py-2 bg-gray-200 dark:bg-[#2b2b2b] hover:bg-gray-300 dark:hover:bg-[#3d3d3d] rounded-[8px] text-[13.5px] font-medium text-black dark:text-white transition-colors"
                     >
                       Cancel
                     </button>
-                    <button className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]">
+                    <button
+                      onClick={attachCustomTool}
+                      className="px-5 py-2 bg-[#1a1a1a] dark:bg-white hover:bg-black dark:hover:bg-gray-100 rounded-[8px] text-[13.5px] font-medium text-white dark:text-[#1a1a1a] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white dark:focus:ring-offset-[#1e1e1e]"
+                    >
                       Add
                     </button>
                   </div>
@@ -2715,6 +3415,63 @@ const GuardrailConfigPanel: React.FC<GuardrailConfigPanelProps> = ({ nodeName, o
   );
 };
 
+const TemplatePicker: React.FC<{
+  onClose: () => void;
+  onUse: (template: WorkflowTemplate) => void;
+}> = ({ onClose, onUse }) => {
+  const { apiKeys } = useUserDataContext();
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getAgentBuilderClient(apiKeys).listWorkflowTemplates()
+      .then((response) => {
+        if (active) setTemplates(response.templates);
+      })
+      .catch((err) => active && setError((err as Error).message))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [apiKeys]);
+
+  return (
+    <div className="absolute inset-0 z-[80] flex items-center justify-center bg-black/55 backdrop-blur-sm">
+      <div className="w-[min(720px,calc(100%-48px))] max-h-[min(620px,calc(100%-48px))] overflow-y-auto bg-[#1a1a1a] border border-[#303030] rounded-2xl shadow-2xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2.5">
+            <LayoutTemplate size={17} className="text-[#93dfca]" />
+            <h2 className="text-white text-[16px] font-semibold">Start from a template</h2>
+          </div>
+          <button title="Close templates" onClick={onClose} className="text-[#8a8a8a] hover:text-white"><X size={17} /></button>
+        </div>
+        <p className="text-[#8a8a8a] text-[12px] mb-4">Open a working graph, then customize the nodes and connections.</p>
+        {loading ? (
+          <div className="py-12 flex items-center justify-center text-[#8a8a8a]"><Loader2 size={18} className="animate-spin" /></div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-900/60 bg-red-950/20 p-3 text-red-300 text-[12px]">{error}</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {templates.map((template) => (
+              <button
+                key={template.id}
+                onClick={() => onUse(template)}
+                className="text-left rounded-xl border border-[#303030] bg-[#222] hover:bg-[#2b2b2b] hover:border-[#555] p-4 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white text-[13px] font-semibold">{template.name}</span>
+                  <span className="text-[#8a8a8a] text-[10px] uppercase tracking-wide">{template.categories.join(' / ')}</span>
+                </div>
+                <p className="text-[#9a9a9a] text-[12px] leading-relaxed mt-2">{template.description}</p>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const AgentBuilderContent: React.FC<{ onClose?: () => void, isSidebarCollapsed?: boolean }> = ({ onClose, isSidebarCollapsed }) => {
   return (
     <ReactFlowProvider>
@@ -2733,6 +3490,8 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
   const backendState = useNanoStore(backendStatus);
   const saveState = useNanoStore(saveStatus);
   const wfInfo = useNanoStore(currentWorkflow);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const { apiKeys } = useUserDataContext();
 
   // Helper: patch a node's data (used by config panels to persist config).
   const patchNodeData = useCallback((nodeId: string, patch: Record<string, unknown>) => {
@@ -2741,6 +3500,19 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
   const patchNodeConfig = useCallback((nodeId: string, config: Record<string, unknown>) => {
     setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, config } } : n)));
   }, []);
+
+  const useTemplate = useCallback(async (template: WorkflowTemplate) => {
+    try {
+      const { workflow } = await getAgentBuilderClient(apiKeys).createWorkflowFromTemplate({
+        templateId: template.id,
+      });
+      setTemplatePickerOpen(false);
+      requestedWorkflowId.set(workflow.id);
+    } catch {
+      // The backend hook will surface connection/validation errors in the
+      // workflow status indicator; keep the picker open for another choice.
+    }
+  }, [apiKeys]);
 
   // Selector to grab the numeric zoom level from the internal React Flow store
   const zoom = useStore((s) => s.transform[2]);
@@ -3032,6 +3804,13 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
       <div className="flex-1 flex overflow-hidden relative">
         {/* Floating Sidebar (Nodes Palette) */}
         <div className={`absolute left-2 top-1/2 -translate-y-1/2 z-10 w-56 bg-[#1b1b1b] rounded-2xl flex flex-col pt-4 pb-2 shadow-2xl overflow-y-auto overflow-x-hidden transition-all duration-300 [&::-webkit-scrollbar]:hidden ${isSelectingNewNode ? 'ring-2 ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]' : ''}`} style={{ maxHeight: '680px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <button
+            onClick={() => setTemplatePickerOpen(true)}
+            className="mx-3 mb-3 flex items-center gap-2.5 rounded-lg border border-[#3a3a3a] bg-[#242424] px-3 py-2 text-left text-[13px] font-medium text-gray-200 transition-colors hover:border-[#5a5a5a] hover:bg-[#2d2d2d]"
+          >
+            <LayoutTemplate size={15} className="text-[#93dfca]" />
+            Templates
+          </button>
 
           {/* Core Section */}
           <div className="mb-2">
@@ -3197,6 +3976,13 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
           </div>
         </div>
 
+        {templatePickerOpen && (
+          <TemplatePicker
+            onClose={() => setTemplatePickerOpen(false)}
+            onUse={useTemplate}
+          />
+        )}
+
         {/* Canvas Area */}
         <div className="flex-1 relative bg-[#0c0c0c]">
           <ReactFlow
@@ -3248,10 +4034,13 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                   <AgentConfigPanel
                     key="agent-panel"
                     nodeName={(selectedAgentNode.data?.label as string) || ''}
+                    contract={wfInfo?.contracts?.find((contract) => contract.nodeId === selectedAgentNode.id)}
                     initialModelId={(selectedAgentNode.data?.model as string) || undefined}
                     initialOutputFormat={(selectedAgentNode.data?.outputFormat as string) || undefined}
                     onModelChange={(modelName) => patchNodeData(selectedAgentNode.id, { model: modelName })}
                     onOutputFormatChange={(fmt) => patchNodeData(selectedAgentNode.id, { outputFormat: fmt })}
+                    config={selectedAgentNode.data as Record<string, any>}
+                    onConfigChange={(patch) => patchNodeData(selectedAgentNode.id, patch)}
                     onNameChange={(newName) => {
                       setNodes((nds) =>
                         nds.map((n) => {
@@ -3273,6 +4062,8 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                         })
                       );
                     }}
+                    userMessage={(selectedAgentNode.data?.userMessage as string) || ''}
+                    onUserMessageChange={(newMessage) => patchNodeData(selectedAgentNode.id, { userMessage: newMessage })}
                   />
                 ) : null;
               })()}
@@ -3324,6 +4115,7 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
                     nodeType={sel.type as string}
                     nodeName={(sel.data?.label as string) || ''}
                     config={(sel.data?.config as Record<string, any>) || {}}
+                    contract={wfInfo?.contracts?.find((contract) => contract.nodeId === sel.id)}
                     onNameChange={(name) => patchNodeData(sel.id, { label: name })}
                     onConfigChange={(cfg) => patchNodeConfig(sel.id, cfg)}
                   />
@@ -3334,12 +4126,38 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
             <Panel position="top-left" className="mt-6 ml-6">
               <div className="flex items-center gap-2.5 px-3 py-1.5 h-8 bg-black/40 backdrop-blur-md rounded-xl text-white text-xs font-medium shadow-xl">
                 <span className="truncate max-w-[160px]">{wfInfo?.name ?? 'Workflow'}</span>
+                <button
+                  title="Version history"
+                  aria-label="Version history"
+                  onClick={() => versionPanelOpen.set(true)}
+                  className="flex items-center gap-1 text-[#a1a1aa] hover:text-white"
+                >
+                  <History size={12} />
+                  v{wfInfo?.latestVersion ?? 0}
+                </button>
                 <span className={`w-1.5 h-1.5 rounded-full ${backendState === 'up' ? 'bg-green-400' : backendState === 'down' ? 'bg-red-400' : 'bg-yellow-400'}`} title={`Backend ${backendState}`} />
                 {saveState === 'saving' && <span className="text-[#a1a1aa]">Saving…</span>}
                 {saveState === 'saved' && <span className="text-green-400">Saved</span>}
                 {saveState === 'error' && <span className="text-red-400">Save failed</span>}
-                {wfInfo && !wfInfo.valid && wfInfo.errors.length > 0 && (
-                  <span className="text-orange-300" title={wfInfo.errors.join('\n')}>⚠ {wfInfo.errors.length}</span>
+                {wfInfo && wfInfo.errors.length > 0 && (
+                  <span
+                    className="flex items-center gap-1 text-red-300"
+                    title={wfInfo.errors.join('\n')}
+                    aria-label={`${wfInfo.errors.length} validation errors`}
+                  >
+                    <CircleAlert size={13} />
+                    {wfInfo.errors.length}
+                  </span>
+                )}
+                {wfInfo && wfInfo.warnings.length > 0 && (
+                  <span
+                    className="flex items-center gap-1 text-amber-300"
+                    title={wfInfo.warnings.join('\n')}
+                    aria-label={`${wfInfo.warnings.length} validation warnings`}
+                  >
+                    <TriangleAlert size={13} />
+                    {wfInfo.warnings.length}
+                  </span>
                 )}
               </div>
             </Panel>
@@ -3388,6 +4206,8 @@ const AgentBuilderFlow: React.FC<{ onClose?: () => void, isSidebarCollapsed?: bo
       {/* Backend-driven overlays (portaled to document.body) */}
       <RunPanel backend={backend} />
       <CodeExportModal backend={backend} />
+      <EvaluationPanel />
+      <VersionHistoryPanel />
     </div>
   );
 };

@@ -34,6 +34,54 @@ export interface WorkflowSummary {
   updatedAt: string;
 }
 
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  categories: string[];
+}
+
+export type EvaluationGraderType = 'contains' | 'equals' | 'regex' | 'run_status' | 'event_count';
+
+export interface EvaluationGrader {
+  id: string;
+  name: string;
+  type: EvaluationGraderType;
+  target?: 'output' | 'error';
+  expected: JsonValue;
+  eventType?: string;
+}
+
+export interface EvaluationDefinition {
+  id: string;
+  workflowId: string;
+  name: string;
+  graders: EvaluationGrader[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationRun {
+  id: string;
+  evaluationId: string;
+  workflowId: string;
+  runIds: string[];
+  score: number;
+  results: Array<{
+    runId: string;
+    status: RunStatus;
+    score: number;
+    results: Array<{
+      graderId: string;
+      name: string;
+      passed: boolean;
+      score: number;
+      detail: string;
+    }>;
+  }>;
+  createdAt: string;
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -44,16 +92,42 @@ export interface Workflow {
   updatedAt: string;
 }
 
+export interface WorkflowVersion {
+  workflowId: string;
+  version: number;
+  graph: Workflow['draft'];
+  publishedAt: string;
+  notes?: string;
+}
+
 export interface ValidationIssue {
   nodeId?: string;
   edgeId?: string;
   message: string;
 }
 
+export type ContractType = 'string' | 'number' | 'boolean' | 'object' | 'list' | 'unknown';
+
+export interface ContractField {
+  name: string;
+  type: ContractType;
+  required?: boolean;
+  description?: string;
+}
+
+export interface NodeDataContract {
+  nodeId: string;
+  nodeName: string;
+  nodeType: string;
+  inputs: ContractField[];
+  outputs: ContractField[];
+}
+
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
+  contracts: NodeDataContract[];
 }
 
 export type RunStatus =
@@ -253,6 +327,18 @@ export class AgentBuilderClient {
     return this.request('GET', '/api/v1/workflows');
   }
 
+  listWorkflowTemplates(): Promise<{ templates: WorkflowTemplate[] }> {
+    return this.request('GET', '/api/v1/workflow-templates');
+  }
+
+  createWorkflowFromTemplate(input: {
+    templateId: string;
+    name?: string;
+    description?: string;
+  }): Promise<{ workflow: Workflow; validation: ValidationResult }> {
+    return this.request('POST', '/api/v1/workflows/from-template', input);
+  }
+
   createWorkflow(input: { name?: string; description?: string; graph?: unknown } = {}): Promise<{
     workflow: Workflow;
     validation: ValidationResult;
@@ -281,12 +367,33 @@ export class AgentBuilderClient {
     return this.request('POST', `/api/v1/workflows/${encodeURIComponent(id)}/validate`, graph ? { graph } : {});
   }
 
-  publishWorkflow(id: string, notes?: string): Promise<{ workflow: Workflow; version: { version: number } }> {
+  publishWorkflow(id: string, notes?: string): Promise<{
+    workflow: Workflow;
+    version: { version: number };
+    validation: ValidationResult;
+  }> {
     return this.request('POST', `/api/v1/workflows/${encodeURIComponent(id)}/publish`, { notes });
   }
 
-  listVersions(id: string): Promise<{ versions: Array<{ version: number; publishedAt: string; notes?: string }> }> {
+  listVersions(id: string): Promise<{ versions: WorkflowVersion[] }> {
     return this.request('GET', `/api/v1/workflows/${encodeURIComponent(id)}/versions`);
+  }
+
+  getVersion(id: string, version: number): Promise<{ version: WorkflowVersion }> {
+    return this.request(
+      'GET',
+      `/api/v1/workflows/${encodeURIComponent(id)}/versions/${version}`,
+    );
+  }
+
+  restoreVersion(id: string, version: number): Promise<{
+    workflow: Workflow;
+    validation: ValidationResult;
+  }> {
+    return this.request(
+      'POST',
+      `/api/v1/workflows/${encodeURIComponent(id)}/versions/${version}/restore`,
+    );
   }
 
   exportCode(id: string, format: 'typescript' | 'python', version?: number): Promise<{ format: string; code: string }> {
@@ -308,6 +415,40 @@ export class AgentBuilderClient {
 
   listRuns(workflowId: string, limit = 50): Promise<{ runs: Run[] }> {
     return this.request('GET', `/api/v1/workflows/${encodeURIComponent(workflowId)}/runs?limit=${limit}`);
+  }
+
+  listEvaluations(workflowId: string): Promise<{ evaluations: EvaluationDefinition[] }> {
+    return this.request('GET', `/api/v1/workflows/${encodeURIComponent(workflowId)}/evaluations`);
+  }
+
+  createEvaluation(workflowId: string, input: {
+    name: string;
+    graders: EvaluationGrader[];
+  }): Promise<{ evaluation: EvaluationDefinition }> {
+    return this.request('POST', `/api/v1/workflows/${encodeURIComponent(workflowId)}/evaluations`, input);
+  }
+
+  updateEvaluation(id: string, input: {
+    name?: string;
+    graders?: EvaluationGrader[];
+  }): Promise<{ evaluation: EvaluationDefinition }> {
+    return this.request('PATCH', `/api/v1/evaluations/${encodeURIComponent(id)}`, input);
+  }
+
+  deleteEvaluation(id: string): Promise<{ ok: boolean }> {
+    return this.request('DELETE', `/api/v1/evaluations/${encodeURIComponent(id)}`);
+  }
+
+  getEvaluation(id: string): Promise<{ evaluation: EvaluationDefinition }> {
+    return this.request('GET', `/api/v1/evaluations/${encodeURIComponent(id)}`);
+  }
+
+  runEvaluation(id: string, runIds?: string[]): Promise<{ run: EvaluationRun }> {
+    return this.request('POST', `/api/v1/evaluations/${encodeURIComponent(id)}/run`, runIds ? { runIds } : {});
+  }
+
+  listEvaluationRuns(id: string): Promise<{ runs: EvaluationRun[] }> {
+    return this.request('GET', `/api/v1/evaluations/${encodeURIComponent(id)}/runs`);
   }
 
   getTrace(runId: string): Promise<{ events: RunEvent[] }> {

@@ -14,6 +14,12 @@ export async function makeApp(): Promise<{ app: App; cleanup: () => Promise<void
   process.env.AGENT_BUILDER_STORAGE = 'json';
   process.env.AGENT_BUILDER_LOG = 'silent';
   delete process.env.AGENT_BUILDER_API_TOKEN;
+  // Tests must remain deterministic even when a developer shell exports a
+  // provider key for local development. Vector-store coverage explicitly
+  // exercises the offline embedder and should never make network calls.
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  delete process.env.OPENAI_API_KEY;
   const app = await createApp();
   return {
     app,

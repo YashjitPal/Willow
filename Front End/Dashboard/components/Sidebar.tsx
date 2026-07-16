@@ -44,6 +44,7 @@ import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
 import { useLocalFS, parseTempIdTimestamp } from '../context/LocalFSContext';
 import { useBackground, BackgroundType } from '../context/BackgroundContext';
+import { isCodeChat, markCodeChat, renameCodeChat, unmarkCodeChat } from '../lib/codeChatStorage';
 // NOTE: import from './sidebar/index' (not './sidebar'). On a case-insensitive
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
@@ -338,6 +339,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     authorizeLocalFolder,
     deleteLocalFSChat,
     renameLocalFSChat,
+    loadLocalFSChat,
     getChatTimestamp,
     refreshLocalChats,
     isInitializingLocalFS
@@ -352,6 +354,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalChats]);
 
   const [isScrolled, setIsScrolled] = useState(false);
+  const [, setCodeChatVersion] = useState(0);
+  useEffect(() => {
+    const refresh = () => setCodeChatVersion((version) => version + 1);
+    window.addEventListener('willow_code_chats_updated', refresh);
+    return () => window.removeEventListener('willow_code_chats_updated', refresh);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(localChats.map(async (chatId) => {
+      const messages = await loadLocalFSChat(chatId);
+      if (!cancelled && messages?.some((message: any) => message?.willowMode === 'code')) {
+        markCodeChat(chatId);
+      }
+    }));
+    return () => { cancelled = true; };
+  }, [localChats, loadLocalFSChat]);
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setIsScrolled(e.currentTarget.scrollTop > 5);
   };
@@ -434,6 +452,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setPinnedChats(next);
         localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
       }
+      if (success) renameCodeChat(editingChatId!, trimmed);
     }
     setEditingChatId(null);
   };
@@ -457,6 +476,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const confirmDeleteChat = async () => {
     if (chatToDelete) {
       const success = await deleteLocalFSChat(chatToDelete);
+      if (success) unmarkCodeChat(chatToDelete);
       if (!success) {
         alert("Failed to delete chat file.");
       }
@@ -713,6 +733,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           const rawTs = localStorage.getItem('willow_chat_timestamps');
                           if (rawTs) tsMap = JSON.parse(rawTs) || {};
                         } catch {}
+                        // `localChats` arrives from context already sorted
+                        // newest→oldest with a deterministic tiebreaker
+                        // (sortChatsNewestToOldest). For chats with no stored
+                        // timestamp yet (first paint before the disk reconcile
+                        // backfills lastModified), fall back to the array's own
+                        // order instead of re-guessing — this keeps first paint
+                        // and post-reconcile renders from reshuffling.
+                        const indexOf = new Map(localChats.map((c, i) => [c, i]));
                         const chatTs = (id: string) => tsMap[id] || parseTempIdTimestamp(id);
                         const sortedChats = [...localChats].sort((a, b) => {
                           const aPinned = pinnedChats.includes(a);
@@ -722,10 +750,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                           const tA = chatTs(a);
                           const tB = chatTs(b);
-                          if (tB !== tA) {
+                          if (tA && tB && tB !== tA) {
                             return tB - tA;
                           }
-                          return a.localeCompare(b);
+                          if (!!tA !== !!tB) return tA ? -1 : 1; // known-time chats above unknown
+                          // Equal or both-unknown timestamps → keep the
+                          // context's persisted order (already newest-first).
+                          return (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0);
                         });
                         return sortedChats.map((chat) => {
                           const isTemp = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chat);
@@ -756,7 +787,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   />
                                 ) : (
                                   <div className="flex items-center gap-1.5 min-w-0 w-full">
-                                    <span className="truncate flex-1">{chat}</span>
+                                     <span className="truncate flex-1">{chat}</span>
+                                     {isCodeChat(chat) && (
+                                       <span
+                                         title="Started in Code mode"
+                                         className="shrink-0 text-[9px] font-semibold leading-none text-zinc-400 border border-white/10 px-1 py-0.5 rounded"
+                                       >
+                                         Code
+                                       </span>
+                                     )}
                                     {pinnedChats.includes(chat) && (
                                       <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />
                                     )}

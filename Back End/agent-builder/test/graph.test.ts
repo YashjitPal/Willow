@@ -117,6 +117,8 @@ describe('validateGraph', () => {
       ),
     );
     assert.equal(result.valid, true, JSON.stringify(result.errors));
+    const agent = result.contracts.find((c) => c.nodeType === 'agent');
+    assert.ok(agent?.outputs.some((field) => field.name === 'output_text' && field.type === 'string'));
   });
 
   it('requires exactly one start', () => {
@@ -254,5 +256,136 @@ describe('validateGraph', () => {
     );
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((e) => e.message.includes('undeclared')));
+  });
+
+  it('warns about unknown variables in templates and CEL config values', () => {
+    const result = validateGraph(
+      g(
+        [
+          { id: 's', type: 'start', data: {} },
+          {
+            id: 'a',
+            type: 'agent',
+            data: {
+              label: 'Writer',
+              instructions: 'Use {{missing_agent.output_text}}',
+            },
+          },
+          {
+            id: 't',
+            type: 'transform',
+            config: {
+              outputs: [{ name: 'value', type: 'string', expression: 'writer.output_text' }],
+            },
+          },
+          {
+            id: 'e',
+            type: 'end',
+            config: { output: '$cel:unknown_result.value' },
+          },
+        ],
+        [
+          { id: 'e1', source: 's', target: 'a' },
+          { id: 'e2', source: 'a', target: 't' },
+          { id: 'e3', source: 't', target: 'e' },
+        ],
+      ),
+    );
+
+    assert.equal(result.valid, true, JSON.stringify(result.errors));
+    assert.ok(result.warnings.some((w) => w.message.includes("unknown variable 'missing_agent'")));
+    assert.ok(result.warnings.some((w) => w.message.includes("unknown variable 'unknown_result'")));
+    assert.ok(!result.warnings.some((w) => w.message.includes("unknown variable 'writer'")));
+  });
+
+  it('does not treat CEL macro locals or global functions as workflow variables', () => {
+    const result = validateGraph(
+      g(
+        [
+          {
+            id: 's',
+            type: 'start',
+            config: {
+              inputVariables: [],
+              stateVariables: [{ name: 'items', type: 'list', initialValue: [1, 2, 3] }],
+            },
+          },
+          {
+            id: 'i',
+            type: 'ifElse',
+            config: {
+              branches: [{
+                id: 'b',
+                condition: 'state.items.exists(item, item > 2) && size(state.items) > 0',
+              }],
+            },
+          },
+          { id: 'e', type: 'end', data: {} },
+        ],
+        [
+          { id: 'e1', source: 's', target: 'i' },
+          { id: 'e2', source: 'i', target: 'e', sourceHandle: 'b' },
+          { id: 'e3', source: 'i', target: 'e', sourceHandle: 'else' },
+        ],
+      ),
+    );
+
+    assert.equal(result.valid, true, JSON.stringify(result.errors));
+    assert.ok(!result.warnings.some((w) => w.message.includes("unknown variable 'item'")));
+    assert.ok(!result.warnings.some((w) => w.message.includes("unknown variable 'size'")));
+  });
+
+  it('ignores template-looking braces inside function tool source code', () => {
+    const result = validateGraph(
+      g(
+        [
+          { id: 's', type: 'start', data: {} },
+          {
+            id: 'a',
+            type: 'agent',
+            data: {
+              tools: [{
+                kind: 'function',
+                name: 'render',
+                execution: { mode: 'js', code: 'return "{{not_a_workflow_variable}}";' },
+              }],
+            },
+          },
+        ],
+        [{ id: 'e', source: 's', target: 'a' }],
+      ),
+    );
+    assert.ok(!result.warnings.some((w) => w.message.includes("unknown variable 'not_a_workflow_variable'")));
+  });
+
+  it('rejects duplicate or invalid typed names and agent ranges', () => {
+    const result = validateGraph(
+      g(
+        [
+          {
+            id: 's',
+            type: 'start',
+            config: {
+              inputVariables: [
+                { name: 'customer-name', type: 'string' },
+                { name: 'customer-name', type: 'string' },
+              ],
+              stateVariables: [{ name: 'counter', type: 'number' }],
+            },
+          },
+          {
+            id: 'a',
+            type: 'agent',
+            data: { maxTurns: 0, modelParams: { temperature: 3 } },
+          },
+        ],
+        [{ id: 'e', source: 's', target: 'a' }],
+      ),
+    );
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => e.message.includes('duplicate input variable')));
+    assert.ok(result.errors.some((e) => e.message.includes('CEL identifier')));
+    assert.ok(result.errors.some((e) => e.message.includes('maxTurns')));
+    assert.ok(result.errors.some((e) => e.message.includes('temperature')));
   });
 });

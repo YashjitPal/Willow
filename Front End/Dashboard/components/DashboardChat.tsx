@@ -135,6 +135,15 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               return;
             }
           }
+          // Load yielded nothing usable. Don't leave the PREVIOUS chat's
+          // messages on screen under the newly-selected id — adopt the id
+          // with an empty thread instead (and release the load guard so the
+          // first real message saves normally).
+          setMessages([]);
+          setChatTitle(activeChatId);
+          setChatSessionId(activeChatId);
+          lastSavedMessagesRef.current = [];
+          initialLoadRef.current = false;
         } catch {}
       };
       void loadChat();
@@ -208,9 +217,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           // A generated title can collide with an EXISTING chat's name (two
           // conversations about the same topic name identically) — and
           // saveLocalFSChat would then silently overwrite that older chat's
-          // body in IndexedDB and on disk. Uniquify against the known chat
-          // list first ("Title", "Title (1)", …).
-          const taken = new Set(localChatsRef.current.filter((c) => c !== chatSessionId));
+          // body in IndexedDB and on disk. Uniquify against every chat id we
+          // can see: the in-memory list PLUS the persisted list and timestamp
+          // keys (a chat created in another tab, or seconds ago, may not have
+          // reached `localChats` state yet).
+          const taken = new Set<string>(localChatsRef.current);
+          try {
+            const rawList = localStorage.getItem('willow_local_chats');
+            if (rawList) for (const c of JSON.parse(rawList)) taken.add(c);
+            const rawTs = localStorage.getItem('willow_chat_timestamps');
+            if (rawTs) for (const c of Object.keys(JSON.parse(rawTs) || {})) taken.add(c);
+          } catch {}
+          taken.delete(chatSessionId);
           let uniqueTitle = title;
           let suffix = 1;
           while (taken.has(uniqueTitle)) {
@@ -218,15 +236,28 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             suffix++;
           }
           setChatTitle(uniqueTitle);
-          // Rename to the title AND persist the FULL conversation under it (not
-          // just the first message). Saving only the user message left a
-          // truncated chat on disk, and the follow-up full save was skipped
-          // (the messages array ref hadn't changed), so a reload/sync could
-          // restore a chat that was missing the assistant reply.
-          const fullStripped = messages.map(
-            ({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest
-          );
-          void saveLocalFSChat(uniqueTitle, fullStripped, chatSessionId);
+          // NOTE: deliberately do NOT setChatSessionId(uniqueTitle) here.
+          // The load effect short-circuits on `activeChatId === chatSessionId`;
+          // during the async temp→title rename there's a render where
+          // activeChatId is still the temp id. If chatSessionId had already
+          // flipped to the title, that guard would miss, the effect would load
+          // the just-deleted temp body, get nothing, and the empty-load branch
+          // would wipe the live thread. saveLocalFSChat's oldChatId handling
+          // makes the lingering temp id harmless.
+          // Persist from the LIVE messages ref, not this effect's closure.
+          // The `await generateChatTitle` above can span a whole extra user
+          // turn; saving the stale closure snapshot under the title (while
+          // saveLocalFSChat deletes the temp body it renames from) silently
+          // dropped that turn from persistence. Strip runtime flags and any
+          // still-streaming placeholder (empty content) exactly like the
+          // load path does.
+          const latest = messagesRef.current
+            .map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest)
+            .filter((m: any) => typeof m.content === 'string' && m.content.trim().length > 0);
+          if (latest.length > 0) {
+            void saveLocalFSChat(uniqueTitle, latest, chatSessionId);
+            lastSavedMessagesRef.current = messagesRef.current;
+          }
         }
       };
       void fetchTitle();

@@ -21,6 +21,7 @@ import { Router } from './http/router.ts';
 import { McpManager } from './mcp/manager.ts';
 import { VectorStoreService } from './rag/vectorStore.ts';
 import { ChatService } from './services/chat.ts';
+import { EvaluationService } from './services/evaluations.ts';
 import { WorkflowService } from './services/workflows.ts';
 import { createStorage } from './storage/index.ts';
 import { createLogger } from './util/log.ts';
@@ -35,9 +36,10 @@ export async function createApp() {
   const engine = new RunEngine(storage, config, mcp, vectorStores);
   const workflows = new WorkflowService(storage);
   const chat = new ChatService(storage, engine, config);
+  const evaluations = new EvaluationService(storage);
 
   const router = new Router();
-  registerRoutes(router, { storage, workflows, engine, chat, mcp, vectorStores });
+  registerRoutes(router, { storage, workflows, engine, chat, mcp, vectorStores, evaluations });
 
   await engine.recoverInterruptedRuns();
 
@@ -56,7 +58,7 @@ export async function createApp() {
     await storage.close();
   };
 
-  return { config, storage, mcp, vectorStores, engine, workflows, chat, router, server, close };
+  return { config, storage, mcp, vectorStores, engine, workflows, chat, evaluations, router, server, close };
 }
 
 // Only boot when run directly (tests import createApp instead).

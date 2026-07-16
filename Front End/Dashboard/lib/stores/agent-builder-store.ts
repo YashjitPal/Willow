@@ -8,7 +8,7 @@
  */
 
 import { atom, map } from 'nanostores';
-import type { PendingApproval, RunEvent, RunStatus } from '@agentbuilder';
+import type { NodeDataContract, PendingApproval, RunEvent, RunStatus } from '@agentbuilder';
 
 export type BackendStatus = 'unknown' | 'checking' | 'up' | 'down';
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -20,6 +20,7 @@ export interface CurrentWorkflow {
   valid: boolean;
   errors: string[];
   warnings: string[];
+  contracts: NodeDataContract[];
 }
 
 export interface RunState {
@@ -73,6 +74,8 @@ export const codeModal = map<{ open: boolean; loading: boolean; format: 'typescr
 export const previewTrigger = atom<number>(0);
 export const codeTrigger = atom<number>(0);
 export const publishTrigger = atom<number>(0);
+export const evaluationPanelOpen = atom<boolean>(false);
+export const versionPanelOpen = atom<boolean>(false);
 
 export function firePreview(): void {
   previewTrigger.set(previewTrigger.get() + 1);

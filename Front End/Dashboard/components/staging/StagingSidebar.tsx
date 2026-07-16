@@ -66,7 +66,7 @@ import { PROJECT_NAME_MODEL } from '@models';
 import { runComputerUseTest, type TestUpdate, type ConversationMessage } from '../../lib/computer-use';
 import { sandpackStore } from '../../lib/sandpack/sandpack-store';
 import { workbenchStore, parseAIResponse, parseResponseForDisplay, type ChatSegment } from '../../lib/sandpack';
-import { saveCodeSessions, loadCodeSessions } from '../../lib/willowDB';
+import { saveCodeSessions, loadCodeSessions, renameCodeSessions } from '../../lib/willowDB';
 import { BOLT_SYSTEM_PROMPT } from '../../lib/sandpack/system-prompt';
 import { testStore } from '../../lib/test-store';
 import { TestingIndicator, TestResultIndicator } from './TestingIndicator';
@@ -79,6 +79,7 @@ import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus a
 import { newChatSignal } from '../../lib/stores/chat-store';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
 import { useLocalFS } from '../../context/LocalFSContext';
+import { markCodeChat, renameCodeChat, unmarkCodeChat } from '../../lib/codeChatStorage';
 
 
 // Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
@@ -547,6 +548,7 @@ interface SidebarProps {
   setSelectedModelId: (id: string) => void;
   isResizing?: boolean;
   projectName?: string;
+  isProjectPromoted?: boolean;
   isGeneratingName?: boolean;
   onSettingsClick?: (tab?: string) => void;
   agentSwarmEnabled?: boolean;
@@ -1628,7 +1630,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
@@ -1952,6 +1954,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // Tracks whether this mount has persisted any session under the transient
+  // `willow_chat_sessions_default` bucket — i.e. the user typed a follow-up
+  // during the async project-naming window (see the load effect below). When
+  // the AI name lands we migrate that bucket to the named key so the brand-new
+  // project doesn't reopen empty.
+  const wroteToDefaultRef = useRef(false);
+  const migratedDefaultRef = useRef(false);
   const [namingSessionIds, setNamingSessionIds] = useState<Set<string>>(new Set());
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [shouldRenderHistory, setShouldRenderHistory] = useState(false);
@@ -1961,12 +1970,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const [codeChatTitle, setCodeChatTitle] = useState<string | null>(null);
   const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
+  const inboxSaveRef = useRef<Promise<unknown>>(Promise.resolve());
 
-  const { isLocalFolderConnected, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Code Chat)
   useEffect(() => {
-    if (isLocalFolderConnected && messages.length >= 2 && !codeChatTitle) {
+    if (messages.length >= 2 && !codeChatTitle) {
       const userMsg = messages[0].content;
       const assistantMsg = messages[1].content;
       
@@ -1980,21 +1990,40 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               uniqueTitle = `${title} (${counter})`;
               counter++;
             }
+            renameCodeChat(codeChatTitle || codeChatSessionId, uniqueTitle);
             setCodeChatTitle(uniqueTitle);
           }
         } catch {}
       };
       void fetchTitle();
     }
-  }, [messages, codeChatTitle, isLocalFolderConnected, generateChatTitle, sessions]);
+  }, [messages, codeChatTitle, generateChatTitle, sessions]);
 
-  // Auto-save code chat sessions
+  // Before the first file mutation, Code mode is an inbox chat. Promotion moves
+  // the same messages into the project folder and removes the standalone copy.
   useEffect(() => {
-    if (isLocalFolderConnected && messages.length > 0 && projectName) {
-      const activeId = codeChatTitle || codeChatSessionId;
-      void saveLocalFSProjectChat(projectName, activeId, messages, codeChatTitle ? codeChatSessionId : null);
+    if (messages.length === 0) return;
+    const activeId = codeChatTitle || codeChatSessionId;
+
+    if (!isProjectPromoted) {
+      markCodeChat(activeId);
+      const inboxMessages = messages.map((message) => ({ ...message, willowMode: 'code' }));
+      inboxSaveRef.current = inboxSaveRef.current
+        .catch(() => {})
+        .then(() => saveLocalFSChat(activeId, inboxMessages, codeChatTitle ? codeChatSessionId : null));
+      return;
     }
-  }, [messages, codeChatTitle, codeChatSessionId, isLocalFolderConnected, projectName, saveLocalFSProjectChat]);
+
+    if (!projectName) return;
+    void (async () => {
+      await inboxSaveRef.current.catch(() => {});
+      if (isLocalFolderConnected) {
+        await saveLocalFSProjectChat(projectName, activeId, messages);
+      }
+      unmarkCodeChat(activeId);
+      await deleteLocalFSChat(activeId);
+    })();
+  }, [messages, codeChatTitle, codeChatSessionId, isProjectPromoted, projectName, isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat]);
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Design Chat)
   useEffect(() => {
@@ -2123,6 +2152,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [isHistoryOpen]);
 
+  // Persist sessions, remembering when a write lands in the transient
+  // `_default` bucket (the project-naming window) so the load effect can
+  // migrate it to the named key once the AI name resolves. All session saves
+  // go through here instead of calling saveCodeSessions directly.
+  const persistSessions = useCallback((key: string, sessionsToSave: ChatSession[]) => {
+    if (key === 'willow_chat_sessions_default') {
+      wroteToDefaultRef.current = true;
+    }
+    void saveCodeSessions(key, sessionsToSave);
+  }, []);
+
   // Load sessions from localStorage whenever projectName changes
   useEffect(() => {
     // If a prompt is present in the URL and we are on initial mount (projectName is empty),
@@ -2139,6 +2179,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
 
     (async () => {
+      // A brand-new project's name resolves asynchronously (the AI naming
+      // fetch). If the user sent a follow-up during that window, its session(s)
+      // were persisted under `willow_chat_sessions_default`. Now that we have a
+      // real name, migrate that transient bucket into the named key BEFORE
+      // loading — otherwise the load below reads an empty named key and the
+      // project reopens with no history or file snapshots. renameCodeSessions
+      // is a no-op if `_default` is empty and won't clobber an existing named
+      // key. Done at most once per mount.
+      if (projectName && wroteToDefaultRef.current && !migratedDefaultRef.current) {
+        migratedDefaultRef.current = true;
+        try {
+          await renameCodeSessions('willow_chat_sessions_default', storageKey);
+        } catch {}
+        if (cancelled) return;
+      }
+
       // loadCodeSessions migrates any legacy localStorage value into IndexedDB on first read.
       const parsed = (await loadCodeSessions(storageKey)) as ChatSession[] | null;
       if (cancelled) return;
@@ -2207,7 +2263,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       next[idx] = updatedSession;
 
       const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-      void saveCodeSessions(storageKey, next);
+      persistSessions(storageKey, next);
 
       return next;
     });
@@ -2348,7 +2404,7 @@ User Prompt:
               const next = [...prev];
               next[idx] = updated;
               const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-              void saveCodeSessions(storageKey, next);
+              persistSessions(storageKey, next);
               return next;
             });
           }
@@ -2386,7 +2442,7 @@ User Prompt:
         const next = [...prev];
         next[idx] = updated;
         const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-        void saveCodeSessions(storageKey, next);
+        persistSessions(storageKey, next);
         return next;
       });
     }
@@ -2423,7 +2479,7 @@ User Prompt:
     setSessions(prev => {
       const next = prev.filter(s => s.id !== sessionId);
       const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-      void saveCodeSessions(storageKey, next);
+      persistSessions(storageKey, next);
       
       if (currentSessionId === sessionId) {
         if (next.length > 0) {
@@ -2732,7 +2788,7 @@ User Prompt:
         const next = [...prev];
         next[idx] = updated;
         const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-        void saveCodeSessions(storageKey, next);
+        persistSessions(storageKey, next);
         return next;
       });
     }
@@ -3429,7 +3485,7 @@ User Prompt:
         setSessions(prev => {
           const next = [newSession, ...prev];
           const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-          void saveCodeSessions(storageKey, next);
+          persistSessions(storageKey, next);
           return next;
         });
       }

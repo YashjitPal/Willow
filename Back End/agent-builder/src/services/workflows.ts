@@ -7,13 +7,28 @@ import type { JsonObject, Workflow, WorkflowGraph, WorkflowVersion } from '../do
 import { validateGraph, type ValidationResult } from '../domain/validate.ts';
 import { COLLECTIONS, type Storage } from '../storage/index.ts';
 import { ids, nowIso } from '../util/id.ts';
+import { getWorkflowTemplate } from './templates.ts';
 
 /** Default draft: Start -> Agent, matching the canvas' initial state. */
 function defaultDraft(): WorkflowGraph {
   const { graph } = normalizeGraph({
     nodes: [
       { id: '1', type: 'start', position: { x: 50, y: 125 }, data: { label: 'Start' } },
-      { id: '2', type: 'agent', position: { x: 300, y: 125 }, data: { label: 'Agent' } },
+      {
+        id: '2',
+        type: 'agent',
+        position: { x: 300, y: 125 },
+        data: {
+          label: 'Agent',
+          instructions: 'Answer the user clearly and concisely.',
+          model: 'mock/echo',
+          outputFormat: 'text',
+          includeChatHistory: false,
+          writeToConversationHistory: false,
+          continueOnError: false,
+          tools: [],
+        },
+      },
     ],
     edges: [{ id: 'e1-2', source: '1', target: '2' }],
   });
@@ -48,6 +63,20 @@ export class WorkflowService {
     };
     await this.storage.put(COLLECTIONS.workflows, wf.id, wf);
     return { workflow: wf, validation };
+  }
+
+  async createFromTemplate(input: {
+    templateId: string;
+    name?: string;
+    description?: string;
+  }): Promise<{ workflow: Workflow; validation: ValidationResult } | undefined> {
+    const template = getWorkflowTemplate(input.templateId);
+    if (!template) return undefined;
+    return this.create({
+      name: input.name?.trim() || template.name,
+      description: input.description ?? template.description,
+      graph: structuredClone(template.graph),
+    });
   }
 
   async get(id: string): Promise<Workflow | undefined> {
@@ -122,6 +151,22 @@ export class WorkflowService {
 
   async getVersion(id: string, version: number): Promise<WorkflowVersion | undefined> {
     return this.storage.get<WorkflowVersion>(COLLECTIONS.versions, `${id}@${version}`);
+  }
+
+  async restoreVersion(
+    id: string,
+    version: number,
+  ): Promise<{ workflow: Workflow; validation: ValidationResult } | undefined> {
+    const [workflow, published] = await Promise.all([
+      this.get(id),
+      this.getVersion(id, version),
+    ]);
+    if (!workflow || !published) return undefined;
+    workflow.draft = structuredClone(published.graph);
+    workflow.updatedAt = nowIso();
+    const validation = validateGraph(workflow.draft);
+    await this.storage.put(COLLECTIONS.workflows, id, workflow);
+    return { workflow, validation };
   }
 
   async remove(id: string): Promise<boolean> {

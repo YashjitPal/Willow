@@ -1504,6 +1504,14 @@ export const MediaView: React.FC = () => {
   // Set when Enter/Escape already resolved the edit, so the input's onBlur
   // (which fires as it unmounts) doesn't commit a second time / after cancel.
   const projectRenameResolvedRef = React.useRef(false);
+  // Timestamp until which disk-change-triggered gallery reloads are suppressed
+  // (invariant #13): the folder move behind a project rename fires a burst of
+  // FileSystemObserver events (one per copied file), and reloading off a
+  // half-moved folder blanks/reshuffles the grid. MAX_SAFE_INTEGER while the
+  // move runs; a short settle window after; then ONE clean reload.
+  const renameReloadGuardRef = React.useRef(0);
+  // Latest loadMedia (defined later in the file) for the post-rename reload.
+  const loadMediaRef = React.useRef<(skipIfGenerating: boolean) => void>(() => {});
 
   // Commit a rename typed into the header. Mirrors HeroSection's
   // persistProjectRename write path exactly — registry write → event dispatch
@@ -1582,7 +1590,15 @@ export const MediaView: React.FC = () => {
       // adopts the rename instead of reverting it within one poll tick. Temp
       // projects can already own a folder (generation saves don't wait for
       // materialization); a missing folder is a harmless no-op inside.
-      void renameLocalFSProject(oldName, uniqueName);
+      // Suppress disk-change gallery reloads for the whole move (the observer
+      // fires once per copied file; reloading off a half-moved folder blanks
+      // and reshuffles the grid), then do ONE clean reload once it settles.
+      renameReloadGuardRef.current = Number.MAX_SAFE_INTEGER;
+      void (async () => {
+        try { await renameLocalFSProject(oldName, uniqueName); } catch {}
+        renameReloadGuardRef.current = Date.now() + 800;
+        window.setTimeout(() => { loadMediaRef.current(false); }, 850);
+      })();
       // Code-editor sessions are keyed by project NAME — migrate them too
       // (a cheap no-op for pure media projects).
       void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
@@ -3022,15 +3038,16 @@ export const MediaView: React.FC = () => {
   const attachmentsRef = React.useRef<ImageAttachment[]>([]);
   React.useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
 
-  const revokeMediaBlobUrls = React.useCallback(() => {
+  const revokeMediaBlobUrls = React.useCallback((keep?: Set<string>) => {
     const activeUrls = new Set(attachmentsRef.current.map(a => a?.url).filter(Boolean));
+    if (keep) for (const u of keep) activeUrls.add(u);
     const keptUrls: string[] = [];
-    
-    for (const u of mediaBlobUrlsRef.current) { 
+
+    for (const u of mediaBlobUrlsRef.current) {
       if (activeUrls.has(u)) {
         keptUrls.push(u);
       } else {
-        try { URL.revokeObjectURL(u); } catch {} 
+        try { URL.revokeObjectURL(u); } catch {}
       }
     }
     mediaBlobUrlsRef.current = keptUrls;
@@ -3088,16 +3105,38 @@ export const MediaView: React.FC = () => {
     );
 
     const freshBlobUrls: string[] = [];
+    // INVARIANT #14: reuse the currently-displayed blob: URL when the same
+    // item (id + fsName + kind) is already on screen with a live one. Minting
+    // a fresh URL (and revoking the old) forces every <img> to unload and
+    // reload, visibly collapsing/reflowing the masonry on each realtime
+    // refresh even when nothing changed on disk.
+    const prevById = new Map(mediaItemsRef.current.map((i: any) => [i?.id, i]));
+    const reusedUrls = new Set<string>();
     const hydrated = await Promise.all(loaded.map(async (m: any) => {
       if (m?.url) return m; // browser-only base64 (or already hydrated) — use as-is
       if (connected && m?.fsName && m?.kind) {
+        const isAudioFile = m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(m.fsName);
+        const prev = prevById.get(m.id);
+        if (prev && prev.fsName === m.fsName && prev.kind === m.kind) {
+          if (isAudioFile) {
+            // Only when the item doesn't carry real (data:/http) audio of its
+            // own — mirrors the keep-real-audio guard below.
+            if ((!m.audioUrl || m.audioUrl.startsWith('blob:')) && prev.audioUrl?.startsWith('blob:')) {
+              reusedUrls.add(prev.audioUrl);
+              return { ...m, audioUrl: prev.audioUrl };
+            }
+          } else if (prev.url?.startsWith('blob:')) {
+            reusedUrls.add(prev.url);
+            return { ...m, url: prev.url };
+          }
+        }
         const blobUrl = await loadLocalFSMediaUrl(projectName, m.kind, m.fsName);
         if (blobUrl) {
           // For audio items the Audio/ file is usually the cover ART (an image
           // written at save time). But an externally dropped song file (.mp3
           // etc.) IS the audio — route that to audioUrl so the player works,
           // instead of pointing an <img> at an audio blob.
-          if (m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(m.fsName)) {
+          if (isAudioFile) {
             // Re-hydrate over an empty OR stale blob: audioUrl (object URLs are
             // session-scoped; a persisted one is dead). Keep real data:/http
             // audio untouched.
@@ -3120,7 +3159,24 @@ export const MediaView: React.FC = () => {
       for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
       return;
     }
-    const keptUrls = revokeMediaBlobUrls(); // release previous URLs not in use by attachments
+    // INVARIANT #15: structural change-only gate. If every item is identical
+    // (id/url/status/fsName/kind/prompt/timestamp), skip the setState — each
+    // realtime poll otherwise re-renders the whole masonry and tiles visibly
+    // reposition even though nothing changed on disk. (With the URL reuse
+    // above, unchanged items keep identical blob: urls, so idle refreshes and
+    // post-rename reloads actually hit this gate.)
+    const itemSig = (m: any) =>
+      [m?.id, m?.url ?? '', m?.audioUrl ?? '', m?.status, m?.fsName ?? '', m?.kind, m?.prompt ?? '', m?.timestamp ?? 0].join('\u0000');
+    const prevItems = mediaItemsRef.current;
+    if (lastLoadedProjectIdRef.current === projectId && prevItems.length === hydrated.length) {
+      const prevSigs = new Set(prevItems.map(itemSig));
+      if (hydrated.every((m: any) => prevSigs.has(itemSig(m)))) {
+        for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
+        mediaLoadedRef.current = true;
+        return;
+      }
+    }
+    const keptUrls = revokeMediaBlobUrls(reusedUrls); // release previous URLs not reused / not held by attachments
     mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
     setMediaItems(hydrated);
     lastLoadedProjectIdRef.current = projectId;
@@ -3128,19 +3184,28 @@ export const MediaView: React.FC = () => {
   }, [projectId, projectName, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
 
   // (Re)load on project / folder change.
+  React.useEffect(() => { loadMediaRef.current = (s: boolean) => { void loadMedia(s); }; }, [loadMedia]);
   React.useEffect(() => {
     mediaLoadedRef.current = false;
-    void loadMedia(false);
+    // This also fires when `projectName` changes mid-rename (loadMedia's
+    // identity changes). Skip while the rename guard is up — the post-rename
+    // timeout performs the one clean reload (which also re-arms the
+    // debounced persist by setting mediaLoadedRef back to true).
+    if (Date.now() >= renameReloadGuardRef.current) void loadMedia(false);
     return () => { loadGenRef.current++; }; // invalidate any in-flight load
   }, [loadMedia]);
 
   // Realtime: refresh the gallery when the disk watcher reports a change
-  // (debounced; skipped while a generation is in flight so it can't clobber).
+  // (debounced; skipped while a generation is in flight so it can't clobber,
+  // and while a project-folder rename is moving files — invariant #13).
   React.useEffect(() => {
     let t: number | undefined;
     const onDiskChanged = () => {
       if (t) window.clearTimeout(t);
-      t = window.setTimeout(() => { void loadMedia(true); }, 300);
+      t = window.setTimeout(() => {
+        if (Date.now() < renameReloadGuardRef.current) return;
+        void loadMedia(true);
+      }, 300);
     };
     window.addEventListener('willow_disk_changed', onDiskChanged);
     return () => { if (t) window.clearTimeout(t); window.removeEventListener('willow_disk_changed', onDiskChanged); };

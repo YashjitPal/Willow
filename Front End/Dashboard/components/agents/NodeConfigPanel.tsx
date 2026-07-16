@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, BookOpen } from 'lucide-react';
 import { useUserDataContext } from '../../context/UserDataContext';
-import { getAgentBuilderClient, type McpServer, type VectorStore } from '../../lib/agentBuilder';
+import { getAgentBuilderClient, type McpServer, type NodeDataContract, type VectorStore } from '../../lib/agentBuilder';
 
 type Cfg = Record<string, any>;
 
@@ -19,6 +19,7 @@ interface Props {
   nodeType: string;
   nodeName: string;
   config: Cfg;
+  contract?: NodeDataContract;
   onNameChange: (name: string) => void;
   onConfigChange: (config: Cfg) => void;
 }
@@ -59,7 +60,7 @@ const SUBTITLES: Record<string, string> = {
   setState: 'Write to global state variables',
 };
 
-export const NodeConfigPanel: React.FC<Props> = ({ nodeType, nodeName, config, onNameChange, onConfigChange }) => {
+export const NodeConfigPanel: React.FC<Props> = ({ nodeType, nodeName, config, contract, onNameChange, onConfigChange }) => {
   const [localName, setLocalName] = useState(nodeName);
   useEffect(() => setLocalName(nodeName), [nodeName, nodeType]);
 
@@ -102,10 +103,41 @@ export const NodeConfigPanel: React.FC<Props> = ({ nodeType, nodeName, config, o
         {nodeType === 'mcp' && <McpFields config={config} set={set} />}
         {nodeType === 'end' && <EndFields config={config} set={set} />}
         {nodeType === 'note' && <NoteFields config={config} set={set} />}
+
+        {contract && (
+          <div className="flex flex-col gap-2 pt-3 mt-1 border-t border-[#2b2b2b]">
+            <span className={label}>Data contract</span>
+            <ContractGroup title="Inputs" fields={contract.inputs} />
+            <ContractGroup title="Outputs" fields={contract.outputs} />
+          </div>
+        )}
       </div>
     </motion.div>
   );
 };
+
+const ContractGroup: React.FC<{
+  title: string;
+  fields: NodeDataContract['inputs'];
+}> = ({ title, fields }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="text-[#8a8a8a] text-[11px] font-semibold uppercase tracking-wide">{title}</span>
+    {fields.length === 0 ? (
+      <span className="text-[#5f5f5f] text-[12px]">None</span>
+    ) : (
+      <div className="flex flex-col gap-1">
+        {fields.map((field) => (
+          <div key={`${title}-${field.name}`} className="flex items-center justify-between gap-2 bg-[#222] rounded-md px-2.5 py-1.5">
+            <span className="text-[#d4d4d4] text-[12px] font-mono truncate">{field.name}</span>
+            <span className="text-[#8a8a8a] text-[10px] uppercase tracking-wide shrink-0">
+              {field.type}{field.required ? ' *' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
 
 // --- helpers ---------------------------------------------------------------
 

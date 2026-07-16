@@ -127,15 +127,24 @@ GET|PUT /settings/keys                       stored provider keys (masked on rea
 GET    /models?provider=gemini|openai|anthropic|mock
 
 GET|POST /workflows                          list / create (accepts {name, description, graph?})
+GET    /workflow-templates                    built-in starter graphs
+POST   /workflows/from-template               create a workflow from a starter graph
 GET|PATCH|DELETE /workflows/:id
 PUT    /workflows/:id/draft                  autosave canvas JSON → {workflow, validation}
-POST   /workflows/:id/validate               validate draft or body.graph
+POST   /workflows/:id/validate               validate draft or body.graph (includes node contracts)
 POST   /workflows/:id/publish                → immutable version N
 GET    /workflows/:id/versions[/:version]
+POST   /workflows/:id/versions/:version/restore
 POST   /workflows/:id/export                 {format: 'typescript'|'python'} → Agents-SDK code
 
 POST   /workflows/:id/runs                   {input: {input_as_text, variables, state_variables, history}, version}
 GET    /workflows/:id/runs
+GET|POST /workflows/:id/evaluations           list/create deterministic trace graders
+GET    /evaluations/:id
+PATCH  /evaluations/:id                       rename or replace graders
+DELETE /evaluations/:id                       delete a definition and its run history
+GET    /evaluations/:id/runs
+POST   /evaluations/:id/run                   score selected or recent runs
 GET    /runs/:id                             status, output, usage, pendingApproval
 GET    /runs/:id/events                      SSE live stream (replays persisted trace first)
 GET    /runs/:id/trace                       persisted events as JSON

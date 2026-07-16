@@ -18,7 +18,12 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useStore } from '@nanostores/react';
 import type { Edge, Node } from '@xyflow/react';
 import { useUserDataContext } from '../context/UserDataContext';
-import { getAgentBuilderClient, isAgentBuilderBackendUp, type RunEvent } from '../lib/agentBuilder';
+import {
+  getAgentBuilderClient,
+  isAgentBuilderBackendUp,
+  type JsonObject,
+  type RunEvent,
+} from '../lib/agentBuilder';
 import {
   backendStatus,
   codeModal,
@@ -44,7 +49,21 @@ function defaultStarterGraph(): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: [
       { id: '1', type: 'start', position: { x: 50, y: 125 }, data: { label: 'Start' } } as Node,
-      { id: '2', type: 'agent', position: { x: 300, y: 125 }, data: { label: 'Agent' } } as Node,
+      {
+        id: '2',
+        type: 'agent',
+        position: { x: 300, y: 125 },
+        data: {
+          label: 'Agent',
+          instructions: 'Answer the user clearly and concisely.',
+          model: 'mock/echo',
+          outputFormat: 'text',
+          includeChatHistory: false,
+          writeToConversationHistory: false,
+          continueOnError: false,
+          tools: [],
+        },
+      } as Node,
     ],
     edges: [{ id: 'e1-2', source: '1', target: '2', type: 'custom', style: EDGE_STYLE } as Edge],
   };
@@ -132,7 +151,7 @@ function graphSignature(nodes: Node[], edges: Edge[]): string {
 
 export interface AgentBuilderBackend {
   ready: boolean;
-  run: (inputText: string) => Promise<void>;
+  run: (inputText: string, variables?: JsonObject) => Promise<void>;
   publish: () => Promise<void>;
   exportCode: (format: 'typescript' | 'python') => Promise<void>;
   resolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
@@ -176,12 +195,13 @@ export function useAgentBuilderBackend(
     } catch { /* backend down — handled by status */ }
   }, []);
 
-  const applyValidation = useCallback((v: { valid: boolean; errors: { message: string }[]; warnings: { message: string }[] }, id: string, name: string, latestVersion: number) => {
+  const applyValidation = useCallback((v: { valid: boolean; errors: { message: string }[]; warnings: { message: string }[]; contracts?: import('@agentbuilder').NodeDataContract[] }, id: string, name: string, latestVersion: number) => {
     currentWorkflow.set({
       id, name, latestVersion,
       valid: v?.valid ?? true,
       errors: (v?.errors ?? []).map((e) => e.message),
       warnings: (v?.warnings ?? []).map((w) => w.message),
+      contracts: v?.contracts ?? [],
     });
   }, []);
 
@@ -280,7 +300,7 @@ export function useAgentBuilderBackend(
   }, [nodes, edges]);
 
   // ---- run with SSE streaming ----
-  const run = useCallback(async (inputText: string) => {
+  const run = useCallback(async (inputText: string, variables?: JsonObject) => {
     const w = currentWorkflow.get();
     if (!w) return;
     streamStopRef.current?.();
@@ -297,7 +317,11 @@ export function useAgentBuilderBackend(
 
     let runId: string;
     try {
-      const { run: r } = await clientRef.current.startRun(w.id, { input_as_text: inputText }, 0);
+      const { run: r } = await clientRef.current.startRun(
+        w.id,
+        { input_as_text: inputText, variables },
+        0,
+      );
       runId = r.id;
       runState.setKey('runId', runId);
     } catch (e) {
@@ -311,6 +335,7 @@ export function useAgentBuilderBackend(
 
     streamStopRef.current = clientRef.current.streamRunEvents(runId, (ev: RunEvent) => {
       const st = runState.get();
+      runState.setKey('events', [...st.events, ev]);
       switch (ev.type) {
         case 'run.started':
           runState.setKey('status', 'running');
@@ -402,7 +427,14 @@ export function useAgentBuilderBackend(
       const payload = reactFlowToGraphPayload(nodesRef.current, edgesRef.current);
       await clientRef.current.saveDraft(w.id, payload);
       const res = await clientRef.current.publishWorkflow(w.id);
-      currentWorkflow.set({ ...w, latestVersion: res.version.version, valid: true, errors: [] });
+      currentWorkflow.set({
+        ...w,
+        latestVersion: res.version.version,
+        valid: res.validation.valid,
+        errors: res.validation.errors.map((issue) => issue.message),
+        warnings: res.validation.warnings.map((issue) => issue.message),
+        contracts: res.validation.contracts,
+      });
       await refreshWorkflows();
     } catch (e) {
       currentWorkflow.set({ ...w, valid: false, errors: [(e as Error).message] });

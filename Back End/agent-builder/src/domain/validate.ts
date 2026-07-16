@@ -4,8 +4,12 @@
  */
 
 import { parse as parseCel } from '../engine/cel/index.ts';
+import type { CelNode } from '../engine/cel/parser.ts';
+import { inferContracts, type NodeDataContract } from './contracts.ts';
+import { normalizeGraph } from './normalize.ts';
 import type {
   IfElseNodeConfig,
+  JsonObject,
   SetStateNodeConfig,
   StartNodeConfig,
   TransformNodeConfig,
@@ -24,6 +28,8 @@ export interface ValidationResult {
   valid: boolean;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
+  /** Inferred input/output fields for the canvas data-contract inspector. */
+  contracts: NodeDataContract[];
 }
 
 const BRANCH_HANDLES: Record<string, (node: WorkflowNode) => string[]> = {
@@ -36,12 +42,148 @@ const BRANCH_HANDLES: Record<string, (node: WorkflowNode) => string[]> = {
   while: () => ['loop', 'done'],
 };
 
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function checkIdentifier(value: string, label: string, nodeId: string, errors: ValidationIssue[]): void {
+  if (!IDENTIFIER.test(value)) {
+    errors.push({
+      nodeId,
+      message: `${label} '${value}' must be a CEL identifier (letters, numbers, underscores)`,
+    });
+  }
+}
+
 function checkCel(expr: string): string | null {
   try {
     parseCel(expr);
     return null;
   } catch (e) {
     return (e as Error).message;
+  }
+}
+
+const CEL_GLOBALS = new Set([
+  'size',
+  'string',
+  'int',
+  'double',
+  'bool',
+  'type',
+  'matches',
+  'min',
+  'max',
+  'has',
+]);
+
+/**
+ * Return root identifiers referenced by an expression.  CEL method calls and
+ * macro variables are deliberately handled separately so `items.exists(x,
+ * x > 0)` only reports `items`.
+ */
+function referencedRoots(ast: CelNode, bound = new Set<string>(), out = new Set<string>()): Set<string> {
+  switch (ast.kind) {
+    case 'ident':
+      if (!bound.has(ast.name) && !CEL_GLOBALS.has(ast.name)) out.add(ast.name);
+      break;
+    case 'member':
+      referencedRoots(ast.obj, bound, out);
+      break;
+    case 'index':
+      referencedRoots(ast.obj, bound, out);
+      referencedRoots(ast.index, bound, out);
+      break;
+    case 'call': {
+      if (ast.callee) referencedRoots(ast.callee, bound, out);
+      // List/map macros bind their first identifier argument only in the
+      // predicate/body expression.
+      const macro = new Set(['filter', 'map', 'exists', 'all', 'exists_one']).has(ast.name);
+      if (macro && ast.args[0]?.kind === 'ident' && ast.args.length >= 2) {
+        for (const arg of ast.args.slice(2)) referencedRoots(arg, bound, out);
+        const nested = new Set(bound);
+        nested.add(ast.args[0].name);
+        referencedRoots(ast.args[1], nested, out);
+      } else {
+        for (const arg of ast.args) referencedRoots(arg, bound, out);
+      }
+      break;
+    }
+    case 'list':
+      for (const item of ast.items) referencedRoots(item, bound, out);
+      break;
+    case 'map':
+      for (const entry of ast.entries) {
+        referencedRoots(entry.key, bound, out);
+        referencedRoots(entry.value, bound, out);
+      }
+      break;
+    case 'unary':
+      referencedRoots(ast.operand, bound, out);
+      break;
+    case 'binary':
+      referencedRoots(ast.left, bound, out);
+      referencedRoots(ast.right, bound, out);
+      break;
+    case 'ternary':
+      referencedRoots(ast.cond, bound, out);
+      referencedRoots(ast.then, bound, out);
+      referencedRoots(ast.else, bound, out);
+      break;
+    case 'lit':
+      break;
+  }
+  return out;
+}
+
+function collectExpressions(value: unknown, out: string[] = [], key?: string): string[] {
+  // Tool implementation bodies are source code, not workflow templates.
+  if (key === 'code') return out;
+  if (typeof value === 'string') {
+    if (value.startsWith('$cel:')) {
+      out.push(value.slice('$cel:'.length).trim());
+      return out;
+    }
+    let cursor = 0;
+    while (cursor < value.length) {
+      const open = value.indexOf('{{', cursor);
+      if (open < 0) break;
+      const close = value.indexOf('}}', open + 2);
+      if (close < 0) break;
+      const expression = value.slice(open + 2, close).trim();
+      if (expression) out.push(expression);
+      cursor = close + 2;
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectExpressions(item, out, key);
+  } else if (value && typeof value === 'object') {
+    for (const [entryKey, item] of Object.entries(value)) {
+      collectExpressions(item, out, entryKey);
+    }
+  }
+  return out;
+}
+
+function warnUnknownReferences(graph: WorkflowGraph, warnings: ValidationIssue[]): void {
+  const { varNames } = normalizeGraph(graph);
+  const known = new Set(['workflow', 'state', 'input_as_text', ...varNames.values()]);
+  for (const node of graph.nodes) {
+    for (const expression of collectExpressions(node.config)) {
+      let ast: CelNode;
+      try {
+        ast = parseCel(expression);
+      } catch {
+        continue; // syntax diagnostics are emitted by the node-specific checks
+      }
+      for (const root of referencedRoots(ast)) {
+        if (!known.has(root)) {
+          warnings.push({
+            nodeId: node.id,
+            message: `'${node.name}' references unknown variable '${root}' in '${expression}'`,
+          });
+        }
+      }
+    }
   }
 }
 
@@ -122,11 +264,25 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
   const declaredState = new Set<string>();
   if (start) {
     const cfg = start.config as unknown as StartNodeConfig;
+    const declaredInputs = new Set<string>();
+    for (const iv of cfg.inputVariables ?? []) {
+      if (!iv.name) {
+        errors.push({ nodeId: start.id, message: 'input variable with empty name' });
+      } else if (declaredInputs.has(iv.name)) {
+        errors.push({ nodeId: start.id, message: `duplicate input variable '${iv.name}'` });
+      } else {
+        declaredInputs.add(iv.name);
+        checkIdentifier(iv.name, 'input variable', start.id, errors);
+      }
+    }
     for (const sv of cfg.stateVariables ?? []) {
       if (!sv.name) errors.push({ nodeId: start.id, message: 'state variable with empty name' });
       else if (declaredState.has(sv.name)) {
         errors.push({ nodeId: start.id, message: `duplicate state variable '${sv.name}'` });
-      } else declaredState.add(sv.name);
+      } else {
+        declaredState.add(sv.name);
+        checkIdentifier(sv.name, 'state variable', start.id, errors);
+      }
     }
   }
 
@@ -140,6 +296,21 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
         if (node.config.outputFormat === 'json' && !node.config.outputSchema) {
           warnings.push({ nodeId: node.id, message: `Agent '${node.name}' uses JSON output without a schema; output will be parsed loosely` });
         }
+        if (node.config.maxTurns !== undefined &&
+            (typeof node.config.maxTurns !== 'number' || node.config.maxTurns < 1 || node.config.maxTurns > 100)) {
+          errors.push({ nodeId: node.id, message: `Agent '${node.name}' maxTurns must be between 1 and 100` });
+        }
+        const params = node.config.modelParams;
+        if (params && typeof params === 'object' && !Array.isArray(params)) {
+          const temperature = (params as JsonObject).temperature;
+          const topP = (params as JsonObject).topP;
+          if (typeof temperature === 'number' && (temperature < 0 || temperature > 2)) {
+            errors.push({ nodeId: node.id, message: `Agent '${node.name}' temperature must be between 0 and 2` });
+          }
+          if (typeof topP === 'number' && (topP < 0 || topP > 1)) {
+            errors.push({ nodeId: node.id, message: `Agent '${node.name}' topP must be between 0 and 1` });
+          }
+        }
         break;
       }
       case 'ifElse': {
@@ -147,7 +318,13 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
         if (!cfg.branches?.length) {
           errors.push({ nodeId: node.id, message: `If/else '${node.name}' has no condition branches` });
         }
+        const branchIds = new Set<string>();
         for (const b of cfg.branches ?? []) {
+          if (!b.id || branchIds.has(b.id)) {
+            errors.push({ nodeId: node.id, message: `If/else '${node.name}' has duplicate or empty branch id '${b.id ?? ''}'` });
+          } else {
+            branchIds.add(b.id);
+          }
           const err = checkCel(b.condition || '');
           if (err) errors.push({ nodeId: node.id, message: `If/else '${node.name}' branch '${b.label ?? b.id}': invalid CEL — ${err}` });
         }
@@ -164,8 +341,14 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
         if (!cfg.outputs?.length) {
           warnings.push({ nodeId: node.id, message: `Transform '${node.name}' produces no outputs` });
         }
+        const outputNames = new Set<string>();
         for (const o of cfg.outputs ?? []) {
           if (!o.name) errors.push({ nodeId: node.id, message: `Transform '${node.name}' has an output with no name` });
+          else if (outputNames.has(o.name)) errors.push({ nodeId: node.id, message: `Transform '${node.name}' has duplicate output '${o.name}'` });
+          else {
+            outputNames.add(o.name);
+            checkIdentifier(o.name, 'transform output', node.id, errors);
+          }
           const err = checkCel(o.expression || '');
           if (err) errors.push({ nodeId: node.id, message: `Transform '${node.name}' output '${o.name}': invalid CEL — ${err}` });
         }
@@ -267,5 +450,10 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     }
   }
 
-  return { valid: errors.length === 0, errors, warnings };
+  // Catch misspelled node/state/workflow variables before execution.  These
+  // remain warnings because dynamic values can be supplied by future node
+  // types or provider-specific extensions.
+  warnUnknownReferences(graph, warnings);
+
+  return { valid: errors.length === 0, errors, warnings, contracts: inferContracts(graph) };
 }
