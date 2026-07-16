@@ -29,14 +29,15 @@ import {
 } from 'lucide-react';
 import { RECENT_PROJECTS } from '../constants';
 import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
-import { deleteCodeSessions } from '../lib/willowDB';
+import { deleteCodeSessions, renameCodeSessions } from '../lib/willowDB';
 
 interface ProjectMenuProps {
   onClose: () => void;
   onDelete?: () => void;
+  onRename?: () => void;
 }
 
-const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete }) => {
+const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete, onRename }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
 
@@ -66,7 +67,7 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete }) => {
     { label: 'Select', icon: SquareDashed },
     { label: 'Move to folder', icon: Folder },
     { label: 'Remix', icon: RotateCcw },
-    { label: 'Rename', icon: Pencil },
+    { label: 'Rename', icon: Pencil, onClick: onRename },
     { label: 'Settings', icon: Settings },
     { label: 'Delete', icon: Trash2, variant: 'danger', onClick: onDelete },
   ];
@@ -74,8 +75,8 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete }) => {
   return (
     <div
       ref={menuRef}
-      className={`absolute right-0 w-fit min-w-[150px] bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl py-1.5 z-50
-        ${position === 'bottom' ? 'top-[50px]' : 'bottom-[50px]'}`}
+      className={`absolute right-0 w-fit min-w-[160px] bg-zinc-900/40 backdrop-blur-2xl border border-white/10 rounded-xl shadow-2xl p-1 z-50
+        ${position === 'bottom' ? 'top-[32px]' : 'bottom-[32px]'}`}
     >
       {menuItems.map((item, idx) => (
         <button
@@ -84,10 +85,10 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete }) => {
             if (item.onClick) item.onClick();
             onClose();
           }}
-          className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-medium hover:bg-white/5 first:rounded-t-xl last:rounded-b-xl whitespace-nowrap
-            ${item.variant === 'danger' ? 'text-[#ef4444]' : 'text-white/90'}`}
+          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-[12.5px] font-medium rounded-lg hover:bg-white/15 transition-colors whitespace-nowrap
+            ${item.variant === 'danger' ? 'text-red-400 hover:text-red-300 hover:bg-red-500/20' : 'text-zinc-100 hover:text-white'}`}
         >
-          <item.icon size={15} strokeWidth={2.2} className="shrink-0" />
+          <item.icon size={14} strokeWidth={2} className="shrink-0" />
           {item.label}
         </button>
       ))}
@@ -113,12 +114,70 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState('Recents');
+  // Inline rename state (menu → Rename turns the card title into an input).
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  // Set when Enter/Escape already resolved the edit, so the input's onBlur
+  // (which fires as it unmounts) doesn't commit a second time / after cancel.
+  const renameResolvedRef = useRef(false);
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
-  const { deleteLocalFSProject, isLocalFolderConnected } = useLocalFS();
+  const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
 
   const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean; coverUrl?: string }[]>([]);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
+
+  // Rename a project everywhere — mirrors HeroSection's persistProjectRename
+  // write path exactly (the same one MediaView uses): sanitized name →
+  // uniquified against the FULL registry → registry write + event → disk
+  // folder rename → name-keyed code-session migration. Works identically for
+  // media and vibecoded (kind:'code') projects: renameLocalFSProject moves the
+  // folder under whichever parent (Code//Media/) it lives in, and
+  // renameCodeSessions is a cheap no-op when there's no session history.
+  const persistProjectRename = React.useCallback((projectId: string, rawName: string) => {
+    // Strip filesystem-illegal characters — the name becomes a folder name on
+    // disk, and an unusable one silently breaks every later folder operation.
+    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
+    if (!baseName) return;
+    try {
+      const stored = localStorage.getItem('willow_projects_list');
+      const list = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(list)) return;
+      const oldName = list.find((p: any) => p.id === projectId)?.name;
+      // Dedup against the FULL list (not the filtered display list)
+      let uniqueName = baseName;
+      let counter = 1;
+      while (list.some((p: any) => p.id !== projectId && p.name.toLowerCase() === uniqueName.toLowerCase())) {
+        uniqueName = `${baseName} (${counter})`;
+        counter++;
+      }
+      if (oldName === uniqueName) return;
+      const updated = list.map((p: any) => (p.id === projectId ? { ...p, name: uniqueName } : p));
+      localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+      window.dispatchEvent(new Event('willow_projects_updated'));
+      // Keep the disk folder in lock-step so the disk-authoritative reconciler
+      // doesn't revert the rename (and so saves target the right folder).
+      if (oldName) {
+        void renameLocalFSProject(oldName, uniqueName);
+        // Code-editor sessions are keyed by project NAME — migrate them too,
+        // or the renamed vibecoded project opens with an empty chat/snapshot
+        // history.
+        void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
+      }
+    } catch {}
+  }, [renameLocalFSProject]);
+
+  const startRename = (project: { id: string; name: string }) => {
+    renameResolvedRef.current = false;
+    setRenameValue(project.name);
+    setRenamingId(project.id);
+  };
+
+  const commitRename = (projectId: string, value: string) => {
+    setRenamingId(null);
+    persistProjectRename(projectId, value);
+  };
 
   // Permanently delete a project across IndexedDB, disk, and the registry.
   const handleDeleteProject = async (id: string, name: string) => {
@@ -159,7 +218,14 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           } else if (mode === 'develop') {
             filtered = list.filter((p: any) => p.kind === 'code');
           }
-          setProjectsList(showAll ? filtered : filtered.slice(0, 9)); // Show top 9 projects (or all)
+          // Registry array order is CREATION order (new projects are appended)
+          // — reverse for display so the newest project is first, and so the
+          // top-9 slice below actually shows the 9 most RECENT (it used to
+          // take the 9 oldest). Display-only; the registry itself is never
+          // written back reordered (invariant #1). `filtered` is always a
+          // fresh array here, so in-place reverse is safe.
+          const ordered = filtered.reverse();
+          setProjectsList(showAll ? ordered : ordered.slice(0, 9)); // Show newest 9 projects (or all)
           setStarredProjects(new Set(list.filter((p: any) => p.isStarred).map((p: any) => p.id)));
 
           loadAllProjectCovers().then(covers => {
@@ -220,7 +286,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
     : 'bg-[#0d0d0d]/70';
 
   return (
-    <div className={`mx-12 ${panelBgClass} backdrop-blur-2xl border border-white/10 pt-7 pb-8 px-8 mt-auto rounded-[2rem] relative z-20 shadow-2xl transition-colors duration-300`}>
+    <div className="mx-12 pt-7 pb-8 px-8 mt-auto relative z-20 transition-colors duration-300">
       <style>{`
         @keyframes subtle-star-jump {
           0%, 100% { transform: translateY(0); }
@@ -233,8 +299,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
 
       {/* Drive Not Connected Overlay */}
       {(!forceVisible && !isDriveConnected && !isLocalFolderConnected) && (
-        <div className="absolute inset-0 z-30 rounded-[2rem] overflow-hidden">
-          <div className="absolute inset-0 backdrop-blur-md bg-[#0d0d0d]/80" />
+        <div className="absolute inset-0 z-30 rounded-2xl overflow-hidden bg-[#0d0d0d]/80 backdrop-blur-md">
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
             <div className="w-16 h-16 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/10 shadow-xl">
               <HardDrive size={28} className="text-white/70" />
@@ -259,18 +324,44 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-2">
-            <button className="text-[13px] font-semibold text-white px-4 py-2 bg-[#1f1f1f] rounded-xl border border-white/5 transition-all active:scale-95">Recently viewed</button>
-            <button className="text-[13px] font-medium text-[#71717a] px-4 py-2 hover:text-white transition-colors">My projects</button>
-            <button className="text-[13px] font-medium text-[#71717a] px-4 py-2 hover:text-white transition-colors">Starred</button>
-        </div>
-        <button className="flex items-center gap-1.5 text-[13px] font-medium text-[#71717a] hover:text-white transition-colors group">
-            Browse all <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-        </button>
+      {/* "My Apps" Center Aligned */}
+      <div className="flex flex-col items-center justify-center gap-1.5 mb-6">
+        <h2 
+          className="text-[#fbfcfe] text-center select-none font-bold antialiased" 
+          style={{ 
+            fontFamily: '"Plus Jakarta Sans", "Outfit", "Ginto", "ui-sans-serif", "system-ui", "sans-serif"', 
+            fontSize: '34px', 
+            lineHeight: '48px', 
+            letterSpacing: '-0.035em', 
+            fontWeight: 800 
+          }}
+        >
+          My Apps
+        </h2>
+      </div>
+      <div className="h-[1px] bg-white/10 w-full mb-8" />
+
+      {/* Horizontal Tabs / Pills Center Aligned */}
+      <div className="flex items-center justify-center gap-5 select-none mb-8">
+        {['Recents', 'Starred', 'Published', 'All Apps', 'Archived'].map((filter) => {
+          const isActive = selectedFilter === filter;
+          return (
+            <button
+              key={filter}
+              onClick={() => setSelectedFilter(filter)}
+              className={`text-[13.5px] font-semibold tracking-normal transition-all duration-200 cursor-pointer h-[32px] flex items-center justify-center rounded-full
+                ${isActive 
+                  ? 'bg-white/10 text-white px-5' 
+                  : 'text-[#81888f] hover:text-white px-2'
+                }`}
+            >
+              {filter}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {projectsList.map((project, index) => {
           const isStarred = starredProjects.has(project.id);
           const isAnimating = animatingStar === project.id;
@@ -278,76 +369,97 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           const thumbnail = coverUrls[project.id] || project.coverUrl;
 
           return (
-            <div key={project.id} className="group cursor-pointer">
-                <div className="relative aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
+            <div key={project.id} className="group relative flex bg-[#1f1f1f]/50 border border-white/5 rounded-2xl p-3 transition-all hover:border-white/10">
+                <div className="relative w-[240px] aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden shrink-0 border border-white/5">
                     {thumbnail ? (
                       isCoverVideo(thumbnail) ? (
-                        <video 
-                          src={thumbnail} 
-                          className="w-full h-full object-cover opacity-90" 
-                          autoPlay 
-                          loop 
-                          muted 
-                          playsInline 
-                        />
+                        <video src={thumbnail} className="w-full h-full object-cover opacity-90" autoPlay loop muted playsInline />
                       ) : (
-                        <img 
-                          src={thumbnail} 
-                          className="w-full h-full object-cover opacity-90" 
-                          alt={project.name} 
-                        />
+                        <img src={thumbnail} className="w-full h-full object-cover opacity-90" alt={project.name} />
                       )
                     ) : (
                       <div className="w-full h-full bg-[#2c2c2e]" />
                     )}
-                    
-                    <div className="absolute top-3 right-3">
+                    <div className="absolute top-2 right-2">
                       <button 
                         onClick={(e) => toggleStar(e, project.id)}
-                        className={`w-10 h-10 flex items-center justify-center backdrop-blur-xl rounded-xl border active:scale-95
+                        className={`w-8 h-8 flex items-center justify-center backdrop-blur-xl rounded-xl border active:scale-95
                           ${isStarred 
                             ? 'opacity-100 bg-black/60 border-white/10 text-yellow-400 shadow-lg shadow-yellow-500/10' 
                             : 'opacity-0 group-hover:opacity-100 bg-black/40 border-white/10 text-white/70 hover:text-white hover:bg-black/60'}`}
                       >
                         <div className={isAnimating ? 'star-jump-icon' : ''}>
-                          <Star size={18} fill={isStarred ? "currentColor" : "none"} />
+                          <Star size={14} fill={isStarred ? "currentColor" : "none"} />
                         </div>
                       </button>
                     </div>
                 </div>
                 
-                <div className="flex items-center justify-between px-1 relative">
-                    <div className="flex items-center gap-3">
-                        <img 
-                          src={`https://picsum.photos/32/32?random=${index + 10}`} 
-                          className="w-8 h-8 rounded-full border border-white/10 shrink-0"
-                          alt="Project Owner"
-                        />
-                        <div className="flex flex-col">
-                            <p className="text-[14px] font-bold text-white leading-tight">
-                              {project.name}
-                            </p>
-                            <p className="text-[12px] font-medium text-[#52525b] mt-0.5">
-                              Viewed recently
-                            </p>
+                <div className="flex flex-col flex-1 min-w-0 pl-5 pt-1 pb-0">
+                    <div className="flex items-center justify-between gap-4">
+                        {renamingId === project.id ? (
+                          <input
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                renameResolvedRef.current = true;
+                                commitRename(project.id, renameValue);
+                              }
+                              if (e.key === 'Escape') {
+                                renameResolvedRef.current = true;
+                                setRenamingId(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              // Enter/Escape already resolved it — the blur that
+                              // fires as the input unmounts must not re-commit.
+                              if (renameResolvedRef.current) return;
+                              renameResolvedRef.current = true;
+                              commitRename(project.id, renameValue);
+                            }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-1 min-w-0 bg-transparent border-b border-white/20 text-white text-[18px] font-bold outline-none"
+                          />
+                        ) : (
+                          <h3 className="text-[18px] font-bold text-white truncate">
+                            {project.name}
+                          </h3>
+                        )}
+
+                        <div className="relative shrink-0">
+                          <button
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => toggleMenu(e, project.id)}
+                            className={`p-1.5 rounded-lg transition-opacity
+                              ${isMenuOpen
+                                ? 'opacity-100 text-white bg-transparent'
+                                : 'opacity-0 group-hover:opacity-100 text-[#8e8e93] hover:text-white hover:bg-white/5'}`}
+                          >
+                            <MoreHorizontal size={16} />
+                          </button>
+                          {isMenuOpen && (
+                            <ProjectMenu
+                              onClose={() => setOpenMenuId(null)}
+                              onDelete={() => handleDeleteProject(project.id, project.name)}
+                              onRename={() => startRename(project)}
+                            />
+                          )}
                         </div>
                     </div>
 
-                    <div className="relative">
-                      <button 
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => toggleMenu(e, project.id)}
-                        className={`p-2 rounded-xl transition-opacity
-                          ${isMenuOpen 
-                            ? 'opacity-100 text-white bg-transparent' 
-                            : 'opacity-0 group-hover:opacity-100 text-[#52525b] hover:text-white hover:bg-white/5'}`}
-                      >
-                        <MoreHorizontal size={20} />
-                      </button>
-                      
-                      {isMenuOpen && (
-                        <ProjectMenu onClose={() => setOpenMenuId(null)} onDelete={() => handleDeleteProject(project.id, project.name)} />
-                      )}
+                    <p className="text-[13px] text-[#71717a] line-clamp-2 leading-relaxed max-w-[500px] mt-1">
+                      {(project as any).kind === 'code' ? 'A React application built with Willow Code. Automatically saved to your workspace.' : 'A multimedia project with generated assets and content.'}
+                    </p>
+
+                    <div className="mt-auto flex items-center justify-end gap-1.5 pt-4">
+                        <button className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-zinc-800 text-zinc-100 hover:bg-zinc-700 transition-colors">
+                            Archive
+                        </button>
+                        <button className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-white text-black hover:bg-zinc-200 transition-colors">
+                            Open
+                        </button>
                     </div>
                 </div>
             </div>

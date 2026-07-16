@@ -422,7 +422,11 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
           
           loadAllProjectCovers().then(covers => {
             setCoverUrls(covers);
-            const mapped = list.map((p: any, index: number) => ({
+            // Registry array order is CREATION order (new projects are
+            // appended) — reverse for display so newest comes first, matching
+            // the Media grid and the Code tab's My Apps panel. Display-only;
+            // the registry is never written back reordered (invariant #1).
+            const mapped = list.slice().reverse().map((p: any, index: number) => ({
               id: p.id,
               title: p.name,
               edited: 'Edited recently',

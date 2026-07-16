@@ -3093,8 +3093,19 @@ export const MediaView: React.FC = () => {
     if (skipIfGenerating && mediaItemsRef.current.some(i => i.status === 'generating')) return;
     const gen = ++loadGenRef.current;
     const connected = isLocalFolderConnected && isLocalFolderAuthorized && !!projectName;
+    // Pass the LIVE items so the reconcile never works off the stale debounced
+    // IndexedDB record — right after a generation batch completes, the stored
+    // record lags ~600ms behind state and mis-pairs the new files with the
+    // wrong items (tiles visibly rearranged, mapping then persisted). ONLY
+    // when the in-memory items actually belong to THIS project (on a project
+    // switch they're still the previous project's — injecting those would
+    // corrupt this project's record). The temp_→real materialization reload
+    // is the same logical project, so it keeps the overlay too.
+    const itemsBelongHere =
+      lastLoadedProjectIdRef.current === projectId ||
+      lastLoadedProjectIdRef.current === `temp_${projectId}`;
     const items = connected
-      ? await refreshLocalMedia(projectId, projectName)
+      ? await refreshLocalMedia(projectId, projectName, itemsBelongHere ? mediaItemsRef.current : undefined)
       : await loadProjectMedia(projectId);
 
     // Crash recovery: a freshly loaded record can't legitimately be

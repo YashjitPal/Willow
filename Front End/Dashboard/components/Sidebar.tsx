@@ -435,7 +435,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleRenameSave = async () => {
-    const trimmed = editValue.trim();
+    // Strip filesystem-illegal characters with the same regex every disk-name
+    // path uses — the chat id IS the on-disk filename (Chats/<id>.json).
+    // Sanitizing HERE keeps the dup-check, pin carry-over and code-chat
+    // bookkeeping below in lock-step with the id the context actually writes
+    // (renameLocalFSChat sanitizes too, as the last line of defense).
+    const trimmed = editValue.replace(/[\/:*?"<>|]/g, '').trim();
     if (trimmed && trimmed !== editingChatId) {
       if (localChats.includes(trimmed)) {
         alert("A chat with this name already exists.");
