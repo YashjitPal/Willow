@@ -37,19 +37,20 @@ import {
   Pin,
   Pencil,
   BookOpen,
-  Trash2
+  Trash2,
 } from 'lucide-react';
 import logo from '../src/assets/logo.png';
 import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
-import { useLocalFS, parseTempIdTimestamp } from '../context/LocalFSContext';
+import { useLocalFS } from '../context/LocalFSContext';
 import { useBackground, BackgroundType } from '../context/BackgroundContext';
-import { isCodeChat, markCodeChat, renameCodeChat, unmarkCodeChat } from '../lib/codeChatStorage';
+import { isCodeChat, markCodeChat, migrateVerifiedLegacyCodeChat, renameCodeChat, unmarkCodeChat } from '../lib/codeChatStorage';
 // NOTE: import from './sidebar/index' (not './sidebar'). On a case-insensitive
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
 // the whole app to a black screen. '/index' forces the folder to resolve.
 import { DiscordIcon, MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu } from './sidebar/index';
+import { AgentIcon } from './ui/AgentIcon';
 
 // ── Inline menus (used once, kept here) ──────────────────────────────────────
 
@@ -292,7 +293,7 @@ const InboxMenu: React.FC<{ isOpen: boolean; onClose: () => void; triggerRef?: R
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ViewType = 'home' | 'projects' | 'staging' | 'starred' | 'shared';
+export type ViewType = 'home' | 'agents' | 'projects' | 'staging' | 'starred' | 'shared';
 
 interface SidebarProps {
   onSearchClick?: () => void;
@@ -330,7 +331,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isHidden = false
 }) => {
   const { user, userProfile } = useAuth();
-  const { 
+  const {
+    chatScopeId,
     localChats, 
     activeChatId, 
     selectLocalFSInboxChat, 
@@ -340,18 +342,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     deleteLocalFSChat,
     renameLocalFSChat,
     loadLocalFSChat,
-    getChatTimestamp,
-    refreshLocalChats,
     isInitializingLocalFS
   } = useLocalFS();
 
   const isChatOngoing = !!activeChatId || hasActiveChat;
-
-  useEffect(() => {
-    if (isLocalFolderConnected && isLocalFolderAuthorized) {
-      refreshLocalChats();
-    }
-  }, [isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalChats]);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [, setCodeChatVersion] = useState(0);
@@ -360,36 +354,82 @@ export const Sidebar: React.FC<SidebarProps> = ({
     window.addEventListener('willow_code_chats_updated', refresh);
     return () => window.removeEventListener('willow_code_chats_updated', refresh);
   }, []);
+  const codeChatScannedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    codeChatScannedRef.current.clear();
+  }, [chatScopeId]);
+  useEffect(() => {
+    if (isInitializingLocalFS) return;
     let cancelled = false;
-    void Promise.all(localChats.map(async (chatId) => {
-      const messages = await loadLocalFSChat(chatId);
-      if (!cancelled && messages?.some((message: any) => message?.willowMode === 'code')) {
-        markCodeChat(chatId);
+    let timer: number | undefined;
+    const pending = localChats.filter((chatId) => !isCodeChat(chatScopeId, chatId) && !codeChatScannedRef.current.has(chatId));
+    const scanNext = async () => {
+      // Legacy marker migration is intentionally lazy and bounded: never load
+      // every full chat body concurrently just to paint the sidebar.
+      for (const chatId of pending.splice(0, 2)) {
+        codeChatScannedRef.current.add(chatId);
+        const messages = await loadLocalFSChat(chatId);
+        if (cancelled) return;
+        if (messages?.some((message: any) => message?.willowMode === 'code')) {
+          // Old marker keys had no owner. The body check is the ownership
+          // proof that makes adopting a matching legacy marker safe.
+          if (!migrateVerifiedLegacyCodeChat(chatScopeId, chatId)) markCodeChat(chatScopeId, chatId);
+        }
       }
-    }));
-    return () => { cancelled = true; };
-  }, [localChats, loadLocalFSChat]);
+      if (!cancelled && pending.length > 0) timer = window.setTimeout(() => { void scanNext(); }, 100);
+    };
+    timer = window.setTimeout(() => { void scanNext(); }, 250);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [localChats, loadLocalFSChat, isInitializingLocalFS, chatScopeId]);
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setIsScrolled(e.currentTarget.scrollTop > 5);
   };
 
   // Pinned chats persistence
-  const [pinnedChats, setPinnedChats] = useState<string[]>(() => {
+  const pinnedChatsKey = `willow_pinned_chats:v2:${encodeURIComponent(chatScopeId)}`;
+  const [pinnedChatState, setPinnedChatState] = useState<{ scopeId: string; chats: string[] }>(() => ({
+    scopeId: chatScopeId,
+    chats: [],
+  }));
+  // Never render the previous scope's pins during the effect-sized window
+  // between a user/root/workspace switch and loading the new scoped key.
+  const pinnedChats = pinnedChatState.scopeId === chatScopeId ? pinnedChatState.chats : [];
+  useEffect(() => {
     try {
-      const stored = localStorage.getItem('willow_pinned_chats');
-      return stored ? JSON.parse(stored) : [];
+      const stored = localStorage.getItem(pinnedChatsKey);
+      const parsed = stored ? JSON.parse(stored) : [];
+      setPinnedChatState({
+        scopeId: chatScopeId,
+        chats: Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [],
+      });
     } catch {
-      return [];
+      setPinnedChatState({ scopeId: chatScopeId, chats: [] });
     }
-  });
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== pinnedChatsKey) return;
+      try {
+        const parsed = event.newValue ? JSON.parse(event.newValue) : [];
+        setPinnedChatState({
+          scopeId: chatScopeId,
+          chats: Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [],
+        });
+      } catch {
+        setPinnedChatState({ scopeId: chatScopeId, chats: [] });
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [pinnedChatsKey]);
 
   const togglePinChat = (chatId: string) => {
     const next = pinnedChats.includes(chatId)
       ? pinnedChats.filter((c) => c !== chatId)
       : [...pinnedChats, chatId];
-    setPinnedChats(next);
-    localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
+    setPinnedChatState({ scopeId: chatScopeId, chats: next });
+    localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
   };
 
   // Three-dot menu state
@@ -454,10 +494,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         // The pin list stores chat ids (= names) — carry the pin across the
         // rename or the chat silently loses it.
         const next = pinnedChats.map((c) => (c === editingChatId ? trimmed : c));
-        setPinnedChats(next);
-        localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
+        setPinnedChatState({ scopeId: chatScopeId, chats: next });
+        localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
       }
-      if (success) renameCodeChat(editingChatId!, trimmed);
+      if (success) renameCodeChat(chatScopeId, editingChatId!, trimmed);
     }
     setEditingChatId(null);
   };
@@ -481,7 +521,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const confirmDeleteChat = async () => {
     if (chatToDelete) {
       const success = await deleteLocalFSChat(chatToDelete);
-      if (success) unmarkCodeChat(chatToDelete);
+      if (success) unmarkCodeChat(chatScopeId, chatToDelete);
       if (!success) {
         alert("Failed to delete chat file.");
       }
@@ -489,8 +529,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       // stale entry in the pinned list.
       if (pinnedChats.includes(chatToDelete)) {
         const next = pinnedChats.filter((c) => c !== chatToDelete);
-        setPinnedChats(next);
-        localStorage.setItem('willow_pinned_chats', JSON.stringify(next));
+        setPinnedChatState({ scopeId: chatScopeId, chats: next });
+        localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
       }
       triggerCloseDelete();
     }
@@ -693,6 +733,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onModeChange?.('media');
               }}
             />
+            <SidebarItem
+              icon={AgentIcon}
+              label="Agents"
+              isCollapsed={isCollapsed}
+              active={currentView === 'agents'}
+              onClick={() => onViewChange('agents')}
+            />
           </div>
 
           {(user || isLocalFolderConnected) && (
@@ -722,7 +769,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               </div>
 
-              {isLocalFolderConnected && (!isLocalFolderAuthorized || localChats.length > 0) && (
+              {!isInitializingLocalFS && isLocalFolderConnected && (!isLocalFolderAuthorized || localChats.length > 0) && (
                 <>
                   <div className="flex items-center justify-between pr-[23px]">
                     <SectionHeader title="Chats" isCollapsed={isCollapsed} />
@@ -730,52 +777,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="space-y-0.5">
                     {localChats.length === 0 ? null : (
                       (() => {
-                        // Read the timestamp map ONCE per render — calling
-                        // getChatTimestamp inside the comparator re-parsed the
-                        // whole localStorage JSON O(n log n) times per render.
-                        let tsMap: Record<string, number> = {};
-                        try {
-                          const rawTs = localStorage.getItem('willow_chat_timestamps');
-                          if (rawTs) tsMap = JSON.parse(rawTs) || {};
-                        } catch {}
-                        // `localChats` arrives from context already sorted
-                        // newest→oldest with a deterministic tiebreaker
-                        // (sortChatsNewestToOldest). For chats with no stored
-                        // timestamp yet (first paint before the disk reconcile
-                        // backfills lastModified), fall back to the array's own
-                        // order instead of re-guessing — this keeps first paint
-                        // and post-reconcile renders from reshuffling.
-                        const indexOf = new Map(localChats.map((c, i) => [c, i]));
-                        const chatTs = (id: string) => tsMap[id] || parseTempIdTimestamp(id);
-                        const sortedChats = [...localChats].sort((a, b) => {
-                          const aPinned = pinnedChats.includes(a);
-                          const bPinned = pinnedChats.includes(b);
-                          if (aPinned && !bPinned) return -1;
-                          if (!aPinned && bPinned) return 1;
-
-                          const tA = chatTs(a);
-                          const tB = chatTs(b);
-                          if (tA && tB && tB !== tA) {
-                            return tB - tA;
-                          }
-                          if (!!tA !== !!tB) return tA ? -1 : 1; // known-time chats above unknown
-                          // Equal or both-unknown timestamps → keep the
-                          // context's persisted order (already newest-first).
-                          return (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0);
-                        });
+                        // The context owns the deterministic newest-first
+                        // order. Pinning is a stable partition only; the
+                        // sidebar must not independently reinterpret mtimes.
+                        const sortedChats = [
+                          ...localChats.filter((chat) => pinnedChats.includes(chat)),
+                          ...localChats.filter((chat) => !pinnedChats.includes(chat)),
+                        ];
                         return sortedChats.map((chat) => {
                           const isTemp = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chat);
-                          if (isTemp) {
-                            if (activeChatId === chat) {
-                              return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
-                            }
-                            return null;
+                          if (isTemp && activeChatId === chat) {
+                            return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
                           }
+                          const displayName = isTemp ? 'Untitled' : chat;
+                          const startedInCode = isCodeChat(chatScopeId, chat);
 
                           return (
                             <SidebarItem 
                               key={chat}
-                              label={chat} 
+                              label={displayName}
                               customLabel={
                                 editingChatId === chat ? (
                                   <input
@@ -792,18 +812,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   />
                                 ) : (
                                   <div className="flex items-center gap-1.5 min-w-0 w-full">
-                                     <span className="truncate flex-1">{chat}</span>
-                                     {isCodeChat(chat) && (
-                                       <span
-                                         title="Started in Code mode"
-                                         className="shrink-0 text-[9px] font-semibold leading-none text-zinc-400 border border-white/10 px-1 py-0.5 rounded"
-                                       >
-                                         Code
-                                       </span>
+                                     <span className="truncate flex-1">{displayName}</span>
+                                     {pinnedChats.includes(chat) && (
+                                       <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />
                                      )}
-                                    {pinnedChats.includes(chat) && (
-                                      <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />
-                                    )}
                                   </div>
                                 )
                               }
@@ -814,15 +826,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 onModeChange?.('chat');
                                 selectLocalFSInboxChat(chat);
                               }}
-                              keepActionsVisible={menuActiveChat === chat}
+                              keepActionsVisible={menuActiveChat === chat || startedInCode}
                               actions={
                                 <button
                                   onClick={(e) => handleMenuClick(e, chat)}
-                                  className={`p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-white transition-colors shrink-0 ${
-                                    menuActiveChat === chat ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+                                  aria-label={`More options for ${displayName}`}
+                                  className={`relative flex h-[22px] w-[22px] items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white transition-colors shrink-0 ${
+                                    menuActiveChat === chat || startedInCode ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
                                   }`}
                                 >
-                                  <MoreVertical size={14} />
+                                  {startedInCode && menuActiveChat !== chat && (
+                                    <span
+                                      title="Started in Code mode"
+                                      className="absolute inset-0 flex items-center justify-center rounded-md bg-white/10 group-hover/item:opacity-0 group-hover/item:pointer-events-none transition-opacity"
+                                    >
+                                      <Terminal size={14} strokeWidth={2} aria-hidden="true" />
+                                    </span>
+                                  )}
+                                  <MoreVertical
+                                    size={14}
+                                    aria-hidden="true"
+                                    className={startedInCode && menuActiveChat !== chat ? 'opacity-0 group-hover/item:opacity-100 transition-opacity' : undefined}
+                                  />
                                 </button>
                               }
                             />

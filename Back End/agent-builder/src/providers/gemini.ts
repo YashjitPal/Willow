@@ -6,6 +6,7 @@
 
 import type { JsonObject, JsonSchema } from '../domain/types.ts';
 import {
+  assertInputAttachmentSupport,
   consumeSse,
   fetchWithRetry,
   ProviderError,
@@ -14,14 +15,16 @@ import {
   type LLMRequest,
   type LLMResponse,
   type LLMToolCall,
+  inputModalitiesForModel,
 } from './types.ts';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiPart {
   text?: string;
-  functionCall?: { name: string; args?: JsonObject };
-  functionResponse?: { name: string; response: JsonObject };
+  inlineData?: { mimeType: string; data: string };
+  functionCall?: { id?: string; name: string; args?: JsonObject };
+  functionResponse?: { id?: string; name: string; response: JsonObject };
   thought?: boolean;
   thoughtSignature?: string;
 }
@@ -58,14 +61,20 @@ function toContents(messages: LLMMessage[]): { system?: string; contents: Gemini
       continue;
     }
     if (m.role === 'user') {
-      contents.push({ role: 'user', parts: [{ text: m.content }] });
+      contents.push({
+        role: 'user',
+        parts: [
+          { text: m.content },
+          ...(m.attachments ?? []).map((attachment) => ({ inlineData: { mimeType: attachment.mimeType, data: attachment.dataBase64 } })),
+        ],
+      });
       continue;
     }
     if (m.role === 'assistant') {
       const parts: GeminiPart[] = [];
       if (m.content) parts.push({ text: m.content });
       for (const tc of m.toolCalls ?? []) {
-        parts.push({ functionCall: { name: tc.name, args: tc.arguments } });
+        parts.push({ functionCall: { id: tc.id, name: tc.name, args: tc.arguments } });
       }
       if (parts.length) contents.push({ role: 'model', parts });
       continue;
@@ -82,7 +91,7 @@ function toContents(messages: LLMMessage[]): { system?: string; contents: Gemini
     }
     contents.push({
       role: 'user',
-      parts: [{ functionResponse: { name: m.name, response } }],
+      parts: [{ functionResponse: { id: m.toolCallId, name: m.name, response } }],
     });
   }
   return { system, contents };
@@ -102,8 +111,28 @@ function effortToThinking(model: string, effort?: string): JsonObject | undefine
 
 export const geminiProvider: LLMProvider = {
   id: 'gemini',
+  prepareRequestBody(req) {
+    const model = req.model.replace(/^models\//, '');
+    const { system, contents } = toContents(req.messages);
+    const generationConfig: JsonObject = {};
+    if (req.temperature !== undefined) generationConfig.temperature = req.temperature;
+    if (req.maxTokens !== undefined) generationConfig.maxOutputTokens = req.maxTokens;
+    if (req.topP !== undefined) generationConfig.topP = req.topP;
+    if (req.jsonSchema) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseSchema = sanitizeSchema(req.jsonSchema.schema) ?? {}; }
+    const thinking = effortToThinking(model, req.reasoningEffort);
+    if (thinking) generationConfig.thinkingConfig = thinking;
+    const body: JsonObject = { contents: contents as unknown as JsonObject[string] };
+    if (system) body.systemInstruction = { parts: [{ text: system }] };
+    if (Object.keys(generationConfig).length) body.generationConfig = generationConfig;
+    if (req.tools?.length && req.toolChoice !== 'none') {
+      body.tools = [{ functionDeclarations: req.tools.map((tool) => ({ name: tool.name, description: tool.description ?? '', parameters: sanitizeSchema(tool.parameters) ?? { type: 'object', properties: {} } })) }] as unknown as JsonObject[string];
+      body.toolConfig = { functionCallingConfig: typeof req.toolChoice === 'object' ? { mode: 'ANY', allowedFunctionNames: [req.toolChoice.name] } : { mode: req.toolChoice === 'required' ? 'ANY' : 'AUTO' } };
+    }
+    return body;
+  },
 
   async chat(req: LLMRequest, apiKey: string): Promise<LLMResponse> {
+    assertInputAttachmentSupport('gemini', req.model, req.messages);
     const model = req.model.replace(/^models\//, '');
     const { system, contents } = toContents(req.messages);
 
@@ -121,7 +150,7 @@ export const geminiProvider: LLMProvider = {
     const body: JsonObject = { contents: contents as unknown as JsonObject[string] };
     if (system) body.systemInstruction = { parts: [{ text: system }] };
     if (Object.keys(generationConfig).length) body.generationConfig = generationConfig;
-    if (req.tools?.length) {
+    if (req.tools?.length && req.toolChoice !== 'none') {
       body.tools = [
         {
           functionDeclarations: req.tools.map((t) => ({
@@ -131,9 +160,13 @@ export const geminiProvider: LLMProvider = {
           })),
         },
       ] as unknown as JsonObject[string];
+      body.toolConfig = { functionCallingConfig: typeof req.toolChoice === 'object'
+        ? { mode: 'ANY', allowedFunctionNames: [req.toolChoice.name] }
+        : { mode: req.toolChoice === 'required' ? 'ANY' : 'AUTO' } };
     }
 
     const streaming = !!req.onDelta && !req.jsonSchema;
+    const preparedBody = geminiProvider.prepareRequestBody(req);
     const url = streaming
       ? `${BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`
       : `${BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -143,7 +176,7 @@ export const geminiProvider: LLMProvider = {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(preparedBody),
         signal: req.abortSignal,
       },
       'gemini',
@@ -156,7 +189,7 @@ export const geminiProvider: LLMProvider = {
 
     let text = '';
     const toolCalls: LLMToolCall[] = [];
-    let usage = { inputTokens: 0, outputTokens: 0 };
+    let usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, model };
     let finishReason: string | undefined;
     let callSeq = 0;
 
@@ -184,7 +217,7 @@ export const geminiProvider: LLMProvider = {
           if (part.functionCall) {
             callSeq += 1;
             toolCalls.push({
-              id: `call_${callSeq}`,
+              id: part.functionCall.id || `call_${callSeq}`,
               name: part.functionCall.name,
               arguments: (part.functionCall.args ?? {}) as JsonObject,
             });
@@ -197,6 +230,9 @@ export const geminiProvider: LLMProvider = {
           inputTokens: Number(meta.promptTokenCount ?? 0),
           outputTokens:
             Number(meta.candidatesTokenCount ?? 0) + Number(meta.thoughtsTokenCount ?? 0),
+          cachedInputTokens: Number(meta.cachedContentTokenCount ?? 0),
+          reasoningTokens: Number(meta.thoughtsTokenCount ?? 0),
+          model: typeof payload.modelVersion === 'string' ? payload.modelVersion.replace(/^models\//, '') : model,
         };
       }
     };
@@ -223,28 +259,53 @@ export const geminiProvider: LLMProvider = {
   },
 
   async listModels(apiKey: string) {
-    const res = await fetchWithRetry(
-      `${BASE}/models?pageSize=100&key=${encodeURIComponent(apiKey)}`,
-      { method: 'GET', timeoutMs: 20_000 },
-      'gemini',
-    );
-    if (!res.ok) {
-      throw new ProviderError('gemini', `HTTP ${res.status}`, res.status);
-    }
-    const data = (await res.json()) as {
+    type ListedModel = {
+      name: string;
+      displayName?: string;
+      description?: string;
+      supportedGenerationMethods?: string[];
+      inputTokenLimit?: number;
+      outputTokenLimit?: number;
+    };
+    const discovered: ListedModel[] = [];
+    const seenPageTokens = new Set<string>();
+    let pageToken: string | undefined;
+    do {
+      const query = new URLSearchParams({ pageSize: '100', key: apiKey });
+      if (pageToken) query.set('pageToken', pageToken);
+      const res = await fetchWithRetry(
+        `${BASE}/models?${query.toString()}`,
+        { method: 'GET', timeoutMs: 20_000 },
+        'gemini',
+      );
+      if (!res.ok) throw new ProviderError('gemini', `HTTP ${res.status}`, res.status);
+      const data = (await res.json()) as {
       models?: Array<{
         name: string;
         displayName?: string;
         description?: string;
         supportedGenerationMethods?: string[];
+        inputTokenLimit?: number;
+        outputTokenLimit?: number;
       }>;
+        nextPageToken?: string;
     };
-    return (data.models ?? [])
+      discovered.push(...(data.models ?? []));
+      pageToken = data.nextPageToken?.trim() || undefined;
+      if (pageToken && seenPageTokens.has(pageToken)) throw new ProviderError('gemini', 'model discovery returned a repeated page token');
+      if (pageToken) seenPageTokens.add(pageToken);
+    } while (pageToken);
+    return discovered
       .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
       .map((m) => ({
         id: m.name.replace(/^models\//, ''),
         displayName: m.displayName ?? m.name,
         description: m.description,
-      }));
+        inputModalities: inputModalitiesForModel('gemini', m.name),
+        ...(Number.isInteger(m.inputTokenLimit) && Number(m.inputTokenLimit) > 0 ? { contextWindowTokens: m.inputTokenLimit } : {}),
+        ...(Number.isInteger(m.outputTokenLimit) && Number(m.outputTokenLimit) > 0 ? { maxOutputTokens: m.outputTokenLimit } : {}),
+        limitsSource: m.inputTokenLimit || m.outputTokenLimit ? 'provider' as const : 'unknown' as const,
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id));
   },
 };

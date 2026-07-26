@@ -95,12 +95,31 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [externalReloadVersion, setExternalReloadVersion] = useState(0);
+  const forceExternalReloadRef = useRef(false);
+  const pendingExternalReloadRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const handleBodyUpdate = (event: Event) => {
+      const chatId = (event as CustomEvent<{ chatId?: string }>).detail?.chatId;
+      if (!chatId || chatId !== activeChatId) return;
+      pendingExternalReloadRef.current = chatId;
+      if (isGeneratingRef.current || isLiveRef.current) return;
+      pendingExternalReloadRef.current = null;
+      forceExternalReloadRef.current = true;
+      setExternalReloadVersion((version) => version + 1);
+    };
+    window.addEventListener('willow_chat_body_updated', handleBodyUpdate);
+    return () => window.removeEventListener('willow_chat_body_updated', handleBodyUpdate);
+  }, [activeChatId]);
 
   // Listen to activeChatId and load the chat when it changes
   useEffect(() => {
     if (isLocalFolderConnected && activeChatId) {
       // Prevent reloading and overwriting if the selected chat is already active in memory
-      if (activeChatId === chatTitle || activeChatId === chatSessionId) {
+      const forceReload = forceExternalReloadRef.current;
+      forceExternalReloadRef.current = false;
+      if (!forceReload && (activeChatId === chatTitle || activeChatId === chatSessionId)) {
         return;
       }
       isFirstScrollRef.current = true;
@@ -148,7 +167,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       };
       void loadChat();
     }
-  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId]);
+  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion]);
 
   // Handle the case where the currently active chat is deselected/deleted.
   // We must ONLY clear when an EXISTING active chat goes away (a non-null ->
@@ -183,8 +202,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     }
   }, [activeChatId, messages.length]);
 
-  // Generate chat title using the user's selected Chat Naming Model once we have the first user prompt.
-  // Instantly renames the chat session from its temporary ID to the new title.
+  // Generate the chat title only after the first assistant reply has finished.
+  // Starting this from the empty assistant placeholder races the temp-id rename
+  // against the first response stream and can reload/replace the live thread.
+  // Naming is background work and must never sit on the reply's critical path.
   // localChats is read via a ref (not a dep) so poll-driven list reorders can't
   // re-trigger this effect, and an in-flight ref guards against a second
   // generation firing while the first is still awaiting the naming model.
@@ -193,10 +214,25 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const titleGenInFlightRef = useRef(false);
   useEffect(() => {
     if (isIncognito) return;
-    if (isLocalFolderConnected && messages.length >= 2 && !chatTitle && !titleGenInFlightRef.current) {
+    const firstUserIndex = messages.findIndex((message) => message.role === 'user');
+    const firstUser = firstUserIndex >= 0 ? messages[firstUserIndex] : undefined;
+    const firstAssistant = firstUserIndex >= 0
+      ? messages.slice(firstUserIndex + 1).find((message) => message.role === 'assistant')
+      : undefined;
+    const firstReplyFinished = !!firstAssistant
+      && !firstAssistant.isGenerating
+      && firstAssistant.content.trim().length > 0;
+
+    if (
+      isLocalFolderConnected
+      && firstUser
+      && firstReplyFinished
+      && !chatTitle
+      && !titleGenInFlightRef.current
+    ) {
       titleGenInFlightRef.current = true;
-      const userMsg = messages[0].content;
-      const assistantMsg = messages[1].content;
+      const userMsg = firstUser.content;
+      const assistantMsg = firstAssistant.content;
       
       const fetchTitle = async () => {
         let title = '';
@@ -222,12 +258,6 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           // keys (a chat created in another tab, or seconds ago, may not have
           // reached `localChats` state yet).
           const taken = new Set<string>(localChatsRef.current);
-          try {
-            const rawList = localStorage.getItem('willow_local_chats');
-            if (rawList) for (const c of JSON.parse(rawList)) taken.add(c);
-            const rawTs = localStorage.getItem('willow_chat_timestamps');
-            if (rawTs) for (const c of Object.keys(JSON.parse(rawTs) || {})) taken.add(c);
-          } catch {}
           taken.delete(chatSessionId);
           let uniqueTitle = title;
           let suffix = 1;
@@ -255,8 +285,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             .map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest)
             .filter((m: any) => typeof m.content === 'string' && m.content.trim().length > 0);
           if (latest.length > 0) {
-            void saveLocalFSChat(uniqueTitle, latest, chatSessionId);
-            lastSavedMessagesRef.current = messagesRef.current;
+            const saved = await saveLocalFSChat(uniqueTitle, latest, chatSessionId);
+            if (saved) {
+              lastSavedMessagesRef.current = messagesRef.current;
+            } else {
+              // A cross-tab or on-disk collision may have appeared after our
+              // optimistic uniqueness check. Keep the temp chat intact and let
+              // the effect retry with the now-refreshed chat list.
+              setChatTitle(null);
+              titleGenInFlightRef.current = false;
+            }
           }
         }
       };
@@ -312,6 +350,12 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // Keep the clear-effect's refs in sync with live/generation state.
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
+  useEffect(() => {
+    if (isLive || isGenerating || pendingExternalReloadRef.current !== activeChatId) return;
+    pendingExternalReloadRef.current = null;
+    forceExternalReloadRef.current = true;
+    setExternalReloadVersion((version) => version + 1);
+  }, [activeChatId, isGenerating, isLive]);
   // Current in-flight live turn: the user + assistant message ids we're
   // writing into. `acc` mirrors `streaming` so finalize can read it without a
   // stale-closure round-trip.
@@ -536,9 +580,12 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
       ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
       ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+      ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+      ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+      ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
     ];
     const sel = all.find((m) => m.id === selectedModelId);
-    const provider = (sel?.provider ?? 'gemini') as 'gemini' | 'openai' | 'anthropic';
+    const provider = (sel?.provider ?? 'gemini') as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
     const model = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3-flash-preview';
     const thinkingLevel: number = sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
     const apiKey: string | undefined = apiKeys?.[provider]?.[0];
@@ -624,7 +671,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         await streamChat(
           history,
           // Chat mode: search grounding + native code execution both offered.
-          { provider, model, apiKey, thinkingLevel, enableSearch: true, enableCodeExecution: true },
+          { provider, model, apiKey, thinkingLevel, enableSearch: true, enableCodeExecution: true, baseUrl: (modelConfig as any)?.[provider]?.baseUrl },
           (token) => {
             if (isThinkingRef.current) {
               const elapsed = Math.max(1, Math.ceil((Date.now() - thinkStart.current) / 1000));

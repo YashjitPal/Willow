@@ -28,8 +28,10 @@ import {
   Trash2 
 } from 'lucide-react';
 import { RECENT_PROJECTS } from '../constants';
-import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
-import { deleteCodeSessions, renameCodeSessions } from '../lib/willowDB';
+import { loadAllProjectCovers, deleteProjectData, getMediaIndex, PROJECT_COVERS_UPDATED_EVENT } from '../lib/mediaStorage';
+import { deleteCodeSessions } from '../lib/willowDB';
+import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
+import { transactionalRenameProject } from '../lib/projectRename';
 
 interface ProjectMenuProps {
   onClose: () => void;
@@ -111,6 +113,7 @@ interface BottomPanelProps {
 }
 
 export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, mode, forceVisible, showAll }) => {
+  const navigate = useNavigate();
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
@@ -128,45 +131,25 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean; coverUrl?: string }[]>([]);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
 
-  // Rename a project everywhere — mirrors HeroSection's persistProjectRename
-  // write path exactly (the same one MediaView uses): sanitized name →
-  // uniquified against the FULL registry → registry write + event → disk
-  // folder rename → name-keyed code-session migration. Works identically for
-  // media and vibecoded (kind:'code') projects: renameLocalFSProject moves the
-  // folder under whichever parent (Code//Media/) it lives in, and
-  // renameCodeSessions is a cheap no-op when there's no session history.
-  const persistProjectRename = React.useCallback((projectId: string, rawName: string) => {
-    // Strip filesystem-illegal characters — the name becomes a folder name on
-    // disk, and an unusable one silently breaks every later folder operation.
-    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
-    if (!baseName) return;
-    try {
-      const stored = localStorage.getItem('willow_projects_list');
-      const list = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(list)) return;
-      const oldName = list.find((p: any) => p.id === projectId)?.name;
-      // Dedup against the FULL list (not the filtered display list)
-      let uniqueName = baseName;
-      let counter = 1;
-      while (list.some((p: any) => p.id !== projectId && p.name.toLowerCase() === uniqueName.toLowerCase())) {
-        uniqueName = `${baseName} (${counter})`;
-        counter++;
-      }
-      if (oldName === uniqueName) return;
-      const updated = list.map((p: any) => (p.id === projectId ? { ...p, name: uniqueName } : p));
-      localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-      window.dispatchEvent(new Event('willow_projects_updated'));
-      // Keep the disk folder in lock-step so the disk-authoritative reconciler
-      // doesn't revert the rename (and so saves target the right folder).
-      if (oldName) {
-        void renameLocalFSProject(oldName, uniqueName);
-        // Code-editor sessions are keyed by project NAME — migrate them too,
-        // or the renamed vibecoded project opens with an empty chat/snapshot
-        // history.
-        void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
-      }
-    } catch {}
-  }, [renameLocalFSProject]);
+  const openProject = (project: { id: string; name: string; kind?: string }) => {
+    sessionStorage.setItem('staging-nav', 'true');
+    if (project.kind === 'code') {
+      navigate(`/project1?projectId=${encodeURIComponent(project.id)}`);
+    } else {
+      navigate(`/media?projectId=${encodeURIComponent(project.id)}`);
+    }
+  };
+  const coverLoadSequence = useRef(0);
+
+  const persistProjectRename = React.useCallback(async (projectId: string, rawName: string) => {
+    const result = await transactionalRenameProject({
+      projectId,
+      rawName,
+      isLocalFolderConnected,
+      renameLocalFSProject,
+    });
+    if (!result.ok) console.error('Failed to rename project:', result.error);
+  }, [isLocalFolderConnected, renameLocalFSProject]);
 
   const startRename = (project: { id: string; name: string }) => {
     renameResolvedRef.current = false;
@@ -176,7 +159,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
 
   const commitRename = (projectId: string, value: string) => {
     setRenamingId(null);
-    persistProjectRename(projectId, value);
+    void persistProjectRename(projectId, value);
   };
 
   // Permanently delete a project across IndexedDB, disk, and the registry.
@@ -184,18 +167,16 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
     const ok = window.confirm(`Delete "${name}"? This permanently removes it from this device.`);
     if (!ok) return;
     try {
+      const diskDeleted = await deleteLocalFSProject(id, name);
+      if (!diskDeleted) throw new Error('The project folder could not be deleted. Nothing was removed from browser storage.');
       await deleteProjectData(id);
-      await deleteLocalFSProject(id, name);
       // Code-editor sessions are keyed by project NAME — remove them too so a
       // "permanent" delete doesn't leave orphaned session data in IndexedDB.
       void deleteCodeSessions(`willow_chat_sessions_${name}`);
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const updated = list.filter((p: any) => p.id !== id);
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-        window.dispatchEvent(new Event('willow_projects_updated'));
-      }
+      const list = readProjectRegistry() as any[];
+      const updated = list.filter((p: any) => p.id !== id);
+      writeProjectRegistry(updated);
+      window.dispatchEvent(new Event('willow_projects_updated'));
       setProjectsList(prev => prev.filter(p => p.id !== id));
     } catch (err) {
       console.error('Failed to delete project', err);
@@ -205,9 +186,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   useEffect(() => {
     const loadProjects = () => {
       try {
-        const stored = localStorage.getItem('willow_projects_list');
-        if (stored) {
-          const list = JSON.parse(stored);
+        const list = readProjectRegistry() as any[];
           // Match the showcase to the active mode. The Media tab also includes any
           // project that actually HAS media (per the realtime index), so media you
           // generated into a 'code' project still shows up here.
@@ -228,19 +207,21 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           setProjectsList(showAll ? ordered : ordered.slice(0, 9)); // Show newest 9 projects (or all)
           setStarredProjects(new Set(list.filter((p: any) => p.isStarred).map((p: any) => p.id)));
 
+          const sequence = ++coverLoadSequence.current;
           loadAllProjectCovers().then(covers => {
-            setCoverUrls(covers);
+            if (sequence === coverLoadSequence.current) setCoverUrls(covers);
           });
-        }
       } catch (e) {}
     };
 
     loadProjects();
     window.addEventListener('willow_projects_updated', loadProjects);
     window.addEventListener('willow_media_updated', loadProjects);
+    window.addEventListener(PROJECT_COVERS_UPDATED_EVENT, loadProjects);
     return () => {
       window.removeEventListener('willow_projects_updated', loadProjects);
       window.removeEventListener('willow_media_updated', loadProjects);
+      window.removeEventListener(PROJECT_COVERS_UPDATED_EVENT, loadProjects);
     };
   }, [mode, showAll]);
 
@@ -258,13 +239,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
 
     // Persist the starred flag so it survives reloads and matches ProjectsPage.
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-        window.dispatchEvent(new Event('willow_projects_updated'));
-      }
+      const list = readProjectRegistry() as any[];
+      const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
+      writeProjectRegistry(updated);
+      window.dispatchEvent(new Event('willow_projects_updated'));
     } catch {}
   };
 
@@ -369,7 +347,11 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           const thumbnail = coverUrls[project.id] || project.coverUrl;
 
           return (
-            <div key={project.id} className="group relative flex bg-[#1f1f1f]/50 border border-white/5 rounded-2xl p-3 transition-all hover:border-white/10">
+            <div
+              key={project.id}
+              className="group relative flex bg-[#1f1f1f]/50 border border-white/5 rounded-2xl p-3 transition-all hover:border-white/10 cursor-pointer"
+              onClick={() => openProject(project as any)}
+            >
                 <div className="relative w-[240px] aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden shrink-0 border border-white/5">
                     {thumbnail ? (
                       isCoverVideo(thumbnail) ? (
@@ -457,7 +439,13 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                         <button className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-zinc-800 text-zinc-100 hover:bg-zinc-700 transition-colors">
                             Archive
                         </button>
-                        <button className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-white text-black hover:bg-zinc-200 transition-colors">
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openProject(project as any);
+                          }}
+                          className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-white text-black hover:bg-zinc-200 transition-colors"
+                        >
                             Open
                         </button>
                     </div>

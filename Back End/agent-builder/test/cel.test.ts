@@ -114,6 +114,25 @@ describe('CEL functions & macros', () => {
     assert.equal(evaluateCel('type("x")', vars), 'string');
   });
 
+  it('rejects invalid global function arity before resolving arguments', () => {
+    assert.throws(
+      () => evaluateCel('size()', vars),
+      (error: unknown) => error instanceof CelEvalError && error.message === 'size() takes exactly 1 argument',
+    );
+    assert.throws(
+      () => evaluateCel('int(missing_var, 2)', vars),
+      (error: unknown) => error instanceof CelEvalError && error.message === 'int() takes exactly 1 argument',
+    );
+    assert.throws(
+      () => evaluateCel('matches("abc")', vars),
+      (error: unknown) => error instanceof CelEvalError && error.message === 'matches() takes exactly 2 arguments',
+    );
+    assert.throws(
+      () => evaluateCel('min()', vars),
+      (error: unknown) => error instanceof CelEvalError && error.message === 'min() requires at least one argument',
+    );
+  });
+
   it('string methods', () => {
     assert.equal(evaluateCel(`"hello world".contains("wor")`, vars), true);
     assert.equal(evaluateCel(`"hello".startsWith("he")`, vars), true);

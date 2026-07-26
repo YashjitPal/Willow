@@ -11,6 +11,7 @@ import { useBackground } from '../context/BackgroundContext';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { workbenchStore } from '../lib/sandpack';
 import { getCachedFirstName, cacheFirstName } from '../lib/displayName';
+import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
 import { MessageLoading } from './ui/message-loading';
 import { BottomPanel } from './BottomPanel';
 import logoG from '../src/assets/logog.png';
@@ -265,8 +266,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   useEffect(() => {
     const recount = () => {
       try {
-        const stored = localStorage.getItem('willow_projects_list');
-        const list = stored ? JSON.parse(stored) : [];
+        const list = readProjectRegistry() as any[];
         setCodeProjectCount(Array.isArray(list) ? list.filter((p: any) => p?.kind === 'code').length : 0);
       } catch {
         setCodeProjectCount(0);
@@ -448,7 +448,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // ── Project name generation (from StagingView) ───────────────────────────
   useEffect(() => {
     if (phase !== 'active' || !initialPrompt || nameGeneratedRef.current) return;
-    if (!apiKeys.gemini?.[0] && !apiKeys.openai?.[0] && !apiKeys.anthropic?.[0]) return;
+    if (!apiKeys.gemini?.[0] && !apiKeys.openai?.[0] && !apiKeys.anthropic?.[0] && !apiKeys.moonshot?.[0] && !apiKeys.spacexai?.[0] && !apiKeys.zhipuai?.[0]) return;
 
     const generateProjectName = async () => {
       nameGeneratedRef.current = true;
@@ -457,8 +457,17 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
         const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
         const allModels = [
           ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
-          ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
-          ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
+        ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
         ];
         let targetProvider = 'gemini';
         let targetModelId = 'gemini-3.1-flash-lite';
@@ -500,8 +509,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   useEffect(() => {
     if (!hasUserCode || !projectName || projectRegisteredRef.current) return;
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      let list = stored ? JSON.parse(stored) : [];
+      let list = readProjectRegistry() as any[];
       if (!Array.isArray(list)) list = [];
 
       let finalName = projectName;
@@ -520,7 +528,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       let newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
       while (usedIds.has(newId)) newId = `#${Math.floor(1000 + Math.random() * 9000)}`;
       list.push({ id: newId, name: finalName, kind: 'code' });
-      localStorage.setItem('willow_projects_list', JSON.stringify(list));
+      writeProjectRegistry(list);
       projectRegisteredRef.current = true;
       window.dispatchEvent(new Event('willow_projects_updated'));
     } catch {}
@@ -1211,7 +1219,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             }}
                             className="absolute bottom-full right-0 mb-2 w-44 bg-[#1c1c1c] rounded-xl overflow-hidden z-50 settings-fade-in"
                           >
-                            {['gemini', 'openai', 'anthropic'].map((provider) => {
+                            {['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].map((provider) => {
                               const providerModels = modelConfig[provider]?.savedModels || [];
                               if (providerModels.length === 0) return null;
                               
@@ -1247,7 +1255,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                                         `}
                                       >
                                         <div className="flex items-center gap-2.5">
-                                          <GeminiLogo size={14} className={isSelected ? 'text-[#58a1ff]' : (provider === 'gemini' ? 'text-blue-400' : provider === 'openai' ? 'text-green-400' : 'text-orange-400')} />
+                                          <GeminiLogo size={14} className={isSelected ? 'text-[#58a1ff]' : (provider === 'gemini' ? 'text-blue-400' : provider === 'openai' ? 'text-green-400' : provider === 'anthropic' ? 'text-orange-400' : provider === 'moonshot' ? 'text-amber-500' : provider === 'spacexai' ? 'text-white' : 'text-cyan-400')} />
                                           <span className="truncate max-w-[110px]">{shortenName(model.name)}</span>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -1264,7 +1272,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                                 </div>
                               );
                             })}
-                            {!(modelConfig.gemini.savedModels.length || modelConfig.openai.savedModels.length || modelConfig.anthropic.savedModels.length) && (
+                            {!(modelConfig.gemini.savedModels.length || modelConfig.openai.savedModels.length || modelConfig.anthropic.savedModels.length || (modelConfig.moonshot?.savedModels || []).length || (modelConfig.spacexai?.savedModels || []).length || (modelConfig.zhipuai?.savedModels || []).length) && (
                               <div className="px-4 py-6 text-center text-gray-500">
                                 <Sparkles size={24} className="mx-auto mb-2 opacity-20" />
                                 <p className="text-[12px]">No model presets added.</p>

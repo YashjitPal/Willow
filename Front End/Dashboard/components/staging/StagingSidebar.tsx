@@ -16,6 +16,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Copy,
+  Pencil,
+  Trash2,
   AudioLines,
   ArrowUp,
   ArrowLeft,
@@ -60,7 +62,7 @@ import logoG from '../../src/assets/logog.png';
 import { ALL_TOOLS } from './StagingTopBar';
 import '../SettingsModal.css';
 import { useUserDataContext } from '../../context/UserDataContext';
-import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '../../lib/ai';
+import { streamChat, ChatMessage as AiChatMessage, prewarmClient, isAbortError } from '../../lib/ai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PROJECT_NAME_MODEL } from '@models';
 import { runComputerUseTest, type TestUpdate, type ConversationMessage } from '../../lib/computer-use';
@@ -79,6 +81,7 @@ import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus a
 import { newChatSignal } from '../../lib/stores/chat-store';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
 import { useLocalFS } from '../../context/LocalFSContext';
+import { useDrive } from '../../hooks/useDrive';
 import { markCodeChat, renameCodeChat, unmarkCodeChat } from '../../lib/codeChatStorage';
 
 
@@ -553,6 +556,7 @@ interface SidebarProps {
   onSettingsClick?: (tab?: string) => void;
   agentSwarmEnabled?: boolean;
   onSwarmToggle?: (enabled: boolean) => void;
+  onProjectHydrated?: () => void;
 }
 
 const VisualEditLoader = ({ 
@@ -1630,7 +1634,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle, onProjectHydrated }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
@@ -1642,6 +1646,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const abWorkflows = useStore(agentWorkflowList);
   const abStatus = useStore(abBackendStatus);
   const [showAgentLibrary, setShowAgentLibrary] = useState(false);
+  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
+  const [editingWorkflowName, setEditingWorkflowName] = useState('');
+  const [workflowActionBusy, setWorkflowActionBusy] = useState<string | null>(null);
+  const [workflowActionError, setWorkflowActionError] = useState<string | null>(null);
 
   const [pendingExitAction, setPendingExitAction] = useState<(() => void) | null>(null);
 
@@ -1972,7 +1980,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
   const inboxSaveRef = useRef<Promise<unknown>>(Promise.resolve());
 
-  const { isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, loadLocalFSProject, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { loadLatestProject } = useDrive();
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Code Chat)
   useEffect(() => {
@@ -1990,14 +1999,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               uniqueTitle = `${title} (${counter})`;
               counter++;
             }
-            renameCodeChat(codeChatTitle || codeChatSessionId, uniqueTitle);
+            renameCodeChat(chatScopeId, codeChatTitle || codeChatSessionId, uniqueTitle);
             setCodeChatTitle(uniqueTitle);
           }
         } catch {}
       };
       void fetchTitle();
     }
-  }, [messages, codeChatTitle, generateChatTitle, sessions]);
+  }, [messages, codeChatTitle, generateChatTitle, sessions, chatScopeId]);
 
   // Before the first file mutation, Code mode is an inbox chat. Promotion moves
   // the same messages into the project folder and removes the standalone copy.
@@ -2006,7 +2015,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     const activeId = codeChatTitle || codeChatSessionId;
 
     if (!isProjectPromoted) {
-      markCodeChat(activeId);
+      markCodeChat(chatScopeId, activeId);
       const inboxMessages = messages.map((message) => ({ ...message, willowMode: 'code' }));
       inboxSaveRef.current = inboxSaveRef.current
         .catch(() => {})
@@ -2020,10 +2029,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (isLocalFolderConnected) {
         await saveLocalFSProjectChat(projectName, activeId, messages);
       }
-      unmarkCodeChat(activeId);
+      unmarkCodeChat(chatScopeId, activeId);
       await deleteLocalFSChat(activeId);
     })();
-  }, [messages, codeChatTitle, codeChatSessionId, isProjectPromoted, projectName, isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat]);
+  }, [messages, codeChatTitle, codeChatSessionId, isProjectPromoted, projectName, isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, chatScopeId]);
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Design Chat)
   useEffect(() => {
@@ -2065,6 +2074,64 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const isCurrentlyThinkingRef = useRef(false); // Ref to avoid stale closure in streaming callback
   const { apiKeys, loading: userDataLoading } = useUserDataContext();
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Abort provider requests when the Code mode stop button is pressed.
+  const generationAbortControllerRef = useRef<AbortController | null>(null);
+  // Monotonic guard so an older run cannot clear state or append output after
+  // a newer prompt has started.
+  const generationRunIdRef = useRef(0);
+
+  const renameAgentWorkflow = useCallback(async (id: string) => {
+    const name = editingWorkflowName.trim();
+    if (!name) return;
+    setWorkflowActionBusy(id);
+    setWorkflowActionError(null);
+    try {
+      const { getAgentBuilderClient } = await import('../../lib/agentBuilder');
+      const { workflow } = await getAgentBuilderClient(apiKeys).updateWorkflow(id, { name });
+      agentWorkflowList.set(agentWorkflowList.get().map((item) => item.id === id ? { ...item, name: workflow.name, updatedAt: workflow.updatedAt } : item));
+      setEditingWorkflowId(null);
+    } catch (error) {
+      setWorkflowActionError((error as Error).message);
+    } finally {
+      setWorkflowActionBusy(null);
+    }
+  }, [apiKeys, editingWorkflowName]);
+
+  const duplicateAgentWorkflow = useCallback(async (id: string) => {
+    setWorkflowActionBusy(id);
+    setWorkflowActionError(null);
+    try {
+      const { getAgentBuilderClient } = await import('../../lib/agentBuilder');
+      const { workflow } = await getAgentBuilderClient(apiKeys).duplicateWorkflow(id);
+      agentWorkflowList.set([{
+        id: workflow.id,
+        name: workflow.name,
+        nodeCount: workflow.draft.nodes.length,
+        latestVersion: workflow.latestVersion,
+        updatedAt: workflow.updatedAt,
+      }, ...agentWorkflowList.get()]);
+    } catch (error) {
+      setWorkflowActionError((error as Error).message);
+    } finally {
+      setWorkflowActionBusy(null);
+    }
+  }, [apiKeys]);
+
+  const deleteAgentWorkflow = useCallback(async (id: string, name: string) => {
+    if (!window.confirm(`Delete workflow "${name}"? This cannot be undone.`)) return;
+    setWorkflowActionBusy(id);
+    setWorkflowActionError(null);
+    try {
+      const { getAgentBuilderClient } = await import('../../lib/agentBuilder');
+      await getAgentBuilderClient(apiKeys).deleteWorkflow(id);
+      agentWorkflowList.set(agentWorkflowList.get().filter((item) => item.id !== id));
+      if (editingWorkflowId === id) setEditingWorkflowId(null);
+    } catch (error) {
+      setWorkflowActionError((error as Error).message);
+    } finally {
+      setWorkflowActionBusy(null);
+    }
+  }, [apiKeys, editingWorkflowId]);
 
 
 
@@ -2161,7 +2228,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       wroteToDefaultRef.current = true;
     }
     void saveCodeSessions(key, sessionsToSave);
-  }, []);
+  }, [chatScopeId]);
 
   // Load sessions from localStorage whenever projectName changes
   useEffect(() => {
@@ -2179,6 +2246,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
 
     (async () => {
+      const restorePersistedProject = async (): Promise<boolean> => {
+        if (!projectName) return false;
+        let files = isLocalFolderConnected ? await loadLocalFSProject(projectName) : null;
+        if (files === null) files = await loadLatestProject(projectName);
+        if (files === null) return false;
+        const snapshot = Object.fromEntries(files.map((file) => [
+          file.name.startsWith('/') ? file.name : `/${file.name}`,
+          file.content,
+        ]));
+        workbenchStore.restoreFromSnapshot('persisted_latest', snapshot);
+        return true;
+      };
+
       // A brand-new project's name resolves asynchronously (the AI naming
       // fetch). If the user sent a follow-up during that window, its session(s)
       // were persisted under `willow_chat_sessions_default`. Now that we have a
@@ -2204,11 +2284,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         const sorted = [...parsed].sort((a, b) => b.updatedAt - a.updatedAt);
         setCurrentSessionId(sorted[0].id);
         setMessages(sorted[0].messages);
-        if (sorted[0].filesSnapshot && Object.keys(sorted[0].filesSnapshot).length > 0) {
+        // Durable local/Drive state is the current project generation. Session
+        // snapshots are chat-history checkpoints and can be older or omit files
+        // added on another device (especially binary assets). Restoring the
+        // snapshot first made the next autosave prune those durable-only files.
+        const restoredDurableProject = await restorePersistedProject();
+        if (!restoredDurableProject && sorted[0].filesSnapshot && Object.keys(sorted[0].filesSnapshot).length > 0) {
           workbenchStore.restoreFromSnapshot(sorted[0].activeSnapshotId || '', sorted[0].filesSnapshot);
         }
+        if (!cancelled) onProjectHydrated?.();
         return;
       }
+
+      await restorePersistedProject();
+      if (cancelled) return;
 
       // No sessions found, create an initial one only if we already have messages
       const initialId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2228,10 +2317,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         setSessions([]);
       }
       setCurrentSessionId(initialId);
+      onProjectHydrated?.();
     })();
 
     return () => { cancelled = true; };
-  }, [projectName, prompt]);
+  }, [projectName, prompt, chatScopeId, isLocalFolderConnected, loadLocalFSProject, loadLatestProject, onProjectHydrated]);
 
   // Auto-save current session state when messages or activeSnapshotId change
   useEffect(() => {
@@ -2295,8 +2385,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           
           const allModels = [
             ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
-            ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
-            ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
+        ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
           ];
           
           let targetProvider = 'gemini';
@@ -2536,6 +2635,15 @@ User Prompt:
         ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
         ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
         ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
+        ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+        ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+        ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
       ];
       
       let targetProvider = 'gemini';
@@ -2677,6 +2785,9 @@ User Prompt:
     if (apiKeys.gemini?.[0]) prewarmClient('gemini', apiKeys.gemini[0]);
     if (apiKeys.openai?.[0]) prewarmClient('openai', apiKeys.openai[0]);
     if (apiKeys.anthropic?.[0]) prewarmClient('anthropic', apiKeys.anthropic[0]);
+    if (apiKeys.moonshot?.[0]) prewarmClient('moonshot', apiKeys.moonshot[0]);
+    if (apiKeys.spacexai?.[0]) prewarmClient('spacexai', apiKeys.spacexai[0]);
+    if (apiKeys.zhipuai?.[0]) prewarmClient('zhipuai', apiKeys.zhipuai[0]);
   }, [apiKeys]);
 
   // Inject animation CSS once on mount to prevent animation restarts on re-render
@@ -3541,6 +3652,11 @@ User Prompt:
   const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [], imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []) => {
     // Clear previously animated content tracking to allow fresh animations
     animatedContentRef.current.clear();
+    generationAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    generationAbortControllerRef.current = abortController;
+    const runId = ++generationRunIdRef.current;
+    const isCurrentRun = () => generationRunIdRef.current === runId;
 
     if (!uiAlreadyStarted) {
       setIsCurrentlyGenerating(true);
@@ -3558,18 +3674,21 @@ User Prompt:
 
     try {
       // Find selected provider and model
-      let provider: 'gemini' | 'openai' | 'anthropic' = 'gemini';
+      let provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' = 'gemini';
       let modelId = '';
 
       const allSavedModels = [
         ...(modelConfig.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' })),
         ...(modelConfig.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' })),
-        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' }))
+        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' })),
+        ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' })),
+        ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' })),
+        ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
       ];
 
       const selected = allSavedModels.find(m => m.id === selectedModelId);
       if (selected) {
-        provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+        provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
         modelId = selected.modelId;
       } else {
         // Fallback to default
@@ -3608,10 +3727,31 @@ User Prompt:
       const fileEntries = Object.entries(currentFiles);
       let codebaseContext = '';
       if (fileEntries.length > 0) {
-        const fileContents = fileEntries
+        // Keep prompts bounded. Sending an entire growing workbench eventually
+        // causes provider truncation/400s and makes reopening a mature project
+        // unreliable. Prefer source files, cap each file, then cap the total.
+        const MAX_CONTEXT_CHARS = 180_000;
+        const MAX_FILE_CHARS = 40_000;
+        const rankedEntries = fileEntries
           .filter(([, file]: [string, any]) => file?.content !== undefined)
-          .map(([path, file]: [string, any]) => `### ${path}\n\`\`\`\n${file.content}\n\`\`\``)
-          .join('\n\n');
+          .sort(([a], [b]) => {
+            const score = (path: string) => /(^|[\\/])(src|app|components|lib)([\\/]|$)/i.test(path) ? 0 : /(^|[\\/])(public|assets|node_modules)([\\/]|$)/i.test(path) ? 2 : 1;
+            return score(a) - score(b);
+          });
+        let contextChars = 0;
+        const fileContents = rankedEntries.map(([path, file]: [string, any]) => {
+          if (contextChars >= MAX_CONTEXT_CHARS) return '';
+          const source = String(file.content);
+          const content = source.length > MAX_FILE_CHARS
+            ? `${source.slice(0, MAX_FILE_CHARS)}\n/* ...file truncated for context... */`
+            : source;
+          const entry = `### ${path}\n\`\`\`\n${content}\n\`\`\``;
+          const remaining = MAX_CONTEXT_CHARS - contextChars;
+          contextChars += Math.min(entry.length, remaining);
+          return entry.length <= remaining
+            ? entry
+            : `${entry.slice(0, Math.max(0, remaining))}\n/* ...remaining files omitted for context... */`;
+        }).filter(Boolean).join('\n\n');
         if (fileContents) {
           codebaseContext = `\n\nHere is the current project codebase. When the user asks for changes, ONLY modify the files and sections they mention. Do NOT rewrite or re-output files that don't need changes.\n\n${fileContents}`;
         }
@@ -3643,8 +3783,9 @@ User Prompt:
       
       await streamChat(
         fullHistory,
-        { provider, model: modelId, apiKey, thinkingLevel: selected?.thinkingLevel || 0 },
+        { provider, model: modelId, apiKey, thinkingLevel: selected?.thinkingLevel || 0, signal: abortController.signal, baseUrl: (modelConfig as any)?.[provider]?.baseUrl },
         (token) => {
+          if (abortController.signal.aborted || !isCurrentRun()) return;
           // Use ref to avoid stale closure - state may not be updated yet
           if (isCurrentlyThinkingRef.current) {
             // Calculate actual elapsed time from start timestamp (more accurate than interval)
@@ -3669,6 +3810,7 @@ User Prompt:
         }
       );
 
+      if (!isCurrentRun()) return;
       const assistantMessage: ChatMessage = {
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
@@ -3715,6 +3857,7 @@ User Prompt:
       }
 
       // Process AI response with bolt.diy workbench
+      if (!isCurrentRun()) return;
       workbenchStore.isGenerating.set(true);
       try {
         await workbenchStore.processAIResponse(responseText);
@@ -3722,9 +3865,11 @@ User Prompt:
       } catch (err) {
         console.error('[Sidebar] Error processing response:', err);
       }
+      if (!isCurrentRun()) return;
 
       // Flush any pending file edits (for batched edits during subsequent generations)
       await workbenchStore.flushPendingEdits();
+      if (!isCurrentRun()) return;
 
       if (assistantMessage.hasCodeChanges) {
         const snapshot: Record<string, string> = {};
@@ -3740,8 +3885,19 @@ User Prompt:
       workbenchStore.isGenerating.set(false);
 
     } catch (error: any) {
+      if (!isCurrentRun()) return;
       console.error('Chat error:', error);
       const errMsg = error.message || 'An error occurred during generation';
+      if (isAbortError(error)) {
+        setCurrentStreamingResponse('');
+        setIsCurrentlyGenerating(false);
+        setIsCurrentlyThinking(false);
+        if (thinkingTimerRef.current) {
+          clearInterval(thinkingTimerRef.current);
+          thinkingTimerRef.current = null;
+        }
+        return;
+      }
       const isApiKeyError = /api.?key/i.test(errMsg) && /missing/i.test(errMsg);
       addGlobalError(errMsg, isApiKeyError ? 'set-api-key' : undefined);
       setIsCurrentlyGenerating(false);
@@ -3752,7 +3908,10 @@ User Prompt:
       // Always clear the global generating flag so the preview can never get
       // stuck on the loading animation after a stream error/abort. Without this,
       // a failed generation left isGenerating=true forever (showFullLoading).
-      workbenchStore.isGenerating.set(false);
+      if (isCurrentRun()) workbenchStore.isGenerating.set(false);
+      if (generationAbortControllerRef.current === abortController) {
+        generationAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -3777,6 +3936,11 @@ User Prompt:
   };
 
   const startDesignGeneration = async (text: string) => {
+    generationAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    generationAbortControllerRef.current = abortController;
+    const runId = ++generationRunIdRef.current;
+    const isCurrentRun = () => generationRunIdRef.current === runId;
     // Build screen context from selected screens on the canvas
     let screenContext = '';
     if (selectedScreens.length > 0) {
@@ -3829,18 +3993,21 @@ User Prompt:
     }
 
     try {
-      let provider: 'gemini' | 'openai' | 'anthropic' = 'gemini';
+      let provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' = 'gemini';
       let modelId = '';
 
       const allSavedModels = [
         ...(modelConfig.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' })),
         ...(modelConfig.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' })),
-        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' }))
+        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' })),
+        ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' })),
+        ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' })),
+        ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
       ];
 
       const selected = allSavedModels.find((m: any) => m.id === selectedModelId);
       if (selected) {
-        provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+        provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
         modelId = selected.modelId;
       } else {
         provider = 'gemini';
@@ -3860,9 +4027,11 @@ User Prompt:
           provider: provider as any,
           model: modelId,
           apiKey: apiKey,
-          thinkingLevel: selected?.thinkingLevel || 1
+          thinkingLevel: selected?.thinkingLevel || 1,
+          signal: abortController.signal
         },
         (token) => {
+          if (abortController.signal.aborted || !isCurrentRun()) return;
           if (isCurrentlyThinkingRef.current) {
             const elapsedMs = thinkingStartTimeRef.current ? Date.now() - thinkingStartTimeRef.current : 0;
             const elapsedSeconds = Math.ceil(elapsedMs / 1000);
@@ -3903,6 +4072,7 @@ CODING RULES:
 - NEVER output multiple code blocks. ONE code block only.`
       );
 
+      if (!isCurrentRun()) return;
       // Extract code and add to canvas
       const code = extractDesignCode(fullResponse);
       let designNodeId: string | null = null;
@@ -3936,15 +4106,22 @@ CODING RULES:
         setIsCurrentlyThinking(false);
         if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       });
+      if (generationAbortControllerRef.current === abortController) {
+        generationAbortControllerRef.current = null;
+      }
 
     } catch (error: any) {
+      if (!isCurrentRun()) return;
       const errMsg = error.message || 'Design generation failed';
-      addGlobalError(errMsg);
+      if (!isAbortError(error)) addGlobalError(errMsg);
       setCurrentThinkingTime(0);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
       setNeedsScrollPadding(true);
       if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+      if (generationAbortControllerRef.current === abortController) {
+        generationAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -3965,6 +4142,8 @@ CODING RULES:
 
     const abortController = new AbortController();
     swarmAbortControllerRef.current = abortController;
+    const runId = ++generationRunIdRef.current;
+    const isCurrentRun = () => generationRunIdRef.current === runId;
 
     // Clear previously animated content tracking
     animatedContentRef.current.clear();
@@ -3984,27 +4163,33 @@ CODING RULES:
         projectFiles: projectFiles as any,
         chatHistory: history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         onAgentStatusChange: (agentId, status, message) => {
+          if (!isCurrentRun()) return;
           const current = swarmAgents.get()[agentId];
           swarmAgents.setKey(agentId, { ...current, status, statusMessage: message });
         },
         onToken: (agentId, token) => {
+          if (!isCurrentRun()) return;
           const current = swarmAgents.get()[agentId];
           swarmAgents.setKey(agentId, { ...current, streamingText: current.streamingText + token });
         },
         onChatroomMessage: (message) => {
+          if (!isCurrentRun()) return;
           appendChatroomMessage(message);
         },
         // Stream Willow's final synthesis live — shows file indicators + streaming text
         onSynthesisToken: (token) => {
+          if (!isCurrentRun()) return;
           synthesisResponseText += token;
           setCurrentStreamingResponse(synthesisResponseText);
           // Feed to the parser so "Editing <file>" indicators appear in real-time
           messageParser.parse(token);
         },
         onComplete: () => {
+          if (!isCurrentRun()) return;
           isSwarmRunning.set(false);
         },
         onError: (error) => {
+          if (!isCurrentRun()) return;
           console.error('[Swarm] Error:', error);
           isSwarmRunning.set(false);
         },
@@ -4012,6 +4197,18 @@ CODING RULES:
       });
 
       const result = await orchestrator.execute(text);
+      if (!isCurrentRun()) return;
+      if (abortController.signal.aborted) {
+        setCurrentStreamingResponse('');
+        setIsCurrentlyGenerating(false);
+        setIsCurrentlyThinking(false);
+        isSwarmRunning.set(false);
+        workbenchStore.isGenerating.set(false);
+        if (swarmAbortControllerRef.current === abortController) {
+          swarmAbortControllerRef.current = null;
+        }
+        return;
+      }
 
       const assistantMessage: ChatMessage = {
         id: Math.random().toString(36).substring(7),
@@ -4053,9 +4250,13 @@ CODING RULES:
         workbenchStore.activeSnapshotId.set(assistantMessage.id);
       }
 
-      workbenchStore.isGenerating.set(false);
+      if (isCurrentRun()) workbenchStore.isGenerating.set(false);
       isSwarmRunning.set(false);
+      if (swarmAbortControllerRef.current === abortController) {
+        swarmAbortControllerRef.current = null;
+      }
     } catch (error: any) {
+      if (!isCurrentRun()) return;
       console.error('[Swarm] Execution error:', error);
       setIsCurrentlyGenerating(false);
       setIsCurrentlyThinking(false);
@@ -4065,8 +4266,15 @@ CODING RULES:
       // Clear the global generating flag so the preview never sticks on the
       // loading animation after a swarm error/abort.
       workbenchStore.isGenerating.set(false);
+      if (swarmAbortControllerRef.current === abortController) {
+        swarmAbortControllerRef.current = null;
+      }
 
       // Add error as assistant message
+      if (abortController.signal.aborted || isAbortError(error)) {
+        setCurrentStreamingResponse('');
+        return;
+      }
       const errorMessage: ChatMessage = {
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
@@ -4545,8 +4753,11 @@ CODING RULES:
   useEffect(() => {
     const allSavedModels = [
       ...(modelConfig.gemini?.savedModels || []),
-      ...(modelConfig.openai?.savedModels || []),
-      ...(modelConfig.anthropic?.savedModels || [])
+        ...(modelConfig.openai?.savedModels || []),
+        ...(modelConfig.anthropic?.savedModels || []),
+        ...(modelConfig.moonshot?.savedModels || []),
+        ...(modelConfig.spacexai?.savedModels || []),
+        ...(modelConfig.zhipuai?.savedModels || [])
     ];
     
     if (allSavedModels.length > 0 && !selectedModelId) {
@@ -5096,17 +5307,48 @@ CODING RULES:
                        {abStatus === 'up' ? 'No saved workflows yet. Open the Builder to create one.' : 'Start the Agent Builder backend to see your workflows.'}
                      </div>
                    )}
+                   {workflowActionError && (
+                     <div className="rounded-lg bg-red-500/10 px-2.5 py-2 text-[12px] text-red-300">{workflowActionError}</div>
+                   )}
                    {abWorkflows.map((w) => (
                      <div
                        key={w.id}
-                       onClick={() => { requestedWorkflowId.set(w.id); onTabChange('agent-builder'); }}
-                       className="group flex items-center justify-between bg-[#232326] hover:bg-[#2c2c30] rounded-xl px-3.5 py-2.5 cursor-pointer transition-colors"
+                       onClick={() => {
+                         if (editingWorkflowId === w.id) return;
+                         requestedWorkflowId.set(w.id);
+                         onTabChange('agent-builder');
+                       }}
+                       className="group flex items-center justify-between gap-2 bg-[#232326] hover:bg-[#2c2c30] rounded-xl px-3.5 py-2.5 cursor-pointer transition-colors"
                      >
-                       <div className="min-w-0">
-                         <div className="text-[14px] font-medium text-white truncate">{w.name}</div>
+                       <div className="min-w-0 flex-1">
+                         {editingWorkflowId === w.id ? (
+                           <input
+                             autoFocus
+                             value={editingWorkflowName}
+                             disabled={workflowActionBusy === w.id}
+                             onClick={(event) => event.stopPropagation()}
+                             onChange={(event) => setEditingWorkflowName(event.target.value)}
+                             onKeyDown={(event) => {
+                               if (event.key === 'Enter') event.currentTarget.blur();
+                               if (event.key === 'Escape') setEditingWorkflowId(null);
+                             }}
+                             onBlur={() => void renameAgentWorkflow(w.id)}
+                             className="h-7 w-full rounded-md border border-[#444] bg-[#18181a] px-2 text-[13px] text-white outline-none focus:border-[#666]"
+                           />
+                         ) : (
+                           <div className="text-[14px] font-medium text-white truncate">{w.name}</div>
+                         )}
                          <div className="text-[12px] text-gray-500">{w.nodeCount} nodes · {w.latestVersion > 0 ? `v${w.latestVersion}` : 'draft'}</div>
                        </div>
-                       <ChevronRight size={16} className="text-gray-600 group-hover:text-white transition-colors shrink-0" />
+                       {workflowActionBusy === w.id ? (
+                         <Loader2 size={15} className="shrink-0 animate-spin text-gray-400" />
+                       ) : (
+                         <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100">
+                           <button type="button" title="Rename workflow" aria-label={`Rename ${w.name}`} onClick={(event) => { event.stopPropagation(); setEditingWorkflowId(w.id); setEditingWorkflowName(w.name); }} className="rounded-md p-1.5 text-gray-500 hover:bg-white/5 hover:text-white"><Pencil size={13} /></button>
+                           <button type="button" title="Duplicate workflow" aria-label={`Duplicate ${w.name}`} onClick={(event) => { event.stopPropagation(); void duplicateAgentWorkflow(w.id); }} className="rounded-md p-1.5 text-gray-500 hover:bg-white/5 hover:text-white"><Copy size={13} /></button>
+                           <button type="button" title="Delete workflow" aria-label={`Delete ${w.name}`} onClick={(event) => { event.stopPropagation(); void deleteAgentWorkflow(w.id, w.name); }} className="rounded-md p-1.5 text-gray-500 hover:bg-red-500/10 hover:text-red-400"><Trash2 size={13} /></button>
+                         </div>
+                       )}
                      </div>
                    ))}
                  </div>
@@ -5839,7 +6081,7 @@ CODING RULES:
                              className={`absolute bottom-full right-0 mb-2 w-44 bg-[#1c1c1c] rounded-xl overflow-hidden z-50 ${isClosingModelsMenu ? 'settings-fade-out' : 'settings-fade-in'}`}
                           >
                              {/* Provider Groups */}
-                             {['gemini', 'openai', 'anthropic'].map((provider) => {
+                             {['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].map((provider) => {
                                const providerModels = modelConfig[provider]?.savedModels || [];
                                if (providerModels.length === 0) return null;
                                
@@ -5875,7 +6117,7 @@ CODING RULES:
                                           `}
                                        >
                                           <div className="flex items-center gap-2.5">
-                                            <GeminiLogo size={14} className={isSelected ? 'text-[#58a1ff]' : (provider === 'gemini' ? 'text-blue-400' : provider === 'openai' ? 'text-green-400' : 'text-orange-400')} />
+                                            <GeminiLogo size={14} className={isSelected ? 'text-[#58a1ff]' : (provider === 'gemini' ? 'text-blue-400' : provider === 'openai' ? 'text-green-400' : provider === 'anthropic' ? 'text-orange-400' : provider === 'moonshot' ? 'text-amber-500' : provider === 'spacexai' ? 'text-white' : 'text-cyan-400')} />
                                             <span className="truncate max-w-[110px]">{shortenName(model.name)}</span>
                                           </div>
                                           <div className="flex items-center gap-2">
@@ -5894,7 +6136,7 @@ CODING RULES:
                              })}
                              
                              {/* If no models saved, show a placeholder or link to settings */}
-                             {!(modelConfig.gemini.savedModels.length || modelConfig.openai.savedModels.length || modelConfig.anthropic.savedModels.length) && (
+                             {!(modelConfig.gemini.savedModels.length || modelConfig.openai.savedModels.length || modelConfig.anthropic.savedModels.length || (modelConfig.moonshot?.savedModels || []).length || (modelConfig.spacexai?.savedModels || []).length || (modelConfig.zhipuai?.savedModels || []).length) && (
                                <div className="px-4 py-6 text-center text-gray-500">
                                   <Sparkles size={24} className="mx-auto mb-2 opacity-20" />
                                   <p className="text-[12px]">No model presets added.</p>
@@ -5938,7 +6180,22 @@ CODING RULES:
                        {isCurrentlyGenerating ? (
                          <button 
                            onClick={() => {
-                             // TODO: Add stop generation logic here
+                              // Abort the active provider request. Merely clearing
+                              // the local loading flag allowed late stream tokens
+                              // to mutate the workbench after the user stopped.
+                              generationRunIdRef.current += 1;
+                              generationAbortControllerRef.current?.abort();
+                              swarmAbortControllerRef.current?.abort();
+                              swarmRunningAtom.set(false);
+                              if (testStore.isTestMode.get()) testStore.cancelTest();
+                              setCurrentStreamingResponse('');
+                              setIsCurrentlyGenerating(false);
+                              setIsCurrentlyThinking(false);
+                              if (thinkingTimerRef.current) {
+                                clearInterval(thinkingTimerRef.current);
+                                thinkingTimerRef.current = null;
+                              }
+                              workbenchStore.isGenerating.set(false);
                               sandpackStore.isGenerating.set(false);
                            }}
                            className="w-[38px] h-[38px] rounded-full bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30 transition-colors flex items-center justify-center shadow-md flex-shrink-0"

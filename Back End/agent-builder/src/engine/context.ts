@@ -10,18 +10,27 @@ import type {
   JsonValue,
   ProviderKeys,
   Run,
+  NestedRunWait,
   RunEvent,
   StartNodeConfig,
   WorkflowGraph,
   WorkflowNode,
+  SubflowNodeConfig,
 } from '../domain/types.ts';
 import type { McpManager } from '../mcp/manager.ts';
 import type { VectorStoreService } from '../rag/vectorStore.ts';
+import type { SecretService } from '../services/secrets.ts';
+import type { LLMUsage } from '../providers/types.ts';
 import type { Storage } from '../storage/index.ts';
+import { DEFAULT_SUBJECT_ID, DEFAULT_WORKSPACE_ID, type AuthPrincipal } from '../services/governance.ts';
 import type { CelValue } from './cel/index.ts';
 
 /** Serializable machine state persisted while a run is paused. */
 export interface EngineCheckpoint {
+  /** Versioned proof that this checkpoint was persisted at node boundaries. */
+  boundaryVersion?: 1;
+  /** Present from immediately before node execution until its boundary commit. */
+  inFlightNode?: { nodeId: string; startedAt: string };
   /** Node to execute next (or re-execute on resume). */
   currentNodeId: string | null;
   /** Node executed immediately before currentNodeId (loop re-entry detection). */
@@ -35,7 +44,8 @@ export interface EngineCheckpoint {
   lastAgentText: string;
   /** Node-specific resume payload (set by the resume API). */
   resume?: JsonObject;
-  [key: string]: JsonValue | undefined | null | Record<string, JsonValue> | ChatMessage[] | Record<string, number> | JsonObject;
+  subflowRuns?: { active?: { childRunId: string; nodeId: string } };
+  [key: string]: JsonValue | undefined | null | Record<string, JsonValue> | ChatMessage[] | Record<string, number> | JsonObject | { nodeId: string; startedAt: string } | { active?: { childRunId: string; nodeId: string } };
 }
 
 export interface EngineServices {
@@ -43,10 +53,17 @@ export interface EngineServices {
   config: AppConfig;
   mcp: McpManager;
   vectorStores: VectorStoreService;
+  secrets: SecretService;
   /** Keys sent with the run request (highest precedence). */
   requestKeys?: ProviderKeys;
   /** Keys stored via the settings API. */
   storedKeys?: ProviderKeys;
+  childRuns: {
+    create(input: import('./executor.ts').StartRunInput): Promise<Run>;
+    get(runId: string): Promise<Run | undefined>;
+    cancel(runId: string): Promise<Run | undefined>;
+    resume(runId: string, requestKeys?: ProviderKeys): Promise<Run>;
+  };
 }
 
 export interface NodePause {
@@ -55,6 +72,8 @@ export interface NodePause {
   toolCall?: { server?: string; tool: string; arguments: JsonObject };
   /** State needed to resume this node mid-flight. */
   resumeState?: JsonObject;
+  /** Optional durable expiry for user approvals. */
+  timeoutMs?: number;
 }
 
 export interface NodeExecResult {
@@ -62,6 +81,17 @@ export interface NodeExecResult {
   outputs?: JsonObject;
   /** Which sourceHandle to follow (null = default edge). */
   nextHandle?: string | null;
+  /** Direct dynamic route selected by an Agent handoff. */
+  nextNodeId?: string;
+  /** Pause this parent until a child workflow has credentials. */
+  credentialsRequired?: { providers: Array<'gemini' | 'openai' | 'anthropic'> };
+  /** Mirror an interactive child-run pause onto this parent run. */
+  nestedWait?: {
+    wait: NestedRunWait;
+    pendingApproval?: import('../domain/types.ts').PendingApproval;
+    debugPause?: Run['debugPause'];
+    credentialRequirements?: Run['credentialRequirements'];
+  };
   /** Pause the run awaiting external input. */
   pause?: NodePause;
   /** Messages appended to the conversation history. */
@@ -83,7 +113,16 @@ export interface RunContext {
   abortSignal: AbortSignal;
   /** Resume payload for the node being re-entered (cleared after read). */
   takeResume: () => JsonObject | undefined;
-  addUsage: (usage: { inputTokens?: number; outputTokens?: number; llmCalls?: number; toolCalls?: number }) => void;
+  addUsage: (usage: Partial<LLMUsage> & { llmCalls?: number; toolCalls?: number }) => void;
+  addEmbeddingUsage: (usage: import('../domain/types.ts').EmbeddingOperationUsage) => void;
+}
+
+export function runResourceAccess(run: Run): Pick<AuthPrincipal, 'subjectId' | 'workspaceId' | 'role'> {
+  return {
+    subjectId: run.ownerId ?? DEFAULT_SUBJECT_ID,
+    workspaceId: run.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    role: 'viewer',
+  };
 }
 
 /** Build the CEL/template variable scope from the current checkpoint. */

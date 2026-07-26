@@ -17,8 +17,18 @@ import type {
 import { COLLECTIONS, type Storage } from '../storage/index.ts';
 import { ids, nowIso } from '../util/id.ts';
 import { createLogger } from '../util/log.ts';
+import { sanitizeTraceValue } from '../engine/traceData.ts';
+import { DEFAULT_SUBJECT_ID, DEFAULT_WORKSPACE_ID, type AuthPrincipal } from '../services/governance.ts';
+import { assertSafeOutboundUrl } from '../http/outboundUrl.ts';
 
 const log = createLogger('mcp');
+
+export function sanitizeMcpError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return String(sanitizeTraceValue(message
+    .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/gi, 'https://[REDACTED]@')
+    .replace(/([?&](?:access_token|api_key|key|token|secret|password)=)[^&\s]+/gi, '$1[REDACTED]')));
+}
 
 export interface RegisterServerInput {
   label: string;
@@ -31,6 +41,8 @@ export interface RegisterServerInput {
   transport?: 'streamable-http' | 'sse' | 'stdio';
   auth?: McpServerRegistration['auth'];
 }
+
+export type McpAccess = Pick<AuthPrincipal, 'subjectId' | 'workspaceId' | 'role'> & Partial<Pick<AuthPrincipal, 'authority'>>;
 
 function authHeaders(auth: McpServerRegistration['auth']): Record<string, string> {
   switch (auth.type) {
@@ -52,24 +64,77 @@ interface LiveConnection {
   connectedAt: number;
 }
 
+/** MCP listTools is cursor-paginated; collect every page during discovery. */
+async function listAllTools(client: Client): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
+  const tools: Array<{ name: string; description?: string; inputSchema?: unknown }> = [];
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page = await client.listTools(cursor ? { cursor } : undefined);
+    tools.push(...(page.tools ?? []));
+    const next = page.nextCursor;
+    if (!next) break;
+    if (seen.has(next)) {
+      throw new Error(`MCP tool discovery returned a repeated cursor '${next}'`);
+    }
+    seen.add(next);
+    cursor = next;
+  } while (true);
+  return tools;
+}
+
+type McpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+export function createSafeMcpFetch(
+  allowPrivateNetworks = false,
+  transport: McpFetch = globalThis.fetch,
+): McpFetch {
+  return async (input, init) => {
+    const rawUrl = input instanceof Request ? input.url : String(input);
+    const safeUrl = await assertSafeOutboundUrl(rawUrl, allowPrivateNetworks);
+    // MCP credentials and configured headers must never follow a redirect to a
+    // different destination. The SDK treats a redirect error as a transport failure.
+    return transport(safeUrl, { ...init, redirect: 'error' });
+  };
+}
+
 export class McpManager {
   private connections = new Map<string, LiveConnection>();
   /** Single-flight guard: in-progress connection attempts by server id. */
   private connecting = new Map<string, Promise<Client>>();
+  /** Invalidates connection attempts that finish after a disconnect/update/remove. */
+  private connectionGenerations = new Map<string, number>();
   private storage: Storage;
+  private allowPrivateNetworks: boolean;
 
-  constructor(storage: Storage) {
+  constructor(storage: Storage, options: { allowPrivateNetworks?: boolean } = {}) {
     this.storage = storage;
+    this.allowPrivateNetworks = options.allowPrivateNetworks ?? false;
+  }
+
+  private normalizeOwnership(registration: McpServerRegistration): McpServerRegistration {
+    registration.ownerId ??= DEFAULT_SUBJECT_ID;
+    registration.workspaceId ??= DEFAULT_WORKSPACE_ID;
+    return registration;
+  }
+
+  private canAccess(registration: McpServerRegistration, access?: McpAccess): boolean {
+    if (!access || access.authority === 'platform') return true;
+    const normalized = this.normalizeOwnership(registration);
+    return normalized.workspaceId === access.workspaceId
+      && (access.role === 'admin' || normalized.ownerId === access.subjectId);
   }
 
   // ---------------- registry ----------------
 
-  async register(input: RegisterServerInput): Promise<McpServerRegistration> {
+  async register(input: RegisterServerInput, access?: McpAccess): Promise<McpServerRegistration> {
     if (!input.url && !input.command) {
       throw new Error('MCP server requires a url (http/sse) or command (stdio)');
     }
     const reg: McpServerRegistration = {
       id: ids.mcpServer(),
+      ownerId: access?.subjectId ?? DEFAULT_SUBJECT_ID,
+      workspaceId: access?.workspaceId ?? DEFAULT_WORKSPACE_ID,
       label: input.label || 'mcp_server',
       description: input.description,
       origin: input.origin ?? 'custom',
@@ -90,8 +155,9 @@ export class McpManager {
   async update(
     id: string,
     patch: Partial<RegisterServerInput>,
+    access?: McpAccess,
   ): Promise<McpServerRegistration | undefined> {
-    const reg = await this.get(id);
+    const reg = await this.get(id, access);
     if (!reg) return undefined;
     if (patch.label !== undefined) reg.label = patch.label;
     if (patch.description !== undefined) reg.description = patch.description;
@@ -107,16 +173,20 @@ export class McpManager {
     return reg;
   }
 
-  async get(id: string): Promise<McpServerRegistration | undefined> {
-    return this.storage.get<McpServerRegistration>(COLLECTIONS.mcpServers, id);
+  async get(id: string, access?: McpAccess): Promise<McpServerRegistration | undefined> {
+    const registration = await this.storage.get<McpServerRegistration>(COLLECTIONS.mcpServers, id);
+    if (!registration) return undefined;
+    const normalized = this.normalizeOwnership(registration);
+    return this.canAccess(normalized, access) ? normalized : undefined;
   }
 
-  async list(): Promise<McpServerRegistration[]> {
+  async list(access?: McpAccess): Promise<McpServerRegistration[]> {
     const rows = await this.storage.list<McpServerRegistration>(COLLECTIONS.mcpServers);
-    return rows.map((r) => r.doc);
+    return rows.map((row) => this.normalizeOwnership(row.doc)).filter((registration) => this.canAccess(registration, access));
   }
 
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string, access?: McpAccess): Promise<boolean> {
+    if (!await this.get(id, access)) return false;
     await this.disconnect(id);
     return this.storage.delete(COLLECTIONS.mcpServers, id);
   }
@@ -139,12 +209,13 @@ export class McpManager {
 
     if (!reg.url) throw new Error('http transport requires a url');
     const headers = authHeaders(reg.auth);
-    const url = new URL(reg.url);
+    const url = await assertSafeOutboundUrl(reg.url, this.allowPrivateNetworks);
+    const safeFetch = createSafeMcpFetch(this.allowPrivateNetworks);
 
     if (reg.transport === 'sse') {
       const transport = new SSEClientTransport(url, {
         requestInit: { headers },
-        eventSourceInit: { fetch: (u, init) => fetch(u, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...headers } }) },
+        fetch: safeFetch,
       });
       const client = new Client(clientInfo);
       await client.connect(transport);
@@ -155,6 +226,7 @@ export class McpManager {
     try {
       const transport = new StreamableHTTPClientTransport(url, {
         requestInit: { headers },
+        fetch: safeFetch,
       });
       const client = new Client(clientInfo);
       await client.connect(transport);
@@ -163,7 +235,7 @@ export class McpManager {
       log.warn(`streamable-http connect failed for ${reg.label}, trying SSE: ${(err as Error).message}`);
       const transport = new SSEClientTransport(url, {
         requestInit: { headers },
-        eventSourceInit: { fetch: (u, init) => fetch(u, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...headers } }) },
+        fetch: safeFetch,
       });
       const client = new Client(clientInfo);
       await client.connect(transport);
@@ -171,8 +243,8 @@ export class McpManager {
     }
   }
 
-  private async getConnection(id: string): Promise<{ client: Client; reg: McpServerRegistration }> {
-    const reg = await this.get(id);
+  private async getConnection(id: string, access?: McpAccess): Promise<{ client: Client; reg: McpServerRegistration }> {
+    const reg = await this.get(id, access);
     if (!reg) throw new Error(`MCP server '${id}' not found`);
     const live = this.connections.get(id);
     if (live) return { client: live.client, reg };
@@ -180,18 +252,29 @@ export class McpManager {
     // single-flight: concurrent callers share one connection attempt
     let pending = this.connecting.get(id);
     if (!pending) {
-      pending = this.openClient(reg).then((client) => {
+      const generation = this.connectionGenerations.get(id) ?? 0;
+      pending = this.openClient(reg).then(async (client) => {
+        if ((this.connectionGenerations.get(id) ?? 0) !== generation) {
+          try {
+            await client.close();
+          } catch { /* connection was already closed */ }
+          throw new Error(`MCP connection for '${id}' was superseded`);
+        }
         this.connections.set(id, { client, connectedAt: Date.now() });
         return client;
       });
       this.connecting.set(id, pending);
-      pending.finally(() => this.connecting.delete(id)).catch(() => {});
+      pending.finally(() => {
+        if (this.connecting.get(id) === pending) this.connecting.delete(id);
+      }).catch(() => {});
     }
     const client = await pending;
     return { client, reg };
   }
 
   async disconnect(id: string): Promise<void> {
+    this.connectionGenerations.set(id, (this.connectionGenerations.get(id) ?? 0) + 1);
+    this.connecting.delete(id);
     const live = this.connections.get(id);
     if (live) {
       this.connections.delete(id);
@@ -202,15 +285,27 @@ export class McpManager {
   }
 
   /** Connect (or reconnect), refresh the cached tool list, persist status. */
-  async connect(id: string): Promise<McpServerRegistration> {
-    const reg = await this.get(id);
+  async connect(id: string, access?: McpAccess): Promise<McpServerRegistration> {
+    const reg = await this.get(id, access);
     if (!reg) throw new Error(`MCP server '${id}' not found`);
     await this.disconnect(id);
+    const generation = this.connectionGenerations.get(id) ?? 0;
+    let client: Client | undefined;
     try {
-      const client = await this.openClient(reg);
+      client = await this.openClient(reg);
+      if ((this.connectionGenerations.get(id) ?? 0) !== generation) {
+        try {
+          await client.close();
+        } catch { /* connection was already closed */ }
+        throw new Error(`MCP connection for '${id}' was superseded`);
+      }
       this.connections.set(id, { client, connectedAt: Date.now() });
-      const res = await client.listTools();
-      reg.tools = (res.tools ?? []).map(
+      const discoveredTools = await listAllTools(client);
+      if ((this.connectionGenerations.get(id) ?? 0) !== generation) {
+        await this.disconnect(id);
+        throw new Error(`MCP connection for '${id}' was superseded`);
+      }
+      reg.tools = discoveredTools.map(
         (t): McpToolInfo => ({
           name: t.name,
           description: t.description,
@@ -220,8 +315,15 @@ export class McpManager {
       reg.status = 'connected';
       reg.lastError = undefined;
     } catch (e) {
+      if ((this.connectionGenerations.get(id) ?? 0) !== generation) throw e;
+      if (this.connections.get(id)?.client === client) this.connections.delete(id);
+      if (client) {
+        try {
+          await client.close();
+        } catch { /* failed discovery connections are never reused */ }
+      }
       reg.status = 'error';
-      reg.lastError = (e as Error).message;
+      reg.lastError = sanitizeMcpError(e);
       reg.updatedAt = nowIso();
       await this.storage.put(COLLECTIONS.mcpServers, reg.id, reg);
       throw e;
@@ -232,21 +334,38 @@ export class McpManager {
   }
 
   /** List tools (uses cache when present; connects otherwise). */
-  async listTools(id: string, refresh = false): Promise<McpToolInfo[]> {
-    const reg = await this.get(id);
+  async listTools(id: string, refresh = false, access?: McpAccess): Promise<McpToolInfo[]> {
+    const reg = await this.get(id, access);
     if (!reg) throw new Error(`MCP server '${id}' not found`);
     if (!refresh && reg.tools?.length && reg.status === 'connected') return reg.tools;
-    const updated = await this.connect(id);
+    const updated = await this.connect(id, access);
     return updated.tools ?? [];
   }
 
   /** Call a tool; returns text/structured content flattened to a JsonValue. */
-  async callTool(id: string, tool: string, args: JsonObject): Promise<JsonValue> {
-    const CALL_OPTS = { timeout: 300_000 }; // long-running tools; SDK default is 60s
-    let connection = await this.getConnection(id);
+  async callTool(
+    id: string,
+    tool: string,
+    args: JsonObject,
+    options: { signal?: AbortSignal; timeoutMs?: number; retryTransport?: boolean; access?: McpAccess } = {},
+  ): Promise<JsonValue> {
+    const timeoutMs = options.timeoutMs ?? 300_000;
+    // The SDK timeout is advisory and transports differ in how they enforce it.
+    // Create an explicit abort signal so direct MCP calls have deterministic
+    // cancellation even when they are not wrapped by the engine policy layer.
+    const timeoutController = new AbortController();
+    const timer = timeoutMs > 0
+      ? setTimeout(() => timeoutController.abort(new Error(`MCP tool '${tool}' timed out after ${timeoutMs}ms`)), timeoutMs)
+      : undefined;
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, timeoutController.signal])
+      : timeoutController.signal;
+    const callOptions = { timeout: timeoutMs, signal };
+    let connection: Awaited<ReturnType<McpManager['getConnection']>>;
     let result;
     try {
-      result = await connection.client.callTool({ name: tool, arguments: args }, undefined, CALL_OPTS);
+      connection = await this.getConnection(id, options.access);
+      result = await connection.client.callTool({ name: tool, arguments: args }, undefined, callOptions);
     } catch (e) {
       // Retry ONLY on transport/connection failures where the request never
       // reached the server — never re-execute after timeouts or tool errors
@@ -254,10 +373,20 @@ export class McpManager {
       const msg = (e as Error).message ?? '';
       const isConnectionError =
         /not connected|connection closed|transport (closed|error)|fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(msg);
-      if (!isConnectionError) throw e;
+      if (!isConnectionError || options.retryTransport === false || options.signal?.aborted) throw e;
       await this.disconnect(id);
-      connection = await this.getConnection(id);
-      result = await connection.client.callTool({ name: tool, arguments: args }, undefined, CALL_OPTS);
+      connection = await this.getConnection(id, options.access);
+      result = await connection.client.callTool({ name: tool, arguments: args }, undefined, callOptions);
+      if (result.isError) {
+        const text = this.contentToValue(result.content as JsonValue);
+        throw new Error(
+          `MCP tool '${tool}' returned an error: ${typeof text === 'string' ? text : JSON.stringify(text)}`,
+        );
+      }
+      if (result.structuredContent !== undefined) return result.structuredContent as JsonValue;
+      return this.contentToValue(result.content as JsonValue);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
 
     if (result.isError) {
@@ -293,7 +422,8 @@ export class McpManager {
   }
 
   async closeAll(): Promise<void> {
-    for (const id of [...this.connections.keys()]) {
+    const ids = new Set([...this.connections.keys(), ...this.connecting.keys()]);
+    for (const id of ids) {
       await this.disconnect(id);
     }
   }

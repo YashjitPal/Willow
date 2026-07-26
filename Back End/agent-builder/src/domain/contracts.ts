@@ -44,11 +44,17 @@ function schemaFields(schema: unknown): ContractField[] {
   if (!schema || typeof schema !== 'object') return [];
   const obj = schema as { properties?: Record<string, unknown>; required?: unknown };
   const required = new Set(Array.isArray(obj.required) ? obj.required.filter((v): v is string => typeof v === 'string') : []);
-  return Object.entries(obj.properties ?? {}).map(([name, value]) => ({
-    name,
-    type: schemaType(value),
-    required: required.has(name),
-  }));
+  return Object.entries(obj.properties ?? {}).map(([name, value]) => {
+    const field = value && typeof value === 'object' ? value as { description?: unknown } : undefined;
+    return {
+      name,
+      type: schemaType(value),
+      required: required.has(name),
+      ...(typeof field?.description === 'string' && field.description.trim()
+        ? { description: field.description.trim() }
+        : {}),
+    };
+  });
 }
 
 function fieldsFromState(node: WorkflowNode): ContractField[] {
@@ -69,15 +75,27 @@ function contractFor(node: WorkflowNode): NodeDataContract {
       const declared: unknown[] = Array.isArray(node.config.inputVariables) ? node.config.inputVariables : [];
       for (const value of declared) {
         if (!isRecord(value)) continue;
-        if (typeof value.name === 'string') {
+        if (typeof value.name === 'string' && value.name !== 'input_as_text') {
           inputs.push({
             name: value.name,
             type: typeof value.type === 'string' ? value.type as ContractType : 'unknown',
             description: typeof value.description === 'string' ? value.description : undefined,
+            required: value.defaultValue === undefined,
           });
         }
       }
       outputs.push({ name: 'input_as_text', type: 'string', required: true });
+      for (const value of declared) {
+        if (!isRecord(value)) continue;
+        if (typeof value.name === 'string' && value.name !== 'input_as_text') {
+          outputs.push({
+            name: value.name,
+            type: typeof value.type === 'string' ? value.type as ContractType : 'unknown',
+            description: typeof value.description === 'string' ? value.description : undefined,
+            required: true,
+          });
+        }
+      }
       outputs.push({ name: 'state', type: 'object', required: true });
       for (const field of fieldsFromState(node)) outputs.push(field);
       break;
@@ -92,6 +110,21 @@ function contractFor(node: WorkflowNode): NodeDataContract {
         const schema = schemaFields(node.config.outputSchema);
         outputs.push({ name: 'output_parsed', type: schema.length ? 'object' : 'unknown', required: true });
         outputs.push(...schema.map((field) => ({ ...field, name: `output_parsed.${field.name}` })));
+      }
+      break;
+    case 'subflow':
+      inputs.push({ name: 'inputMappings', type: 'object' });
+      outputs.push(
+        { name: 'output', type: 'unknown', required: true },
+        { name: 'output_text', type: 'string', required: true },
+        { name: 'state', type: 'object', required: true },
+        { name: 'child_run_id', type: 'string', required: true },
+        { name: 'status', type: 'string', required: true },
+      );
+      if (Array.isArray(node.config.outputMappings)) {
+        for (const mapping of node.config.outputMappings as unknown as Array<{ name?: string; type?: ContractType }>) {
+          if (mapping.name) outputs.push({ name: mapping.name, type: mapping.type ?? 'unknown', required: true });
+        }
       }
       break;
     case 'fileSearch':
@@ -117,6 +150,7 @@ function contractFor(node: WorkflowNode): NodeDataContract {
         { name: 'result', type: 'unknown', required: true },
         { name: 'output_text', type: 'string', required: true },
         { name: 'approved', type: 'boolean' },
+        { name: 'reason', type: 'string', description: 'Reviewer feedback when the tool call is rejected.' },
       );
       break;
     case 'ifElse':
@@ -144,7 +178,10 @@ function contractFor(node: WorkflowNode): NodeDataContract {
       outputs.push({ name: 'updated', type: 'list', required: true });
       break;
     case 'userApproval':
-      outputs.push({ name: 'approved', type: 'boolean', required: true });
+      outputs.push(
+        { name: 'approved', type: 'boolean', required: true },
+        { name: 'reason', type: 'string', required: true, description: 'Reviewer feedback; empty when none was supplied.' },
+      );
       break;
     case 'end':
       inputs.push({ name: 'output', type: 'unknown' });
@@ -153,6 +190,14 @@ function contractFor(node: WorkflowNode): NodeDataContract {
       break;
     default:
       break;
+  }
+
+  if (['agent', 'subflow', 'fileSearch', 'mcp', 'ifElse', 'while', 'userApproval', 'transform', 'setState'].includes(node.type)) {
+    outputs.push({
+      name: 'error',
+      type: 'object',
+      description: 'Structured node_execution_error output when onError handles a failure.',
+    });
   }
 
   return {

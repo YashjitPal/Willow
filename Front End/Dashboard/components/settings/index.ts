@@ -5,3 +5,4 @@ export { LabsTab } from './LabsTab';
 export { AccountTab } from './AccountTab';
 export { ConnectorsTab } from './ConnectorsTab';
 export { ModelsTab } from './ModelsTab';
+export { GovernanceTab } from './GovernanceTab';

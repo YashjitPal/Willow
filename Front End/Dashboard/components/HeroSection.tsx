@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { InputBar } from './InputBar';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
-import { loadAllProjectCovers, deleteProjectData, getMediaIndex } from '../lib/mediaStorage';
-import { renameCodeSessions, deleteCodeSessions } from '../lib/willowDB';
+import { loadAllProjectCovers, deleteProjectData, getMediaIndex, PROJECT_COVERS_UPDATED_EVENT } from '../lib/mediaStorage';
+import { deleteCodeSessions } from '../lib/willowDB';
 import { useLocalFS } from '../context/LocalFSContext';
+import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
+import { transactionalRenameProject } from '../lib/projectRename';
 
 // @ts-ignore
 import willSmithVideo from '../../Content/Will smith.mp4';
@@ -55,7 +57,7 @@ export const HeroSection: React.FC<{
   isSidebarCollapsed?: boolean;
 }> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false }) => {
   const { userProfile } = useAuth();
-  const { deleteLocalFSProject, renameLocalFSProject } = useLocalFS();
+  const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
 
   // Sequential media playlist for the Media tab with slide-specific branding
@@ -110,10 +112,8 @@ export const HeroSection: React.FC<{
   const [isFading, setIsFading] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [projectsList, setProjectsList] = React.useState<{ id: string; name: string; hasCover?: boolean; kind?: 'media' | 'code'; coverUrl?: string }[]>(() => {
-    const stored = localStorage.getItem('willow_projects_list');
-    if (stored) {
       try {
-        const allProjects = JSON.parse(stored);
+        const allProjects = readProjectRegistry() as any[];
         // Media tab shows projects tagged 'media' OR any project that actually
         // has media (per the realtime media index) — so media you generated into
         // a 'code' project still appears here.
@@ -128,27 +128,32 @@ export const HeroSection: React.FC<{
       } catch (e) {
         /* ignore fallback */
       }
-    }
     const initial: any[] = [];
-    try {
-      localStorage.setItem('willow_projects_list', JSON.stringify(initial));
-    } catch (e) {}
     return initial;
   });
 
   // Cover images resolved from IndexedDB (heavy base64 data lives here, not localStorage)
   const [coverUrls, setCoverUrls] = React.useState<Record<string, string>>({});
+  const coverLoadSequence = React.useRef(0);
 
   React.useEffect(() => {
-    loadAllProjectCovers().then(setCoverUrls);
+    const refreshCovers = async () => {
+      const sequence = ++coverLoadSequence.current;
+      const covers = await loadAllProjectCovers();
+      // Multiple project/storage events can overlap. Only the newest requested
+      // snapshot may replace the UI, otherwise a slower stale read can make a
+      // handful of covers disappear intermittently.
+      if (sequence === coverLoadSequence.current) setCoverUrls(covers);
+    };
+    void refreshCovers();
+    window.addEventListener(PROJECT_COVERS_UPDATED_EVENT, refreshCovers);
+    return () => window.removeEventListener(PROJECT_COVERS_UPDATED_EVENT, refreshCovers);
   }, [projectsList]);
 
   React.useEffect(() => {
     const handleUpdate = () => {
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
         try {
-          const allProjects = JSON.parse(stored);
+          const allProjects = readProjectRegistry() as any[];
           // Media tab shows 'media'-tagged projects OR any project that has media.
           // Reverse for display: registry order is creation order → newest first.
           if (dashboardMode === 'media') {
@@ -158,7 +163,6 @@ export const HeroSection: React.FC<{
             setProjectsList(allProjects.reverse());
           }
         } catch (e) {}
-      }
     };
     window.addEventListener('willow_projects_updated', handleUpdate);
     // The media index updates in realtime as media is generated/deleted — refresh
@@ -175,37 +179,15 @@ export const HeroSection: React.FC<{
   // wipe code projects from the registry. All mutations (create/rename/delete)
   // operate on the FULL localStorage list directly and then dispatch
   // `willow_projects_updated`, which refreshes the filtered display below.
-  const persistProjectRename = React.useCallback((projectId: string, rawName: string) => {
-    // Strip filesystem-illegal characters — the name becomes a folder name on
-    // disk, and an unusable one silently breaks every later folder operation.
-    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
-    if (!baseName) return;
-    try {
-      const stored = localStorage.getItem('willow_projects_list');
-      const list = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(list)) return;
-      const oldName = list.find((p: any) => p.id === projectId)?.name;
-      // Dedup against the FULL list (not the filtered display list)
-      let uniqueName = baseName;
-      let counter = 1;
-      while (list.some((p: any) => p.id !== projectId && p.name.toLowerCase() === uniqueName.toLowerCase())) {
-        uniqueName = `${baseName} (${counter})`;
-        counter++;
-      }
-      if (oldName === uniqueName) return;
-      const updated = list.map((p: any) => (p.id === projectId ? { ...p, name: uniqueName } : p));
-      localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-      window.dispatchEvent(new Event('willow_projects_updated'));
-      // Keep the disk folder in lock-step so the disk-authoritative reconciler
-      // doesn't revert the rename (and so saves target the right folder).
-      if (oldName) {
-        void renameLocalFSProject(oldName, uniqueName);
-        // Code-editor sessions are keyed by project NAME — migrate them too,
-        // or the renamed project opens with an empty chat/snapshot history.
-        void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
-      }
-    } catch {}
-  }, [renameLocalFSProject]);
+  const persistProjectRename = React.useCallback(async (projectId: string, rawName: string) => {
+    const result = await transactionalRenameProject({
+      projectId,
+      rawName,
+      isLocalFolderConnected,
+      renameLocalFSProject,
+    });
+    if (!result.ok) console.error('Failed to rename project:', result.error);
+  }, [isLocalFolderConnected, renameLocalFSProject]);
 
   const formatProjectDate = (date: Date): string => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -231,8 +213,7 @@ export const HeroSection: React.FC<{
     // duplicate id cross-links two projects' covers/media in IndexedDB.
     const usedIds = new Set<string>();
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      const list = stored ? JSON.parse(stored) : [];
+      const list = readProjectRegistry() as any[];
       if (Array.isArray(list)) for (const p of list) if (p?.id) usedIds.add(p.id);
     } catch {}
     let mintedId = `#${Math.floor(1000 + Math.random() * 9000)}`;
@@ -248,8 +229,7 @@ export const HeroSection: React.FC<{
     // A name collision cross-links disk folders and name-keyed session records.
     const allNames = new Set<string>();
     try {
-      const storedList = localStorage.getItem('willow_projects_list');
-      const full = storedList ? JSON.parse(storedList) : [];
+      const full = readProjectRegistry() as any[];
       if (Array.isArray(full)) {
         for (const p of full) if (typeof p?.name === 'string') allNames.add(p.name.toLowerCase());
       }
@@ -430,7 +410,7 @@ export const HeroSection: React.FC<{
   const mtClass = background === 'solid' && dashboardMode !== 'media' ? '-mt-20' : '';
 
   return (
-    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass}`}>
+    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? 'willow-gemini-home-glow' : ''}`}>
       {dashboardMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}
@@ -683,7 +663,7 @@ export const HeroSection: React.FC<{
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 if (editingValue.trim()) {
-                                  persistProjectRename(proj.id, editingValue);
+                                  void persistProjectRename(proj.id, editingValue);
                                 }
                                 setEditingProjectId(null);
                               } else if (e.key === 'Escape') {
@@ -699,7 +679,7 @@ export const HeroSection: React.FC<{
                             onClick={(e) => {
                               e.stopPropagation();
                               if (editingValue.trim()) {
-                                persistProjectRename(proj.id, editingValue);
+                                  void persistProjectRename(proj.id, editingValue);
                               }
                               setEditingProjectId(null);
                             }}
@@ -747,20 +727,21 @@ export const HeroSection: React.FC<{
                             onClick={async (e) => {
                               e.stopPropagation();
 
-                              // 1. Delete from IndexedDB (media items + covers)
+                              // Delete disk first. If that fails, keep browser
+                              // data/registry intact so reconciliation cannot
+                              // resurrect an empty shell of the project.
+                              const diskDeleted = await deleteLocalFSProject(proj.id, proj.name);
+                              if (!diskDeleted) {
+                                console.error('Project folder deletion failed; browser data was preserved.');
+                                return;
+                              }
                               await deleteProjectData(proj.id);
 
-                              // 2. Delete from file system (if connected)
-                              await deleteLocalFSProject(proj.id, proj.name);
-
                               // 3. Delete from localStorage and update UI
-                              const stored = localStorage.getItem('willow_projects_list');
-                              if (stored) {
-                                const list = JSON.parse(stored);
-                                const updated = list.filter((p: any) => p.id !== proj.id);
-                                localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-                                window.dispatchEvent(new Event('willow_projects_updated'));
-                              }
+                              const list = readProjectRegistry() as any[];
+                              const updated = list.filter((p: any) => p.id !== proj.id);
+                              writeProjectRegistry(updated);
+                              window.dispatchEvent(new Event('willow_projects_updated'));
 
                               // 4. Update local component state
                               setProjectsList(prev => prev.filter(p => p.id !== proj.id));

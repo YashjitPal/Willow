@@ -14,9 +14,16 @@ import type {
   ProviderKeys,
 } from '../../domain/types.ts';
 import { chatWithModel } from '../../providers/index.ts';
-import { fetchWithRetry } from '../../providers/types.ts';
+import { fetchWithRetry, type LLMUsage } from '../../providers/types.ts';
 import { extractJson } from '../jsonSchema.ts';
 import type { VectorStoreService } from '../../rag/vectorStore.ts';
+
+// llmClassify truncates the complete classifier input to 30,000 UTF-16 code
+// units and requests at most 500 output tokens. The input reservation is a
+// deliberately conservative byte-level ceiling that also covers the system
+// instruction and JSON schema envelope used by every provider adapter.
+export const GUARDRAIL_CLASSIFIER_MAX_INPUT_TOKENS = 131_072;
+export const GUARDRAIL_CLASSIFIER_MAX_OUTPUT_TOKENS = 500;
 
 export interface GuardrailCheckResult {
   check: 'pii' | 'moderation' | 'jailbreak' | 'hallucination';
@@ -28,6 +35,7 @@ export interface GuardrailCheckResult {
   /** True when the check could not run (missing key etc.) — pairs with continueOnError. */
   errored?: boolean;
   error?: string;
+  usage?: LLMUsage & { llmCalls: number };
 }
 
 export interface GuardrailRunContext {
@@ -35,6 +43,7 @@ export interface GuardrailRunContext {
   storedKeys: ProviderKeys | undefined;
   vectorStores: VectorStoreService;
   checkModel: string;
+  abortSignal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +166,7 @@ export async function checkModeration(
           },
           body: JSON.stringify({ model: 'omni-moderation-latest', input: text.slice(0, 30_000) }),
           timeoutMs: 20_000,
+          signal: ctx.abortSignal,
         },
         'openai',
         1,
@@ -230,10 +240,13 @@ export async function checkJailbreak(
   const threshold = settings?.confidenceThreshold ?? 0.7;
   const heuristicHits = JAILBREAK_HEURISTICS.filter((r) => r.test(text)).length;
   if (heuristicHits >= 1) {
+    const confidence = Math.min(0.6 + heuristicHits * 0.15, 0.99);
     return {
       check: 'jailbreak',
-      tripwireTriggered: true,
-      confidence: Math.min(0.6 + heuristicHits * 0.15, 0.99),
+      // Keep heuristic and model-backed checks consistent: a configured
+      // confidence threshold must gate every tripwire verdict.
+      tripwireTriggered: confidence >= threshold,
+      confidence,
       info: { engine: 'heuristic', hits: heuristicHits },
     };
   }
@@ -269,7 +282,7 @@ export async function checkHallucination(
   }
   let knowledge: string;
   try {
-    knowledge = await ctx.vectorStores.knowledgeContext(storeId, text.slice(0, 2000), ctx.keys ?? ctx.storedKeys);
+    knowledge = await ctx.vectorStores.knowledgeContext(storeId, text.slice(0, 2000), ctx.keys ?? ctx.storedKeys, 6000, ctx.abortSignal);
   } catch (e) {
     return {
       check: 'hallucination',
@@ -334,8 +347,9 @@ async function llmClassify(
             required: ['flagged', 'confidence'],
           },
         },
+        abortSignal: ctx.abortSignal,
         temperature: 0,
-        maxTokens: 500,
+        maxTokens: GUARDRAIL_CLASSIFIER_MAX_OUTPUT_TOKENS,
       },
       ctx.keys,
       ctx.storedKeys,
@@ -350,6 +364,10 @@ async function llmClassify(
       info: {
         engine: `llm:${ctx.checkModel}`,
         reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+      },
+      usage: {
+        ...res.usage,
+        llmCalls: 1,
       },
     };
   } catch (e) {

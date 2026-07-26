@@ -4,15 +4,18 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuthPrincipal } from '../services/governance.ts';
 
 export class HttpError extends Error {
   status: number;
   code: string;
-  constructor(status: number, message: string, code = 'error') {
+  details?: unknown;
+  constructor(status: number, message: string, code = 'error', details?: unknown) {
     super(message);
     this.name = 'HttpError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -26,6 +29,8 @@ export interface RequestCtx {
   /** Parsed JSON body (undefined when none). */
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
+  principal: AuthPrincipal;
+  requestId: string;
 }
 
 export type Handler = (ctx: RequestCtx) => Promise<unknown> | unknown;
@@ -34,6 +39,11 @@ interface Route {
   method: string;
   segments: string[]; // ':name' marks a param
   handler: Handler;
+}
+
+export interface RouteDescription {
+  method: string;
+  pattern: string;
 }
 
 const MAX_BODY = 64 * 1024 * 1024; // 64 MB (vector store file uploads)
@@ -52,6 +62,13 @@ export class Router {
   put(pattern: string, handler: Handler): this { return this.on('PUT', pattern, handler); }
   patch(pattern: string, handler: Handler): this { return this.on('PATCH', pattern, handler); }
   delete(pattern: string, handler: Handler): this { return this.on('DELETE', pattern, handler); }
+
+  describeRoutes(): RouteDescription[] {
+    return this.routes.map((route) => ({
+      method: route.method,
+      pattern: `/${route.segments.join('/')}`,
+    }));
+  }
 
   match(method: string, path: string): { handler: Handler; params: Record<string, string> } | undefined {
     const parts = path.split('/').filter(Boolean);
@@ -114,7 +131,7 @@ export function sendJson(res: ServerResponse, status: number, data: unknown): vo
 export const HANDLED: unique symbol = Symbol('handled');
 
 export interface SseStream {
-  send(event: string, data: unknown): void;
+  send(event: string, data: unknown, id?: string | number): void;
   close(): void;
   onClose(fn: () => void): void;
   readonly closed: boolean;
@@ -153,9 +170,9 @@ export function openSse(ctx: RequestCtx): SseStream {
   req.on('close', doClose);
 
   return {
-    send(event, data) {
+    send(event, data, id) {
       if (closed) return;
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      res.write(`${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     },
     close: doClose,
     onClose(fn) {

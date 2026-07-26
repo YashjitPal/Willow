@@ -85,6 +85,12 @@ function requireBool(v: CelValue, ctx: string): boolean {
   return v;
 }
 
+function requireArgs(name: string, args: CelNode[], count: number): void {
+  if (args.length !== count) {
+    throw new CelEvalError(`${name}() takes exactly ${count} argument${count === 1 ? '' : 's'}`);
+  }
+}
+
 function compare(a: CelValue, b: CelValue, op: string): boolean {
   if (typeof a === 'number' && typeof b === 'number') {
     switch (op) {
@@ -362,6 +368,12 @@ class Evaluator {
 
     // --- global functions ---
     if (!callee) {
+      const unaryFunctions = new Set(['size', 'string', 'int', 'double', 'bool', 'type']);
+      if (unaryFunctions.has(name)) requireArgs(name, args, 1);
+      if (name === 'matches') requireArgs(name, args, 2);
+      if ((name === 'min' || name === 'max') && args.length === 0) {
+        throw new CelEvalError(`${name}() requires at least one argument`);
+      }
       const vals = args.map((a) => this.eval(a, scope));
       switch (name) {
         case 'size': {

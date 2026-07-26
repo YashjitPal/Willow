@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:no-env": "node scripts/build-production.mjs",
+    "preview": "vite preview",
+    "test:agent-builder-smoke": "node --test test/agent-builder-overlays.smoke.test.mjs",
+    "qa:agent-builder:build": "node scripts/agent-builder-qa.mjs",
+    "qa:agent-builder": "node scripts/agent-builder-qa.mjs --serve"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

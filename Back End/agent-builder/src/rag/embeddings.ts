@@ -6,23 +6,30 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { ProviderKeys } from '../domain/types.ts';
-import { fetchWithRetry, ProviderError } from '../providers/types.ts';
+import type { EmbeddingOperationUsage, ProviderKeys } from '../domain/types.ts';
+import { fetchWithRetry, ProviderError, type FetchTransport } from '../providers/types.ts';
+import { priceEmbeddingUsage, PRICING_CATALOG_VERSION } from '../services/pricing.ts';
+import { nowIso } from '../util/id.ts';
+
+export interface EmbeddingResult {
+  vectors: number[][];
+  usage: Omit<EmbeddingOperationUsage, 'operation'>;
+}
 
 export interface Embedder {
   id: string;
   dim: number;
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResult>;
 }
 
 const GEMINI_MODEL = 'text-embedding-004';
 const OPENAI_MODEL = 'text-embedding-3-small';
 
-export function createGeminiEmbedder(apiKey: string): Embedder {
+export function createGeminiEmbedder(apiKey: string, transport: FetchTransport = globalThis.fetch): Embedder {
   return {
     id: 'gemini',
     dim: 768,
-    async embed(texts: string[]): Promise<number[][]> {
+    async embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResult> {
       const out: number[][] = [];
       // batchEmbedContents supports up to 100 requests per call
       for (let i = 0; i < texts.length; i += 100) {
@@ -39,8 +46,11 @@ export function createGeminiEmbedder(apiKey: string): Embedder {
               })),
             }),
             timeoutMs: 60_000,
+            signal,
           },
           'gemini',
+          2,
+          transport,
         );
         if (!res.ok) {
           const body = await res.text().catch(() => '');
@@ -49,17 +59,22 @@ export function createGeminiEmbedder(apiKey: string): Embedder {
         const data = (await res.json()) as { embeddings?: Array<{ values: number[] }> };
         for (const e of data.embeddings ?? []) out.push(e.values);
       }
-      return out;
+      return {
+        vectors: out,
+        usage: { provider: 'gemini', model: GEMINI_MODEL, status: 'completed', requestCount: Math.ceil(texts.length / 100), tokenStatus: 'not_reported', pricing: priceEmbeddingUsage(GEMINI_MODEL), at: nowIso() },
+      };
     },
   };
 }
 
-export function createOpenAiEmbedder(apiKey: string): Embedder {
+export function createOpenAiEmbedder(apiKey: string, transport: FetchTransport = globalThis.fetch): Embedder {
   return {
     id: 'openai',
     dim: 1536,
-    async embed(texts: string[]): Promise<number[][]> {
+    async embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResult> {
       const out: number[][] = [];
+      let inputTokens = 0;
+      let usageReported = true;
       for (let i = 0; i < texts.length; i += 100) {
         const batch = texts.slice(i, i + 100);
         const res = await fetchWithRetry(
@@ -75,18 +90,26 @@ export function createOpenAiEmbedder(apiKey: string): Embedder {
               input: batch.map((t) => t.slice(0, 8000)),
             }),
             timeoutMs: 60_000,
+            signal,
           },
           'openai',
+          2,
+          transport,
         );
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           throw new ProviderError('openai', `embeddings HTTP ${res.status}: ${body.slice(0, 400)}`, res.status);
         }
-        const data = (await res.json()) as { data?: Array<{ index: number; embedding: number[] }> };
+        const data = (await res.json()) as { data?: Array<{ index: number; embedding: number[] }>; usage?: { prompt_tokens?: number; total_tokens?: number } };
+        if (typeof data.usage?.prompt_tokens === 'number') inputTokens += data.usage.prompt_tokens;
+        else usageReported = false;
         const sorted = (data.data ?? []).sort((a, b) => a.index - b.index);
         for (const e of sorted) out.push(e.embedding);
       }
-      return out;
+      return {
+        vectors: out,
+        usage: { provider: 'openai', model: OPENAI_MODEL, status: 'completed', requestCount: Math.ceil(texts.length / 100), ...(usageReported ? { inputTokens } : {}), tokenStatus: usageReported ? 'reported' : 'not_reported', pricing: priceEmbeddingUsage(OPENAI_MODEL, usageReported ? inputTokens : undefined), at: nowIso() },
+      };
     },
   };
 }
@@ -106,8 +129,9 @@ export function createLocalEmbedder(): Embedder {
   return {
     id: 'local',
     dim: DIM,
-    async embed(texts: string[]): Promise<number[][]> {
-      return texts.map((text) => {
+    async embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResult> {
+      if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('request aborted');
+      const vectors = texts.map((text) => {
         const vec = new Array<number>(DIM).fill(0);
         const tokens = text
           .toLowerCase()
@@ -128,6 +152,15 @@ export function createLocalEmbedder(): Embedder {
         const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
         return vec.map((v) => v / norm);
       });
+      return {
+        vectors,
+        usage: {
+          provider: 'local', model: 'local-hash-512', status: 'completed', requestCount: 0,
+          tokenStatus: 'not_applicable',
+          pricing: { status: 'priced', catalogVersion: PRICING_CATALOG_VERSION, currency: 'USD', inputUsdPerMillion: 0, estimatedCostUsd: 0 },
+          at: nowIso(),
+        },
+      };
     },
   };
 }

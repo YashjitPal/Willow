@@ -47,7 +47,7 @@ export interface ToolCall {
 }
 
 export interface SwarmConfig {
-  apiKeys: { gemini: string[]; openai: string[]; anthropic: string[] };
+  apiKeys: { gemini: string[]; openai: string[]; anthropic: string[]; moonshot?: string[]; spacexai?: string[]; zhipuai?: string[] };
   modelConfig: any;
   selectedModelId: string;
   projectFiles: Record<string, { type: string; content: string }>;

@@ -20,6 +20,14 @@ export interface AppConfig {
   maxConcurrentRuns: number;
   /** ChatKit session lifetime, seconds. */
   sessionTtlSeconds: number;
+  /** Trace retention limits. Set both to 0 to disable automatic cleanup. */
+  traceRetentionMaxRuns: number;
+  traceRetentionMaxAgeDays: number;
+  traceRetentionIntervalSeconds: number;
+  /** Optional production frontend build directory served by the HTTP server. */
+  staticDir?: string;
+  /** Allow outbound HTTP tools to reach loopback/private networks. Development only. */
+  allowPrivateNetworks: boolean;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -29,12 +37,21 @@ function intEnv(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function cliValue(name: string): string | undefined {
+  const exact = process.argv.find((arg) => arg.startsWith(`${name}=`));
+  if (exact) return exact.slice(name.length + 1).trim() || undefined;
+  const index = process.argv.indexOf(name);
+  const value = index >= 0 ? process.argv[index + 1] : undefined;
+  return value && !value.startsWith('--') ? value : undefined;
+}
+
 export function loadConfig(): AppConfig {
   const dataDir =
     process.env.AGENT_BUILDER_DATA_DIR ||
     path.resolve(__dirname, '..', 'data');
 
   const corsEnv = process.env.AGENT_BUILDER_CORS_ORIGINS;
+  const staticDir = cliValue('--static-dir') ?? process.env.AGENT_BUILDER_STATIC_DIR;
 
   return {
     port: intEnv('AGENT_BUILDER_PORT', 8787),
@@ -48,5 +65,10 @@ export function loadConfig(): AppConfig {
     defaultMaxTurns: intEnv('AGENT_BUILDER_MAX_TURNS', 8),
     maxConcurrentRuns: intEnv('AGENT_BUILDER_MAX_CONCURRENT_RUNS', 8),
     sessionTtlSeconds: intEnv('AGENT_BUILDER_SESSION_TTL', 3600),
+    traceRetentionMaxRuns: Math.max(0, intEnv('AGENT_BUILDER_TRACE_RETENTION_MAX_RUNS', 1000)),
+    traceRetentionMaxAgeDays: Math.max(0, intEnv('AGENT_BUILDER_TRACE_RETENTION_MAX_AGE_DAYS', 30)),
+    traceRetentionIntervalSeconds: Math.max(10, intEnv('AGENT_BUILDER_TRACE_RETENTION_INTERVAL_SECONDS', 60)),
+    staticDir: staticDir ? path.resolve(process.cwd(), staticDir) : undefined,
+    allowPrivateNetworks: process.env.AGENT_BUILDER_ALLOW_PRIVATE_NETWORKS === 'true',
   };
 }

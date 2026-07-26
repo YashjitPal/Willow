@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { firePreview, fireCode, firePublish, evaluationPanelOpen } from '../../lib/stores/agent-builder-store';
+import { firePreview, fireCode, evaluationPanelOpen, publishDialogOpen } from '../../lib/stores/agent-builder-store';
 import {
   Palette, 
   Code2, 
@@ -372,6 +372,15 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
               <Play size={14} className="fill-white" />
               <span>Preview</span>
             </button>
+            <ShimmerButton
+              className="h-10 text-sm"
+              shimmerColor="#ffffff"
+              background="rgba(28, 28, 28, 1)"
+              onClick={() => publishDialogOpen.set(true)}
+              title="Publish workflow"
+            >
+              <span className="text-white font-medium">Publish</span>
+            </ShimmerButton>
             <button
               onClick={() => onTabChange('agents')}
               className="flex items-center justify-center h-8 px-5 bg-[#272729] hover:bg-[#3f3f46] rounded-xl text-white font-medium text-sm transition-colors duration-200 border-none outline-none"
@@ -411,7 +420,7 @@ const TopBar: React.FC<TopBarProps> = ({ isSidebarCollapsed, onToggleSidebar, ac
               className="h-10 text-sm"
               shimmerColor="#ffffff"
               background="rgba(28, 28, 28, 1)"
-              onClick={() => firePublish()}
+              onClick={() => publishDialogOpen.set(true)}
               title="Publish workflow"
             >
               <span className="text-white font-medium">Publish</span>

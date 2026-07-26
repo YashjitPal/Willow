@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { 
   User, 
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  reauthenticateWithPopup
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, googleProvider, driveProvider, db } from '../lib/firebaseConfig';
@@ -45,6 +46,21 @@ interface AuthContextType {
   completeOnboarding: (name: string, role: string, photoURL: string | null) => Promise<void>;
 }
 
+const createEmptyUserProfile = (): UserProfile => ({
+  displayName: null,
+  photoURL: null,
+  role: null,
+  onboardingComplete: false,
+  workspaceName: null,
+  username: null,
+  workspaceColor: 'green',
+  workspaceDescription: null,
+  location: null,
+  background: 'solid',
+  theme: null,
+  description: null,
+});
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
@@ -64,19 +80,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
   const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const authGenerationRef = useRef(0);
+  const activeAuthUidRef = useRef<string | null>(null);
 
   // Fetch user profile from Firestore
-  const fetchUserProfile = async (uid: string) => {
+  const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile> => {
     try {
       const userDocRef = doc(db, 'users', uid);
       const userDoc = await getDoc(userDocRef);
       
       if (userDoc.exists()) {
         const data = userDoc.data();
-        setUserProfile({
+        return {
           displayName: data.displayName || null,
           photoURL: data.photoURL || null,
           role: data.role || null,
@@ -89,68 +106,72 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           background: data.background || 'solid',
           theme: data.theme || null,
           description: data.description || null,
-        });
-      } else {
-        // New user - no profile yet
-        setUserProfile({
-          displayName: null,
-          photoURL: null,
-          role: null,
-          onboardingComplete: false,
-          workspaceName: null,
-          username: null,
-          workspaceColor: 'green',
-          workspaceDescription: null,
-          location: null,
-          background: 'solid',
-          theme: null,
-          description: null,
-        });
+        };
       }
+
+      // New user - no profile yet
+      return createEmptyUserProfile();
     } catch (err) {
       console.error('[Auth] Error fetching user profile:', err);
-      setUserProfile({
-        displayName: null,
-        photoURL: null,
-        role: null,
-        onboardingComplete: false,
-        workspaceName: null,
-        username: null,
-        workspaceColor: 'green',
-        workspaceDescription: null,
-        location: null,
-        background: 'solid',
-        theme: null,
-        description: null,
-      });
+      return createEmptyUserProfile();
     }
-  };
+  }, []);
 
   useEffect(() => {
     console.log('[Auth] Setting up auth state listener...');
     
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const generation = ++authGenerationRef.current;
+      const nextUid = firebaseUser?.uid || null;
+      if (activeAuthUidRef.current !== nextUid) {
+        // Close the account-switch window before any profile/network work can
+        // run with the previous account's Drive credential.
+        setDriveAccessToken(null);
+        setIsDriveConnected(false);
+        setUserProfile(null);
+      }
+      activeAuthUidRef.current = nextUid;
       console.log('[Auth] State changed:', firebaseUser ? firebaseUser.email : 'No user');
       setUser(firebaseUser);
       
       if (firebaseUser) {
-        await fetchUserProfile(firebaseUser.uid);
+        setLoading(true);
+        const profile = await fetchUserProfile(firebaseUser.uid);
+        if (authGenerationRef.current !== generation) return;
+        setUserProfile(profile);
+
+        const storedDriveToken = sessionStorage.getItem('googleDriveAccessToken');
+        const storedDriveOwner = sessionStorage.getItem('googleDriveTokenOwner');
+        const storedDriveConnected = sessionStorage.getItem('isDriveConnected');
+        if (storedDriveToken && storedDriveOwner === firebaseUser.uid && storedDriveConnected === 'true') {
+          setDriveAccessToken(storedDriveToken);
+          setIsDriveConnected(true);
+        } else {
+          setDriveAccessToken(null);
+          setIsDriveConnected(false);
+          sessionStorage.removeItem('googleDriveAccessToken');
+          sessionStorage.removeItem('googleDriveTokenOwner');
+          sessionStorage.removeItem('isDriveConnected');
+        }
       } else {
         setUserProfile(null);
-      }
-      
-      setLoading(false);
-      
-      // Clear tokens if user signs out
-      if (!firebaseUser) {
-        setAccessToken(null);
         setDriveAccessToken(null);
         setIsDriveConnected(false);
+        sessionStorage.removeItem('googleDriveAccessToken');
+        sessionStorage.removeItem('googleDriveTokenOwner');
+        sessionStorage.removeItem('isDriveConnected');
+      }
+
+      if (authGenerationRef.current === generation) {
+        setLoading(false);
       }
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      authGenerationRef.current += 1;
+      unsubscribe();
+    };
+  }, [fetchUserProfile]);
 
   const signInWithGoogle = useCallback(async () => {
     setError(null);
@@ -160,13 +181,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const result = await signInWithPopup(auth, googleProvider);
       console.log('[Auth] Google sign-in successful:', result.user.email);
 
-      // Get the Google OAuth access token (basic, no Drive access)
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        console.log('[Auth] Got Google access token');
-        setAccessToken(credential.accessToken);
-        localStorage.setItem('googleAccessToken', credential.accessToken);
-      }
+      // Firebase owns the app login session. The basic Google OAuth token is not
+      // needed by Willow, so do not retain it in JavaScript-readable storage.
     } catch (err: any) {
       console.error('[Auth] Google sign-in error:', err.code, err.message);
 
@@ -185,28 +201,63 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const connectDrive = useCallback(async () => {
     setError(null);
+    const expectedUser = auth.currentUser;
+    const expectedUid = user?.uid;
+    if (!expectedUser || !expectedUid || expectedUser.uid !== expectedUid) {
+      const accountUnavailableError = Object.assign(
+        new Error('Your account is still loading. Please wait a moment and try connecting Drive again.'),
+        { code: 'auth/drive-account-unavailable' }
+      );
+      setError(accountUnavailableError.message);
+      throw accountUnavailableError;
+    }
+
+    const expectedEmail = (user.email || expectedUser.email || '').trim().toLowerCase();
+
     try {
       console.log('[Auth] Starting Google Drive connection...');
 
-      // If user is logged in with Google, use their email as login_hint to skip account selection
-      if (user?.email) {
-        driveProvider.setCustomParameters({
-          login_hint: user.email,
-          prompt: 'consent' // Still show consent for Drive permission
-        });
+      // Use the current account as a hint when available, and always replace
+      // any parameters left on the shared provider by a previous account.
+      driveProvider.setCustomParameters({
+        ...(expectedEmail ? { login_hint: expectedEmail } : {}),
+        prompt: 'consent',
+      });
+
+      // Reauthenticate the existing Firebase user instead of signing in again.
+      // This obtains a fresh Drive-scoped Google token without letting account
+      // selection replace Willow's active Firebase identity.
+      const result = await reauthenticateWithPopup(expectedUser, driveProvider);
+      const returnedEmail = (result.user.email || '').trim().toLowerCase();
+      const identityMatches = result.user.uid === expectedUid && (
+        !expectedEmail || returnedEmail === expectedEmail
+      ) && auth.currentUser?.uid === expectedUid;
+
+      if (!identityMatches) {
+        setDriveAccessToken(null);
+        setIsDriveConnected(false);
+        sessionStorage.removeItem('googleDriveAccessToken');
+        sessionStorage.removeItem('googleDriveTokenOwner');
+        sessionStorage.removeItem('isDriveConnected');
+
+        const mismatchMessage = auth.currentUser?.uid === expectedUid
+          ? `Drive was not connected. Choose the Google account${expectedEmail ? ` ${expectedEmail}` : ' already signed in to Willow'}.`
+          : 'Drive was not connected because the active Willow account changed during authorization. Please try again.';
+        throw Object.assign(new Error(mismatchMessage), { code: 'auth/drive-account-mismatch' });
       }
 
-      const result = await signInWithPopup(auth, driveProvider);
       console.log('[Auth] Google Drive connection successful');
 
       // Get the Google OAuth access token with Drive scope
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
-        console.log('[Auth] Got Google Drive access token');
         setDriveAccessToken(credential.accessToken);
         setIsDriveConnected(true);
-        localStorage.setItem('googleDriveAccessToken', credential.accessToken);
-        localStorage.setItem('isDriveConnected', 'true');
+        sessionStorage.setItem('googleDriveAccessToken', credential.accessToken);
+        sessionStorage.setItem('googleDriveTokenOwner', expectedUid);
+        sessionStorage.setItem('isDriveConnected', 'true');
+      } else {
+        throw new Error('Google Drive did not return an access token. Please try connecting again.');
       }
     } catch (err: any) {
       console.error('[Auth] Google Drive connection error:', err.code, err.message);
@@ -217,31 +268,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setError('Popup was blocked. Please allow popups for this site.');
       } else if (err.code === 'auth/cancelled-popup-request') {
         return;
+      } else if (err.code === 'auth/drive-account-mismatch' || err.code === 'auth/user-mismatch') {
+        setError(
+          err.code === 'auth/user-mismatch'
+            ? `Drive was not connected. Choose the Google account${expectedEmail ? ` ${expectedEmail}` : ' already signed in to Willow'}.`
+            : err.message
+        );
       } else {
         setError(err.message || 'Drive connection failed. Please try again.');
       }
       throw err;
     }
-  }, [user?.email]);
+  }, [user?.email, user?.uid]);
 
   const disconnectDrive = useCallback(() => {
     setDriveAccessToken(null);
     setIsDriveConnected(false);
-    localStorage.removeItem('googleDriveAccessToken');
-    localStorage.removeItem('isDriveConnected');
+    sessionStorage.removeItem('googleDriveAccessToken');
+    sessionStorage.removeItem('googleDriveTokenOwner');
+    sessionStorage.removeItem('isDriveConnected');
     console.log('[Auth] Google Drive disconnected');
   }, []);
 
   const signOut = useCallback(async () => {
     try {
       await firebaseSignOut(auth);
-      setAccessToken(null);
       setDriveAccessToken(null);
       setIsDriveConnected(false);
       setUserProfile(null);
       localStorage.removeItem('googleAccessToken');
       localStorage.removeItem('googleDriveAccessToken');
       localStorage.removeItem('isDriveConnected');
+      sessionStorage.removeItem('googleDriveAccessToken');
+      sessionStorage.removeItem('googleDriveTokenOwner');
+      sessionStorage.removeItem('isDriveConnected');
       setError(null);
       console.log('[Auth] Signed out successfully');
     } catch (err: any) {
@@ -261,20 +321,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, data, { merge: true });
 
-      setUserProfile(prev => prev ? { ...prev, ...data } : {
-        displayName: data.displayName || null,
-        photoURL: data.photoURL || null,
-        role: data.role || null,
-        onboardingComplete: data.onboardingComplete || false,
-        workspaceName: data.workspaceName || null,
-        username: data.username || null,
-        workspaceColor: data.workspaceColor || 'green',
-        workspaceDescription: data.workspaceDescription || null,
-        location: data.location || null,
-        background: data.background || 'solid',
-        theme: data.theme || null,
-        description: data.description || null,
-      });
+      if (auth.currentUser?.uid === user.uid) {
+        setUserProfile(prev => ({ ...(prev || createEmptyUserProfile()), ...data }));
+      }
 
       console.log('[Auth] User profile updated:', data);
     } catch (err) {
@@ -305,31 +354,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     });
   }, [user, updateUserProfile]);
 
-  // Restore tokens from localStorage on mount
+  // Remove tokens persisted by older builds. Login is managed by Firebase and
+  // the Drive token is restored only from this tab's UID-scoped session above.
   useEffect(() => {
-    const storedToken = localStorage.getItem('googleAccessToken');
-    if (storedToken) {
-      setAccessToken(storedToken);
-    }
-    
-    const storedDriveToken = localStorage.getItem('googleDriveAccessToken');
-    const storedDriveConnected = localStorage.getItem('isDriveConnected');
-    if (storedDriveToken && storedDriveConnected === 'true') {
-      setDriveAccessToken(storedDriveToken);
-      setIsDriveConnected(true);
-    }
+    localStorage.removeItem('googleAccessToken');
+    localStorage.removeItem('googleDriveAccessToken');
+    localStorage.removeItem('isDriveConnected');
   }, []);
 
   // If a Drive request reports the token expired/revoked (HTTP 401), clear the
   // stale auth so the UI can prompt a fresh connect instead of failing silently.
   useEffect(() => {
     const handleExpired = () => {
-      setAccessToken(null);
       setDriveAccessToken(null);
       setIsDriveConnected(false);
       localStorage.removeItem('googleAccessToken');
       localStorage.removeItem('googleDriveAccessToken');
       localStorage.removeItem('isDriveConnected');
+      sessionStorage.removeItem('googleDriveAccessToken');
+      sessionStorage.removeItem('googleDriveTokenOwner');
+      sessionStorage.removeItem('isDriveConnected');
       setError('Your Google Drive session expired. Please reconnect Drive.');
     };
     window.addEventListener('willow_drive_auth_expired', handleExpired);
@@ -341,7 +385,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     userProfile,
     loading,
     error,
-    accessToken,
+    // Compatibility signal for older editor callers. It is intentionally null
+    // until Drive is connected and never represents the basic login token.
+    accessToken: isDriveConnected ? driveAccessToken : null,
     driveAccessToken,
     isDriveConnected,
     signInWithGoogle,
@@ -351,10 +397,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearError,
     updateUserProfile,
     completeOnboarding,
-  }), [user, userProfile, loading, error, accessToken, driveAccessToken, isDriveConnected, signInWithGoogle, signOut, connectDrive, disconnectDrive, clearError, updateUserProfile, completeOnboarding]);
+  }), [user, userProfile, loading, error, driveAccessToken, isDriveConnected, signInWithGoogle, signOut, connectDrive, disconnectDrive, clearError, updateUserProfile, completeOnboarding]);
 
   return (
-    <AuthContext.Provider value={{...value, user: { uid: "123", email: "test@test.com" } as any, loading: false}}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

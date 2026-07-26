@@ -353,7 +353,7 @@ Start with "I'll..." then your response, then "I've..." summary.`;
   // ───────────────────────────────
 
   private resolveModel(): {
-    provider: 'gemini' | 'openai' | 'anthropic';
+    provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' | 'moonshot' | 'spacexai' | 'zhipuai';
     modelId: string;
     apiKey: string;
     thinkingLevel: number;
@@ -366,7 +366,7 @@ Start with "I'll..." then your response, then "I've..." summary.`;
     const selected = allSavedModels.find((m: any) => m.id === this.config.selectedModelId);
 
     if (selected) {
-      const provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+      const provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
       return {
         provider,
         modelId: selected.modelId,

@@ -47,6 +47,19 @@ npm test             # 106 tests
 npm run demo         # seeds 3 example workflows and runs one live (no API keys needed)
 ```
 
+To rebuild the Dashboard and serve it with the API from one process, without
+Vite or dotenv, run:
+
+```bash
+npm run start:dashboard
+```
+
+The command first runs the Dashboard's esbuild-only `build:no-env` script, then
+serves `../../Front End/Dashboard/dist` with SPA routing at
+`http://127.0.0.1:8787` while preserving `/api/v1/*` and realtime WebSocket routes.
+For another build directory, use `npm start -- --static-dir /absolute/path/to/dist`
+or set `AGENT_BUILDER_STATIC_DIR` in the process environment.
+
 To point the Dashboard at a standalone backend instead of the middleware, set
 `VITE_AGENT_BUILDER_URL=http://127.0.0.1:8787` in the Dashboard's env.
 

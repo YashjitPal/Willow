@@ -3,7 +3,7 @@ import React from 'react';
 export const AgentIcon = ({ className, size = 24 }: { className?: string, size?: number | string }) => (
   <svg 
     xmlns="http://www.w3.org/2000/svg" 
-    viewBox="10 18 88 88" 
+    viewBox="12 12 96 96" 
     width={size} 
     height={size}
     className={className}
