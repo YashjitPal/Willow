@@ -1598,6 +1598,9 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'gemini' as const })),
       ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'openai' as const })),
       ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
     ];
 
     const selectedModel = allModels.find((m: any) => m.id === selectedModelId);

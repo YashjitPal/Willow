@@ -1,4 +1,5 @@
 import type { JsonObject, JsonSchema } from '../domain/types.ts';
+import type { ModelTokenLimits } from '../domain/modelCapabilities.ts';
 
 /** Tool definition surfaced to the model. */
 export interface LLMToolDef {
@@ -14,9 +15,19 @@ export interface LLMToolCall {
   arguments: JsonObject;
 }
 
+export type LLMInputAttachmentKind = 'image' | 'audio' | 'video';
+export type ModelInputModality = 'text' | LLMInputAttachmentKind;
+
+export interface LLMInputAttachment {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  kind?: LLMInputAttachmentKind;
+}
+
 export type LLMMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; attachments?: LLMInputAttachment[] }
   | { role: 'assistant'; content: string; toolCalls?: LLMToolCall[] }
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
@@ -24,11 +35,16 @@ export interface LLMRequest {
   model: string;
   messages: LLMMessage[];
   tools?: LLMToolDef[];
+  toolChoice?: 'auto' | 'required' | 'none' | { name: string };
+  parallelToolCalls?: boolean;
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  promptCache?: import('../domain/types.ts').PromptCacheConfig;
   /** minimal | low | medium | high */
   reasoningEffort?: string;
+  /** OpenAI Responses text verbosity (gpt-5 family). */
+  verbosity?: 'low' | 'medium' | 'high';
   /** Structured output. */
   jsonSchema?: { name: string; schema: JsonSchema };
   /** Streaming text callback (providers may ignore, e.g. when tools force non-streaming). */
@@ -39,6 +55,17 @@ export interface LLMRequest {
 export interface LLMUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Explicitly distinguishes authoritative zero usage from missing provider usage. */
+  tokenStatus?: 'reported' | 'not_reported';
+  /** Input tokens served from a provider prompt cache (included in inputTokens). */
+  cachedInputTokens?: number;
+  /** Input tokens written to a provider prompt cache (included in inputTokens). */
+  cacheWriteInputTokens?: number;
+  /** Hidden/thinking tokens (included in outputTokens when the provider bills them there). */
+  reasoningTokens?: number;
+  /** Provider-returned model id. Falls back to the requested model. */
+  model?: string;
+  provider?: 'gemini' | 'openai' | 'anthropic' | 'grok' | 'kimi' | 'glm' | 'mock';
 }
 
 export interface LLMResponse {
@@ -49,9 +76,11 @@ export interface LLMResponse {
 }
 
 export interface LLMProvider {
-  id: 'gemini' | 'openai' | 'anthropic' | 'mock';
+  id: 'gemini' | 'openai' | 'anthropic' | 'grok' | 'kimi' | 'glm' | 'mock';
+  /** Final provider JSON envelope, used for conservative preflight sizing. */
+  prepareRequestBody(req: LLMRequest): JsonObject;
   chat(req: LLMRequest, apiKey: string): Promise<LLMResponse>;
-  listModels(apiKey: string): Promise<Array<{ id: string; displayName: string; description?: string }>>;
+  listModels(apiKey: string): Promise<Array<{ id: string; displayName: string; description?: string; inputModalities: ModelInputModality[] } & ModelTokenLimits>>;
 }
 
 export class ProviderError extends Error {
@@ -65,22 +94,90 @@ export class ProviderError extends Error {
   }
 }
 
-/** Route a model id to its provider. */
-export function providerForModel(model: string): 'gemini' | 'openai' | 'anthropic' | 'mock' {
+export function inputModalitiesForModel(provider: LLMProvider['id'], model: string): ModelInputModality[] {
+  const id = model.toLowerCase().replace(/^models\//, '');
+  if (provider === 'gemini') {
+    if (/^gemini-(?:1\.5|2(?:\.|-)|[3-9])/.test(id)) return ['text', 'image', 'audio', 'video'];
+    if (id.includes('vision')) return ['text', 'image'];
+    return ['text'];
+  }
+  if (provider === 'openai') {
+    return /^(?:gpt-(?:4o|4\.1|5)|chatgpt|o1|o3|o4)/.test(id) ? ['text', 'image'] : ['text'];
+  }
+  if (provider === 'anthropic') {
+    return /^claude-(?:3|[4-9]|(?:sonnet|opus|haiku)-[4-9])/.test(id) ? ['text', 'image'] : ['text'];
+  }
+  if (provider === 'grok') return /^grok-/.test(id) ? ['text'] : ['text'];
+  if (provider === 'kimi') return /^kimi-|^moonshot-/.test(id) ? ['text'] : ['text'];
+  if (provider === 'glm') return /^glm-|^chatglm-/.test(id) ? ['text'] : ['text'];
+  return ['text'];
+}
+
+export function unsupportedInputAttachmentKinds(provider: LLMProvider['id'], model: string, messages: LLMMessage[]): string[] {
+  const supported = new Set(inputModalitiesForModel(provider, model));
+  const attachments = messages.flatMap((message) => message.role === 'user' ? message.attachments ?? [] : []);
+  return [...new Set(attachments
+    .map((attachment) => attachment.kind
+      ?? (attachment.mimeType.startsWith('image/') ? 'image'
+        : attachment.mimeType.startsWith('audio/') ? 'audio'
+          : attachment.mimeType.startsWith('video/') ? 'video'
+            : 'binary'))
+    .filter((kind) => kind === 'binary' || !supported.has(kind as ModelInputModality)))];
+}
+
+export function assertInputAttachmentSupport(provider: LLMProvider['id'], model: string, messages: LLMMessage[]): void {
+  const unsupported = unsupportedInputAttachmentKinds(provider, model, messages);
+  if (unsupported.length === 0) return;
+  const modalities = unsupported.join(' and ');
+  const imagesOnly = unsupported.every((kind) => kind === 'image');
+  const guidance = provider === 'openai' && imagesOnly
+    ? 'select a vision-capable OpenAI model such as GPT-4o, GPT-4.1, or GPT-5'
+    : provider === 'anthropic' && imagesOnly
+      ? 'select Claude 3 or newer for image input'
+      : provider === 'gemini'
+        ? 'select Gemini 1.5 or newer for image, audio, and video input'
+        : provider === 'openai'
+          ? 'the Responses adapter accepts image input only; use a Gemini multimodal model for inline audio or video'
+          : provider === 'anthropic'
+            ? 'the Messages adapter accepts image input only; use a Gemini multimodal model for inline audio or video'
+            : 'use a provider-backed multimodal model for binary media input';
+  throw new ProviderError(provider, `model '${model}' does not support ${modalities} attachments in this provider API; ${guidance}`);
+}
+
+export type ProviderId = LLMProvider['id'];
+export type FetchTransport = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+/** Return the provider encoded by a supported model id, or undefined when it is unverified. */
+export function providerForKnownModel(model: string): ProviderId | undefined {
   const m = model.toLowerCase().replace(/^models\//, '');
   if (m.startsWith('mock/') || m === 'mock') return 'mock';
-  if (m.startsWith('gemini') || m.startsWith('imagen') || m.startsWith('veo') || m.startsWith('learnlm')) return 'gemini';
+  if (m.startsWith('gemini-')) return 'gemini';
   if (
-    m.startsWith('gpt') ||
-    m.startsWith('o1') ||
-    m.startsWith('o3') ||
-    m.startsWith('o4') ||
-    m.startsWith('chatgpt') ||
-    m.startsWith('text-embedding')
+    m.startsWith('gpt-') ||
+    /^(?:o1|o3|o4)(?:-|$)/.test(m) ||
+    m.startsWith('chatgpt-')
   ) return 'openai';
-  if (m.startsWith('claude')) return 'anthropic';
-  // default to gemini (the app's primary provider)
-  return 'gemini';
+  if (m.startsWith('claude-')) return 'anthropic';
+  if (m.startsWith('grok-')) return 'grok';
+  if (m.startsWith('kimi-') || m.startsWith('moonshot-')) return 'kimi';
+  if (m.startsWith('glm-') || m.startsWith('chatglm-')) return 'glm';
+  return undefined;
+}
+
+export class UnknownModelError extends Error {
+  readonly model: string;
+  constructor(model: string) {
+    super(`Unknown model '${model}'. Select a model returned by the model catalog; Willow will not guess its provider.`);
+    this.name = 'UnknownModelError';
+    this.model = model;
+  }
+}
+
+/** Route a verified model id to its provider without guessing. */
+export function providerForModel(model: string): ProviderId {
+  const provider = providerForKnownModel(model);
+  if (!provider) throw new UnknownModelError(model);
+  return provider;
 }
 
 /**
@@ -93,6 +190,7 @@ export async function fetchWithRetry(
   init: RequestInit & { timeoutMs?: number },
   provider: string,
   retries = 2,
+  transport: FetchTransport = globalThis.fetch,
 ): Promise<Response> {
   const timeoutMs = init.timeoutMs ?? 120_000;
   let lastErr: Error | undefined;
@@ -111,7 +209,7 @@ export async function fetchWithRetry(
     headerTimer.unref?.();
 
     try {
-      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      const res = await transport(url, { ...init, signal: ctrl.signal });
       clearTimeout(headerTimer); // headers received — let the body stream freely
       if (res.status === 429 || res.status >= 500) {
         if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);

@@ -105,18 +105,21 @@ export const DesignChat: React.FC<DesignChatProps> = ({ modelConfig, selectedMod
 
     try {
       // Find selected provider and model — same logic as main sidebar
-      let provider: 'gemini' | 'openai' | 'anthropic' = 'gemini';
+      let provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' | 'moonshot' | 'spacexai' | 'zhipuai' = 'gemini';
       let modelId = '';
 
       const allSavedModels = [
         ...(modelConfig.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' })),
         ...(modelConfig.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' })),
-        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' }))
+        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' })),
+        ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' })),
+        ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' })),
+        ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
       ];
 
       const selected = allSavedModels.find((m: any) => m.id === selectedModelId);
       if (selected) {
-        provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+        provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
         modelId = selected.modelId;
       } else {
         // Fallback to default

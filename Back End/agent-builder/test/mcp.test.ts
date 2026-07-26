@@ -48,6 +48,10 @@ before(async () => {
         content: [{ type: 'text', text: `Hello, ${name}!` }],
       }),
     );
+    s.registerTool('slow', { description: 'Delayed tool', inputSchema: { delayMs: z.number() } }, async ({ delayMs }) => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return { content: [{ type: 'text', text: 'finished' }] };
+    });
     return s;
   };
 
@@ -112,7 +116,7 @@ describe('MCP end-to-end', () => {
     serverId = created.data.server.id;
     assert.equal(created.data.server.status, 'connected');
     const toolNames = created.data.server.tools.map((t: any) => t.name).sort();
-    assert.deepEqual(toolNames, ['add', 'greet']);
+    assert.deepEqual(toolNames, ['add', 'greet', 'slow']);
   });
 
   it('calls a tool directly through the registry', async () => {
@@ -121,6 +125,13 @@ describe('MCP end-to-end', () => {
     });
     assert.equal(res.status, 200, JSON.stringify(res.data));
     assert.equal(res.data.result, '42');
+  });
+
+  it('aborts a direct MCP call at its timeout without retrying', async () => {
+    await assert.rejects(
+      app.mcp.callTool(serverId, 'slow', { delayMs: 250 }, { timeoutMs: 40, retryTransport: false }),
+      /timed out|abort/i,
+    );
   });
 
   it('standalone MCP node executes with templated arguments', async () => {
@@ -238,7 +249,7 @@ describe('MCP end-to-end', () => {
             config: {
               instructions: 'use the adder',
               model: 'mock/tool:test_mcp__add',
-              tools: [{ kind: 'mcp', serverId, requireApproval: 'always' }],
+              tools: [{ kind: 'mcp', serverId, requireApproval: 'always', executionPolicy: { timeoutMs: 1000 } }],
               outputFormat: 'text',
               includeChatHistory: false,
               writeToConversationHistory: true,
@@ -256,6 +267,9 @@ describe('MCP end-to-end', () => {
     });
     const paused = await waitForRun(app, run.id, ['awaiting_approval']);
     assert.equal(paused.pendingApproval?.kind, 'mcp_tool');
+    assert.equal(paused.pendingApproval?.expiresAt, undefined);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal((await app.engine.getRun(run.id))?.status, 'awaiting_approval');
 
     await app.engine.resolveApproval(run.id, paused.pendingApproval!.id, { approved: true });
     const done = await waitForRun(app, run.id, ['completed', 'failed']);

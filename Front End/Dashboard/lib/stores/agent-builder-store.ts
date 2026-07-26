@@ -8,18 +8,24 @@
  */
 
 import { atom, map } from 'nanostores';
-import type { NodeDataContract, PendingApproval, RunEvent, RunStatus } from '@agentbuilder';
+import type { NestedRunWait, NodeDataContract, PendingApproval, RunEvent, RunInput, RunStatus, SafetyFinding, SdkCodeBundle } from '@agentbuilder';
+import type { ValidationIssue } from '@agentbuilder';
 
 export type BackendStatus = 'unknown' | 'checking' | 'up' | 'down';
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
 
 export interface CurrentWorkflow {
   id: string;
   name: string;
+  description: string;
   latestVersion: number;
+  draftRevision: number;
   valid: boolean;
   errors: string[];
   warnings: string[];
+  errorIssues: ValidationIssue[];
+  warningIssues: ValidationIssue[];
+  safetyFindings: SafetyFinding[];
   contracts: NodeDataContract[];
 }
 
@@ -32,13 +38,32 @@ export interface RunState {
   nodeStatuses: Array<{ nodeId: string; name: string; status: 'running' | 'ok' | 'error'; detail?: string }>;
   events: RunEvent[];
   pendingApproval: PendingApproval | null;
+  nestedWait: NestedRunWait | null;
+  debugPause: { nodeId: string; lastNodeId?: string; state: Record<string, unknown>; nodeOutputs: Record<string, unknown>; pausedAt: string } | null;
+  credentialRequirements: { providers: Array<'gemini' | 'openai' | 'anthropic'> } | null;
   output: unknown;
   error: string | null;
+  usage: { inputTokens: number; outputTokens: number; llmCalls: number; toolCalls: number };
+  state: Record<string, unknown>;
+  startedAt: string | null;
+  endedAt: string | null;
+  attachments: NonNullable<RunInput['attachments']>;
 }
 
 export const backendStatus = atom<BackendStatus>('unknown');
 export const saveStatus = atom<SaveStatus>('idle');
 export const currentWorkflow = atom<CurrentWorkflow | null>(null);
+/** Active canvas save guard used before app-level navigation unmounts the builder. */
+export const agentBuilderDraftFlush = atom<(() => Promise<boolean>) | null>(null);
+export interface AutosaveConflict {
+  workflowId: string;
+  expectedRevision: number;
+  currentRevision: number;
+  message: string;
+}
+export const autosaveConflict = atom<AutosaveConflict | null>(null);
+/** Incremented whenever the canvas is replaced with a newer remote draft. */
+export const remoteDraftReloadEpoch = atom<number>(0);
 
 /** Workflows list for the sidebar Library card. */
 export const workflowList = atom<
@@ -55,17 +80,45 @@ export const runState = map<RunState>({
   nodeStatuses: [],
   events: [],
   pendingApproval: null,
+  nestedWait: null,
+  debugPause: null,
+  credentialRequirements: null,
   output: null,
   error: null,
+  usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0, toolCalls: 0 },
+  state: {},
+  startedAt: null,
+  endedAt: null,
+  attachments: [],
 });
 
 /** Run panel visibility. */
 export const runPanelOpen = atom<boolean>(false);
+export const runHistoryPanelOpen = atom<boolean>(false);
+/** Run ID to inspect when history is opened from another trace surface. */
+export const requestedRunHistoryRunId = atom<string | null>(null);
+
+/** Run-only debugger breakpoints, kept outside workflow graph persistence. */
+export const debugBreakpoints = atom<Record<string, string[]>>({});
+
+export function toggleDebugBreakpoint(workflowId: string, nodeId: string): void {
+  const current = debugBreakpoints.get();
+  const workflowBreakpoints = new Set(current[workflowId] ?? []);
+  if (workflowBreakpoints.has(nodeId)) workflowBreakpoints.delete(nodeId);
+  else workflowBreakpoints.add(nodeId);
+  debugBreakpoints.set({ ...current, [workflowId]: [...workflowBreakpoints].sort() });
+}
 
 /** Code export modal. */
-export const codeModal = map<{ open: boolean; loading: boolean; format: 'typescript' | 'python'; code: string; error: string | null }>(
-  { open: false, loading: false, format: 'typescript', code: '', error: null },
-);
+export type CodeExportFormat = 'typescript' | 'python' | 'typescript-sdk' | 'python-sdk' | 'json';
+export const codeModal = map<{
+  open: boolean;
+  loading: boolean;
+  format: CodeExportFormat;
+  code: string;
+  bundle: SdkCodeBundle | null;
+  error: string | null;
+}>({ open: false, loading: false, format: 'typescript', code: '', bundle: null, error: null });
 
 /**
  * Action triggers — the top bar increments these; the canvas hook watches
@@ -75,7 +128,21 @@ export const previewTrigger = atom<number>(0);
 export const codeTrigger = atom<number>(0);
 export const publishTrigger = atom<number>(0);
 export const evaluationPanelOpen = atom<boolean>(false);
+/** Node-scoped grader counts derived from evaluation definitions, never persisted into workflow nodes. */
+export const evaluationGraderCounts = atom<Record<string, number>>({});
+/** Optional Agent node that should be preselected when opening Evaluate from its config panel. */
+export const requestedEvaluationNodeId = atom<string | null>(null);
+export interface EvaluationTraceFocusRequest {
+  runId: string;
+  nodeId?: string;
+  spanType?: 'node' | 'llm' | 'tool' | 'guardrail' | 'approval' | 'state' | 'run';
+  occurrence?: number;
+  targetKey?: string;
+}
+/** Evaluation result drilldown request consumed by Run History. */
+export const evaluationTraceFocusRequest = atom<EvaluationTraceFocusRequest | null>(null);
 export const versionPanelOpen = atom<boolean>(false);
+export const publishDialogOpen = atom<boolean>(false);
 
 export function firePreview(): void {
   previewTrigger.set(previewTrigger.get() + 1);
@@ -95,7 +162,15 @@ export function resetRunState(): void {
     nodeStatuses: [],
     events: [],
     pendingApproval: null,
+    nestedWait: null,
+    debugPause: null,
+    credentialRequirements: null,
     output: null,
     error: null,
+    usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0, toolCalls: 0 },
+    state: {},
+    startedAt: null,
+    endedAt: null,
+    attachments: [],
   });
 }

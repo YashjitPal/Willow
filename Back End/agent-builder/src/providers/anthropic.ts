@@ -5,6 +5,7 @@
 
 import type { JsonObject } from '../domain/types.ts';
 import {
+  assertInputAttachmentSupport,
   consumeSse,
   fetchWithRetry,
   ProviderError,
@@ -13,7 +14,9 @@ import {
   type LLMRequest,
   type LLMResponse,
   type LLMToolCall,
+  inputModalitiesForModel,
 } from './types.ts';
+import { pinnedModelTokenLimits } from '../domain/modelCapabilities.ts';
 
 const BASE = 'https://api.anthropic.com/v1';
 const VERSION = '2023-06-01';
@@ -27,7 +30,11 @@ function toAnthropicMessages(messages: LLMMessage[]): { system?: string; message
       continue;
     }
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      const blocks: JsonObject[] = [{ type: 'text', text: m.content }];
+      for (const attachment of m.attachments ?? []) {
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: attachment.mimeType, data: attachment.dataBase64 } });
+      }
+      out.push({ role: 'user', content: blocks as unknown as JsonObject[string] });
       continue;
     }
     if (m.role === 'assistant') {
@@ -68,8 +75,28 @@ function toAnthropicMessages(messages: LLMMessage[]): { system?: string; message
 
 export const anthropicProvider: LLMProvider = {
   id: 'anthropic',
+  prepareRequestBody(req) {
+    const { system, messages } = toAnthropicMessages(req.messages);
+    let sys = system;
+    if (req.jsonSchema) {
+      const note = `You must respond with ONLY a single JSON value that validates against this JSON schema (no prose, no markdown fences):\n${JSON.stringify(req.jsonSchema.schema)}`;
+      sys = sys ? `${sys}\n\n${note}` : note;
+    }
+    const body: JsonObject = { model: req.model, max_tokens: req.maxTokens ?? 4096, messages: messages as unknown as JsonObject[string] };
+    if (sys) body.system = req.promptCache?.policy === 'enabled' ? [{ type: 'text', text: sys, cache_control: { type: 'ephemeral', ttl: req.promptCache.retention ?? '5m' } }] as unknown as JsonObject[string] : sys;
+    if (req.temperature !== undefined) body.temperature = req.temperature;
+    if (req.topP !== undefined) body.top_p = req.topP;
+    if (req.tools?.length && req.toolChoice !== 'none') {
+      body.tools = req.tools.map((tool) => ({ name: tool.name, description: tool.description ?? '', input_schema: tool.parameters ?? { type: 'object', properties: {} } })) as unknown as JsonObject[string];
+      body.tool_choice = typeof req.toolChoice === 'object' ? { type: 'tool', name: req.toolChoice.name } : { type: req.toolChoice === 'required' ? 'any' : 'auto' };
+      (body.tool_choice as JsonObject).disable_parallel_tool_use = req.parallelToolCalls === false;
+    }
+    if (req.onDelta) body.stream = true;
+    return body;
+  },
 
   async chat(req: LLMRequest, apiKey: string): Promise<LLMResponse> {
+    assertInputAttachmentSupport('anthropic', req.model, req.messages);
     const { system, messages } = toAnthropicMessages(req.messages);
 
     // Structured output: Anthropic has no response_format; instruct via system.
@@ -86,23 +113,32 @@ export const anthropicProvider: LLMProvider = {
       max_tokens: req.maxTokens ?? 4096,
       messages: messages as unknown as JsonObject[string],
     };
-    if (sys) body.system = sys;
+    if (sys) {
+      body.system = req.promptCache?.policy === 'enabled'
+        ? [{ type: 'text', text: sys, cache_control: { type: 'ephemeral', ttl: req.promptCache.retention ?? '5m' } }] as unknown as JsonObject[string]
+        : sys;
+    }
     if (req.temperature !== undefined) body.temperature = req.temperature;
     if (req.topP !== undefined) body.top_p = req.topP;
     // NOTE: reasoningEffort is deliberately NOT mapped to the legacy
     // `thinking: {type:'enabled', budget_tokens}` param — current Claude
     // models reject it, and replaying thinking blocks through the tool loop
     // needs dedicated handling. Claude models reason adaptively by default.
-    if (req.tools?.length) {
+    if (req.tools?.length && req.toolChoice !== 'none') {
       body.tools = req.tools.map((t) => ({
         name: t.name,
         description: t.description ?? '',
         input_schema: t.parameters ?? { type: 'object', properties: {} },
       })) as unknown as JsonObject[string];
+      body.tool_choice = typeof req.toolChoice === 'object'
+        ? { type: 'tool', name: req.toolChoice.name }
+        : { type: req.toolChoice === 'required' ? 'any' : 'auto' };
+      (body.tool_choice as JsonObject).disable_parallel_tool_use = req.parallelToolCalls === false;
     }
 
     const streaming = !!req.onDelta;
     if (streaming) body.stream = true;
+    const preparedBody = anthropicProvider.prepareRequestBody(req);
 
     const res = await fetchWithRetry(
       `${BASE}/messages`,
@@ -113,7 +149,7 @@ export const anthropicProvider: LLMProvider = {
           'x-api-key': apiKey,
           'anthropic-version': VERSION,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(preparedBody),
         signal: req.abortSignal,
       },
       'anthropic',
@@ -126,7 +162,7 @@ export const anthropicProvider: LLMProvider = {
 
     let text = '';
     const toolCalls: LLMToolCall[] = [];
-    let usage = { inputTokens: 0, outputTokens: 0 };
+    let usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, model: req.model };
     let finishReason: string | undefined;
 
     if (streaming) {
@@ -150,7 +186,12 @@ export const anthropicProvider: LLMProvider = {
         if (type === 'message_start') {
           const msg = ev.message as JsonObject | undefined;
           const u = msg?.usage as JsonObject | undefined;
-          if (u) usage.inputTokens = Number(u.input_tokens ?? 0);
+          if (u) {
+            usage.cachedInputTokens = Number(u.cache_read_input_tokens ?? 0);
+            usage.cacheWriteInputTokens = Number(u.cache_creation_input_tokens ?? 0);
+            usage.inputTokens = Number(u.input_tokens ?? 0) + usage.cachedInputTokens + usage.cacheWriteInputTokens;
+          }
+          if (typeof msg?.model === 'string') usage.model = msg.model;
         } else if (type === 'content_block_start') {
           const block = ev.content_block as JsonObject | undefined;
           if (block?.type === 'tool_use') {
@@ -203,8 +244,14 @@ export const anthropicProvider: LLMProvider = {
     const u = payload.usage as JsonObject | undefined;
     if (u) {
       usage = {
-        inputTokens: Number(u.input_tokens ?? 0),
+        inputTokens:
+          Number(u.input_tokens ?? 0)
+          + Number(u.cache_read_input_tokens ?? 0)
+          + Number(u.cache_creation_input_tokens ?? 0),
         outputTokens: Number(u.output_tokens ?? 0),
+        cachedInputTokens: Number(u.cache_read_input_tokens ?? 0),
+        cacheWriteInputTokens: Number(u.cache_creation_input_tokens ?? 0),
+        model: typeof payload.model === 'string' ? payload.model : req.model,
       };
     }
     return { text, toolCalls: toolCalls.filter((c) => c.name), usage, finishReason };
@@ -227,6 +274,8 @@ export const anthropicProvider: LLMProvider = {
     return (data.data ?? []).map((m) => ({
       id: m.id,
       displayName: m.display_name ?? m.id,
+      inputModalities: inputModalitiesForModel('anthropic', m.id),
+      ...pinnedModelTokenLimits(m.id),
     }));
   },
 };

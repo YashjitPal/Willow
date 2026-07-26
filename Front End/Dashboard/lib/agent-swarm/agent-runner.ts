@@ -82,7 +82,7 @@ export class AgentRunner {
       try {
         await streamChat(
           this.state.messageHistory as AiChatMessage[],
-          { provider, model: modelId, apiKey, thinkingLevel },
+          { provider, model: modelId, apiKey, thinkingLevel, baseUrl: this.config.modelConfig?.[provider]?.baseUrl, signal: this.config.abortSignal },
           (token) => {
             if (this._aborted || this.config.abortSignal?.aborted) return;
             responseText += token;
@@ -174,7 +174,7 @@ export class AgentRunner {
   }
 
   private resolveModel(): {
-    provider: 'gemini' | 'openai' | 'anthropic';
+    provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' | 'moonshot' | 'spacexai' | 'zhipuai';
     modelId: string;
     apiKey: string;
     thinkingLevel: number;
@@ -187,7 +187,7 @@ export class AgentRunner {
     const selected = allSavedModels.find((m: any) => m.id === this.config.selectedModelId);
 
     if (selected) {
-      const provider = selected.provider as 'gemini' | 'openai' | 'anthropic';
+      const provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
       return {
         provider,
         modelId: selected.modelId,

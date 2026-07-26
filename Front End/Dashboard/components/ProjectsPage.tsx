@@ -37,9 +37,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
-import { loadAllProjectCovers, deleteProjectData } from '../lib/mediaStorage';
+import { loadAllProjectCovers, deleteProjectData, PROJECT_COVERS_UPDATED_EVENT } from '../lib/mediaStorage';
 import { deleteCodeSessions } from '../lib/willowDB';
 import { useLocalFS } from '../context/LocalFSContext';
+import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
 
 interface ProjectCardProps {
   id: string;
@@ -51,6 +52,7 @@ interface ProjectCardProps {
   isStarred?: boolean;
   hasChat?: boolean;
   isShared?: boolean;
+  kind?: 'media' | 'code';
 }
 
 // Removed static PROJECT_DATA. It will be loaded dynamically.
@@ -338,6 +340,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   const [starredProjects, setStarredProjects] = useState<Set<string>>(new Set());
 
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
+  const coverLoadSequence = useRef(0);
   const navigate = useNavigate();
 
   // Permanently delete a project across all storage layers (IndexedDB media +
@@ -346,18 +349,16 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     const ok = window.confirm(`Delete "${title}"? This permanently removes it from this device.`);
     if (!ok) return;
     try {
+      const diskDeleted = await deleteLocalFSProject(id, title);
+      if (!diskDeleted) throw new Error('The project folder could not be deleted. Nothing was removed from browser storage.');
       await deleteProjectData(id);
-      await deleteLocalFSProject(id, title);
       // Code-editor sessions are keyed by project NAME — remove them too so a
       // "permanent" delete doesn't leave orphaned session data in IndexedDB.
       void deleteCodeSessions(`willow_chat_sessions_${title}`);
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const updated = list.filter((p: any) => p.id !== id);
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-        window.dispatchEvent(new Event('willow_projects_updated'));
-      }
+      const list = readProjectRegistry() as any[];
+      const updated = list.filter((p: any) => p.id !== id);
+      writeProjectRegistry(updated);
+      window.dispatchEvent(new Event('willow_projects_updated'));
       setProjectsData(prev => prev.filter(p => p.id !== id));
     } catch (err) {
       console.error('Failed to delete project', err);
@@ -384,13 +385,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   const handleCreateNewProject = () => {
     const dateName = formatProjectDate(new Date());
 
-    const stored = localStorage.getItem('willow_projects_list');
-    let existingProjects: any[] = [];
-    if (stored) {
-      try {
-        existingProjects = JSON.parse(stored);
-      } catch (e) {}
-    }
+    const existingProjects = readProjectRegistry() as any[];
 
     // Mint an id no existing project already uses — the temp id's "#XXXX"
     // suffix becomes the real project id on materialization, and a duplicate
@@ -413,20 +408,29 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     navigate(`/media?projectId=${encodeURIComponent(tempId)}&tempName=${encodeURIComponent(uniqueName)}`);
   };
 
+  const handleOpenProject = (project: ProjectCardProps) => {
+    sessionStorage.setItem('staging-nav', 'true');
+    if (project.kind === 'code') {
+      navigate(`/project1?projectId=${encodeURIComponent(project.id)}`);
+    } else {
+      navigate(`/media?projectId=${encodeURIComponent(project.id)}`);
+    }
+  };
+
   useEffect(() => {
     const loadProjects = () => {
       try {
-        const stored = localStorage.getItem('willow_projects_list');
-        if (stored) {
-          const list = JSON.parse(stored);
+          const list = readProjectRegistry() as any[];
           
+          const sequence = ++coverLoadSequence.current;
           loadAllProjectCovers().then(covers => {
+            if (sequence !== coverLoadSequence.current) return;
             setCoverUrls(covers);
             // Registry array order is CREATION order (new projects are
             // appended) — reverse for display so newest comes first, matching
             // the Media grid and the Code tab's My Apps panel. Display-only;
             // the registry is never written back reordered (invariant #1).
-            const mapped = list.slice().reverse().map((p: any, index: number) => ({
+            const mapped: ProjectCardProps[] = list.slice().reverse().map((p: any) => ({
               id: p.id,
               title: p.name,
               edited: 'Edited recently',
@@ -434,17 +438,21 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
               creator: 'redacted@example.com',
               thumbnail: covers[p.id] || p.coverUrl || '',
               hasChat: true,
-              isStarred: p.isStarred
+              isStarred: p.isStarred,
+              kind: p.kind === 'code' ? 'code' : 'media',
             }));
             setProjectsData(mapped);
             setStarredProjects(new Set(mapped.filter((p: any) => p.isStarred).map((p: any) => p.id)));
           });
-        }
       } catch (e) {}
     };
     loadProjects();
     window.addEventListener('willow_projects_updated', loadProjects);
-    return () => window.removeEventListener('willow_projects_updated', loadProjects);
+    window.addEventListener(PROJECT_COVERS_UPDATED_EVENT, loadProjects);
+    return () => {
+      window.removeEventListener('willow_projects_updated', loadProjects);
+      window.removeEventListener(PROJECT_COVERS_UPDATED_EVENT, loadProjects);
+    };
   }, []);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
@@ -515,13 +523,10 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     // Persist the starred flag into the project registry so it survives reloads
     // and stays in sync across surfaces (e.g. the BottomPanel).
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-        window.dispatchEvent(new Event('willow_projects_updated'));
-      }
+      const list = readProjectRegistry() as any[];
+      const updated = list.map((p: any) => (p.id === id ? { ...p, isStarred: newStarred.has(id) } : p));
+      writeProjectRegistry(updated);
+      window.dispatchEvent(new Event('willow_projects_updated'));
     } catch {}
   };
 
@@ -650,7 +655,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                 const isMenuOpen = openMenuId === project.id;
 
                 return (
-                  <div key={project.id} className="group cursor-pointer">
+                  <div key={project.id} className="group cursor-pointer" onClick={() => handleOpenProject(project)}>
                       <div className="relative aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
                           {project.thumbnail ? (
                             isCoverVideo(project.thumbnail) ? (
@@ -750,6 +755,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                     <div 
                       key={project.id} 
                       className="grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-6 border-b border-white/5 items-center group/row hover:bg-white/[0.02] transition-colors cursor-pointer"
+                      onClick={() => handleOpenProject(project)}
                     >
                       <div className="flex items-center gap-6 min-w-0">
                         <div className="relative w-[130px] aspect-[16/9] rounded-xl overflow-hidden border border-white/5 bg-[#2c2c2e] shrink-0 shadow-lg">

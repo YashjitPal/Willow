@@ -13,6 +13,7 @@ export async function makeApp(): Promise<{ app: App; cleanup: () => Promise<void
   process.env.AGENT_BUILDER_DATA_DIR = dir;
   process.env.AGENT_BUILDER_STORAGE = 'json';
   process.env.AGENT_BUILDER_LOG = 'silent';
+  process.env.AGENT_BUILDER_ALLOW_PRIVATE_NETWORKS = 'true';
   delete process.env.AGENT_BUILDER_API_TOKEN;
   // Tests must remain deterministic even when a developer shell exports a
   // provider key for local development. Vector-store coverage explicitly

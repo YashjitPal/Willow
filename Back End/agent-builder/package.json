@@ -10,16 +10,23 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "node src/index.ts",
+    "build:dashboard": "npm --prefix \"../../Front End/Dashboard\" run build:no-env",
+    "start:dashboard": "npm run build:dashboard && node src/index.ts --static-dir \"../../Front End/Dashboard/dist\"",
     "dev": "node --watch src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/*.test.ts\"",
     "demo": "node scripts/demo.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
+    "@openai/agents": "^0.13.4",
     "@types/node": "^22.14.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.8.2",
     "zod": "^4.4.3"
   }

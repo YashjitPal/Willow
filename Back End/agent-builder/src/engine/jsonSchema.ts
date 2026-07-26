@@ -12,6 +12,84 @@ export interface SchemaIssue {
   message: string;
 }
 
+const SCHEMA_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'object', 'array', 'null']);
+
+/** Validate the schema document itself before it is sent to a provider. */
+export function validateSchemaDefinition(schema: JsonSchema, path = '$', depth = 0): SchemaIssue[] {
+  const issues: SchemaIssue[] = [];
+  if (depth > 12) return [{ path, message: 'schema nesting exceeds 12 levels' }];
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return [{ path, message: 'schema must be an object' }];
+  }
+  const type = schema.type;
+  const types = typeof type === 'string' ? [type] : Array.isArray(type) ? type : [];
+  const alternatives = Array.isArray(schema.anyOf) ? schema.anyOf : [];
+  if (types.length === 0 && alternatives.length === 0) issues.push({ path: `${path}.type`, message: 'type or anyOf is required' });
+  for (const candidate of types) {
+    if (typeof candidate !== 'string' || !SCHEMA_TYPES.has(candidate)) {
+      issues.push({ path: `${path}.type`, message: `unsupported type '${String(candidate)}'` });
+    }
+  }
+  if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.length === 0)) {
+    issues.push({ path: `${path}.enum`, message: 'enum must be a non-empty array' });
+  }
+  alternatives.forEach((alternative, index) => {
+    if (!alternative || typeof alternative !== 'object' || Array.isArray(alternative)) {
+      issues.push({ path: `${path}.anyOf[${index}]`, message: 'anyOf entries must be schema objects' });
+    } else {
+      issues.push(...validateSchemaDefinition(alternative as JsonSchema, `${path}.anyOf[${index}]`, depth + 1));
+    }
+  });
+  if (types.includes('object')) {
+    if (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties)) {
+      issues.push({ path: `${path}.properties`, message: 'object schemas need a properties object' });
+    } else {
+      for (const [name, child] of Object.entries(schema.properties)) {
+        if (!name.trim()) issues.push({ path: `${path}.properties`, message: 'property names cannot be empty' });
+        if (!child || typeof child !== 'object' || Array.isArray(child)) {
+          issues.push({ path: `${path}.properties.${name}`, message: 'property schema must be an object' });
+        } else {
+          issues.push(...validateSchemaDefinition(child as JsonSchema, `${path}.properties.${name}`, depth + 1));
+        }
+      }
+      if (schema.required !== undefined) {
+        if (!Array.isArray(schema.required) || schema.required.some((name) => typeof name !== 'string')) {
+          issues.push({ path: `${path}.required`, message: 'required must be an array of property names' });
+        } else {
+          for (const name of schema.required) {
+            if (!((name as string) in schema.properties)) {
+              issues.push({ path: `${path}.required`, message: `unknown required property '${String(name)}'` });
+            }
+          }
+        }
+      }
+      const propertyNames = Object.keys(schema.properties);
+      const requiredNames = Array.isArray(schema.required) ? new Set(schema.required.filter((name): name is string => typeof name === 'string')) : new Set<string>();
+      for (const name of propertyNames) {
+        if (!requiredNames.has(name)) issues.push({ path: `${path}.required`, message: `strict schemas must require property '${name}'` });
+      }
+      if (schema.additionalProperties !== false) {
+        issues.push({ path: `${path}.additionalProperties`, message: 'strict object schemas must set additionalProperties to false' });
+      }
+    }
+  }
+  if (types.includes('array')) {
+    if (!schema.items || typeof schema.items !== 'object' || Array.isArray(schema.items)) {
+      issues.push({ path: `${path}.items`, message: 'array schemas need an items schema' });
+    } else {
+      issues.push(...validateSchemaDefinition(schema.items as JsonSchema, `${path}.items`, depth + 1));
+    }
+  }
+  for (const [minimum, maximum] of [['minimum', 'maximum'], ['minLength', 'maxLength'], ['minItems', 'maxItems']] as const) {
+    const min = schema[minimum];
+    const max = schema[maximum];
+    if (min !== undefined && (typeof min !== 'number' || min < 0)) issues.push({ path: `${path}.${minimum}`, message: `${minimum} must be a non-negative number` });
+    if (max !== undefined && (typeof max !== 'number' || max < 0)) issues.push({ path: `${path}.${maximum}`, message: `${maximum} must be a non-negative number` });
+    if (typeof min === 'number' && typeof max === 'number' && min > max) issues.push({ path, message: `${minimum} cannot exceed ${maximum}` });
+  }
+  return issues;
+}
+
 function typeOf(v: JsonValue): string {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
@@ -148,7 +226,10 @@ export function schemaFromSimpleProperties(
       : 'string';
     const entry: JsonObject = { type: jsonType };
     if (p.description) entry.description = p.description;
-    if (jsonType === 'array') entry.items = {};
+    // Strict structured outputs require an item schema for arrays. The simple
+    // UI only captures the collection type, so use the documented neutral
+    // string-item default rather than emitting an invalid empty schema.
+    if (jsonType === 'array') entry.items = { type: 'string' };
     props[p.name] = entry;
     required.push(p.name);
   }

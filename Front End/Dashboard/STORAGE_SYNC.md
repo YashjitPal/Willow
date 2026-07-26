@@ -34,11 +34,37 @@ persist data across **three layers**:
 | Layer | Role | Quota |
 |-------|------|-------|
 | **localStorage** | lightweight metadata only (registry, indexes, flags, settings) | ~5 MB → keep tiny |
-| **IndexedDB** | all heavy payloads (media base64, covers, chat bodies, code snapshots) | effectively unlimited |
+| **IndexedDB** | all heavy payloads (media base64, covers, chat bodies, code snapshots) | browser-managed quota; persistent storage is requested, but no web store is literally unlimited |
 | **Disk** (File System Access API) | optional mirror into a real folder; **source of truth** for which projects exist, their kind, and their name | none |
 
 Golden rule of the split: **localStorage = pointers/indexes; IndexedDB = heavy
 bytes; Disk = truth.** When the disk is connected, it wins.
+
+### Sync hardening (current implementation)
+
+> Scope note: current project registries use `willow_projects_list:v2:<scope>`
+> through `projectStorage.ts`; project deletion guards and code-session keys are
+> scoped by the same user/root/workspace id. Any unscoped key names shown later
+> describe legacy migration inputs, not keys new code may write.
+
+- Chat metadata and bodies are scoped by authenticated user, stable selected-root
+  id, and workspace name. Legacy global chat records are claimed by one scope
+  during migration and are never replayed into another account or folder.
+- Media records, covers, media indexes, Code-mode chat markers, and pinned chats
+  use that same user/root/workspace scope. Legacy media is assigned to one
+  authenticated scope; unowned marker/pin data is not copied across accounts.
+- Chat changes use monotonic revisions plus durable `dirty` and `tombstone`
+  records. A failed disk write stays retryable; it is never converted into an
+  external deletion after a timeout.
+- Startup completes one initial reconciliation before authorization enables the
+  observer/poller. Chat operations and project snapshots are serialized locally
+  and, where supported, coordinated across tabs with the Web Locks API.
+- Existing disk chat files are compared by modification time. Clean external
+  edits refresh IndexedDB and the active UI; conflicts with dirty local edits are
+  preserved as separate conflict copies.
+- IndexedDB mutation helpers resolve only after transaction commit. The selected
+  directory record includes a stable root id, and large fallback file copies use
+  streams rather than whole-file `ArrayBuffer` allocations.
 
 ---
 
@@ -65,11 +91,19 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | Key | Shape | Owner |
 |-----|-------|-------|
 | `willow_projects_list` | `Reg[]` (see [§4](#4-data-shapes)) — the **project registry** | everyone reads; mutations centralized |
-| `willow_local_chats` | `string[]` of chat ids (inbox index) | LocalFSContext |
-| `willow_chat_timestamps` | `{ [chatId]: epochMs }` for newest-first sort | LocalFSContext |
-| `willow_pinned_chats` | `string[]` of pinned chat ids | Sidebar |
-| `apiKeys`, `userSettings`, `providerState`, `modelConfig`, `selectedModelId` | user settings | settings UI |
-| `googleAccessToken`, `googleDriveAccessToken`, `isDriveConnected` | OAuth/Drive (separate from the local folder) | AuthContext |
+| `willow_local_chats:<scope>` | `string[]` of chat ids, scoped by user/root/workspace | LocalFSContext |
+| `willow_chat_timestamps:<scope>` | `{ [chatId]: epochMs }` for newest-first sort | LocalFSContext |
+| `willow_chat_sync_state:<scope>` | revisions, disk mtimes, dirty flags, tombstones | LocalFSContext |
+| `willow_pinned_chats:v2:<scope>` | `string[]` of pinned chat ids | Sidebar |
+| `willow_media_index:<scope>` / `willow_media_index_meta:<scope>` | lightweight media counts + revision metadata | mediaStorage |
+| `willow_code_chats:v2:<scope>` / `willow_code_chat_state:v2:<scope>:<chat>` | Code-mode markers and tombstones | codeChatStorage |
+| `modelConfig`, `selectedModelId` | non-secret UI settings | settings UI |
+| `googleAccessToken`, `googleDriveAccessToken`, `isDriveConnected` | legacy OAuth keys; removed on startup | AuthContext |
+
+API keys/provider settings and Drive-scoped OAuth credentials are held only in
+UID-scoped `sessionStorage` for the current tab; the basic Google login token is
+never persisted by Willow. Legacy unscoped secret caches are deleted, not
+adopted by the next signed-in account.
 
 **Legacy keys (migrated then removed — do not write):**
 - `willow_chat_<chatId>` → migrated into `WillowDB.chats` by `loadChatBody`.
@@ -79,12 +113,13 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 ### 3b. IndexedDB databases
 | DB (version) | Store | Key | Value |
 |---|---|---|---|
-| **`WillowMediaDB`** (2) | `project_media` | `projectId` | `MediaItem[]` |
-| | `project_covers` | `projectId` | cover string (base64 data URL) |
-| **`WillowDB`** (2) | `chats` | `chatId` | message array |
+| **`WillowMediaDB`** (2) | `project_media` | `scope:<scope>:project:<projectId>` | `MediaItem[]` |
+| | `project_covers` | `scope:<scope>:project:<projectId>` | cover string (base64 data URL) |
+| **`WillowDB`** (3) | `chats` | scoped chat key | message array |
+| | `chat_scope_claims` | legacy `chatId` | ownership claim for legacy bodies |
 | | `code_sessions` | `willow_chat_sessions_<project>` | `ChatSession[]` (snapshots deflated to hashes) |
 | | `code_blobs` | `<storageKey>\0<sha256>` | one unique file content (content-addressed) |
-| **`WillowLocalFS`** (1) | `handles` | `local_projects_dir` | the live `FileSystemDirectoryHandle` |
+| **`WillowLocalFS`** (1) | `handles` | `local_projects_dir` | `{ handle, rootId }` |
 
 > `WillowLocalFS` is how a "local folder" survives reload: a handle can't be
 > JSON-serialized, but IndexedDB can store the live object. On reload we read it
@@ -142,7 +177,7 @@ Connection:
 
 Saves (all write IndexedDB and/or disk; never heavy data to localStorage):
 - `saveLocalFSProject(projectName, files)` — writes `Code/<p>/Codebase/*` + design nodes.
-- `saveLocalFSChat(chatId, messages, oldChatId?)` — IndexedDB body + disk `Chats/<id>.json`. Stamps `recentChatWritesRef`.
+- `saveLocalFSChat(chatId, messages, oldChatId?)` — committed scoped body + durable dirty revision + disk file.
 - `saveLocalFSProjectChat(projectName, chatId, messages, oldChatId?)` — per-project chat under `Code/<p>/Chat sessions/`.
 - `saveLocalFSMedia(projectName, kind, fileName, blob)` — writes blob to `Media/<p>/Images|Videos/`, returns final filename (collision-suffixed).
 - `saveLocalFSCover(projectName, url)` — writes a cover file next to Images/Videos.
@@ -152,18 +187,19 @@ Mutations:
 - `deleteLocalFSProject(projectId, projectName)` — removes `Code/<name>` or `Media/<name>` (recursive). Pair with `deleteProjectData` for IndexedDB.
 - `deleteLocalFSMediaFile(projectName, kind, fsName)` — removes one media file so the poller won't re-ingest it.
 - `renameLocalFSProject(oldName, newName)` — renames the disk folder (native `move()` → recursive copy+delete fallback). Keeps disk in lock-step with a UI rename.
-- `renameLocalFSChat(oldChatId, newChatId)` — IndexedDB + disk; stamps `recentChatWritesRef`.
+- `renameLocalFSChat(oldChatId, newChatId)` — collision-safe scoped IndexedDB + metadata + disk rename.
 
 Reads / refresh:
 - `loadLocalFSChat(chatId)` — IndexedDB first, disk fallback (re-caches).
-- `refreshLocalChats()` — reconcile inbox chats with `Chats/` (delete-detection + grace guard).
+- `refreshLocalChats()` — revision-aware reconciliation with dirty retries, external-edit detection, and tombstones.
 - `refreshLocalMedia(projectName)` — reconcile `Media/<p>` files with `project_media`.
 - `getChatTimestamp(chatId)`, `selectLocalFSInboxChat(chatId)`, `generateChatTitle(...)`.
 
 **Internal (not on the interface, but central):** `syncProjectsFromDisk`,
 `pollDiskNow`, `getActiveHandle`, `getSanitizedWorkspaceName`,
-`getProjectIdByName`, `ensureProjectManifest`. Refs: `directoryHandleRef`,
-`recentChatWritesRef`, `isPollingRef`, `manifestIdCacheRef`.
+`getProjectIdByName`, `ensureProjectManifest`. Refs include
+`chatSyncRecordsRef`, `chatOperationQueuesRef`, `isPollingRef`,
+`pollPendingRef`, and `manifestIdCacheRef`.
 
 ### 5b. `lib/mediaStorage.ts`
 `saveProjectMedia(projectId, items)`, `loadProjectMedia(projectId)` (migrates
@@ -324,9 +360,9 @@ No loop: our own writes only touch IndexedDB, not the disk reconcile.
 - **`onDisk` flag** — the gate that prevents deleting browser-only projects that
   were never on disk. Without it, every freshly-created (not-yet-saved) project
   would be deleted on the first poll.
-- **`recentChatWritesRef` (20s grace)** — `saveLocalFSChat`/`renameLocalFSChat`
-  stamp it; `refreshLocalChats` won't delete a chat written that recently (and
-  keeps it visible) so the poller can't race-delete a chat mid-creation.
+- **Durable chat revisions** — committed local edits remain `dirty` until the
+  disk write is acknowledged. Deletes use tombstones. There is no timeout after
+  which a failed disk write can be mistaken for an external deletion.
 - **Change-only writes** — reconciler + `refreshLocalChats` only `setState`/write
   when the set actually changed; MediaView compares a signature before
   `setMediaItems`. This is what stops idle 3s polls from re-rendering the sidebar
@@ -393,8 +429,8 @@ Chats use React state (`localChats` from context) directly — no event needed.
 9. **Deleting a media item must delete its disk file** (`deleteLocalFSMediaFile`),
    else the poller re-ingests it.
 10. **`autoDetectProjectKinds` fills missing tags only — never override.**
-11. **Keep the chat grace guard** (`recentChatWritesRef`) or the poller will
-    race-delete chats mid-creation.
+11. **Keep durable dirty revisions and tombstones.** Never replace them with a
+    timeout-based grace window.
 12. **`<LocalFSProvider>` must wrap every route** (it's in App.tsx around
     `<Routes>`). Any component calling `useLocalFS()` outside it throws.
 13. **Rename must suppress disk-change reloads.** Renaming a project folder is
@@ -500,6 +536,6 @@ const mediaIds = await new Promise(r => { const out=[]; const c = mdb.transactio
 console.log('media in IndexedDB:', mediaIds);
 
 // Stores in WillowDB (chats + code)
-const wdb = await new Promise(r => { const q = indexedDB.open('WillowDB',2); q.onsuccess = () => r(q.result); });
+const wdb = await new Promise(r => { const q = indexedDB.open('WillowDB',3); q.onsuccess = () => r(q.result); });
 console.log('WillowDB stores:', [...wdb.objectStoreNames]);
 ```

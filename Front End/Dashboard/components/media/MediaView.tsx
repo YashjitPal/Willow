@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
-import { renameCodeSessions } from '../../lib/willowDB';
+import { allocateMediaBatchTimestamps, compareMediaItemsNewestFirst, loadProjectMedia, saveProjectMedia, saveProjectCover } from '../../lib/mediaStorage';
+import { readProjectRegistry, writeProjectRegistry } from '../../lib/projectStorage';
+import { transactionalRenameProject } from '../../lib/projectRename';
 import { extractVideoFrame } from '../../lib/coverUtils';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1418,7 +1419,7 @@ const SUNFLOWER_BOX_SHADOW: string = "160px 42px #cacaca, 120px 50px #9e9e9e, 12
 export const MediaView: React.FC = () => {
   const { user, userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1436,34 +1437,29 @@ export const MediaView: React.FC = () => {
         const urlTempName = urlParams.get('tempName');
         if (urlTempName) return urlTempName;
 
-        const stored = localStorage.getItem('willow_projects_list');
-        if (stored) {
           try {
-            const projects = JSON.parse(stored);
+            const projects = readProjectRegistry() as any[];
             const match = projects.find((p: any) => p.id === urlProjectId);
             if (match) return match.name;
           } catch (e) {}
-        }
       }
     }
     return 'Default Project';
   });
 
   const projectNameRef = React.useRef(projectName);
+  const projectIdRef = React.useRef(projectId);
   React.useEffect(() => {
     projectNameRef.current = projectName;
   }, [projectName]);
+  React.useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   // Redirect to first project if projectId is missing
   React.useEffect(() => {
     if (!projectId) {
-      const stored = localStorage.getItem('willow_projects_list');
-      let projects = [];
-      if (stored) {
-        try {
-          projects = JSON.parse(stored);
-        } catch (e) {}
-      }
+      const projects = readProjectRegistry() as any[];
       if (projects.length === 0) {
         return;
       }
@@ -1481,16 +1477,13 @@ export const MediaView: React.FC = () => {
     const updateProjectName = () => {
       if (!projectId) return;
       if (projectId.startsWith('temp_')) return;
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
         try {
-          const projects = JSON.parse(stored);
+          const projects = readProjectRegistry() as any[];
           const match = projects.find((p: any) => p.id === projectId);
           if (match) {
             setProjectName(match.name);
           }
         } catch (e) {}
-      }
     };
 
     updateProjectName();
@@ -1513,97 +1506,46 @@ export const MediaView: React.FC = () => {
   // Latest loadMedia (defined later in the file) for the post-rename reload.
   const loadMediaRef = React.useRef<(skipIfGenerating: boolean) => void>(() => {});
 
-  // Commit a rename typed into the header. Mirrors HeroSection's
-  // persistProjectRename write path exactly — registry write → event dispatch
-  // → disk folder rename → name-keyed session migration — with an extra branch
-  // for temp_ projects, which only exist in the URL + component state.
-  const commitProjectRename = React.useCallback((rawName: string) => {
+  const commitProjectRename = React.useCallback(async (rawName: string) => {
     setIsEditingProjectName(false);
-    // Strip filesystem-illegal characters (the name becomes a folder name on
-    // disk — same regex every other disk-name path uses). A name like "24/7"
-    // would otherwise stick in the registry but silently fail every folder
-    // operation, and the reconciler would revert it within a tick.
-    const baseName = rawName.replace(/[\/:*?"<>|]/g, '').trim();
     const oldName = projectNameRef.current;
-    if (!baseName || !projectId || baseName === oldName) return;
-    try {
-      const stored = localStorage.getItem('willow_projects_list');
-      const list = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(list)) return;
-
-      // Find the registry row. A temp_ project's disk folder can already have
-      // been ADOPTED by the disk reconciler under a minted id (temp-phase
-      // saves write to disk before materialization), so also match by real id
-      // and by the current name — a hit means the registered path applies.
-      // The by-name fallback is media-scoped: an unrelated CODE project can
-      // legitimately share this date-format name, and renaming it from here
-      // would move its folder and sessions out from under the user.
-      const realId = projectId.startsWith('temp_') ? projectId.replace('temp_', '') : projectId;
-      const row = list.find((p: any) => p?.id === projectId)
-        || list.find((p: any) => p?.id === realId)
-        || (projectId.startsWith('temp_') ? list.find((p: any) => p?.name === oldName && p?.kind === 'media') : undefined);
-
-      // Uniqueness against the FULL registry (never a filtered view), case-
-      // insensitive, excluding the project's own row. Materialization writes
-      // the name verbatim with no dedup, so this guard matters for temp
-      // projects too — a duplicate name permanently cross-links two projects'
-      // disk folders and their name-keyed session records.
-      let uniqueName = baseName;
-      let counter = 1;
-      while (list.some((p: any) => p !== row && typeof p?.name === 'string' && p.name.toLowerCase() === uniqueName.toLowerCase())) {
-        uniqueName = `${baseName} (${counter})`;
-        counter++;
-      }
-
-      if (row) {
-        if (row.name === uniqueName) return;
-        // Registry write FIRST, then dispatch — the event is synchronous and
-        // this component's own updateProjectName listener re-reads the
-        // registry to apply the new name everywhere.
-        const updated = list.map((p: any) => (p === row ? { ...p, name: uniqueName } : p));
-        localStorage.setItem('willow_projects_list', JSON.stringify(updated));
-        // Sync the ref BEFORE any state/event churn (its mirror effect runs
-        // post-render) so async disk writers already in flight target the new
-        // folder name instead of resurrecting Media/<oldName>/.
-        projectNameRef.current = uniqueName;
-        setProjectName(uniqueName);
-        window.dispatchEvent(new Event('willow_projects_updated'));
-      } else if (projectId.startsWith('temp_')) {
-        // True temp project — the registry has no row; component state + the
-        // ?tempName= URL param are its only persistence (the name-sync
-        // listener skips temp_ ids and the state initializer prefers
-        // tempName on a reload). Materialization later registers whatever
-        // projectName holds and deletes the param itself.
-        projectNameRef.current = uniqueName;
-        setProjectName(uniqueName);
+    if (!projectId || rawName === oldName) return;
+    const realId = projectId.startsWith('temp_') ? projectId.replace('temp_', '') : projectId;
+    if (isLocalFolderConnected) {
+      renameReloadGuardRef.current = Number.MAX_SAFE_INTEGER;
+    }
+    const commitName = (newName: string) => {
+      projectNameRef.current = newName;
+      setProjectName(newName);
+    };
+    const result = await transactionalRenameProject({
+      projectId,
+      rawName,
+      currentName: oldName,
+      isLocalFolderConnected,
+      renameLocalFSProject,
+      findProject: (projects) => projects.find((project) => project.id === projectId)
+        || projects.find((project) => project.id === realId)
+        || (projectId.startsWith('temp_')
+          ? projects.find((project) => project.name === oldName && project.kind === 'media')
+          : undefined),
+      allowUnregistered: projectId.startsWith('temp_'),
+      commitRegistered: commitName,
+      commitUnregistered: (newName) => {
+        commitName(newName);
         setSearchParams(prev => {
           const next = new URLSearchParams(prev);
-          next.set('tempName', uniqueName);
+          next.set('tempName', newName);
           return next;
         }, { replace: true });
-      } else {
-        // Unknown id (project deleted elsewhere?) — nothing consistent to rename.
-        return;
-      }
-
-      // Keep the disk folder in lock-step so the disk-authoritative reconciler
-      // adopts the rename instead of reverting it within one poll tick. Temp
-      // projects can already own a folder (generation saves don't wait for
-      // materialization); a missing folder is a harmless no-op inside.
-      // Suppress disk-change gallery reloads for the whole move (the observer
-      // fires once per copied file; reloading off a half-moved folder blanks
-      // and reshuffles the grid), then do ONE clean reload once it settles.
-      renameReloadGuardRef.current = Number.MAX_SAFE_INTEGER;
-      void (async () => {
-        try { await renameLocalFSProject(oldName, uniqueName); } catch {}
-        renameReloadGuardRef.current = Date.now() + 800;
-        window.setTimeout(() => { loadMediaRef.current(false); }, 850);
-      })();
-      // Code-editor sessions are keyed by project NAME — migrate them too
-      // (a cheap no-op for pure media projects).
-      void renameCodeSessions(`willow_chat_sessions_${oldName}`, `willow_chat_sessions_${uniqueName}`);
-    } catch {}
-  }, [projectId, renameLocalFSProject, setSearchParams]);
+      },
+    });
+    if (!result.ok) console.error('Failed to rename media project:', result.error);
+    if (isLocalFolderConnected) {
+      renameReloadGuardRef.current = Date.now() + 800;
+      window.setTimeout(() => { loadMediaRef.current(false); }, 850);
+    }
+  }, [isLocalFolderConnected, projectId, renameLocalFSProject, setSearchParams]);
 
 
   // Media loading is consolidated into ONE projectId-keyed effect below
@@ -2870,7 +2812,7 @@ export const MediaView: React.FC = () => {
               fsName: finalFsName 
             } as MediaItem : m);
             if (projectId && !projectId.startsWith('temp_')) {
-              saveProjectMedia(projectId, updatedItems);
+              saveProjectMedia(projectId, updatedItems, chatScopeId);
             }
             return updatedItems;
           });
@@ -2942,6 +2884,7 @@ export const MediaView: React.FC = () => {
   // Mirror of mediaItems for use inside non-reactive listeners.
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
   React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
+  const materializingProjectRef = React.useRef<string | null>(null);
 
   // Synchronously bind the canvas items & fullscreen viewer globally in the render body so StreamingMarkdown can preview them instantly during render
   (window as any).canvasMediaItems = mediaItems;
@@ -3090,7 +3033,10 @@ export const MediaView: React.FC = () => {
       mediaLoadedRef.current = true;
       return;
     }
-    if (skipIfGenerating && mediaItemsRef.current.some(i => i.status === 'generating')) return;
+    if (skipIfGenerating && (
+      mediaItemsRef.current.some(i => i.status === 'generating') ||
+      fsSaveInFlightRef.current.size > 0
+    )) return;
     const gen = ++loadGenRef.current;
     const connected = isLocalFolderConnected && isLocalFolderAuthorized && !!projectName;
     // Pass the LIVE items so the reconcile never works off the stale debounced
@@ -3106,7 +3052,7 @@ export const MediaView: React.FC = () => {
       lastLoadedProjectIdRef.current === `temp_${projectId}`;
     const items = connected
       ? await refreshLocalMedia(projectId, projectName, itemsBelongHere ? mediaItemsRef.current : undefined)
-      : await loadProjectMedia(projectId);
+      : await loadProjectMedia(projectId, chatScopeId);
 
     // Crash recovery: a freshly loaded record can't legitimately be
     // mid-generation — a stale 'generating' entry (browser closed mid-run)
@@ -3192,7 +3138,7 @@ export const MediaView: React.FC = () => {
     setMediaItems(hydrated);
     lastLoadedProjectIdRef.current = projectId;
     mediaLoadedRef.current = true;
-  }, [projectId, projectName, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
+  }, [projectId, projectName, chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
 
   // (Re)load on project / folder change.
   React.useEffect(() => { loadMediaRef.current = (s: boolean) => { void loadMedia(s); }; }, [loadMedia]);
@@ -3215,6 +3161,7 @@ export const MediaView: React.FC = () => {
       if (t) window.clearTimeout(t);
       t = window.setTimeout(() => {
         if (Date.now() < renameReloadGuardRef.current) return;
+        if (fsSaveInFlightRef.current.size > 0) return;
         void loadMedia(true);
       }, 300);
     };
@@ -3239,9 +3186,9 @@ export const MediaView: React.FC = () => {
     if (saveDebounceRef.current !== null) window.clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = window.setTimeout(() => {
       saveDebounceRef.current = null;
-      saveProjectMedia(persistProjectId, mediaItemsRef.current);
+      saveProjectMedia(persistProjectId, mediaItemsRef.current, chatScopeId);
     }, 600);
-  }, [persistProjectId, mediaItems]);
+  }, [persistProjectId, mediaItems, chatScopeId]);
   // Flush any pending save when the project changes, the view unmounts, or the
   // tab is being hidden/closed, so the debounce can never drop the last write.
   React.useEffect(() => {
@@ -3250,7 +3197,7 @@ export const MediaView: React.FC = () => {
       if (saveDebounceRef.current !== null) {
         window.clearTimeout(saveDebounceRef.current);
         saveDebounceRef.current = null;
-        if (mediaLoadedRef.current) saveProjectMedia(persistProjectId, mediaItemsRef.current);
+        if (mediaLoadedRef.current) saveProjectMedia(persistProjectId, mediaItemsRef.current, chatScopeId);
       }
     };
     window.addEventListener('pagehide', flushPendingSave);
@@ -3258,7 +3205,7 @@ export const MediaView: React.FC = () => {
       window.removeEventListener('pagehide', flushPendingSave);
       flushPendingSave();
     };
-  }, [persistProjectId]);
+  }, [persistProjectId, chatScopeId]);
 
   // Auto-sync completed items to disk once folder gets authorized
   React.useEffect(() => {
@@ -3305,21 +3252,21 @@ export const MediaView: React.FC = () => {
   // Materialize temporary projects when the first generated item completes successfully
   React.useEffect(() => {
     if (!projectId || !projectId.startsWith('temp_') || mediaItems.length === 0) return;
+    if (mediaItems.some((item) => item.status === 'generating')) return;
+    if (materializingProjectRef.current === projectId) return;
     
     const completedItems = mediaItems.filter(m => m.status === 'completed' && m.url);
     if (completedItems.length === 0) return;
     
     const firstCompleted = completedItems[completedItems.length - 1];
     if (!firstCompleted || !firstCompleted.url) return;
+    materializingProjectRef.current = projectId;
+    const materializationItems = mediaItems.map((item) => ({ ...item }));
+    const materializationProjectName = projectName;
+    const materializationScopeId = chatScopeId;
     
     let realProjectId = projectId.replace('temp_', '');
-    const stored = localStorage.getItem('willow_projects_list');
-    let projects: any[] = [];
-    if (stored) {
-      try {
-        projects = JSON.parse(stored);
-      } catch (e) {}
-    }
+    const projects = readProjectRegistry() as any[];
 
     // Temp-phase saves write to disk BEFORE materialization, so the disk
     // reconciler may have already ADOPTED this project's folder into the
@@ -3344,9 +3291,15 @@ export const MediaView: React.FC = () => {
       };
       const updatedProjects = [...projects, newProj];
       try {
-        localStorage.setItem('willow_projects_list', JSON.stringify(updatedProjects));
+        writeProjectRegistry(updatedProjects);
       } catch (err) {}
 
+      window.dispatchEvent(new CustomEvent('willow_projects_updated'));
+    } else if (!projects[projIndex].hasCover) {
+      const updatedProjects = projects.map((project: any, index: number) =>
+        index === projIndex ? { ...project, hasCover: true } : project
+      );
+      writeProjectRegistry(updatedProjects);
       window.dispatchEvent(new CustomEvent('willow_projects_updated'));
     }
     
@@ -3358,30 +3311,30 @@ export const MediaView: React.FC = () => {
           const frame = await extractVideoFrame(firstCompleted.url as string);
           if (frame) coverUrl = frame;
         }
-        await saveProjectCover(realProjectId, coverUrl);
-        void saveLocalFSCover(projectNameRef.current, coverUrl);
-        await saveProjectMedia(realProjectId, mediaItems);
+        await saveProjectCover(realProjectId, coverUrl, materializationScopeId);
+        void saveLocalFSCover(materializationProjectName, coverUrl);
+        await saveProjectMedia(realProjectId, materializationItems, materializationScopeId);
+        if (projectIdRef.current !== projectId) return;
         setSearchParams(prev => {
           const next = new URLSearchParams(prev);
           next.set('projectId', realProjectId);
           next.delete('tempName');
           return next;
         }, { replace: true });
-      } catch (e) {}
+      } catch (e) {
+        if (materializingProjectRef.current === projectId) materializingProjectRef.current = null;
+      }
     };
     
     void finalizeProjectCreation();
-  }, [projectId, mediaItems, projectName, setSearchParams]);
+  }, [projectId, mediaItems, projectName, chatScopeId, saveLocalFSCover, setSearchParams]);
 
   // Auto-set the first generated item as the project cover if none is set. The
   // cover is always a still image — if the first item is a video we capture a
   // frame (so the card shows a static shot, not a playing clip).
   React.useEffect(() => {
     if (!projectId || projectId.startsWith('temp_') || mediaItems.length === 0) return;
-    const stored = localStorage.getItem('willow_projects_list');
-    if (!stored) return;
-    let projects: any[];
-    try { projects = JSON.parse(stored); } catch { return; }
+    const projects = readProjectRegistry() as any[];
     const projIndex = projects.findIndex((p: any) => p.id === projectId);
     if (projIndex === -1 || projects[projIndex].hasCover) return;
     const completedItems = mediaItems.filter(m => m.status === 'completed' && m.url);
@@ -3396,21 +3349,21 @@ export const MediaView: React.FC = () => {
         const frame = await extractVideoFrame(firstItem.url as string);
         if (frame) coverUrl = frame;
       }
-      await saveProjectCover(projectId, coverUrl);
-      void saveLocalFSCover(projectNameRef.current, coverUrl);
+      await saveProjectCover(projectId, coverUrl, chatScopeId);
+      void saveLocalFSCover(projectName, coverUrl);
       // Re-read before writing (avoid clobbering concurrent updates) + refresh UI.
       try {
-        const cur = JSON.parse(localStorage.getItem('willow_projects_list') || '[]');
+        const cur = readProjectRegistry() as any[];
         const idx = cur.findIndex((p: any) => p.id === projectId);
         if (idx !== -1 && !cur[idx].hasCover) {
           const { coverUrl: _legacy, ...rest } = cur[idx];
           cur[idx] = { ...rest, hasCover: true };
-          localStorage.setItem('willow_projects_list', JSON.stringify(cur));
+          writeProjectRegistry(cur);
           window.dispatchEvent(new Event('willow_projects_updated'));
         }
       } catch {}
     })();
-  }, [projectId, mediaItems]);
+  }, [projectId, mediaItems, projectName, chatScopeId, saveLocalFSCover]);
 
   // Manual set cover handler
   const handleSetAsCover = React.useCallback(async (url: string, isVideo: boolean = false) => {
@@ -3424,16 +3377,14 @@ export const MediaView: React.FC = () => {
       if (frame) coverUrl = frame;
     }
     // 1. Save the cover image in IndexedDB (what the UI reads).
-    await saveProjectCover(projectId, coverUrl);
+    await saveProjectCover(projectId, coverUrl, chatScopeId);
     // 2. Write an INDEPENDENT copy to disk as Media/<name>/cover.png, replacing
     //    any previous cover (saveLocalFSCover writes a fresh file from the bytes;
     //    it never moves/renames the source media, which stays in Images/Videos).
     await saveLocalFSCover(projectNameRef.current, coverUrl);
     // 3. Mark hasCover in the registry.
-    const stored = localStorage.getItem('willow_projects_list');
-    if (stored) {
       try {
-        const projects = JSON.parse(stored);
+        const projects = readProjectRegistry() as any[];
         const updated = projects.map((p: any) => {
           if (p.id === projectId) {
             const { coverUrl, ...rest } = p; // strip legacy field
@@ -3442,13 +3393,12 @@ export const MediaView: React.FC = () => {
           return p;
         });
         try {
-          localStorage.setItem('willow_projects_list', JSON.stringify(updated));
+          writeProjectRegistry(updated);
         } catch (err) {}
       } catch (e) {}
-    }
     // 4. Tell every project surface to reload covers so the new one shows at once.
     window.dispatchEvent(new Event('willow_projects_updated'));
-  }, [projectId]);
+  }, [projectId, chatScopeId, saveLocalFSCover]);
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
   type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
   const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
@@ -4559,6 +4509,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }
 
             // Create a batch of placeholder items in generating state synchronously
+            const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
             const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
               // Ensure the first item matches result.media_id so the chat sidebar image works,
               // while other items in the batch get unique IDs so they display on the canvas.
@@ -4571,7 +4522,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 modelId: modelToUse,
                 modelName: modelToUse === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2',
                 ratio: ratioToUse,
-                timestamp: Date.now() - i,
+                timestamp: batchTimestamps[i],
                 ...(refAttachments.length > 0 ? { attachments: refAttachments } : {})
               };
             });
@@ -4653,6 +4604,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             const batchStr = args.batch_size || videoBatch || '1x';
             const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
             
+            const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
             const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
               const itemId = i === 0 ? result.media_id : `${result.media_id}_batch_${i}`;
               return {
@@ -4663,7 +4615,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 modelId: modelToUse,
                 modelName: modelToUse === 'omni-flash' ? 'Omni Flash' : 'Veo 3.1 Fast',
                 ratio: ratioToUse,
-                timestamp: Date.now() - i
+                timestamp: batchTimestamps[i]
               };
             });
             setMediaItems(prev => [...newItems, ...prev]);
@@ -4942,6 +4894,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const activeModelName =
       modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
 
+    const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
     const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => ({
       id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
       kind: modelMode,
@@ -4950,7 +4903,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelId: activeModelId,
       modelName: activeModelName,
       ratio: activeRatio,
-      timestamp: Date.now() - i,
+      timestamp: batchTimestamps[i],
       attachments: activeAttachments,
     }));
 
@@ -5405,7 +5358,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     setMediaItems(prev => {
       const next = prev.filter(m => m.id !== id);
       // Persist removal to IndexedDB (unified on the real project id).
-      if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
       return next;
     });
     setAttachments(prev => prev.filter(a => a.id !== id));
@@ -5435,7 +5388,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     // the state (and the re-armed debounce then persisted the reverted list).
     setMediaItems(prev => {
       const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName } : m);
-      if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
       return next;
     });
 
@@ -5452,7 +5405,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         if (!finalFsName || finalFsName === targetFsName) return; // no folder/file → metadata-only rename
         setMediaItems(prev => {
           const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName, fsName: finalFsName } : m);
-          if (persistProjectId) void saveProjectMedia(persistProjectId, next);
+          if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
           return next;
         });
       })();
@@ -5527,7 +5480,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     // We penalize the difference between the resulting height and our tuned ideal height
     const getDiff = (h: number) => Math.abs(h - layoutTargetH);
 
-      const sortedMediaItems = [...displayMediaItems].sort((a, b) => b.timestamp - a.timestamp);
+      const sortedMediaItems = [...displayMediaItems].sort(compareMediaItemsNewestFirst);
       sortedMediaItems.forEach((item) => {
         const ratio = item.ratio;
         let ar = 16 / 9;
@@ -5640,7 +5593,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             setMediaItems(prev => {
               const updated = [item, ...prev];
               if (projectId && !projectId.startsWith('temp_')) {
-                saveProjectMedia(projectId, updated);
+                saveProjectMedia(projectId, updated, chatScopeId);
               }
               return updated;
             });
@@ -5762,7 +5715,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 // not the rename — committing there would rename to half-typed text.
                 if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
                   projectRenameResolvedRef.current = true;
-                  commitProjectRename(editingProjectNameValue);
+                  void commitProjectRename(editingProjectNameValue);
                 } else if (e.key === 'Escape') {
                   projectRenameResolvedRef.current = true;
                   setIsEditingProjectName(false);
@@ -5776,7 +5729,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   projectRenameResolvedRef.current = false;
                   return;
                 }
-                commitProjectRename(editingProjectNameValue);
+                void commitProjectRename(editingProjectNameValue);
               }}
               onFocus={(e) => e.currentTarget.select()}
               className="bg-transparent border-none outline-none text-sm font-medium text-white tracking-wide w-[190px]"

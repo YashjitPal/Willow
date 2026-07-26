@@ -1,16 +1,6 @@
-/**
- * JS sandbox for function tools ("js" execution mode) and the Code
- * Interpreter tool. Runs user code in a `node:vm` context with:
- *   - wall-clock timeout
- *   - no require/process/import access
- *   - captured console output
- *
- * NOTE: node:vm is an isolation convenience, not a hard security boundary.
- * This service is designed to run locally for a single user (the same person
- * who authored the code). Do not expose it to untrusted multi-tenant input.
- */
+/** Worker-isolated JavaScript execution for function and Code Interpreter tools. */
 
-import vm from 'node:vm';
+import { Worker } from 'node:worker_threads';
 import type { JsonObject, JsonValue } from '../domain/types.ts';
 
 export interface SandboxResult {
@@ -18,132 +8,84 @@ export interface SandboxResult {
   logs: string[];
 }
 
-function makeConsole(logs: string[]) {
-  const push = (level: string) => (...args: unknown[]) => {
-    const line = args
-      .map((a) => {
-        if (typeof a === 'string') return a;
-        try {
-          return JSON.stringify(a);
-        } catch {
-          return String(a);
-        }
-      })
-      .join(' ');
-    logs.push(level === 'log' ? line : `[${level}] ${line}`);
-    if (logs.length > 500) logs.splice(0, logs.length - 500);
-  };
-  return {
-    log: push('log'),
-    info: push('info'),
-    warn: push('warn'),
-    error: push('error'),
-    debug: push('debug'),
-  };
+type SandboxRequest =
+  | { kind: 'function'; code: string; args: JsonObject; timeoutMs: number }
+  | { kind: 'interpreter'; code: string; files: Array<{ name: string; content: string; mimeType?: string }>; timeoutMs: number };
+
+interface WorkerFailure {
+  error: { name?: string; message: string; stack?: string };
 }
 
-function toJsonValue(v: unknown): JsonValue {
-  if (v === undefined) return null;
-  try {
-    return JSON.parse(JSON.stringify(v)) as JsonValue;
-  } catch {
-    return String(v);
+function rejectUnsafeConstructors(code: string): void {
+  const normalized = code.replace(/\s+/g, '');
+  if (/(?:\.constructor){2,}/.test(normalized)
+    || /(?:^|[^\w$])(Function|AsyncFunction|GeneratorFunction|eval)\s*\(/.test(code)
+    || /constructor\s*\(\s*["'`]/.test(code)) {
+    throw new Error('Code generation and host constructors are not available in the sandbox');
   }
 }
 
-/**
- * Run a function-tool body. The code may be either:
- *   - a full function expression:  `(args) => ...` or `function(args) {...}`
- *   - a bare body that can reference `args` and `return`
- */
-export async function runFunctionCode(
+function abortError(): Error {
+  const error = new Error('sandbox execution aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function runInWorker(request: SandboxRequest, signal?: AbortSignal): Promise<SandboxResult> {
+  if (signal?.aborted) return Promise.reject(abortError());
+  try { rejectUnsafeConstructors(request.code); } catch (error) { return Promise.reject(error); }
+
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./sandboxWorker.ts', import.meta.url), { workerData: request });
+    let settled = false;
+    const timeoutMs = Math.max(100, request.timeoutMs);
+
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      void worker.terminate();
+      callback();
+    };
+    const onAbort = () => finish(() => reject(abortError()));
+    const timer = setTimeout(
+      () => finish(() => reject(new Error(`sandbox execution timed out after ${timeoutMs}ms`))),
+      timeoutMs,
+    );
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    worker.once('message', (message: SandboxResult | WorkerFailure) => {
+      if ('error' in message) {
+        const error = new Error(message.error.message);
+        error.name = message.error.name ?? 'Error';
+        if (message.error.stack) error.stack = message.error.stack;
+        finish(() => reject(error));
+      } else {
+        finish(() => resolve(message));
+      }
+    });
+    worker.once('error', (error) => finish(() => reject(error)));
+    worker.once('exit', (code) => {
+      if (!settled && code !== 0) finish(() => reject(new Error(`sandbox worker exited with code ${code}`)));
+    });
+  });
+}
+
+export function runFunctionCode(
   code: string,
   args: JsonObject,
   timeoutMs = 5000,
+  signal?: AbortSignal,
 ): Promise<SandboxResult> {
-  const logs: string[] = [];
-  const context = vm.createContext(
-    {
-      console: makeConsole(logs),
-      JSON,
-      Math,
-      args: structuredClone(args),
-    },
-    { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' },
-  );
-
-  const trimmed = code.trim();
-  const looksLikeFn =
-    /^(async\s+)?(function\b|\()/.test(trimmed) || /^\s*\w+\s*=>/.test(trimmed);
-  const script = looksLikeFn
-    ? `(${trimmed})(args)`
-    : `(function(args) { ${code}\n })(args)`;
-
-  const raw = vm.runInContext(script, context, {
-    timeout: Math.max(100, timeoutMs),
-    displayErrors: true,
-  });
-
-  // Support async code with a bounded wait.
-  let value: unknown = raw;
-  if (raw && typeof (raw as Promise<unknown>).then === 'function') {
-    value = await Promise.race([
-      raw as Promise<unknown>,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('sandbox async timeout')), timeoutMs),
-      ),
-    ]);
-  }
-  return { result: toJsonValue(value), logs };
+  return runInWorker({ kind: 'function', code, args: structuredClone(args), timeoutMs }, signal);
 }
 
-/**
- * Run Code Interpreter style code: a JS snippet whose last expression (or an
- * explicit `result` variable / return) is the output. Console output is
- * captured and returned alongside.
- */
-export async function runInterpreterCode(
+export function runInterpreterCode(
   code: string,
   timeoutMs = 5000,
+  attachedFiles: Array<{ name: string; content: string; mimeType?: string }> = [],
+  signal?: AbortSignal,
 ): Promise<SandboxResult> {
-  const logs: string[] = [];
-  const context = vm.createContext(
-    {
-      console: makeConsole(logs),
-      JSON,
-      Math,
-    },
-    { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' },
-  );
-  const script = `(function() { ${code}\n })()`;
-  let raw: unknown;
-  try {
-    raw = vm.runInContext(script, context, {
-      timeout: Math.max(100, timeoutMs),
-      displayErrors: true,
-    });
-  } catch (e) {
-    // Retry as an expression (lets users write `1 + 1` directly).
-    try {
-      raw = vm.runInContext(`(${code})`, context, {
-        timeout: Math.max(100, timeoutMs),
-        displayErrors: true,
-      });
-    } catch {
-      throw e;
-    }
-  }
-  let value: unknown = raw;
-  if (raw && typeof (raw as Promise<unknown>).then === 'function') {
-    value = await Promise.race([
-      raw as Promise<unknown>,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('sandbox async timeout')), timeoutMs),
-      ),
-    ]);
-  }
-  if (value === undefined && logs.length) {
-    return { result: logs.join('\n'), logs };
-  }
-  return { result: toJsonValue(value), logs };
+  return runInWorker({ kind: 'interpreter', code, files: structuredClone(attachedFiles), timeoutMs }, signal);
 }

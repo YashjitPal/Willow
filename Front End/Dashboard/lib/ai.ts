@@ -26,12 +26,59 @@ export interface ChatMessage {
 export type StreamPhase = 'thinking' | 'searching' | 'executing' | 'responding';
 
 export interface AiOptions {
-  provider: 'gemini' | 'openai' | 'anthropic';
+  provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
   model: string;
   apiKey: string;
   thinkingLevel?: number;
   enableSearch?: boolean;
   enableCodeExecution?: boolean;
+  baseUrl?: string;
+  signal?: AbortSignal;
+  maxToolIterations?: number;
+}
+
+export const isAbortError = (error: unknown): boolean =>
+  !!error && typeof error === 'object' &&
+  (/(abort|cancel)/i.test(String((error as any).name || '')) || /(abort|cancel)/i.test(String((error as any).code || '')));
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new DOMException('The AI request was cancelled.', 'AbortError');
+}
+
+function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new DOMException('The AI request was cancelled.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+function normalizeOpenAICompatibleApiKey(apiKey: string): string {
+  const trimmedKey = apiKey.trim();
+
+  // Some gateways distribute their underlying sk-* credential Base64-wrapped.
+  // Decode only when the result clearly looks like an API key; ordinary keys
+  // remain untouched. The decoded value is held in memory and is never stored.
+  if (!trimmedKey.startsWith('sk-')) {
+    try {
+      const decodedKey = globalThis.atob?.(trimmedKey).trim();
+      if (decodedKey?.startsWith('sk-')) return decodedKey;
+    } catch {
+      // Not valid Base64, so use the credential exactly as entered.
+    }
+  }
+
+  return trimmedKey;
 }
 
 // ============ CLIENT CACHING FOR FASTER COLD STARTS ============
@@ -75,7 +122,7 @@ const getAnthropicClient = (apiKey: string): Anthropic => {
 
 // ============ PRE-WARM FUNCTION ============
 // Call this on app load to warm up the SDK (optional)
-export const prewarmClient = (provider: 'gemini' | 'openai' | 'anthropic', apiKey: string) => {
+export const prewarmClient = (provider: string, apiKey: string) => {
   if (!apiKey) return;
   if (provider === 'gemini') getGeminiClient(apiKey);
   else if (provider === 'openai') getOpenAIClient(apiKey);
@@ -94,7 +141,8 @@ async function uploadToGeminiFiles(
   apiKey: string,
   base64Data: string,
   mimeType: string,
-  displayName: string
+  displayName: string,
+  signal?: AbortSignal
 ): Promise<string> {
   // Convert base64 to bytes
   const binaryString = atob(base64Data);
@@ -115,7 +163,8 @@ async function uploadToGeminiFiles(
         'X-Goog-Upload-Header-Content-Length': String(bytes.length),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ file: { displayName } })
+      body: JSON.stringify({ file: { displayName } }),
+      signal
     }
   );
 
@@ -135,7 +184,8 @@ async function uploadToGeminiFiles(
       'X-Goog-Upload-Offset': '0',
       'X-Goog-Upload-Command': 'upload, finalize',
     },
-    body: bytes
+    body: bytes,
+    signal
   });
 
   if (!uploadResponse.ok) {
@@ -151,7 +201,8 @@ async function uploadToGeminiFiles(
   return fileUri;
 }
 
-async function resolveGeminiImagePart(apiKey: string, att: Attachment): Promise<any> {
+async function resolveGeminiImagePart(apiKey: string, att: Attachment, signal?: AbortSignal): Promise<any> {
+  throwIfAborted(signal);
   const fingerprint = getAttachmentFingerprint(att);
   const cachedUri = geminiFileCache.get(fingerprint);
 
@@ -160,7 +211,7 @@ async function resolveGeminiImagePart(apiKey: string, att: Attachment): Promise<
   }
 
   try {
-    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'image');
+    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'image', signal);
     geminiFileCache.set(fingerprint, fileUri);
     console.log(`[AI] Uploaded to Gemini Files: ${att.name} -> ${fileUri}`);
     return { fileData: { fileUri, mimeType: att.mimeType } };
@@ -393,8 +444,9 @@ export const mockExecuteTool = (name: string, args: any): any => {
 };
 
 // Separate generator caller helper to stop the tsc flow-type analyzer from walking and overflowing on the loop body
-export const runStreamCall = async (modelInstance: any, history: any[]): Promise<any> => {
-  return await modelInstance.generateContentStream({ contents: history });
+export const runStreamCall = async (modelInstance: any, history: any[], signal?: AbortSignal): Promise<any> => {
+  throwIfAborted(signal);
+  return await modelInstance.generateContentStream({ contents: history }, signal ? { signal } : undefined);
 };
 
 // ============ MAIN STREAM CHAT FUNCTION ============
@@ -409,10 +461,16 @@ export const streamChat: any = async (
 ) => {
   const { provider, model, apiKey } = options;
   const messagesList: any = messages;
+  const signal = options.signal;
+  const maxToolIterations = Math.max(1, options.maxToolIterations ?? 32);
 
   if (!apiKey) {
     throw new Error(`API Key for ${provider} is missing.`);
   }
+  if (!messagesList.length) {
+    throw new Error('At least one chat message is required.');
+  }
+  throwIfAborted(signal);
 
   onStart();
 
@@ -769,7 +827,7 @@ Adhere to the following rules and guidelines:
               if (att.id || att.name) {
                 partsList.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
               }
-              partsList.push(await resolveGeminiImagePart(apiKey, att as any));
+              partsList.push(await resolveGeminiImagePart(apiKey, att as any, signal));
             } else {
                const label = att.name || att.mimeType;
                partsList[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
@@ -795,7 +853,7 @@ Adhere to the following rules and guidelines:
             if (att.id || att.name) {
               initialParts.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
             }
-            initialParts.push(await resolveGeminiImagePart(apiKey, att));
+            initialParts.push(await resolveGeminiImagePart(apiKey, att, signal));
           } else {
              const label = att.name || att.mimeType;
              initialParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
@@ -812,10 +870,15 @@ Adhere to the following rules and guidelines:
 
     // Iterative processing loop to handle arbitrary sequential tool calls without recursion (prevents compiler/runtime stack overflow)
     let keepRunning = true;
+    let toolIterations = 0;
 
     while (keepRunning) {
+      throwIfAborted(signal);
+      if (++toolIterations > maxToolIterations) {
+        throw new Error(`AI tool loop exceeded the ${maxToolIterations}-iteration safety limit.`);
+      }
       // Direct streaming generation with manual history payload (guarantees cryptographic thought_signature retention)
-      const result: any = await runStreamCall(geminiModel as any, historyContents as any);
+      const result: any = await runStreamCall(geminiModel as any, historyContents as any, signal);
       
       let currentPhase: StreamPhase = 'thinking';
       let hasEmittedText = false;
@@ -830,6 +893,7 @@ Adhere to the following rules and guidelines:
       let lastThoughtSignature: string | undefined = undefined;
 
       for await (const chunk of result.stream) {
+        throwIfAborted(signal);
         const cand: any = (chunk as any).candidates?.[0];
 
         if (!hasEmittedText && cand?.groundingMetadata?.webSearchQueries?.length) {
@@ -919,12 +983,14 @@ Adhere to the following rules and guidelines:
 
         const responseParts = await Promise.all(
           pendingFunctionCalls.map(async (call) => {
+            throwIfAborted(signal);
             let toolResult: any;
             if (onToolCall) {
               toolResult = await onToolCall(call.name, call.args);
             } else {
               toolResult = mockExecuteTool(call.name, call.args);
             }
+            throwIfAborted(signal);
             
             let sanitizedResult: any = { ...toolResult };
             if (toolResult && typeof toolResult === 'object') {
@@ -1080,17 +1146,18 @@ Adhere to the following rules and guidelines:
         ...(systemPrompt ? { instructions: systemPrompt } : {}),
         reasoning: { effort: reasoningEffort },
         background: true,
-      } as any);
+      } as any, signal ? { signal } : undefined);
 
       const startedAt = Date.now();
       const maxWaitMs = 10 * 60 * 1000;
       while (response.status === "queued" || response.status === "in_progress") {
+        throwIfAborted(signal);
         if (Date.now() - startedAt > maxWaitMs) {
           throw new Error("GPT 5.5 Pro background response timed out.");
         }
 
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        response = await openai.responses.retrieve(response.id);
+        await waitWithAbort(2000, signal);
+        response = await openai.responses.retrieve(response.id, undefined, signal ? { signal } : undefined);
       }
 
       if (response.status !== "completed") {
@@ -1104,9 +1171,10 @@ Adhere to the following rules and guidelines:
       const stream = await openai.chat.completions.create({
         ...chatCompletionParams,
         stream: true,
-      });
+      }, signal ? { signal } : undefined);
 
       for await (const chunk of stream as any) {
+        throwIfAborted(signal);
         const content = chunk.choices[0]?.delta?.content || "";
         if (content) onToken(content);
       }
@@ -1144,12 +1212,103 @@ Adhere to the following rules and guidelines:
       // @ts-ignore
       messages: formattedMessages,
       stream: true,
-    });
+    }, signal ? { signal } : undefined);
 
     for await (const messageStreamEvent of stream) {
+      throwIfAborted(signal);
       if (messageStreamEvent.type === 'content_block_delta' && messageStreamEvent.delta.type === 'text_delta') {
         onToken(messageStreamEvent.delta.text);
       }
+    }
+  } else if (provider === 'moonshot' || provider === 'spacexai' || provider === 'zhipuai') {
+    // OpenAI-compatible providers (Moonshot/Kimi, SpaceXAI/Grok, Zhipu AI/GLM)
+    const baseUrl = options.baseUrl || (
+      provider === 'moonshot' ? 'https://api.moonshot.cn/v1' :
+      provider === 'spacexai' ? 'https://api.x.ai/v1' :
+      'https://open.bigmodel.cn/api/paas/v4'
+    );
+    const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '3000');
+    const proxyRoute = (() => {
+      if (!isDev) return '';
+      try {
+        return new URL(baseUrl).hostname === 'sub.yxxb.eu.cc' ? '/llm-proxy-yxxb' : '/llm-proxy';
+      } catch {
+        return '/llm-proxy';
+      }
+    })();
+    const proxyBaseUrl = isDev ? `${window.location.origin}${proxyRoute}` : baseUrl;
+    
+    const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);
+    const client = new OpenAI({ 
+        apiKey: compatibleApiKey,
+        baseURL: proxyBaseUrl, 
+        // Reasoning models can spend more than the SDK's default request window
+        // thinking before they emit their final answer. Keep long code-generation
+        // streams alive instead of surfacing a misleading generic network error.
+        timeout: 60 * 60 * 1000,
+        dangerouslyAllowBrowser: true,
+        defaultHeaders: isDev ? { 'x-proxy-target': baseUrl } : undefined
+    });
+
+    const compatibleReasoningEffortMap: Record<number, 'none' | 'low' | 'medium' | 'high' | 'max'> = {
+      0: 'none',
+      1: 'low',
+      2: 'medium',
+      3: 'high',
+      4: 'max',
+    };
+    const reasoningEffort = compatibleReasoningEffortMap[options.thinkingLevel ?? 0] ?? 'medium';
+    const grok45ReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
+      1: 'low',
+      2: 'medium',
+      3: 'high',
+    };
+    const grok45ReasoningEffort = grok45ReasoningEffortMap[options.thinkingLevel ?? 3] ?? 'high';
+
+    const formattedMessages = messages.map(m => {
+        let cleanContent = m.content || '';
+        if (m.role === 'assistant' || (m.role as any) === 'model') {
+            cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
+        }
+        if (!m.attachments || m.attachments.length === 0) {
+            return { role: m.role, content: cleanContent };
+        }
+        const contentParts: any[] = [{ type: "text", text: cleanContent }];
+        m.attachments.forEach(att => {
+            if (att.type === 'image') {
+                contentParts.push({
+                    type: "image_url",
+                    image_url: {
+                        url: `data:${att.mimeType};base64,${att.data}`
+                    }
+                });
+            } else {
+                const label = att.name || att.mimeType;
+                contentParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+            }
+        });
+        return { role: m.role, content: contentParts };
+    });
+
+    const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
+
+    const stream = await client.chat.completions.create({
+      model,
+      // @ts-ignore
+      messages: [...systemMessages, ...formattedMessages],
+      // Only attach reasoning effort to models that document this parameter.
+      ...(provider === 'moonshot'
+        ? { reasoning_effort: reasoningEffort }
+        : provider === 'spacexai' && model === 'grok-4.5'
+          ? { reasoning_effort: grok45ReasoningEffort }
+          : {}),
+      stream: true,
+    } as any, signal ? { signal } : undefined) as any;
+
+    for await (const chunk of stream) {
+      throwIfAborted(signal);
+      const content = chunk.choices?.[0]?.delta?.content;
+      if (content) onToken(content);
     }
   }
 };

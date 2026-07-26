@@ -14,12 +14,17 @@ import { LoginPage } from './components/LoginPage';
 import { Onboarding } from './components/Onboarding';
 import { DashboardChat } from './components/DashboardChat';
 import { CodeWorkspaceSkeleton } from './components/CodeWorkspaceSkeleton';
+import { TopLoadingBar } from './components/ui/TopLoadingBar';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
 import { LocalFSProvider, useLocalFS } from './context/LocalFSContext';
 import { migrateProjectKinds, rebuildMediaIndex } from './lib/mediaStorage';
+import { useDrive } from './hooks/useDrive';
+import { mergeDriveProjectsIntoRegistry } from './lib/driveProjectDiscovery';
+import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from './lib/projectStorage';
+import { agentBuilderDraftFlush } from './lib/stores/agent-builder-store';
 
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
@@ -33,6 +38,23 @@ const CodeWorkspace = React.lazy(() =>
     return { default: m.CodeWorkspace };
   })
 );
+const AgentBuilderContent = React.lazy(() =>
+  import('./components/agents/AgentsWorkspace').then((module) => ({ default: module.AgentsWorkspace }))
+);
+
+const DashboardLoadingFallback: React.FC<{
+  reason: string;
+  onStart: (reason: string) => void;
+  onFinish: (reason: string) => void;
+  children: React.ReactNode;
+}> = ({ reason, onStart, onFinish, children }) => {
+  React.useEffect(() => {
+    onStart(reason);
+    return () => onFinish(reason);
+  }, [onFinish, onStart, reason]);
+
+  return <>{children}</>;
+};
 
 // Dynamic background renderer based on context
 const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
@@ -281,13 +303,16 @@ const getNavigationType = (): string => {
 // Wrapper component that handles refresh redirect BEFORE StagingView loads
 // This prevents the visual glitch caused by StagingView rendering then redirecting
 const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [searchParams] = useSearchParams();
   // Check synchronously if this is a refresh that should redirect
   const [shouldRedirect] = React.useState(() => {
     const isRouterNav = sessionStorage.getItem('staging-nav');
     if (isRouterNav) {
       return false;
     }
-    return getNavigationType() === 'reload';
+    // A durable project id makes this a valid reopen, including a hard refresh.
+    // Only transient prompt-only staging routes still fall back to the dashboard.
+    return getNavigationType() === 'reload' && !searchParams.get('projectId');
   });
 
   React.useEffect(() => {
@@ -302,6 +327,29 @@ const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }
   return <>{children}</>;
 };
 
+/** Make projects created on another device visible in the normal registry. */
+const DriveProjectDiscovery: React.FC = () => {
+  const { user } = useAuth();
+  const { chatScopeId } = useLocalFS();
+  const { isReady, listProjects } = useDrive();
+
+  React.useEffect(() => {
+    if (!user || !isReady || !chatScopeId.startsWith(`${user.uid}::`)) return;
+    let cancelled = false;
+    void listProjects().then((folders) => {
+      if (cancelled) return;
+      const current = readProjectRegistry();
+      const { projects, changed } = mergeDriveProjectsIntoRegistry(current, folders, isProjectSaveBlocked);
+      if (!changed) return;
+      writeProjectRegistry(projects);
+      window.dispatchEvent(new Event(PROJECTS_UPDATED_EVENT));
+    });
+    return () => { cancelled = true; };
+  }, [chatScopeId, isReady, listProjects, user?.uid]);
+
+  return null;
+};
+
 const App: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -309,6 +357,38 @@ const App: React.FC = () => {
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
   const [settingsInitialConnector, setSettingsInitialConnector] = useState<string | null | undefined>(undefined);
   const [currentView, setCurrentView] = useState<ViewType>('home');
+  const [isTopLoading, setIsTopLoading] = useState(false);
+  const topLoadingReasonsRef = React.useRef(new Set<string>());
+  const topLoadingStartedAtRef = React.useRef(0);
+  const topLoadingHideTimerRef = React.useRef<number | undefined>(undefined);
+
+  const startTopLoading = React.useCallback((reason: string) => {
+    if (topLoadingHideTimerRef.current) {
+      window.clearTimeout(topLoadingHideTimerRef.current);
+      topLoadingHideTimerRef.current = undefined;
+    }
+    if (topLoadingReasonsRef.current.size === 0) {
+      topLoadingStartedAtRef.current = performance.now();
+      setIsTopLoading(true);
+    }
+    topLoadingReasonsRef.current.add(reason);
+  }, []);
+
+  const finishTopLoading = React.useCallback((reason: string) => {
+    topLoadingReasonsRef.current.delete(reason);
+    if (topLoadingReasonsRef.current.size > 0) return;
+
+    const remaining = Math.max(0, 280 - (performance.now() - topLoadingStartedAtRef.current));
+    if (topLoadingHideTimerRef.current) window.clearTimeout(topLoadingHideTimerRef.current);
+    topLoadingHideTimerRef.current = window.setTimeout(() => {
+      topLoadingHideTimerRef.current = undefined;
+      if (topLoadingReasonsRef.current.size === 0) setIsTopLoading(false);
+    }, remaining);
+  }, []);
+
+  React.useEffect(() => () => {
+    if (topLoadingHideTimerRef.current) window.clearTimeout(topLoadingHideTimerRef.current);
+  }, []);
 
   // Model Config State - Lifted for synchronization.
   // Persisted to localStorage so saved model presets & selection survive reload
@@ -333,6 +413,24 @@ const App: React.FC = () => {
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
     },
+    moonshot: {
+        model: 'kimi-k3',
+        thinkingLevel: 0,
+        baseUrl: 'https://api.moonshot.cn/v1',
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+    },
+    spacexai: {
+        model: 'grok-2-1212',
+        thinkingLevel: 0,
+        baseUrl: 'https://api.x.ai/v1',
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+    },
+    zhipuai: {
+        model: 'glm-4-plus',
+        thinkingLevel: 0,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+    },
     systemDefaults: {
       chatRenaming: 'gemini-3.1-flash-lite',
       computerUse: 'claude-sonnet-4.5',
@@ -350,6 +448,9 @@ const App: React.FC = () => {
           gemini: { ...DEFAULT_MODEL_CONFIG.gemini, ...parsed.gemini },
           openai: { ...DEFAULT_MODEL_CONFIG.openai, ...parsed.openai },
           anthropic: { ...DEFAULT_MODEL_CONFIG.anthropic, ...parsed.anthropic },
+          moonshot: { ...DEFAULT_MODEL_CONFIG.moonshot, ...(parsed.moonshot || {}) },
+          spacexai: { ...DEFAULT_MODEL_CONFIG.spacexai, ...(parsed.spacexai || {}) },
+          zhipuai: { ...DEFAULT_MODEL_CONFIG.zhipuai, ...(parsed.zhipuai || {}) },
           systemDefaults: { ...DEFAULT_MODEL_CONFIG.systemDefaults, ...(parsed.systemDefaults || {}) },
         };
       }
@@ -396,8 +497,15 @@ const App: React.FC = () => {
   const [isIncognito, setIsIncognito] = useState(false);
 
   const handleDashboardModeChange = (mode: 'develop' | 'chat' | 'media') => {
+    if (mode === dashboardMode) return;
+    startTopLoading('dashboard-mode');
     setDashboardMode(mode);
   };
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-mode'));
+    return () => window.cancelAnimationFrame(frame);
+  }, [dashboardMode, finishTopLoading]);
 
   const handleNewChat = () => {
     setChatResetKey((k) => k + 1);
@@ -412,7 +520,80 @@ const App: React.FC = () => {
   };
 
   const navigate = useNavigate();
+  const viewChangeSequenceRef = React.useRef(0);
+  const viewChangeIntentRef = React.useRef<ViewType | null>(null);
+  const handleViewChange = React.useCallback(async (view: ViewType) => {
+    if (view === currentView) return;
+    const sequence = ++viewChangeSequenceRef.current;
+    viewChangeIntentRef.current = view;
+    startTopLoading('dashboard-view');
+    if (currentView === 'agents' && view !== 'agents') {
+      const flushDraft = agentBuilderDraftFlush.get();
+      if (flushDraft && !(await flushDraft())) {
+        if (sequence === viewChangeSequenceRef.current) {
+          viewChangeIntentRef.current = null;
+          finishTopLoading('dashboard-view');
+        }
+        return;
+      }
+    }
+    if (sequence !== viewChangeSequenceRef.current) return;
+    if (view === 'agents') navigate('/?view=agents');
+    else if (searchParams.get('view') === 'agents') navigate('/', { replace: true });
+    setCurrentView(view);
+  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading]);
   const { user, userProfile, loading } = useAuth();
+  React.useEffect(() => {
+    let cancelled = false;
+    const sequence = ++viewChangeSequenceRef.current;
+    const syncViewFromUrl = async () => {
+      const intendedView = viewChangeIntentRef.current;
+      if (intendedView) {
+        const urlMatchesIntent = intendedView === 'agents'
+          ? Boolean(user && searchParams.get('view') === 'agents')
+          : searchParams.get('view') !== 'agents';
+        if (currentView === intendedView && urlMatchesIntent) viewChangeIntentRef.current = null;
+        return;
+      }
+
+      if (user && searchParams.get('view') === 'agents') {
+        if (!cancelled && sequence === viewChangeSequenceRef.current && currentView !== 'agents') {
+          startTopLoading('dashboard-view');
+          setCurrentView('agents');
+        }
+        return;
+      }
+      if (currentView !== 'agents') return;
+      if (!user) {
+        if (!cancelled && sequence === viewChangeSequenceRef.current) {
+          startTopLoading('dashboard-view');
+          setCurrentView('home');
+        }
+        return;
+      }
+
+      startTopLoading('dashboard-view');
+      const flushDraft = agentBuilderDraftFlush.get();
+      if (flushDraft && !(await flushDraft())) {
+        if (!cancelled && sequence === viewChangeSequenceRef.current) {
+          navigate('/?view=agents', { replace: true });
+          finishTopLoading('dashboard-view');
+        }
+        return;
+      }
+      if (!cancelled && sequence === viewChangeSequenceRef.current) setCurrentView('home');
+    };
+
+    void syncViewFromUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, user]);
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-view'));
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentView, finishTopLoading]);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Check if user needs onboarding
@@ -478,9 +659,14 @@ const App: React.FC = () => {
     <BackgroundProvider>
       <UserDataProvider>
         <LocalFSProvider modelConfig={modelConfig}>
+          <DriveProjectDiscovery />
           <Routes>
           <Route path="/" element={
           <>
+            <TopLoadingBar
+              active={isTopLoading}
+              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? 64 : 260)}
+            />
             <SettingsModal 
               isOpen={isSettingsOpen} 
               onClose={handleSettingsClose} 
@@ -493,7 +679,7 @@ const App: React.FC = () => {
               isSearchOpen={isSearchOpen}
               setIsSearchOpen={setIsSearchOpen}
               currentView={currentView}
-              setCurrentView={setCurrentView}
+              setCurrentView={handleViewChange}
               onSettingsClick={() => setIsSettingsOpen(true)}
               isAuthenticated={!!user}
               dashboardMode={dashboardMode}
@@ -506,7 +692,20 @@ const App: React.FC = () => {
               setIsSidebarCollapsed={setIsSidebarCollapsed}
               isSidebarHidden={isSidebarHidden}
             >
-              {currentView === 'home' ? (
+              {currentView === 'agents' ? (
+                <Suspense fallback={
+                  <DashboardLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                    <div className="flex h-full w-full items-center justify-center bg-[#1c1c1c] text-sm text-[#888]">Loading Agents...</div>
+                  </DashboardLoadingFallback>
+                }>
+                  <div className="h-full w-full">
+                    <AgentBuilderContent
+                      isSidebarCollapsed={isSidebarCollapsed}
+                      onClose={() => handleViewChange('home')}
+                    />
+                  </div>
+                </Suspense>
+              ) : currentView === 'home' ? (
                 dashboardMode === 'chat' ? (
                   <DashboardChat
                     key={chatResetKey}
@@ -562,7 +761,11 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <Suspense fallback={<CodeWorkspaceSkeleton />}>
+                  <Suspense fallback={
+                    <DashboardLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                      <CodeWorkspaceSkeleton />
+                    </DashboardLoadingFallback>
+                  }>
                     <CodeWorkspace
                       key={`develop-${chatResetKey}`}
                       chatResetKey={chatResetKey}
@@ -589,6 +792,7 @@ const App: React.FC = () => {
             </DashboardLayout>
           </>
         } />
+        <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={
           <StagingRouteGuard>
@@ -637,4 +841,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

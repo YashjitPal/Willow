@@ -18,6 +18,10 @@ import type {
 const TYPE_ALIASES: Record<string, NodeType> = {
   start: 'start',
   agent: 'agent',
+  subflow: 'subflow',
+  'sub-flow': 'subflow',
+  workflowcall: 'subflow',
+  'workflow-call': 'subflow',
   end: 'end',
   note: 'note',
   filesearch: 'fileSearch',
@@ -59,6 +63,7 @@ function defaultLabel(type: NodeType): string {
   switch (type) {
     case 'start': return 'Start';
     case 'agent': return 'Agent';
+    case 'subflow': return 'Subflow';
     case 'end': return 'End';
     case 'note': return 'Note';
     case 'fileSearch': return 'File search';
@@ -76,7 +81,7 @@ export function defaultConfigFor(type: NodeType): JsonObject {
   switch (type) {
     case 'start':
       return {
-        inputVariables: [{ name: 'input_as_text', type: 'string' }],
+        inputVariables: [],
         stateVariables: [],
       };
     case 'agent': {
@@ -88,15 +93,18 @@ export function defaultConfigFor(type: NodeType): JsonObject {
         tools: [],
         outputFormat: 'text',
         continueOnError: false,
+        onError: 'fail',
       };
       return cfg as unknown as JsonObject;
     }
+    case 'subflow':
+      return { workflowId: '', version: 1, inputMappings: [], outputMappings: [], onError: 'fail', maxDepth: 8 };
     case 'end':
       return {};
     case 'note':
       return { text: '' };
     case 'fileSearch':
-      return { vectorStoreIds: [], query: '{{workflow.input_as_text}}' };
+      return { vectorStoreIds: [], query: '{{workflow.input_as_text}}', onError: 'fail' };
     case 'guardrail':
       return {
         pii: false,
@@ -104,19 +112,20 @@ export function defaultConfigFor(type: NodeType): JsonObject {
         jailbreak: false,
         hallucination: false,
         continueOnError: false,
+        onTripwire: 'branch',
       };
     case 'mcp':
-      return { serverId: '', tool: '', arguments: {}, requireApproval: 'never' };
+      return { serverId: '', tool: '', arguments: {}, requireApproval: 'never', onError: 'fail' };
     case 'ifElse':
-      return { branches: [{ id: 'if', label: 'If', condition: 'true' }] };
+      return { branches: [{ id: 'if', label: 'If', condition: 'true' }], onError: 'fail' };
     case 'while':
-      return { condition: 'false', maxIterations: 100 };
+      return { condition: 'false', maxIterations: 100, onError: 'fail' };
     case 'userApproval':
-      return { message: 'Approve to continue?' };
+      return { message: 'Approve to continue?', onError: 'fail' };
     case 'transform':
-      return { outputs: [] };
+      return { outputs: [], onError: 'fail' };
     case 'setState':
-      return { assignments: [] };
+      return { assignments: [], onError: 'fail' };
   }
 }
 
@@ -171,8 +180,8 @@ function extractConfig(type: NodeType, raw: RawNode): { name: string; config: Js
       // full agent config may ride along under data
       for (const key of [
         'model', 'userMessage', 'includeChatHistory', 'writeToConversationHistory',
-        'reasoningEffort', 'verbosity', 'modelParams', 'tools', 'outputFormat',
-        'outputSchema', 'outputSchemaName', 'continueOnError', 'maxTurns',
+        'reasoningEffort', 'verbosity', 'modelParams', 'promptCache', 'tools', 'toolChoice', 'parallelToolCalls', 'resetToolChoice', 'outputFormat',
+        'outputSchema', 'outputSchemaName', 'continueOnError', 'onError', 'maxTurns', 'maxInputTokensPerCall', 'modelTimeoutMs',
       ]) {
         if (data[key] !== undefined) config[key] = data[key];
       }
@@ -181,8 +190,9 @@ function extractConfig(type: NodeType, raw: RawNode): { name: string; config: Js
       for (const key of ['pii', 'moderation', 'jailbreak', 'hallucination', 'continueOnError']) {
         if (typeof g[key] === 'boolean') config[key] = g[key];
       }
-      if (data.input !== undefined) config.input = data.input;
-      if (data.settings !== undefined) config.settings = data.settings;
+      if (typeof g.onTripwire === 'string') config.onTripwire = g.onTripwire;
+      if (g.input !== undefined) config.input = g.input;
+      if (g.settings !== undefined) config.settings = g.settings;
     } else if (data.config && typeof data.config === 'object' && !Array.isArray(data.config)) {
       config = { ...base, ...(data.config as JsonObject) };
     } else {
@@ -194,10 +204,18 @@ function extractConfig(type: NodeType, raw: RawNode): { name: string; config: Js
     }
   }
 
+  const explicitlySetsOnError = explicit?.onError !== undefined || data.onError !== undefined;
+  if ((type === 'agent' || type === 'mcp') && !explicitlySetsOnError && config.continueOnError === true) {
+    config.onError = 'continue';
+  }
+
   return { name, config };
 }
 
-export function normalizeGraph(input: unknown): NormalizeResult {
+export function normalizeGraph(
+  input: unknown,
+  options: { migrateLegacyTerminal?: boolean } = {},
+): NormalizeResult {
   if (!input || typeof input !== 'object') {
     throw new Error('graph must be an object with nodes and edges');
   }
@@ -214,6 +232,7 @@ export function normalizeGraph(input: unknown): NormalizeResult {
     if (!rn || typeof rn !== 'object' || typeof rn.id !== 'string') {
       throw new Error('every node needs a string id');
     }
+    if (!rn.id.trim()) throw new Error('node id cannot be empty');
     if (seenIds.has(rn.id)) throw new Error(`duplicate node id '${rn.id}'`);
     seenIds.add(rn.id);
     const typeStr = typeof rn.type === 'string' ? rn.type : '';
@@ -253,6 +272,10 @@ export function normalizeGraph(input: unknown): NormalizeResult {
       }
     }
     edgeSeq += 1;
+    const sourceNode = nodes.find((node) => node.id === re.source);
+    const targetNode = nodes.find((node) => node.id === re.target);
+    // Notes are canvas annotations, never part of executable topology.
+    if (sourceNode?.type === 'note' || targetNode?.type === 'note') continue;
     edges.push({
       id: typeof re.id === 'string' && re.id ? re.id : `edge_${edgeSeq}`,
       source: re.source,
@@ -270,6 +293,48 @@ export function normalizeGraph(input: unknown): NormalizeResult {
       if (!branches.some((b) => b.id === e.sourceHandle)) {
         // map unknown handle to first branch if it exists
         if (branches.length && e.sourceHandle === 'if') e.sourceHandle = String(branches[0].id);
+      }
+    }
+  }
+
+  // Older saved/published graphs predate the explicit End node. Migrate only
+  // those graphs so replay/import remains compatible; graphs that already
+  // contain End are validated strictly rather than silently repaired.
+  if (options.migrateLegacyTerminal && !nodes.some((node) => node.type === 'end')) {
+    let endId = 'end_legacy';
+    let suffix = 2;
+    while (seenIds.has(endId)) endId = `end_legacy_${suffix++}`;
+    seenIds.add(endId);
+    nodes.push({ id: endId, type: 'end', name: 'End', position: undefined, config: {} });
+
+    const usedEdgeIds = new Set(edges.map((edge) => edge.id));
+    let migrationEdge = 1;
+    const connect = (source: string, sourceHandle: string | null) => {
+      let id = `edge_legacy_end_${migrationEdge++}`;
+      while (usedEdgeIds.has(id)) id = `edge_legacy_end_${migrationEdge++}`;
+      usedEdgeIds.add(id);
+      edges.push({ id, source, target: endId, sourceHandle, targetHandle: null });
+    };
+    const branchHandles = (node: WorkflowNode): string[] | undefined => {
+      if (node.type === 'ifElse') {
+        return [...((node.config.branches ?? []) as JsonObject[]).map((branch) => String(branch.id)), 'else'];
+      }
+      if (node.type === 'guardrail') return ['pass', 'fail'];
+      if (node.type === 'userApproval') return ['approved', 'rejected'];
+      if (node.type === 'while') return ['loop', 'done'];
+      return undefined;
+    };
+    for (const node of nodes) {
+      if (node.type === 'end' || node.type === 'note') continue;
+      const handles = branchHandles(node);
+      if (handles) {
+        for (const handle of handles) {
+          if (!edges.some((edge) => edge.source === node.id && edge.sourceHandle === handle)) {
+            connect(node.id, handle);
+          }
+        }
+      } else if (!edges.some((edge) => edge.source === node.id)) {
+        connect(node.id, null);
       }
     }
   }

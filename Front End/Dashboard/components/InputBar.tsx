@@ -136,8 +136,11 @@ const ModelsMenu: React.FC<{
   // Combine all saved models from all providers
   const ALL_MODELS = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-    ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-    ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' }))
+      ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
+      ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
+      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
+      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
+      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
   ].filter(m => m.name !== "Nano Banana Pro"); // Filter out Nano Banana Pro
 
   const [localSearchQuery, setLocalSearchQuery] = useState("");
@@ -686,8 +689,11 @@ export const InputBar: React.FC<{
   // Combine models to find the active one
   const ALL_MODELS = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-    ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-    ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' }))
+      ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
+      ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
+      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
+      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
+      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
   ].filter(m => m.name !== "Nano Banana Pro");
 
   // Sync selection with available models

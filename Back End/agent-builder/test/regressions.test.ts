@@ -51,6 +51,32 @@ describe('regression: agent does not duplicate the current user message', () => 
     const hist = await app.engine.runHistory(run.id);
     assert.equal(hist.filter((m) => m.role === 'user' && m.content === 'solo').length, 1);
   });
+
+  it('records an explicitly empty attachment-only user turn', async () => {
+    const id = await wf(
+      [
+        { id: 's', type: 'start', data: {} },
+        { id: 'e', type: 'end', config: { output: 'received' } },
+      ],
+      [{ id: 'edge', source: 's', target: 'e' }],
+    );
+    const run = await app.engine.createRun({
+      workflowId: id,
+      input: {
+        input_as_text: '',
+        attachments: [{
+          name: 'request.txt',
+          mimeType: 'text/plain',
+          contentBase64: Buffer.from('attachment-only request').toString('base64'),
+        }],
+      },
+    });
+    await waitForRun(app, run.id, ['completed', 'failed']);
+
+    const history = await app.engine.runHistory(run.id);
+    assert.equal(history.filter((message) => message.role === 'user').length, 1);
+    assert.equal(history.find((message) => message.role === 'user')?.content, '');
+  });
 });
 
 describe('regression: double-resolve approval guard', () => {
@@ -82,6 +108,93 @@ describe('regression: double-resolve approval guard', () => {
     assert.equal(err, 1);
     const done = await waitForRun(app, run.id, ['completed', 'failed']);
     assert.equal(done.output, 'YES'); // the approve won (fired first)
+  });
+
+  it('does not revive a cancelled run when approval resolution is already in flight', async () => {
+    const id = await wf(
+      [
+        { id: 's', type: 'start', data: {} },
+        { id: 'u', type: 'userApproval', config: { message: 'ok?' } },
+        { id: 'y', type: 'end', config: { output: 'YES' } },
+        { id: 'n', type: 'end', config: { output: 'NO' } },
+      ],
+      [
+        { id: 'e1', source: 's', target: 'u' },
+        { id: 'e2', source: 'u', target: 'y', sourceHandle: 'approved' },
+        { id: 'e3', source: 'u', target: 'n', sourceHandle: 'rejected' },
+      ],
+    );
+    const run = await app.engine.createRun({ workflowId: id, input: {} });
+    const paused = await waitForRun(app, run.id, ['awaiting_approval']);
+
+    const engine = app.engine as unknown as {
+      missingCredentials: (...args: unknown[]) => Promise<string[]>;
+    };
+    const originalMissingCredentials = engine.missingCredentials.bind(app.engine);
+    let release!: () => void;
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+    engine.missingCredentials = async () => {
+      entered();
+      await releasePromise;
+      return [];
+    };
+
+    try {
+      const resolution = app.engine.resolveApproval(run.id, paused.pendingApproval!.id, { approved: true });
+      await enteredPromise;
+      await app.engine.cancelRun(run.id);
+      release();
+      await assert.rejects(resolution, /not awaiting approval \(status: cancelled\)/);
+    } finally {
+      engine.missingCredentials = originalMissingCredentials;
+      release();
+    }
+
+    const cancelled = await app.engine.getRun(run.id);
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(cancelled?.pendingApproval, undefined);
+    assert.equal((await app.engine.pastEvents(run.id)).some((event) => event.type === 'approval.resolved'), false);
+  });
+});
+
+describe('approval rejection audit context', () => {
+  it('retains a bounded rejection reason in events and trace spans', async () => {
+    const id = await wf(
+      [
+        { id: 's', type: 'start', data: {} },
+        { id: 'u', type: 'userApproval', config: { message: 'Ship this change?' } },
+        { id: 'y', type: 'end', config: { output: 'YES' } },
+        { id: 'n', type: 'end', config: { output: 'NO' } },
+      ],
+      [
+        { id: 'e1', source: 's', target: 'u' },
+        { id: 'e2', source: 'u', target: 'y', sourceHandle: 'approved' },
+        { id: 'e3', source: 'u', target: 'n', sourceHandle: 'rejected' },
+      ],
+    );
+    const run = await app.engine.createRun({ workflowId: id, input: {} });
+    const paused = await waitForRun(app, run.id, ['awaiting_approval']);
+    await app.engine.resolveApproval(run.id, paused.pendingApproval!.id, { approved: false, reason: 'Missing security review' });
+    const done = await waitForRun(app, run.id, ['completed', 'failed']);
+    assert.equal(done.output, 'NO');
+    const event = (await app.engine.pastEvents(run.id)).find((item) => item.type === 'approval.resolved');
+    assert.equal(event?.type === 'approval.resolved' ? event.reason : undefined, 'Missing security review');
+    const trace = await app.engine.traceSpans(run.id);
+    const approval = trace?.find((span) => span.type === 'approval');
+    assert.equal(approval?.data?.reason, 'Missing security review');
+  });
+
+  it('rejects oversized reasons without consuming the pending approval', async () => {
+    const id = await wf(
+      [{ id: 's', type: 'start', data: {} }, { id: 'u', type: 'userApproval', config: { message: 'Continue?' } }, { id: 'n', type: 'end', config: { output: 'NO' } }],
+      [{ id: 'e1', source: 's', target: 'u' }, { id: 'e2', source: 'u', target: 'n', sourceHandle: 'rejected' }, { id: 'e3', source: 'u', target: 'n', sourceHandle: 'approved' }],
+    );
+    const run = await app.engine.createRun({ workflowId: id, input: {} });
+    const paused = await waitForRun(app, run.id, ['awaiting_approval']);
+    await assert.rejects(() => app.engine.resolveApproval(run.id, paused.pendingApproval!.id, { approved: false, reason: 'x'.repeat(2001) }), /2000 characters/);
+    assert.equal((await app.engine.getRun(run.id))?.status, 'awaiting_approval');
   });
 });
 
@@ -146,6 +259,7 @@ describe('regression: guardrail PII mask rewrites conversation history', () => {
       [
         { id: 'e1', source: 's', target: 'g' },
         { id: 'e2', source: 'g', target: 'a', sourceHandle: 'pass' },
+        { id: 'e4', source: 'g', target: 'e', sourceHandle: 'fail' },
         { id: 'e3', source: 'a', target: 'e' },
       ],
     );

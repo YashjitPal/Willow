@@ -1,11 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen, Link, Github } from 'lucide-react';
 import './SettingsModal.css'; // Assuming we can import a CSS file or add a style tag
 import { useAuth } from '../context/AuthContext';
 import { useLocalFS } from '../context/LocalFSContext';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../lib/firebaseConfig';
-import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab } from './settings';
+import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab } from './settings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -16,7 +14,111 @@ interface SettingsModalProps {
   initialConnector?: string | null;
 }
 
-type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github';
+type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'governance' | 'account' | 'labs' | 'connectors' | 'github';
+
+type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
+type ProviderConfig = { apiKey: string; baseUrl: string };
+type ProviderParams = {
+  gemini: ProviderConfig;
+  openai: ProviderConfig;
+  anthropic: ProviderConfig;
+  moonshot: ProviderConfig;
+  spacexai: ProviderConfig;
+  zhipuai: ProviderConfig;
+  activeProvider: ProviderId;
+};
+
+const DEFAULT_PROVIDER_STATE: ProviderParams = {
+  gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com' },
+  openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1' },
+  anthropic: { apiKey: '', baseUrl: 'https://api.anthropic.com' },
+  moonshot: { apiKey: '', baseUrl: 'https://api.moonshot.cn/v1' },
+  spacexai: { apiKey: '', baseUrl: 'https://api.x.ai/v1' },
+  zhipuai: { apiKey: '', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  activeProvider: 'gemini'
+};
+
+const getProviderStorageKeys = (uid: string) => ({
+  providerState: `willow:providerState:${uid}`,
+  apiKeys: `willow:apiKeys:${uid}`
+});
+
+const normalizeProviderState = (value: unknown): ProviderParams | null => {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<ProviderParams>;
+  const readConfig = (provider: ProviderId): ProviderConfig => {
+    const config = candidate[provider as keyof ProviderParams] as Partial<ProviderConfig> | undefined;
+    const fallback = DEFAULT_PROVIDER_STATE[provider as keyof ProviderParams] as ProviderConfig;
+    return {
+      apiKey: typeof config?.apiKey === 'string' ? config.apiKey : '',
+      baseUrl: typeof config?.baseUrl === 'string' ? config.baseUrl : fallback.baseUrl
+    };
+  };
+  const activeProvider = candidate.activeProvider;
+
+  return {
+    gemini: readConfig('gemini'),
+    openai: readConfig('openai'),
+    anthropic: readConfig('anthropic'),
+    moonshot: readConfig('moonshot'),
+    spacexai: readConfig('spacexai'),
+    zhipuai: readConfig('zhipuai'),
+    activeProvider: ['openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].includes(activeProvider || '') ? (activeProvider as ProviderId) : 'gemini'
+  };
+};
+
+const migrateProviderStorage = (uid: string) => {
+  try {
+    const keys = getProviderStorageKeys(uid);
+
+    // UID-scoped local entries can be safely moved. Unscoped legacy entries
+    // cannot be attributed to an account, so remove them without importing.
+    for (const key of [keys.providerState, keys.apiKeys]) {
+      const scopedLegacyValue = localStorage.getItem(key);
+      if (scopedLegacyValue !== null && sessionStorage.getItem(key) === null) {
+        sessionStorage.setItem(key, scopedLegacyValue);
+      }
+      localStorage.removeItem(key);
+    }
+    localStorage.removeItem('providerState');
+    localStorage.removeItem('apiKeys');
+    sessionStorage.removeItem('providerState');
+    sessionStorage.removeItem('apiKeys');
+  } catch (error) {
+    console.warn('[Settings] Unable to migrate provider cache:', error);
+  }
+};
+
+const readCachedProviderState = (uid: string): ProviderParams | null => {
+  try {
+    const key = getProviderStorageKeys(uid).providerState;
+    const serialized = sessionStorage.getItem(key);
+    if (!serialized) return null;
+    const state = normalizeProviderState(JSON.parse(serialized));
+    if (!state) sessionStorage.removeItem(key);
+    return state;
+  } catch (error) {
+    console.warn('[Settings] Ignoring invalid provider cache:', error);
+    return null;
+  }
+};
+
+const cacheProviderState = (uid: string, state: ProviderParams) => {
+  try {
+    const keys = getProviderStorageKeys(uid);
+    sessionStorage.setItem(keys.providerState, JSON.stringify(state));
+    sessionStorage.setItem(keys.apiKeys, JSON.stringify({
+      gemini: state.gemini.apiKey ? [state.gemini.apiKey] : [],
+      openai: state.openai.apiKey ? [state.openai.apiKey] : [],
+      anthropic: state.anthropic.apiKey ? [state.anthropic.apiKey] : [],
+      moonshot: state.moonshot.apiKey ? [state.moonshot.apiKey] : [],
+      spacexai: state.spacexai.apiKey ? [state.spacexai.apiKey] : [],
+      zhipuai: state.zhipuai.apiKey ? [state.zhipuai.apiKey] : []
+    }));
+  } catch (error) {
+    console.warn('[Settings] Unable to cache provider configuration:', error);
+  }
+};
 
 const SettingsSidebarItem: React.FC<{ 
   icon?: React.ElementType; 
@@ -259,7 +361,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const workspaceInitial = userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'W';
   
   // Separate UI state for managing keys view (resets on modal close)
-  const [managingProvider, setManagingProvider] = useState<'gemini' | 'openai' | 'anthropic' | null>(null);
+  const [managingProvider, setManagingProvider] = useState<ProviderId | null>(null);
   const [wasManagingKeys, setWasManagingKeys] = useState(false);
   const [activeConnector, setActiveConnector] = useState<string | null>(initialConnector ?? null);
   
@@ -387,58 +489,169 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   }, [isOpen, shouldRender]);
   
   // Models & API State
-  type ProviderConfig = { apiKey: string; baseUrl: string };
-    type ProviderParams = {
-      gemini: ProviderConfig;
-      openai: ProviderConfig;
-      anthropic: ProviderConfig;
-      activeProvider?: string;
-    };
-
-    const defaultProviderState: ProviderParams = {
-      gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com' },
-      openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1' },
-      anthropic: { apiKey: '', baseUrl: 'https://api.anthropic.com' }
-    };
-
-  const [providerState, setProviderState] = React.useState<ProviderParams>(defaultProviderState);
+  const [providerState, setProviderState] = React.useState<ProviderParams>(DEFAULT_PROVIDER_STATE);
   const [isLoadingKeys, setIsLoadingKeys] = React.useState(true);
+  const providerStateRef = React.useRef<ProviderParams>(DEFAULT_PROVIDER_STATE);
+  const providerStateUidRef = React.useRef<string | null | undefined>(undefined);
+  const providerEditVersionRef = React.useRef(0);
+  const providerSaveTimerRef = React.useRef<number | null>(null);
+  const providerSaveQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const pendingProviderSaveRef = React.useRef<{
+    uid: string;
+    state: ProviderParams;
+    getIdToken: () => Promise<string>;
+  } | null>(null);
+
+  const saveProviderStateToFirestore = async (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
+    const idToken = await request.getIdToken();
+    const projectId = 'willow-64095';
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${request.uid}?updateMask.fieldPaths=providerState`;
+
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: {
+          providerState: {
+            mapValue: {
+              fields: {
+                gemini: { mapValue: { fields: { apiKey: { stringValue: request.state.gemini.apiKey }, baseUrl: { stringValue: request.state.gemini.baseUrl } } } },
+                openai: { mapValue: { fields: { apiKey: { stringValue: request.state.openai.apiKey }, baseUrl: { stringValue: request.state.openai.baseUrl } } } },
+                anthropic: { mapValue: { fields: { apiKey: { stringValue: request.state.anthropic.apiKey }, baseUrl: { stringValue: request.state.anthropic.baseUrl } } } },
+                moonshot: { mapValue: { fields: { apiKey: { stringValue: request.state.moonshot.apiKey }, baseUrl: { stringValue: request.state.moonshot.baseUrl } } } },
+                spacexai: { mapValue: { fields: { apiKey: { stringValue: request.state.spacexai.apiKey }, baseUrl: { stringValue: request.state.spacexai.baseUrl } } } },
+                zhipuai: { mapValue: { fields: { apiKey: { stringValue: request.state.zhipuai.apiKey }, baseUrl: { stringValue: request.state.zhipuai.baseUrl } } } },
+                activeProvider: { stringValue: request.state.activeProvider }
+              }
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) throw new Error(`Firestore save failed (${response.status})`);
+  };
+
+  const enqueueProviderSave = (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
+    providerSaveQueueRef.current = providerSaveQueueRef.current
+      .catch(() => undefined)
+      .then(() => saveProviderStateToFirestore(request))
+      .catch((error) => {
+        console.error('[Settings] Failed to save provider configuration:', error);
+      });
+  };
+
+  const flushPendingProviderSave = () => {
+    if (providerSaveTimerRef.current !== null) {
+      window.clearTimeout(providerSaveTimerRef.current);
+      providerSaveTimerRef.current = null;
+    }
+    const pendingSave = pendingProviderSaveRef.current;
+    pendingProviderSaveRef.current = null;
+    if (pendingSave) enqueueProviderSave(pendingSave);
+  };
+
+  const scheduleProviderSave = (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
+    pendingProviderSaveRef.current = request;
+    if (providerSaveTimerRef.current !== null) {
+      window.clearTimeout(providerSaveTimerRef.current);
+    }
+    providerSaveTimerRef.current = window.setTimeout(() => {
+      providerSaveTimerRef.current = null;
+      const pendingSave = pendingProviderSaveRef.current;
+      pendingProviderSaveRef.current = null;
+      if (pendingSave) enqueueProviderSave(pendingSave);
+    }, 400);
+  };
+
+  // Clear the previous account's keys before the browser paints the new account.
+  useLayoutEffect(() => {
+    const uid = user?.uid ?? null;
+    if (providerStateUidRef.current === uid) return;
+
+    flushPendingProviderSave();
+    providerStateUidRef.current = uid;
+    providerEditVersionRef.current += 1;
+    providerStateRef.current = DEFAULT_PROVIDER_STATE;
+    setProviderState(DEFAULT_PROVIDER_STATE);
+    setIsLoadingKeys(Boolean(uid));
+
+    if (uid) {
+      migrateProviderStorage(uid);
+      const cachedState = readCachedProviderState(uid);
+      if (cachedState) {
+        providerStateRef.current = cachedState;
+        setProviderState(cachedState);
+      }
+    }
+  }, [user?.uid]);
 
   // Load API keys from Firestore using REST API (bypasses SDK streaming issues)
   useEffect(() => {
     if (!user) {
-      setProviderState(defaultProviderState);
       setIsLoadingKeys(false);
       return;
     }
-    
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const uid = user.uid;
+    const loadEditVersion = providerEditVersionRef.current;
     setIsLoadingKeys(true);
-    console.log('[DEBUG] Loading API keys for user:', user.uid);
-    
+
+    const applyLoadedState = (loadedState: ProviderParams) => {
+      if (
+        cancelled ||
+        providerStateUidRef.current !== uid ||
+        providerEditVersionRef.current !== loadEditVersion
+      ) return;
+      providerStateRef.current = loadedState;
+      setProviderState(loadedState);
+      cacheProviderState(uid, loadedState);
+      // Sync base URLs into modelConfig for streaming callers
+      setModelConfig((prev: any) => ({
+        ...prev,
+        moonshot: { ...prev.moonshot, baseUrl: loadedState.moonshot?.baseUrl || prev.moonshot?.baseUrl },
+        spacexai: { ...prev.spacexai, baseUrl: loadedState.spacexai?.baseUrl || prev.spacexai?.baseUrl },
+        zhipuai: { ...prev.zhipuai, baseUrl: loadedState.zhipuai?.baseUrl || prev.zhipuai?.baseUrl },
+      }));
+    };
+
     const loadKeys = async () => {
       try {
         const idToken = await user.getIdToken();
+        if (cancelled) return;
         const projectId = 'willow-64095';
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}`;
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
         
         const response = await fetch(url, {
           headers: {
             'Authorization': `Bearer ${idToken}`,
-          }
+          },
+          signal: controller.signal,
         });
+        if (cancelled) return;
         
         if (response.ok) {
           const data = await response.json();
-          console.log('[DEBUG] REST API load response:', JSON.stringify(data));
+          if (cancelled) return;
           
           if (data.fields?.providerState?.mapValue?.fields) {
             const ps = data.fields.providerState.mapValue.fields;
             
             const extractOldKey = (arr: any) => {
               if (!arr?.arrayValue?.values || arr.arrayValue.values.length === 0) return '';
-              const activeKey = arr.arrayValue.values.find((v: any) => v.mapValue.fields.isActive?.booleanValue);
-              const keyToUse = activeKey || arr.arrayValue.values[0];
-              return keyToUse.mapValue.fields.key?.stringValue || '';
+              const values = arr.arrayValue.values;
+              const selected = values.some((value: any) => value.mapValue.fields.isActive?.booleanValue)
+                ? values.filter((value: any) => value.mapValue.fields.isActive?.booleanValue)
+                : [values[0]];
+              return selected
+                .map((value: any) => value.mapValue.fields.key?.stringValue || '')
+                .filter(Boolean)
+                .join(', ');
             };
             
             const extractNewConfig = (field: any, oldKeysField: any, defaultBaseUrl: string): ProviderConfig => {
@@ -450,128 +663,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
               }
               return { apiKey: extractOldKey(oldKeysField), baseUrl: defaultBaseUrl };
             };
+            const activeProvider = ps.activeProvider?.stringValue;
             
-            const loadedState: ProviderParams = {
+            applyLoadedState({
               gemini: extractNewConfig(ps.gemini, ps.geminiKeys, 'https://generativelanguage.googleapis.com'),
               openai: extractNewConfig(ps.openai, ps.openaiKeys, 'https://api.openai.com/v1'),
               anthropic: extractNewConfig(ps.anthropic, ps.anthropicKeys, 'https://api.anthropic.com'),
-              activeProvider: ps.activeProvider?.stringValue || 'gemini'
-            };
-            
-            console.log('[DEBUG] Parsed state:', JSON.stringify(loadedState));
-            setProviderState(loadedState);
+              moonshot: extractNewConfig(ps.moonshot, null, 'https://api.moonshot.cn/v1'),
+              spacexai: extractNewConfig(ps.spacexai, null, 'https://api.x.ai/v1'),
+              zhipuai: extractNewConfig(ps.zhipuai, null, 'https://open.bigmodel.cn/api/paas/v4'),
+              activeProvider: ['openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].includes(activeProvider || '') ? (activeProvider as ProviderId) : 'gemini'
+            });
           } else {
-            console.log('[DEBUG] No providerState in doc');
-            setProviderState(defaultProviderState);
+            applyLoadedState(DEFAULT_PROVIDER_STATE);
           }
         } else if (response.status === 404) {
-          console.log('[DEBUG] Doc does not exist');
-          setProviderState(defaultProviderState);
+          applyLoadedState(DEFAULT_PROVIDER_STATE);
         } else {
-          console.log('[DEBUG] REST API load failed:', response.status);
-          setProviderState(defaultProviderState);
+          throw new Error(`Firestore load failed (${response.status})`);
         }
       } catch (err) {
-        console.log('[DEBUG] REST API load error:', err);
-        setProviderState(defaultProviderState);
+        if (!cancelled && (err as Error)?.name !== 'AbortError') {
+          console.error('[Settings] Failed to load provider configuration:', err);
+        }
       }
-      setIsLoadingKeys(false);
+      if (!cancelled && providerStateUidRef.current === uid) setIsLoadingKeys(false);
     };
     
-    loadKeys();
+    void loadKeys();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [user?.uid]);
-
-  // Save to Firestore when providerState changes
-  const [hasLoadedInitially, setHasLoadedInitially] = React.useState(false);
-  
-  useEffect(() => {
-    if (isLoadingKeys) return;
-    if (!hasLoadedInitially) {
-      setHasLoadedInitially(true);
-      return;
-    }
-    if (!user) return;
-    
-    console.log('[DEBUG] Saving API keys for user:', user.uid);
-    console.log('[DEBUG] Keys to save:', JSON.stringify(providerState.gemini));
-    
-    const saveToFirestore = async () => {
-      try {
-        const userDocRef = doc(db, 'users', user.uid);
-        await setDoc(userDocRef, { providerState }, { merge: true });
-        console.log('[DEBUG] Save successful!');
-      } catch (err) {
-        console.log('[DEBUG] Save error:', err);
-      }
-    };
-    
-    saveToFirestore();
-  }, [providerState, user, hasLoadedInitially, isLoadingKeys]);
 
   const [tempKeyInput, setTempKeyInput] = React.useState('');
   const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
 
-  // Direct save using Firestore REST API (bypasses SDK streaming issues)
-  const saveProviderStateToFirestore = async (newState: ProviderParams) => {
-    if (!user) return;
-    
-    try {
-      const idToken = await user.getIdToken();
-      
-      const projectId = 'willow-64095';
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}?updateMask.fieldPaths=providerState`;
-      
-      const response = await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fields: {
-            providerState: {
-              mapValue: {
-                fields: {
-                  gemini: { mapValue: { fields: { apiKey: { stringValue: newState.gemini.apiKey }, baseUrl: { stringValue: newState.gemini.baseUrl } } } },
-                  openai: { mapValue: { fields: { apiKey: { stringValue: newState.openai.apiKey }, baseUrl: { stringValue: newState.openai.baseUrl } } } },
-                  anthropic: { mapValue: { fields: { apiKey: { stringValue: newState.anthropic.apiKey }, baseUrl: { stringValue: newState.anthropic.baseUrl } } } },
-                  activeProvider: { stringValue: newState.activeProvider }
-                }
-              }
-            }
-          }
-        })
-      });
-      
-      if (response.ok) {
-        console.log('[DEBUG] REST API save successful!');
-      } else {
-        const errorText = await response.text();
-        console.log('[DEBUG] REST API save failed:', response.status, errorText);
-      }
-    } catch (err) {
-      console.log('[DEBUG] REST API save error:', err);
-    }
-  };
-
-  const handleUpdateConfig = async (provider: 'gemini' | 'openai' | 'anthropic', config: ProviderConfig) => {
+  const handleUpdateConfig = async (provider: ProviderId, config: ProviderConfig) => {
+    if (!user || providerStateUidRef.current !== user.uid) return;
     const newState = {
-      ...providerState,
+      ...providerStateRef.current,
       [provider]: config
     };
-    
+
+    providerEditVersionRef.current += 1;
+    providerStateRef.current = newState;
     setProviderState(newState);
-    
-    localStorage.setItem('providerState', JSON.stringify(newState));
-    const flatKeys = {
-      gemini: newState.gemini.apiKey ? [newState.gemini.apiKey] : [],
-      openai: newState.openai.apiKey ? [newState.openai.apiKey] : [],
-      anthropic: newState.anthropic.apiKey ? [newState.anthropic.apiKey] : [],
-    };
-    localStorage.setItem('apiKeys', JSON.stringify(flatKeys));
+    cacheProviderState(user.uid, newState);
+    // Sync baseUrl into modelConfig so streaming callers can access it
+    if (config.baseUrl && ['moonshot', 'spacexai', 'zhipuai'].includes(provider)) {
+      setModelConfig((prev: any) => ({
+        ...prev,
+        [provider]: { ...prev[provider], baseUrl: config.baseUrl }
+      }));
+    }
     window.dispatchEvent(new Event('apikeys-updated'));
-    
-    await saveProviderStateToFirestore(newState);
+    scheduleProviderSave({
+      uid: user.uid,
+      state: newState,
+      getIdToken: () => user.getIdToken()
+    });
   };
 
   // Delete account handler
@@ -721,6 +873,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
              <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
              <SettingsSidebarItem icon={Cloud} label="Cloud & AI balance" active={activeTab === 'cloud'} onClick={() => setActiveTab('cloud')} />
              <SettingsSidebarItem icon={Lock} label="Privacy & security" active={activeTab === 'privacy'} onClick={() => setActiveTab('privacy')} />
+             <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => setActiveTab('governance')} />
 
              <SettingsSectionTitle title="Account" />
              <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
@@ -825,6 +978,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 />
             )}
 
+            {activeTab === 'governance' && (
+                <GovernanceTab />
+            )}
+
             {activeTab === 'labs' && (
                 <LabsTab />
             )}
@@ -872,7 +1029,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 />
             )}
 
-            {activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && activeTab !== 'models' && (
+            {activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'governance' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && activeTab !== 'models' && (
                 <div className="w-full h-full flex items-center justify-center text-zinc-500 italic">
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings coming soon...
                 </div>

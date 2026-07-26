@@ -181,6 +181,46 @@
         inset: 0;
         transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
       }
+
+      @keyframes willow-gemini-home-glow-grow {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -45%) scale(0);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(-50%, -45%) scale(1);
+        }
+      }
+
+      .willow-gemini-home-glow::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -45%);
+        z-index: -1;
+        margin: 0 auto;
+        width: 100%;
+        max-width: 792px;
+        height: 50%;
+        max-height: 300px;
+        background: radial-gradient(
+          ellipse 100% 100% at center 8%,
+          rgb(15, 15, 15) 0,
+          rgb(6, 78, 59) 50%
+        );
+        border-radius: 9999px;
+        filter: blur(100px);
+        pointer-events: none;
+        animation: willow-gemini-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .willow-gemini-home-glow::before {
+          animation: none;
+        }
+      }
     </style>
   </head>
   <body>

@@ -13,9 +13,11 @@
  *                        {"text": "..."} or {"tool": "name", "args": {...}}.
  *                        Turn index = number of prior assistant messages.
  *  - mock/fail        -> always throws (error-path testing)
+ *  - mock/delay:MS    -> waits for MS milliseconds, respecting cancellation
  */
 
 import type { JsonObject, JsonValue } from '../domain/types.ts';
+import { pinnedModelTokenLimits } from '../domain/modelCapabilities.ts';
 import {
   ProviderError,
   type LLMMessage,
@@ -56,14 +58,38 @@ function fillSchema(schema: JsonObject, seed: string): JsonValue {
 
 export const mockProvider: LLMProvider = {
   id: 'mock',
+  prepareRequestBody(req) {
+    return { model: req.model, messages: req.messages as unknown as JsonObject[string], tools: (req.tools ?? []) as unknown as JsonObject[string], toolChoice: (req.toolChoice ?? 'auto') as unknown as JsonObject[string], ...(req.jsonSchema ? { jsonSchema: req.jsonSchema as unknown as JsonObject[string] } : {}) };
+  },
 
   async chat(req: LLMRequest): Promise<LLMResponse> {
     const model = req.model.toLowerCase();
     const input = lastUserText(req.messages);
-    const usage = { inputTokens: input.length, outputTokens: 16 };
+    const usage = { inputTokens: input.length, outputTokens: 16, model: req.model };
 
     if (model === 'mock/fail') {
       throw new ProviderError('mock', 'mock/fail always fails');
+    }
+
+    if (model.startsWith('mock/delay:')) {
+      const delayMs = Math.max(0, Number(model.slice('mock/delay:'.length)) || 0);
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => {
+          req.abortSignal?.removeEventListener('abort', onAbort);
+          resolve();
+        };
+        const timer = setTimeout(finish, delayMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          req.abortSignal?.removeEventListener('abort', onAbort);
+          reject(req.abortSignal?.reason instanceof Error ? req.abortSignal.reason : new Error('aborted'));
+        };
+        if (req.abortSignal?.aborted) onAbort();
+        else req.abortSignal?.addEventListener('abort', onAbort, { once: true });
+      });
+      const text = input;
+      req.onDelta?.(text);
+      return { text, toolCalls: [], usage, finishReason: 'stop' };
     }
 
     if (model.startsWith('mock/tool:')) {
@@ -104,6 +130,18 @@ export const mockProvider: LLMProvider = {
       }
       const turnIndex = req.messages.filter((m) => m.role === 'assistant').length;
       const turn = turns[Math.min(turnIndex, turns.length - 1)] ?? { text: '' };
+      if (Array.isArray(turn.tools)) {
+        return {
+          text: '',
+          toolCalls: (turn.tools as JsonObject[]).map((call, index) => ({
+            id: `call_${turnIndex + 1}_${index + 1}`,
+            name: String(call.name ?? call.tool ?? ''),
+            arguments: (call.args ?? {}) as JsonObject,
+          })).filter((call) => call.name),
+          usage,
+          finishReason: 'tool_calls',
+        };
+      }
       if (typeof turn.tool === 'string') {
         return {
           text: '',
@@ -153,10 +191,10 @@ export const mockProvider: LLMProvider = {
 
   async listModels() {
     return [
-      { id: 'mock/echo', displayName: 'Mock Echo' },
-      { id: 'mock/upper', displayName: 'Mock Upper' },
-      { id: 'mock/json', displayName: 'Mock JSON' },
-      { id: 'mock/script', displayName: 'Mock Script' },
+      { id: 'mock/echo', displayName: 'Mock Echo', inputModalities: ['text' as const], ...pinnedModelTokenLimits('mock/echo') },
+      { id: 'mock/upper', displayName: 'Mock Upper', inputModalities: ['text' as const], ...pinnedModelTokenLimits('mock/upper') },
+      { id: 'mock/json', displayName: 'Mock JSON', inputModalities: ['text' as const], ...pinnedModelTokenLimits('mock/json') },
+      { id: 'mock/script', displayName: 'Mock Script', inputModalities: ['text' as const], ...pinnedModelTokenLimits('mock/script') },
     ];
   },
 };

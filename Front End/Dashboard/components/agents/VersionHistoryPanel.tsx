@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@nanostores/react';
 import { Check, History, Loader2, RotateCcw, X } from 'lucide-react';
 import { useUserDataContext } from '../../context/UserDataContext';
-import { getAgentBuilderClient, type WorkflowVersion } from '../../lib/agentBuilder';
+import { AgentBuilderApiError, getAgentBuilderClient, type WorkflowVersion } from '../../lib/agentBuilder';
 import {
+  autosaveConflict,
   currentWorkflow,
   requestedWorkflowId,
+  saveStatus,
   versionPanelOpen,
 } from '../../lib/stores/agent-builder-store';
 
@@ -46,10 +48,26 @@ export const VersionHistoryPanel: React.FC = () => {
     setRestoring(version);
     setError(null);
     try {
-      await getAgentBuilderClient(apiKeys).restoreVersion(workflow.id, version);
+      await getAgentBuilderClient(apiKeys).restoreVersion(workflow.id, version, workflow.draftRevision);
       requestedWorkflowId.set(workflow.id);
       versionPanelOpen.set(false);
     } catch (reason) {
+      if (reason instanceof AgentBuilderApiError && reason.status === 409 && reason.code === 'draft_revision_conflict') {
+        let currentRevision = workflow.draftRevision;
+        try {
+          const { workflow: remote } = await getAgentBuilderClient(apiKeys).getWorkflow(workflow.id);
+          currentRevision = remote.draftRevision;
+        } catch { /* retain the observed revision when the remote cannot be reloaded */ }
+        autosaveConflict.set({
+          workflowId: workflow.id,
+          expectedRevision: workflow.draftRevision,
+          currentRevision,
+          message: reason.message,
+        });
+        saveStatus.set('conflict');
+        versionPanelOpen.set(false);
+        return;
+      }
       setError((reason as Error).message);
     } finally {
       setRestoring(null);
@@ -91,6 +109,10 @@ export const VersionHistoryPanel: React.FC = () => {
           <div className="flex flex-col gap-2">
             {versions.map((version) => {
               const current = workflow?.latestVersion === version.version;
+              const previous = versions.find((candidate) => candidate.version === version.version - 1);
+              const nodeDelta = previous ? version.graph.nodes.length - previous.graph.nodes.length : version.graph.nodes.length;
+              const edgeDelta = previous ? version.graph.edges.length - previous.graph.edges.length : version.graph.edges.length;
+              const formatDelta = (value: number) => value > 0 ? `+${value}` : String(value);
               return (
                 <div
                   key={version.version}
@@ -112,8 +134,12 @@ export const VersionHistoryPanel: React.FC = () => {
                     <div className="text-[#777] text-[11px] mt-0.5">
                       {new Date(version.publishedAt).toLocaleString()}
                     </div>
+                    <div className="mt-1 text-[10.5px] text-[#888]">
+                      {version.graph.nodes.length} nodes · {version.graph.edges.length} connections
+                      <span className="ml-2 text-[#666]">({formatDelta(nodeDelta)} nodes, {formatDelta(edgeDelta)} connections)</span>
+                    </div>
                     {version.notes && (
-                      <div className="text-[#aaa] text-[11px] mt-1 truncate">{version.notes}</div>
+                      <div className="text-[#aaa] text-[11px] mt-1 whitespace-pre-wrap">{version.notes}</div>
                     )}
                   </div>
                   <button

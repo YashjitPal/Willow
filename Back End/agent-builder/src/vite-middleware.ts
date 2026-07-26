@@ -15,7 +15,7 @@
  *   server.httpServer?.once('close', () => close());
  */
 
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createApp } from './index.ts';
 import { createApiMiddleware, type ConnectNext } from './http/server.ts';
 import { createLogger } from './util/log.ts';
@@ -28,6 +28,8 @@ export interface AgentBuilderMiddleware {
   close: () => Promise<void>;
   /** The route prefix handled by the middleware. */
   prefix: string;
+  /** Attach the realtime WebSocket upgrade handler to the host HTTP server. */
+  attachRealtime: (server: Server) => void;
 }
 
 export async function createAgentBuilderMiddleware(
@@ -37,8 +39,9 @@ export async function createAgentBuilderMiddleware(
   const app = await createApp();
   log.info(`Agent Builder API mounted as middleware at ${prefix}v1 (data dir: ${app.config.dataDir})`);
   return {
-    middleware: createApiMiddleware(app.router, app.config, prefix),
+    middleware: createApiMiddleware(app.router, app.config, app.governance, prefix),
     close: app.close,
     prefix,
+    attachRealtime: (server) => app.realtime.attach(server),
   };
 }

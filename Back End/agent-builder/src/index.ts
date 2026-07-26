@@ -22,7 +22,14 @@ import { McpManager } from './mcp/manager.ts';
 import { VectorStoreService } from './rag/vectorStore.ts';
 import { ChatService } from './services/chat.ts';
 import { EvaluationService } from './services/evaluations.ts';
+import { BatchService } from './services/batches.ts';
 import { WorkflowService } from './services/workflows.ts';
+import { GovernanceService } from './services/governance.ts';
+import { DeploymentService } from './services/deployments.ts';
+import { loadProviderKeys } from './services/providerCredentials.ts';
+import { CollaborationService } from './services/collaboration.ts';
+import { RealtimeService } from './services/realtime.ts';
+import { SecretService } from './services/secrets.ts';
 import { createStorage } from './storage/index.ts';
 import { createLogger } from './util/log.ts';
 
@@ -31,21 +38,39 @@ const log = createLogger('main');
 export async function createApp() {
   const config = loadConfig();
   const storage = await createStorage(config.dataDir);
-  const mcp = new McpManager(storage);
-  const vectorStores = new VectorStoreService(storage);
-  const engine = new RunEngine(storage, config, mcp, vectorStores);
+  const mcp = new McpManager(storage, { allowPrivateNetworks: config.allowPrivateNetworks });
+  const vectorStores = new VectorStoreService(storage, config.dataDir);
+  const secrets = new SecretService(storage);
+  const engine = new RunEngine(storage, config, mcp, vectorStores, secrets);
   const workflows = new WorkflowService(storage);
-  const chat = new ChatService(storage, engine, config);
-  const evaluations = new EvaluationService(storage);
+  const collaboration = new CollaborationService(storage, workflows);
+  const deployments = new DeploymentService(storage);
+  const chat = new ChatService(storage, engine, config, deployments);
+  const evaluations = new EvaluationService(storage, engine);
+  const batches = new BatchService(storage, engine);
+  const governance = new GovernanceService(storage, config);
+  const realtime = new RealtimeService(engine, config.corsOrigins, async (runId) => {
+    await batches.reconcileRun(runId);
+  });
 
   const router = new Router();
-  registerRoutes(router, { storage, workflows, engine, chat, mcp, vectorStores, evaluations });
+  registerRoutes(router, { storage, workflows, collaboration, engine, chat, mcp, vectorStores, evaluations, governance, deployments, batches, realtime, secrets });
 
+  const admissionRecovery = await deployments.reconcileRunAdmissions();
+  if (admissionRecovery.scanned > 0) log.info(`deployment run admission reconciliation: ${JSON.stringify(admissionRecovery)}`);
   await engine.recoverInterruptedRuns();
+  const recoveredBatches = await batches.recoverPending();
+  if (recoveredBatches > 0) log.info(`recovered ${recoveredBatches} batch job(s)`);
+  await vectorStores.recoverPendingIngestions((workspaceId) => loadProviderKeys(storage, workspaceId));
+  await chat.recoverPendingTurns();
+  await evaluations.recoverPendingRuns();
+  await engine.maybeEnforceTraceRetention(true).catch((error) => log.error(`startup trace retention failed: ${(error as Error).message}`));
 
-  const server = createHttpServer(router, config);
+  const server = createHttpServer(router, config, governance, realtime);
 
   const close = async () => {
+    await realtime.close();
+    collaboration.close();
     // Stop accepting traffic first, then tear down connections, then storage
     // (in-flight writes must land before the store closes).
     await new Promise<void>((resolve) => {
@@ -54,11 +79,12 @@ export async function createApp() {
       // resolve even if the server was never listening
       if (!server.listening) resolve();
     });
+    await vectorStores.close();
     await mcp.closeAll();
     await storage.close();
   };
 
-  return { config, storage, mcp, vectorStores, engine, workflows, chat, evaluations, router, server, close };
+  return { config, storage, mcp, vectorStores, engine, workflows, collaboration, chat, deployments, evaluations, batches, governance, realtime, secrets, router, server, close };
 }
 
 // Only boot when run directly (tests import createApp instead).

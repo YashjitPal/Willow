@@ -6,6 +6,7 @@ import {
   extractJson,
   schemaFromSimpleProperties,
   validateAgainstSchema,
+  validateSchemaDefinition,
 } from '../src/engine/jsonSchema.ts';
 
 const vars = {
@@ -70,6 +71,31 @@ describe('resolveConfigValue', () => {
 });
 
 describe('json schema validation', () => {
+  it('validates strict structured-output schema definitions recursively', () => {
+    const valid = validateSchemaDefinition({
+      type: 'object',
+      properties: {
+        category: { type: ['string', 'null'], enum: ['billing', 'support', null] },
+        scores: { type: 'array', items: { type: 'number' } },
+      },
+      required: ['category', 'scores'],
+      additionalProperties: false,
+    });
+    assert.deepEqual(valid, []);
+
+    const invalid = validateSchemaDefinition({
+      type: 'object',
+      properties: {
+        items: { type: 'array' },
+      },
+      required: ['missing'],
+    });
+    assert.ok(invalid.some((issue) => issue.message.includes("unknown required property 'missing'")));
+    assert.ok(invalid.some((issue) => issue.message.includes("must require property 'items'")));
+    assert.ok(invalid.some((issue) => issue.message.includes('items schema')));
+    assert.ok(invalid.some((issue) => issue.message.includes('additionalProperties')));
+  });
+
   const schema = {
     type: 'object',
     properties: {
@@ -109,6 +135,18 @@ describe('json schema validation', () => {
     ]);
     assert.deepEqual(validateAgainstSchema({ title: 'x', score: 1 }, s), []);
     assert.ok(validateAgainstSchema({ title: 'x' }, s).length > 0); // score required
+  });
+
+  it('builds a valid strict item schema for simple list properties', () => {
+    const s = schemaFromSimpleProperties([{ name: 'tags', type: 'List' }]);
+    assert.deepEqual(s, {
+      type: 'object',
+      properties: { tags: { type: 'array', items: { type: 'string' } } },
+      required: ['tags'],
+      additionalProperties: false,
+    });
+    assert.deepEqual(validateAgainstSchema({ tags: ['one', 'two'] }, s), []);
+    assert.ok(validateAgainstSchema({ tags: [1] }, s).length > 0);
   });
 });
 

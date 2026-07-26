@@ -18,6 +18,7 @@ import { testStore } from "../../lib/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../../lib/visual-editor";
 import { previewErrors, isErrorPanelOpen, addPreviewError, clearPreviewErrors, removePreviewError } from "../../lib/stores/error-store";
 import { saveProjectCover } from "../../lib/mediaStorage";
+import { readProjectRegistry, writeProjectRegistry } from "../../lib/projectStorage";
 
 // Import cursor image from cursor folder
 import cursorImage from "../../../cursor/arrow.cur";
@@ -980,13 +981,10 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     // Resolve project ID from projectName in localStorage
     let projectId = null;
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const found = list.find((p: any) => p.name.toLowerCase() === projectName.toLowerCase());
-        if (found) {
-          projectId = found.id;
-        }
+      const list = readProjectRegistry() as any[];
+      const found = list.find((p: any) => p.name.toLowerCase() === projectName.toLowerCase());
+      if (found) {
+        projectId = found.id;
       }
     } catch (e) {
       return;
@@ -1022,16 +1020,13 @@ const MainPreview: React.FC<MainPreviewProps> = ({
       
       // Save hasCover = true in localStorage project list to keep metadata synced
       try {
-        const stored = localStorage.getItem('willow_projects_list');
-        if (stored) {
-          const list = JSON.parse(stored);
+          const list = readProjectRegistry() as any[];
           const idx = list.findIndex((p: any) => p.id === projectId);
           if (idx !== -1 && !list[idx].hasCover) {
             list[idx].hasCover = true;
-            localStorage.setItem('willow_projects_list', JSON.stringify(list));
+            writeProjectRegistry(list);
             window.dispatchEvent(new Event('willow_projects_updated'));
           }
-        }
       } catch (e) {}
 
     } catch (err) {

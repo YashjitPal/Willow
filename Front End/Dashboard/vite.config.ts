@@ -1,6 +1,6 @@
 import path from "path";
 import { pathToFileURL } from "url";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 
@@ -21,10 +21,11 @@ function agentBuilderBackend(): Plugin {
       ).href;
       try {
         const mod = await import(/* @vite-ignore */ entry);
-        const { middleware, close: closeFn, prefix } = await mod.createAgentBuilderMiddleware();
+        const { middleware, close: closeFn, prefix, attachRealtime } = await mod.createAgentBuilderMiddleware();
         close = closeFn;
         // Add directly (before Vite's SPA fallback) so /api/* is ours.
         server.middlewares.use(middleware);
+        if (server.httpServer) attachRealtime(server.httpServer);
         server.config.logger.info(`  \x1b[32m➜\x1b[0m  Agent Builder API: \x1b[36mmounted at ${prefix}v1\x1b[0m`);
         server.httpServer?.once("close", () => void close?.());
       } catch (e) {
@@ -61,13 +62,58 @@ function conditionalCrossOriginHeaders(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "");
+export default defineConfig(() => {
   return {
     server: {
       port: 3000,
-      host: "0.0.0.0",
-      open: true,
+      strictPort: true,
+      host: "localhost",
+      proxy: {
+        '/llm-proxy-yxxb': {
+          target: 'https://sub.yxxb.eu.cc',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/llm-proxy-yxxb/, ''),
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+              proxyReq.removeHeader('x-proxy-target');
+            });
+          }
+        },
+        '/llm-proxy': {
+          target: 'https://hub.linux.do',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/llm-proxy/, ''),
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              // Get the target base URL from a custom header if provided
+              const targetUrl = req.headers['x-proxy-target'];
+              if (targetUrl && typeof targetUrl === 'string') {
+                try {
+                  const url = new URL(targetUrl);
+                  proxyReq.protocol = url.protocol;
+                  proxyReq.host = url.host;
+                  proxyReq.setHeader('host', url.host);
+                  // Ensure the path includes the correct endpoint path from the target URL
+                  const originalPath = req.url.replace(/^\/llm-proxy/, '');
+                  proxyReq.path = (url.pathname !== '/' ? url.pathname : '') + originalPath;
+                } catch (e) {}
+              }
+
+              // Some OpenAI-compatible gateways reject server-side API calls
+              // when browser-only request metadata is forwarded by the proxy.
+              // These headers are only needed between Willow and this proxy.
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+              proxyReq.removeHeader('x-proxy-target');
+            });
+          }
+        }
+      },
+      open: false,
       // Allow imports from parent directory (for defaultmodel.ts in Willow Code root)
       fs: {
         allow: [
@@ -78,8 +124,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders()],
     define: {
-      "process.env.API_KEY": JSON.stringify(env.GEMINI_API_KEY),
-      "process.env.GEMINI_API_KEY": JSON.stringify(env.GEMINI_API_KEY),
+      // @babel/types checks these build-time flags while loading the visual editor.
+      // Replace only the flags it needs instead of exposing a Node `process` shim.
+      'process.env.BABEL_8_BREAKING': 'false',
+      'process.env.BABEL_TYPES_8_BREAKING': 'false',
     },
     resolve: {
       alias: {

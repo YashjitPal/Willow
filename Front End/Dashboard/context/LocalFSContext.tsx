@@ -2,24 +2,103 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import {
   isFSAAPISupported,
   storeDirectoryHandle,
-  getStoredDirectoryHandle,
+  getStoredDirectoryRecord,
   removeStoredDirectoryHandle,
   verifyPermission,
   writeFileRecursively,
+  readFilesRecursively,
   readProjectManifest,
   writeProjectManifest
 } from '../lib/localFileSystemService';
 import { useAuth } from './AuthContext';
 import { useUserDataContext } from './UserDataContext';
 import { designNodesStore } from '../lib/stores/design-store';
-import { loadProjectMedia, saveProjectMedia, deleteProjectData, saveProjectCover, loadProjectCover } from '../lib/mediaStorage';
+import { compareMediaItemsNewestFirst, loadProjectMedia, saveProjectMedia, deleteProjectData, saveProjectCover, loadProjectCover, migrateProjectKinds, setMediaStorageScope } from '../lib/mediaStorage';
 import { extractVideoFrame } from '../lib/coverUtils';
-import { saveChatBody, loadChatBody, deleteChatBody, renameChatBody, renameCodeSessions, deleteCodeSessions } from '../lib/willowDB';
+import { saveChatBody, loadChatBody, deleteChatBody, renameChatBody, renameCodeSessions, deleteCodeSessions, setCodeSessionStorageScope, type ChatStorageScope } from '../lib/willowDB';
+import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '../lib/projectStorage';
 
 interface FileContent {
   name: string;
   content: string;
 }
+
+interface ChatSyncRecord {
+  revision: number;
+  diskRevision: number;
+  diskMtime: number;
+  dirty: boolean;
+  tombstone: boolean;
+  updatedAt: number;
+}
+
+interface ChatMetadataKeys {
+  chats: string;
+  timestamps: string;
+  sync: string;
+}
+
+const LEGACY_CHAT_KEYS: ChatMetadataKeys = {
+  chats: 'willow_local_chats',
+  timestamps: 'willow_chat_timestamps',
+  sync: 'willow_chat_sync_state',
+};
+const LEGACY_CHAT_MIGRATION_KEY = 'willow_chat_metadata_migrated_v2';
+
+const isValidChatId = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && value.length <= 240;
+
+const validateChatList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter(isValidChatId)));
+};
+
+const validateTimestampMap = (value: unknown): Record<string, number> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next: Record<string, number> = {};
+  for (const [chatId, timestamp] of Object.entries(value as Record<string, unknown>)) {
+    if (isValidChatId(chatId) && typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp >= 0) {
+      next[chatId] = timestamp;
+    }
+  }
+  return next;
+};
+
+const validateSyncRecords = (value: unknown): Record<string, ChatSyncRecord> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next: Record<string, ChatSyncRecord> = {};
+  for (const [chatId, raw] of Object.entries(value as Record<string, any>)) {
+    if (!isValidChatId(chatId) || !raw || typeof raw !== 'object') continue;
+    next[chatId] = {
+      revision: Number.isFinite(raw.revision) ? Math.max(0, raw.revision) : 0,
+      diskRevision: Number.isFinite(raw.diskRevision) ? Math.max(0, raw.diskRevision) : 0,
+      diskMtime: Number.isFinite(raw.diskMtime) ? Math.max(0, raw.diskMtime) : 0,
+      dirty: raw.dirty === true,
+      tombstone: raw.tombstone === true,
+      updatedAt: Number.isFinite(raw.updatedAt) ? Math.max(0, raw.updatedAt) : 0,
+    };
+  }
+  return next;
+};
+
+const readJSON = <T,>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const chatMetadataKeysForScope = (scopeId: string): ChatMetadataKeys => {
+  const suffix = encodeURIComponent(scopeId);
+  return {
+    chats: `willow_local_chats:${suffix}`,
+    timestamps: `willow_chat_timestamps:${suffix}`,
+    sync: `willow_chat_sync_state:${suffix}`,
+  };
+};
 
 // Parse the creation time embedded in a temp chat id
 // ("YYYY-MM-DDTHH-MM-SS_xxxxxx"), or 0 if the id isn't in that format.
@@ -47,41 +126,8 @@ export const parseTempIdTimestamp = (chatId: string): number => {
   return 0;
 };
 
-export const getChatTimestamp = (chatId: string): number => {
-  if (typeof window === 'undefined') return 0;
-  try {
-    const stored = localStorage.getItem('willow_chat_timestamps');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed[chatId]) return parsed[chatId];
-    }
-  } catch {}
-
-  // Fallback: If it's a temp ID format, extract timestamp from name
-  return parseTempIdTimestamp(chatId);
-};
-
-export const updateChatTimestamp = (chatId: string, timestamp = Date.now()) => {
-  if (typeof window === 'undefined') return;
-  try {
-    const stored = localStorage.getItem('willow_chat_timestamps');
-    const timestamps = stored ? JSON.parse(stored) : {};
-    timestamps[chatId] = timestamp;
-    localStorage.setItem('willow_chat_timestamps', JSON.stringify(timestamps));
-  } catch {}
-};
-
-export const sortChatsNewestToOldest = (chats: string[]): string[] => {
-  // Read the timestamps map ONCE per sort — going through getChatTimestamp in
-  // the comparator re-parsed the whole localStorage JSON O(n log n) times,
-  // which visibly stalled large sidebars on every 3s poll tick.
-  let stored: Record<string, number> = {};
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = localStorage.getItem('willow_chat_timestamps');
-      if (raw) stored = JSON.parse(raw) || {};
-    } catch {}
-  }
+export const sortChatsNewestToOldest = (chats: string[], timestamps?: Record<string, number>): string[] => {
+  const stored: Record<string, number> = timestamps || {};
   const ts = (chatId: string): number => stored[chatId] || parseTempIdTimestamp(chatId);
   // Deterministic TOTAL order: newest first, then a stable id tiebreaker. The
   // tiebreaker is essential — without it, chats with equal or missing
@@ -89,7 +135,7 @@ export const sortChatsNewestToOldest = (chats: string[]): string[] => {
   // enumeration order, which varies), so the persisted list and the sidebar's
   // render-sort could disagree and the list visibly reshuffled on open. This
   // MUST match the comparator the sidebar uses (see Sidebar.tsx).
-  return [...chats].sort((a, b) => {
+  return validateChatList(chats).sort((a, b) => {
     const tA = ts(a);
     const tB = ts(b);
     if (tB !== tA) return tB - tA;
@@ -98,6 +144,7 @@ export const sortChatsNewestToOldest = (chats: string[]): string[] => {
 };
 
 interface LocalFSContextType {
+  chatScopeId: string;
   isSupported: boolean;
   isLocalFolderConnected: boolean;
   isLocalFolderAuthorized: boolean;
@@ -106,6 +153,7 @@ interface LocalFSContextType {
   disconnectLocalFolder: () => Promise<void>;
   authorizeLocalFolder: () => Promise<boolean>;
   saveLocalFSProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
+  loadLocalFSProject: (projectName: string) => Promise<FileContent[] | null>;
   saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
   saveLocalFSProjectChat: (projectName: string, chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
   saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob) => Promise<string | null>;
@@ -138,24 +186,41 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const [isLocalFolderConnected, setIsLocalFolderConnected] = useState(false);
   const [isLocalFolderAuthorized, setIsLocalFolderAuthorized] = useState(false);
   const [localFolderName, setLocalFolderName] = useState<string | null>(null);
-  const [localChats, setLocalChats] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('willow_local_chats');
-        return stored ? JSON.parse(stored) : [];
-      } catch {}
-    }
-    return [];
-  });
+  // The correct storage scope depends on the authenticated user, selected root,
+  // and workspace. Keep the first paint empty while that scope is restored so
+  // a legacy/global list can never flash and then visibly reorder.
+  const [localChats, setLocalChats] = useState<string[]>([]);
+  const [chatScopeId, setChatScopeId] = useState('signed-out::browser::My Willow');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const storage = navigator.storage;
+    if (!storage?.persist || !storage?.persisted) return;
+    void storage.persisted().then((persisted) => persisted || storage.persist()).catch(() => false);
+  }, []);
 
   // Keep the handle in a ref to avoid re-renders and closure issues
   const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
-
-  // chatId -> last local-save time. The disk poller uses this to avoid deleting a
-  // chat that was just created/edited in the brief window before its .json hits
-  // disk (a real-time-sync race guard).
-  const recentChatWritesRef = useRef<Map<string, number>>(new Map());
+  const rootIdRef = useRef('browser');
+  const chatScopeIdRef = useRef('signed-out::browser::My Willow');
+  const chatStorageScopeRef = useRef<ChatStorageScope>({
+    userId: 'signed-out',
+    rootId: 'browser',
+    workspaceId: 'My Willow',
+  });
+  const chatMetadataKeysRef = useRef<ChatMetadataKeys>(chatMetadataKeysForScope(chatScopeIdRef.current));
+  const chatTimestampsRef = useRef<Record<string, number>>({});
+  const chatSyncRecordsRef = useRef<Record<string, ChatSyncRecord>>({});
+  const localChatsRef = useRef<string[]>([]);
+  const chatBroadcastRef = useRef<BroadcastChannel | null>(null);
+  // Invalidates async work started by an older provider/scope. A scope ID can
+  // repeat after reconnecting, so generation is intentionally independent.
+  const providerGenerationRef = useRef(0);
+  const chatOperationQueuesRef = useRef<Map<string, Promise<unknown>>>(new Map());
+  const isSwitchingChatScopeRef = useRef(false);
+  const projectSaveQueuesRef = useRef<Map<string, Promise<unknown>>>(new Map());
+  const chatReconcilePromiseRef = useRef<Promise<void> | null>(null);
+  const pendingChatsDirRef = useRef<FileSystemDirectoryHandle | null>(null);
   // oldName -> { newName, ts } for recently renamed project folders. Save paths
   // resolve project folders by NAME, often seconds after capturing it (fetches,
   // debounces) — a write addressed to a just-renamed-away folder would recreate
@@ -191,6 +256,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   }, []);
   // Re-entrancy guard so overlapping disk polls don't stack up.
   const isPollingRef = useRef(false);
+  const pollPendingRef = useRef(false);
   // Cache of project folder name -> manifest id, so steady-state polling only
   // lists directories and doesn't re-read every .willow.json on every tick.
   const manifestIdCacheRef = useRef<Map<string, string>>(new Map());
@@ -203,15 +269,160 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return name.replace(/[\/:*?"<>|]/g, '').trim() || 'My Willow';
   }, [userProfile]);
 
+  const mergeSyncRecords = useCallback((
+    current: Record<string, ChatSyncRecord>,
+    incoming: Record<string, ChatSyncRecord>,
+  ): Record<string, ChatSyncRecord> => {
+    const merged = { ...current };
+    for (const [chatId, candidate] of Object.entries(incoming)) {
+      const existing = merged[chatId];
+      if (!existing || candidate.revision > existing.revision ||
+          (candidate.revision === existing.revision && candidate.updatedAt > existing.updatedAt)) {
+        merged[chatId] = candidate;
+      }
+    }
+    return merged;
+  }, []);
+
+  const persistChatMetadata = useCallback((broadcast = true): void => {
+    const keys = chatMetadataKeysRef.current;
+    // Merge the freshest storage snapshot first. This does not make
+    // localStorage transactional, but it prevents ordinary read/modify/write
+    // clobbers and BroadcastChannel closes the simultaneous-write gap.
+    const storedRecords = validateSyncRecords(readJSON(keys.sync, {}));
+    const storedTimestamps = validateTimestampMap(readJSON(keys.timestamps, {}));
+    const storedChats = validateChatList(readJSON(keys.chats, []));
+    chatSyncRecordsRef.current = mergeSyncRecords(storedRecords, chatSyncRecordsRef.current);
+    const mergedTimestamps = { ...storedTimestamps };
+    for (const [chatId, timestamp] of Object.entries(chatTimestampsRef.current)) {
+      mergedTimestamps[chatId] = Math.max(mergedTimestamps[chatId] || 0, timestamp);
+    }
+    for (const [chatId, record] of Object.entries(chatSyncRecordsRef.current)) {
+      if (record.tombstone) delete mergedTimestamps[chatId];
+    }
+    chatTimestampsRef.current = mergedTimestamps;
+    const allChats = Array.from(new Set([...storedChats, ...localChatsRef.current]));
+    const visibleChats = allChats.filter((chatId) => !chatSyncRecordsRef.current[chatId]?.tombstone);
+    const sorted = sortChatsNewestToOldest(visibleChats, chatTimestampsRef.current);
+    localChatsRef.current = sorted;
+
+    localStorage.setItem(keys.sync, JSON.stringify(chatSyncRecordsRef.current));
+    localStorage.setItem(keys.timestamps, JSON.stringify(chatTimestampsRef.current));
+    localStorage.setItem(keys.chats, JSON.stringify(sorted));
+    setLocalChats((previous) =>
+      previous.length === sorted.length && previous.every((chatId, index) => chatId === sorted[index])
+        ? previous
+        : sorted
+    );
+    if (broadcast) {
+      try {
+        chatBroadcastRef.current?.postMessage({
+          scopeId: chatScopeIdRef.current,
+          chats: sorted,
+          timestamps: chatTimestampsRef.current,
+          records: chatSyncRecordsRef.current,
+        });
+      } catch {}
+    }
+  }, [mergeSyncRecords]);
+
+  const activateChatScope = useCallback(async (rootId: string): Promise<void> => {
+    isSwitchingChatScopeRef.current = true;
+    try {
+      while (chatOperationQueuesRef.current.size > 0 || chatReconcilePromiseRef.current) {
+        const pending = [
+          ...chatOperationQueuesRef.current.values(),
+          ...(chatReconcilePromiseRef.current ? [chatReconcilePromiseRef.current] : []),
+        ];
+        await Promise.allSettled(pending);
+      }
+    } finally {
+      isSwitchingChatScopeRef.current = false;
+    }
+    const workspaceId = getSanitizedWorkspaceName();
+    const userId = user?.uid || 'signed-out';
+    const scopeId = `${userId}::${rootId}::${workspaceId}`;
+    const keys = chatMetadataKeysForScope(scopeId);
+    if (chatScopeIdRef.current !== scopeId) {
+      // These caches are keyed by project name/id and must never leak across
+      // account, root, or workspace changes.
+      manifestIdCacheRef.current.clear();
+      coverHydratedRef.current.clear();
+      pendingChatsDirRef.current = null;
+      providerGenerationRef.current += 1;
+    }
+    const hasScopedMetadata = localStorage.getItem(keys.chats) !== null || localStorage.getItem(keys.sync) !== null;
+
+    let chats = validateChatList(readJSON(keys.chats, []));
+    let timestamps = validateTimestampMap(readJSON(keys.timestamps, {}));
+    let records = validateSyncRecords(readJSON(keys.sync, {}));
+
+    // Legacy chat metadata was global. Adopt it exactly once, only after a real
+    // authenticated scope is known, so switching accounts/folders can never
+    // copy the same legacy registry into multiple workspaces.
+    if (!hasScopedMetadata && user?.uid && !localStorage.getItem(LEGACY_CHAT_MIGRATION_KEY)) {
+      chats = validateChatList(readJSON(LEGACY_CHAT_KEYS.chats, []));
+      timestamps = validateTimestampMap(readJSON(LEGACY_CHAT_KEYS.timestamps, {}));
+      records = validateSyncRecords(readJSON(LEGACY_CHAT_KEYS.sync, {}));
+      localStorage.setItem(keys.chats, JSON.stringify(chats));
+      localStorage.setItem(keys.timestamps, JSON.stringify(timestamps));
+      localStorage.setItem(keys.sync, JSON.stringify(records));
+      localStorage.setItem(LEGACY_CHAT_MIGRATION_KEY, scopeId);
+    }
+
+    rootIdRef.current = rootId;
+    chatScopeIdRef.current = scopeId;
+    setMediaStorageScope(scopeId);
+    setProjectStorageScope(scopeId);
+    setCodeSessionStorageScope(scopeId);
+    await migrateProjectKinds();
+    chatStorageScopeRef.current = { userId, rootId, workspaceId };
+    chatMetadataKeysRef.current = keys;
+    chatTimestampsRef.current = timestamps;
+    chatSyncRecordsRef.current = records;
+    localChatsRef.current = sortChatsNewestToOldest(chats.filter((id) => !records[id]?.tombstone), timestamps);
+    setChatScopeId(scopeId);
+    persistChatMetadata(false);
+  }, [getSanitizedWorkspaceName, persistChatMetadata, user?.uid]);
+
+  const updateScopedChatTimestamp = useCallback((chatId: string, timestamp = Date.now()): void => {
+    chatTimestampsRef.current[chatId] = timestamp;
+  }, []);
+
+  const getScopedChatTimestamp = useCallback((chatId: string): number =>
+    chatTimestampsRef.current[chatId] || parseTempIdTimestamp(chatId), []);
+
+  const nextChatRevision = useCallback((chatId: string): number =>
+    (chatSyncRecordsRef.current[chatId]?.revision || 0) + 1, []);
+
+  const enqueueChatOperation = useCallback(async <T,>(chatIds: string[], operation: () => Promise<T>): Promise<T> => {
+    if (isSwitchingChatScopeRef.current) return undefined as T;
+    const ids = Array.from(new Set(chatIds.filter(Boolean))).sort();
+    const predecessors = ids.map((id) => chatOperationQueuesRef.current.get(id)).filter(Boolean) as Promise<unknown>[];
+    const runWithCrossTabLocks = async (index = 0): Promise<T> => {
+      const locks = (navigator as any).locks;
+      if (!locks?.request || index >= ids.length) return operation();
+      const lockName = `willow-chat:${chatScopeIdRef.current}:${ids[index]}`;
+      return locks.request(lockName, () => runWithCrossTabLocks(index + 1));
+    };
+    const run = Promise.allSettled(predecessors).then(() => runWithCrossTabLocks());
+    const settled = run.then(() => undefined, () => undefined);
+    for (const id of ids) chatOperationQueuesRef.current.set(id, settled);
+    try {
+      return await run;
+    } finally {
+      for (const id of ids) {
+        if (chatOperationQueuesRef.current.get(id) === settled) chatOperationQueuesRef.current.delete(id);
+      }
+    }
+  }, []);
+
   // Resolve a project's stable id from the localStorage registry by its folder name.
   const getProjectIdByName = useCallback((projectName: string): string | null => {
     try {
-      const stored = localStorage.getItem('willow_projects_list');
-      if (stored) {
-        const list = JSON.parse(stored) as { id: string; name: string }[];
-        const found = list.find((p) => p.name === projectName);
-        if (found?.id) return found.id;
-      }
+      const list = readProjectRegistry() as { id: string; name: string }[];
+      const found = list.find((p) => p.name === projectName);
+      if (found?.id) return found.id;
     } catch {}
     return null;
   }, []);
@@ -244,6 +455,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // IO hiccup can never wipe the registry.
   const syncProjectsFromDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
     type Reg = { id: string; name: string; hasCover?: boolean; isStarred?: boolean; kind?: 'code' | 'media'; onDisk?: boolean };
+    const scopeIdAtStart = chatScopeIdRef.current;
+    const generationAtStart = providerGenerationRef.current;
+    const scopeIsCurrent = () => chatScopeIdRef.current === scopeIdAtStart && providerGenerationRef.current === generationAtStart;
 
     // Scan a parent folder WITHOUT creating it (a reconcile is a read — creating
     // here used to mint junk Code//Media/ scaffolding under whatever workspace
@@ -271,14 +485,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const code = await collectDirs('Code');
       const media = await collectDirs('Media');
       // Safety: if either scan failed, do nothing (never delete on uncertainty).
-      if (!code.ok || !media.ok) return;
+      if (!code.ok || !media.ok || !scopeIsCurrent()) return;
 
       // Read the current registry.
-      let projectsList: Reg[] = [];
-      try {
-        const stored = localStorage.getItem('willow_projects_list');
-        if (stored) projectsList = JSON.parse(stored);
-      } catch {}
+      let projectsList = readProjectRegistry(scopeIdAtStart) as Reg[];
       if (!Array.isArray(projectsList)) projectsList = [];
       const nameToId = new Map<string, string>();
       for (const p of projectsList) if (p?.name && p?.id) nameToId.set(p.name, p.id);
@@ -294,10 +504,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // A name->id cache makes steady-state polls skip the per-folder file read.
       const cache = manifestIdCacheRef.current;
       const diskById = new Map<string, { name: string; kind: 'code' | 'media' }>();
+      const mintProjectId = (): string => {
+        const taken = new Set<string>(diskById.keys());
+        for (const project of projectsList) if (project?.id) taken.add(project.id);
+        let candidate: string;
+        do {
+          candidate = `#${crypto.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+        } while (taken.has(candidate));
+        return candidate;
+      };
       for (const info of diskByName.values()) {
         let id = cache.get(info.name) ?? null;
+        let persistManifest = false;
         if (!id) {
           id = (await readProjectManifest(info.handle))?.id ?? null;
+          if (!scopeIsCurrent()) return;
           if (!id) {
             id = nameToId.get(info.name) ?? null;
             if (!id) {
@@ -305,16 +526,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               // using. The 4-digit space is small enough for birthday collisions
               // with a modest project count — and a duplicate id cross-links two
               // projects' covers/media in IndexedDB.
-              const taken = new Set<string>(diskById.keys());
-              for (const p of projectsList) if (p?.id) taken.add(p.id);
-              do {
-                id = `#${Math.floor(1000 + Math.random() * 9000)}`;
-              } while (taken.has(id));
+              id = mintProjectId();
             }
-            await writeProjectManifest(info.handle, id);
+            persistManifest = true;
           }
-          cache.set(info.name, id);
         }
+        const duplicate = diskById.get(id);
+        if (duplicate && duplicate.name !== info.name) {
+          id = mintProjectId();
+          persistManifest = true;
+        }
+        if (persistManifest) {
+          await writeProjectManifest(info.handle, id);
+          if (!scopeIsCurrent()) return;
+        }
+        cache.set(info.name, id);
         info.id = id;
         diskById.set(id, { name: info.name, kind: info.kind });
       }
@@ -360,7 +586,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           // Was on disk, folder is gone, and its id isn't present anywhere on disk
           // -> genuinely deleted externally. Remove it and clean its IndexedDB data.
           changed = true;
-          void deleteProjectData(p.id);
+          markProjectDeleted(p.name, scopeIdAtStart, p.id);
+          void deleteProjectData(p.id, scopeIdAtStart);
           // deleteProjectData only clears media + covers. Code-editor sessions
           // (and their content-addressed blobs) are keyed by project NAME —
           // clear them too, exactly like the in-app delete surfaces do, or an
@@ -437,10 +664,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         } catch {}
       };
       for (const p of next) {
+        if (!scopeIsCurrent()) return;
         if (p.kind !== 'media') continue;
         if (coverHydratedRef.current.has(p.id)) continue;
         coverHydratedRef.current.add(p.id);
-        const existing = await loadProjectCover(p.id);
+        const existing = await loadProjectCover(p.id, scopeIdAtStart);
+        if (!scopeIsCurrent()) return;
         // Skip only if we already have a durable still IMAGE. A data:video cover
         // (legacy) is intentionally reprocessed into a frame.
         if (existing && existing.startsWith('data:image')) continue;
@@ -449,11 +678,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const handle = p.onDisk ? media.map.get(p.name) : undefined;
         if (handle) {
           const resolved = await resolveDiskCover(handle);
+          if (!scopeIsCurrent()) return;
           if (resolved) {
             const isVid = (resolved.file.type || '').startsWith('video');
             let imageUrl: string | null = isVid ? await extractVideoFrame(resolved.file) : await fileToDataURL(resolved.file);
             if (imageUrl) {
-              await saveProjectCover(p.id, imageUrl);
+              await saveProjectCover(p.id, imageUrl, scopeIdAtStart);
+              if (!scopeIsCurrent()) return;
               if (!p.hasCover) { p.hasCover = true; changed = true; }
               coversChanged = true;
               // Write a canonical cover.png when it came from a video frame or a
@@ -469,7 +700,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         // Source 2: no usable disk source — use the oldest completed media item
         // from IndexedDB (framing it if it's a video).
         try {
-          const items = await loadProjectMedia(p.id);
+          const items = await loadProjectMedia(p.id, scopeIdAtStart);
+          if (!scopeIsCurrent()) return;
           const completed = (Array.isArray(items) ? items : []).filter((m: any) => m?.status === 'completed' && m?.url);
           const firstGen = completed.reduce((oldest: any, m: any) =>
             (!oldest || (m.timestamp || 0) < (oldest.timestamp || 0)) ? m : oldest, null as any);
@@ -478,7 +710,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               ? (await extractVideoFrame(firstGen.url)) || null
               : firstGen.url;
             if (imageUrl) {
-              await saveProjectCover(p.id, imageUrl); // inlines any external URL to base64
+              await saveProjectCover(p.id, imageUrl, scopeIdAtStart); // inlines any external URL to base64
+              if (!scopeIsCurrent()) return;
               if (!p.hasCover) { p.hasCover = true; changed = true; }
               coversChanged = true;
             }
@@ -486,6 +719,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         } catch {}
       }
 
+      if (!scopeIsCurrent()) return;
       if (changed) {
         // Re-read the registry right before writing. The reconcile above ran
         // many awaits (manifest reads, cover hydration — seconds), and another
@@ -494,8 +728,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         try {
           const originalIds = new Set(projectsList.map((p) => p?.id).filter(Boolean));
           const nextById = new Map(next.map((p) => [p.id, p]));
-          const freshStored = localStorage.getItem('willow_projects_list');
-          const freshList = freshStored ? JSON.parse(freshStored) : [];
+          const freshList = readProjectRegistry(scopeIdAtStart) as Reg[];
           if (Array.isArray(freshList)) {
             for (const p of freshList) {
               if (!p?.id) continue;
@@ -526,7 +759,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             }
           }
         } catch {}
-        localStorage.setItem('willow_projects_list', JSON.stringify(next));
+        writeProjectRegistry(next, scopeIdAtStart);
       }
       if (changed || coversChanged) {
         window.dispatchEvent(new Event('willow_projects_updated'));
@@ -536,77 +769,226 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, []);
 
-  // Shared chat-list sync used by the restore / connect / authorize flows
-  // (which previously each carried a drifting copy of this logic): scan the
-  // Chats folder, backfill timestamps from file mtimes, auto-write any
-  // cached-but-not-on-disk chats to disk, then publish the sorted list.
-  // Every auto-synced chat is grace-marked in recentChatWritesRef BEFORE its
-  // write — the realtime poller starts the moment authorization flips true and
-  // runs concurrently with this loop, so without the mark it saw "cached but
-  // not on disk" mid-flush and deleted the chat's IndexedDB body (data loss).
-  const syncChatsWithDisk = useCallback(async (chatsDir: FileSystemDirectoryHandle): Promise<void> => {
-    // Read disk chats
-    const diskChats: string[] = [];
-    const timestamps = (() => {
-      try {
-        const stored = localStorage.getItem('willow_chat_timestamps');
-        return stored ? JSON.parse(stored) : {};
-      } catch { return {}; }
-    })();
-    let timestampsUpdated = false;
-
+  const reconcileChatsWithDisk = useCallback(async (chatsDir: FileSystemDirectoryHandle): Promise<void> => {
+    const diskFiles = new Map<string, { handle: FileSystemFileHandle; mtime: number }>();
     for await (const entry of (chatsDir as any).values()) {
-      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-        const chatId = entry.name.slice(0, -5);
-        diskChats.push(chatId);
-        if (!timestamps[chatId]) {
-          try {
-            const file = await entry.getFile();
-            timestamps[chatId] = file.lastModified;
-            timestampsUpdated = true;
-          } catch {}
-        }
-      }
+      if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
+      const chatId = entry.name.slice(0, -5);
+      if (!isValidChatId(chatId)) continue;
+      try {
+        const file = await entry.getFile();
+        diskFiles.set(chatId, { handle: entry, mtime: file.lastModified });
+      } catch {}
     }
 
-    if (timestampsUpdated) {
-      localStorage.setItem('willow_chat_timestamps', JSON.stringify(timestamps));
-    }
+    const knownIds = new Set<string>([...localChatsRef.current, ...diskFiles.keys()]);
+    const makeConflictId = (chatId: string): string => {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+      const base = `${chatId.slice(0, 180)} (Disk conflict ${stamp})`;
+      let candidate = base;
+      let suffix = 2;
+      while (knownIds.has(candidate)) candidate = `${base} ${suffix++}`;
+      knownIds.add(candidate);
+      return candidate;
+    };
 
-    // Get cached chats list
-    let cachedChats: string[] = [];
-    try {
-      const stored = localStorage.getItem('willow_local_chats');
-      cachedChats = stored ? JSON.parse(stored) : [];
-    } catch {}
-
-    // Auto-sync local-only chats to disk
-    for (const chat of cachedChats) {
-      if (!diskChats.includes(chat)) {
+    // Durable tombstones win over a still-present disk file. A failed removal
+    // is retried on every reconcile and can never resurrect the chat.
+    for (const [chatId, record] of Object.entries(chatSyncRecordsRef.current)) {
+      if (!record.tombstone) continue;
+      if (diskFiles.has(chatId)) {
         try {
-          const body = await loadChatBody(chat);
-          if (body) {
-            // Grace-mark BEFORE writing so a concurrent poll tick can never
-            // treat this still-flushing chat as externally deleted.
-            recentChatWritesRef.current.set(chat, Date.now());
-            await writeFileRecursively(chatsDir, `${chat}.json`, JSON.stringify(body, null, 2));
-            diskChats.push(chat);
-          }
+          await chatsDir.removeEntry(`${chatId}.json`);
+          diskFiles.delete(chatId);
         } catch {}
       }
+      try { await deleteChatBody(chatId, chatStorageScopeRef.current); } catch {}
+      localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
     }
 
-    const sorted = sortChatsNewestToOldest(diskChats);
-    setLocalChats(sorted);
-    localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
-  }, []);
+    for (const [chatId, disk] of diskFiles) {
+      await enqueueChatOperation([chatId], async () => {
+        let record = chatSyncRecordsRef.current[chatId];
+        if (record?.tombstone) return;
+
+        let cached: any[] | null = null;
+        try { cached = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
+        const diskChanged = !record || !record.diskMtime || disk.mtime !== record.diskMtime;
+        if (!record?.dirty && cached && !diskChanged) {
+          if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
+          return;
+        }
+
+        let diskBody: any[] | null = null;
+        let diskText = '';
+        try {
+          const file = await disk.handle.getFile();
+          diskText = await file.text();
+          const parsed = JSON.parse(diskText);
+          if (Array.isArray(parsed)) diskBody = parsed;
+        } catch {
+          return;
+        }
+
+        if (record?.dirty && cached) {
+          const cachedText = JSON.stringify(cached, null, 2);
+          const contentDiffers = JSON.stringify(diskBody) !== JSON.stringify(cached);
+          const externallyChanged = contentDiffers && (!record.diskMtime || disk.mtime !== record.diskMtime);
+          if (externallyChanged && diskBody) {
+            // Preserve the external version under a deterministic conflict copy
+            // before retrying the local dirty revision at the original name.
+            const conflictId = makeConflictId(chatId);
+            await saveChatBody(conflictId, diskBody, chatStorageScopeRef.current);
+            await writeFileRecursively(chatsDir, `${conflictId}.json`, diskText);
+            const conflictFile = await (await chatsDir.getFileHandle(`${conflictId}.json`)).getFile();
+            const conflictRevision = nextChatRevision(conflictId);
+            chatSyncRecordsRef.current[conflictId] = {
+              revision: conflictRevision,
+              diskRevision: conflictRevision,
+              diskMtime: conflictFile.lastModified,
+              dirty: false,
+              tombstone: false,
+              updatedAt: Date.now(),
+            };
+            chatTimestampsRef.current[conflictId] = disk.mtime;
+            localChatsRef.current.push(conflictId);
+          }
+
+          try {
+            await writeFileRecursively(chatsDir, `${chatId}.json`, cachedText);
+            const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+            record = chatSyncRecordsRef.current[chatId];
+            if (record && record.dirty) {
+              chatSyncRecordsRef.current[chatId] = {
+                ...record,
+                diskRevision: record.revision,
+                diskMtime: written.lastModified,
+                dirty: false,
+                updatedAt: Date.now(),
+              };
+            }
+          } catch {
+            // Keep dirty forever; a later watcher/focus tick retries it.
+          }
+        } else if (diskBody) {
+          // Clean disk revisions are authoritative. Refresh IndexedDB whenever
+          // mtime changes so external edits to existing chats become visible.
+          await saveChatBody(chatId, diskBody, chatStorageScopeRef.current);
+          window.dispatchEvent(new CustomEvent('willow_chat_body_updated', { detail: { chatId } }));
+          const revision = Math.max(record?.revision || 0, record?.diskRevision || 0);
+          chatSyncRecordsRef.current[chatId] = {
+            revision,
+            diskRevision: revision,
+            diskMtime: disk.mtime,
+            dirty: false,
+            tombstone: false,
+            updatedAt: Date.now(),
+          };
+          chatTimestampsRef.current[chatId] = disk.mtime;
+        }
+        if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
+      });
+    }
+
+    // A clean cached chat missing from disk is an external deletion, including
+    // one made while the app was closed. Only an explicitly dirty revision is
+    // eligible to be flushed back to disk.
+    for (const chatId of [...localChatsRef.current]) {
+      if (diskFiles.has(chatId)) continue;
+      await enqueueChatOperation([chatId], async () => {
+        const record = chatSyncRecordsRef.current[chatId];
+        if (record?.tombstone) return;
+        if (record?.dirty) {
+          let body: any[] | null = null;
+          try { body = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
+          if (body) {
+            try {
+              await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(body, null, 2));
+              const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+              const latest = chatSyncRecordsRef.current[chatId];
+              if (latest?.dirty) {
+                chatSyncRecordsRef.current[chatId] = {
+                  ...latest,
+                  diskRevision: latest.revision,
+                  diskMtime: written.lastModified,
+                  dirty: false,
+                  updatedAt: Date.now(),
+                };
+              }
+              return;
+            } catch {
+              return;
+            }
+          }
+        }
+
+        const revision = nextChatRevision(chatId);
+        chatSyncRecordsRef.current[chatId] = {
+          revision,
+          diskRevision: record?.diskRevision || 0,
+          diskMtime: record?.diskMtime || 0,
+          dirty: false,
+          tombstone: true,
+          updatedAt: Date.now(),
+        };
+        localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
+        delete chatTimestampsRef.current[chatId];
+        try { await deleteChatBody(chatId, chatStorageScopeRef.current); } catch {}
+        setActiveChatId((current) => current === chatId ? null : current);
+        window.dispatchEvent(new CustomEvent('willow_chat_body_updated', { detail: { chatId, deleted: true } }));
+      });
+    }
+
+    persistChatMetadata();
+  }, [enqueueChatOperation, nextChatRevision, persistChatMetadata]);
+
+  // All startup, watcher, focus, and manual refreshes enter one reconciliation
+  // loop. Requests arriving during a long scan are queued for another pass
+  // instead of being dropped.
+  const syncChatsWithDisk = useCallback(async (chatsDir: FileSystemDirectoryHandle): Promise<void> => {
+    pendingChatsDirRef.current = chatsDir;
+    if (chatReconcilePromiseRef.current) return chatReconcilePromiseRef.current;
+    const run = (async () => {
+      while (pendingChatsDirRef.current) {
+        const nextDir = pendingChatsDirRef.current;
+        pendingChatsDirRef.current = null;
+        await reconcileChatsWithDisk(nextDir);
+      }
+    })();
+    chatReconcilePromiseRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (chatReconcilePromiseRef.current === run) chatReconcilePromiseRef.current = null;
+    }
+  }, [reconcileChatsWithDisk]);
 
   // Attempt to restore directory connection from IndexedDB on mount
   useEffect(() => {
-    if (!isSupported) return;
+    if (!isSupported) {
+      setIsInitializingLocalFS(false);
+      return;
+    }
+    let cancelled = false;
+    let generation = ++providerGenerationRef.current;
+    const isCurrent = () => !cancelled && providerGenerationRef.current === generation;
 
     const restoreConnection = async () => {
-      const handle = await getStoredDirectoryHandle();
+      setIsInitializingLocalFS(true);
+      setIsLocalFolderAuthorized(false);
+      // Do not expose the previous account/root's chat registry while the new
+      // scope is being restored.
+      setLocalChats([]);
+      localChatsRef.current = [];
+      setActiveChatId(null);
+      const stored = await getStoredDirectoryRecord();
+      if (!isCurrent()) return;
+      const handle = stored?.handle || null;
+      await activateChatScope(stored?.rootId || 'browser');
+      // activateChatScope advances the generation when account/root/workspace
+      // changes; adopt that new generation for the work this restore started.
+      if (cancelled) return;
+      generation = providerGenerationRef.current;
       if (handle) {
         directoryHandleRef.current = handle;
         setLocalFolderName(handle.name);
@@ -615,7 +997,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         try {
           const hasAccess = await verifyPermission(handle, false, false);
           if (hasAccess) {
-            setIsLocalFolderAuthorized(true);
             const workspaceName = getSanitizedWorkspaceName();
             // Do NOT create the workspace folder here. On early mount the user
             // profile (and thus the real workspace name) may not have loaded
@@ -635,18 +1016,30 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               // Recover & re-tag projects from disk (self-healing registry).
               await syncProjectsFromDisk(workspaceDir);
             }
+            if (isCurrent()) setIsLocalFolderAuthorized(true);
           } else {
             setIsLocalFolderAuthorized(false);
           }
         } catch {
           setIsLocalFolderAuthorized(false);
         }
+      } else {
+        directoryHandleRef.current = null;
+        setLocalFolderName(null);
+        setIsLocalFolderConnected(false);
       }
-      setIsInitializingLocalFS(false);
+      if (isCurrent()) setIsInitializingLocalFS(false);
     };
 
-    restoreConnection();
-  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk]);
+    void restoreConnection().catch(() => {
+      if (isCurrent()) setIsInitializingLocalFS(false);
+    });
+    return () => {
+      cancelled = true;
+      providerGenerationRef.current += 1;
+      pendingChatsDirRef.current = null;
+    };
+  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
 
   // Cross-tab sync bridge. Another tab's writes to the shared localStorage
   // registry/indexes fire only the DOM `storage` event in this tab — nothing
@@ -655,21 +1048,54 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // adopt the chat list into state. No loop risk: `storage` never fires in the
   // tab that performed the write.
   useEffect(() => {
+    const mergeIncomingChatMetadata = (payload: any) => {
+      if (!payload || payload.scopeId !== chatScopeIdRef.current) return;
+      const incomingRecords = validateSyncRecords(payload.records);
+      const incomingTimestamps = validateTimestampMap(payload.timestamps);
+      const incomingChats = validateChatList(payload.chats);
+      chatSyncRecordsRef.current = mergeSyncRecords(chatSyncRecordsRef.current, incomingRecords);
+      for (const [chatId, timestamp] of Object.entries(incomingTimestamps)) {
+        chatTimestampsRef.current[chatId] = Math.max(chatTimestampsRef.current[chatId] || 0, timestamp);
+      }
+      localChatsRef.current = Array.from(new Set([...localChatsRef.current, ...incomingChats]));
+      persistChatMetadata(false);
+    };
+
+    try {
+      chatBroadcastRef.current?.close();
+      chatBroadcastRef.current = typeof BroadcastChannel === 'function'
+        ? new BroadcastChannel(`willow-chat-sync:${chatScopeId}`)
+        : null;
+      if (chatBroadcastRef.current) chatBroadcastRef.current.onmessage = (event) => mergeIncomingChatMetadata(event.data);
+    } catch {
+      chatBroadcastRef.current = null;
+    }
+
     const onStorage = (e: StorageEvent) => {
       try {
-        if (e.key === 'willow_projects_list') {
+        if (isActiveProjectRegistryStorageKey(e.key)) {
           window.dispatchEvent(new Event('willow_projects_updated'));
         } else if (e.key === 'willow_media_index') {
           window.dispatchEvent(new Event('willow_media_updated'));
-        } else if (e.key === 'willow_local_chats' && e.newValue) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setLocalChats(parsed);
+        } else if (e.key === chatMetadataKeysRef.current.chats ||
+                   e.key === chatMetadataKeysRef.current.timestamps ||
+                   e.key === chatMetadataKeysRef.current.sync) {
+          mergeIncomingChatMetadata({
+            scopeId: chatScopeIdRef.current,
+            chats: readJSON(chatMetadataKeysRef.current.chats, []),
+            timestamps: readJSON(chatMetadataKeysRef.current.timestamps, {}),
+            records: readJSON(chatMetadataKeysRef.current.sync, {}),
+          });
         }
       } catch {}
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      try { chatBroadcastRef.current?.close(); } catch {}
+      chatBroadcastRef.current = null;
+    };
+  }, [chatScopeId, mergeSyncRecords, persistChatMetadata]);
 
   /**
    * Connect to a local folder by opening the folder picker
@@ -680,6 +1106,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
 
     try {
+      setIsInitializingLocalFS(true);
+      setIsLocalFolderAuthorized(false);
       const handle = await (window as any).showDirectoryPicker({
         mode: 'readwrite'
       });
@@ -687,16 +1115,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // Verify write access
       const hasPermission = await verifyPermission(handle, true);
       if (!hasPermission) {
+        setIsInitializingLocalFS(false);
         return false;
       }
 
       // Store handle in IndexedDB
-      await storeDirectoryHandle(handle);
+      const rootId = await storeDirectoryHandle(handle);
       
+      await activateChatScope(rootId);
       directoryHandleRef.current = handle;
       setLocalFolderName(handle.name);
       setIsLocalFolderConnected(true);
-      setIsLocalFolderAuthorized(true);
 
       // Refresh chats list and sync cached chats to disk. Connect is an explicit
       // user gesture on a chosen folder, so creating the workspace scaffold here
@@ -713,27 +1142,37 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         console.error('Error syncing chats to connected folder', err);
       }
 
+      setIsLocalFolderAuthorized(true);
+      setIsInitializingLocalFS(false);
       return true;
     } catch (err) {
+      setIsInitializingLocalFS(false);
       return false;
     }
-  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk]);
+  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope]);
 
   /**
    * Disconnect local folder and clean up IndexedDB
    */
   const disconnectLocalFolder = useCallback(async (): Promise<void> => {
     try {
+      // Invalidate in-flight reconciliation/writes before clearing the active
+      // handle. The catalog in IndexedDB is intentionally retained so a later
+      // re-selection can recover the same stable root ID.
+      providerGenerationRef.current += 1;
+      pendingChatsDirRef.current = null;
       await removeStoredDirectoryHandle();
       directoryHandleRef.current = null;
       setLocalFolderName(null);
       setIsLocalFolderConnected(false);
       setIsLocalFolderAuthorized(false);
       setLocalChats([]);
+      localChatsRef.current = [];
       setActiveChatId(null);
+      await activateChatScope('browser');
     } catch (err) {
     }
-  }, []);
+  }, [activateChatScope]);
 
   /**
    * Authorize / prompt for directory permission in a user gesture context
@@ -743,9 +1182,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     if (!handle) return false;
 
     try {
+      setIsInitializingLocalFS(true);
+      setIsLocalFolderAuthorized(false);
       const hasAccess = await verifyPermission(handle, true, true);
       if (hasAccess) {
-        setIsLocalFolderAuthorized(true);
         // Refresh chats list and sync cached chats to disk. Like the restore
         // path, never CREATE the workspace folder here — if it's absent (e.g.
         // the profile's workspace name hasn't loaded yet), skip the sync; the
@@ -766,9 +1206,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         } catch (err) {
           console.error('Error syncing chats during authorization', err);
         }
+        setIsLocalFolderAuthorized(true);
+        setIsInitializingLocalFS(false);
         return true;
       }
     } catch {}
+    setIsInitializingLocalFS(false);
     return false;
   }, [getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk]);
 
@@ -791,7 +1234,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   /**
    * Save project files locally
    */
-  const saveLocalFSProject = useCallback(async (projectName: string, files: FileContent[]): Promise<boolean> => {
+  const saveLocalFSProjectInner = useCallback(async (projectName: string, files: FileContent[]): Promise<boolean> => {
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return false;
 
@@ -898,112 +1341,189 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } catch (err) {
       return false;
     }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  }, [ensureProjectManifest, getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+
+  const saveLocalFSProject = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => {
+    const queueKey = resolveCurrentProjectName(projectName);
+    const scopeId = chatScopeIdRef.current;
+    const snapshot = files.map((file) => ({ ...file }));
+    const previous = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const run = previous
+      .catch(() => undefined)
+      .then(() => {
+        if (chatScopeIdRef.current !== scopeId || isProjectSaveBlocked(queueKey, scopeId)) return false;
+        const locks = (navigator as any).locks;
+        if (!locks?.request) return saveLocalFSProjectInner(queueKey, snapshot);
+        return locks.request(`willow-project:${scopeId}:${queueKey}`, () => {
+          if (chatScopeIdRef.current !== scopeId || isProjectSaveBlocked(queueKey, scopeId)) return false;
+          return saveLocalFSProjectInner(queueKey, snapshot);
+        });
+      });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) {
+        projectSaveQueuesRef.current.delete(queueKey);
+      }
+    });
+    return run;
+  }, [resolveCurrentProjectName, saveLocalFSProjectInner]);
+
+  /**
+   * Load an existing code project from disk. `null` means the folder is missing
+   * or unavailable; an empty array is a valid, intentionally empty Codebase.
+   * Reads share the project queue/lock with saves, renames, and deletes so a
+   * reopen can never observe a half-pruned or half-moved tree.
+   */
+  const loadLocalFSProject = useCallback((projectName: string): Promise<FileContent[] | null> => {
+    if (!projectName) return Promise.resolve(null);
+    const scopeId = chatScopeIdRef.current;
+    const queueKey = resolveCurrentProjectName(projectName);
+    const predecessor = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const readProject = async (): Promise<FileContent[] | null> => {
+      if (chatScopeIdRef.current !== scopeId || isProjectSaveBlocked(queueKey, scopeId)) return null;
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle || chatScopeIdRef.current !== scopeId) return null;
+      try {
+        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
+        const codeDir = await workspaceDir.getDirectoryHandle('Code');
+        const projectDir = await codeDir.getDirectoryHandle(queueKey);
+        const codebaseDir = await projectDir.getDirectoryHandle('Codebase');
+        const files = await readFilesRecursively(codebaseDir);
+        return chatScopeIdRef.current === scopeId ? files : null;
+      } catch (error: any) {
+        if (error?.name !== 'NotFoundError') {
+          console.error('Failed to load project from local folder:', error);
+        }
+        return null;
+      }
+    };
+    const run = predecessor
+      .catch(() => undefined)
+      .then(() => {
+        const locks = (navigator as any).locks;
+        if (!locks?.request) return readProject();
+        return locks.request(`willow-project:${scopeId}:${queueKey}`, readProject);
+      });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) projectSaveQueuesRef.current.delete(queueKey);
+    });
+    return run;
+  }, [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
 
   /**
    * Save general chat history locally
    */
   const saveLocalFSChat = useCallback(async (chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => {
-    const chatContent = JSON.stringify(messages, null, 2);
+    chatId = chatId.replace(/[\/:*?"<>|]/g, '').trim();
+    if (!chatId || !Array.isArray(messages)) return false;
+    const previousId = oldChatId && oldChatId !== chatId ? oldChatId : null;
 
-    // Mark this chat as just-written so the disk poller won't delete it in the
-    // window before its .json reaches disk.
-    recentChatWritesRef.current.set(chatId, Date.now());
+    return enqueueChatOperation([chatId, previousId || ''], async () => {
+      const previousRecord = previousId ? chatSyncRecordsRef.current[previousId] : undefined;
+      const isFirstRename = !!previousId && !previousRecord?.tombstone;
+      const targetRecord = chatSyncRecordsRef.current[chatId];
+      if (isFirstRename && localChatsRef.current.includes(chatId) && !targetRecord?.tombstone) return false;
 
-    // 1. Always save the body to IndexedDB immediately for instant, quota-free persistence
-    try {
-      await saveChatBody(chatId, messages);
-      // Update the timestamp for the current chatId ONLY if it is a new chat (oldChatId !== null)
-      // or if it's a genuine edit. If it's just being opened, we don't want to bump the timestamp
-      // to Date.now() which would send it to the top of the sidebar.
-      // We know it's a genuine new save if `oldChatId` is provided (renaming from temp to real title),
-      // OR if we are updating an existing chat with actual messages (not just the initial [] array).
-      if (oldChatId !== undefined || (messages && messages.length > 0)) {
-         updateChatTimestamp(chatId, Date.now());
-      }
-      
-      if (oldChatId && oldChatId !== chatId) {
+      const rootHandle = await getActiveHandle();
+      let chatsDir: FileSystemDirectoryHandle | null = null;
+      if (rootHandle) {
         try {
-          const stored = localStorage.getItem('willow_chat_timestamps');
-          if (stored) {
-            const ts = JSON.parse(stored);
-            delete ts[oldChatId];
-            localStorage.setItem('willow_chat_timestamps', JSON.stringify(ts));
+          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
+          chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
+          if (isFirstRename) {
+            try {
+              await chatsDir.getFileHandle(`${chatId}.json`);
+              return false;
+            } catch (error: any) {
+              if (error?.name && error.name !== 'NotFoundError') return false;
+            }
           }
-        } catch {}
-        // Fire the body delete OUTSIDE the state updater below — React may
-        // invoke updaters more than once (StrictMode/concurrent), and side
-        // effects don't belong in them.
-        void deleteChatBody(oldChatId);
+        } catch {
+          chatsDir = null;
+        }
       }
 
-      setLocalChats((prev) => {
-        let next = prev;
-        if (!prev.includes(chatId)) {
-          next = [...prev, chatId];
-        }
-        if (oldChatId && oldChatId !== chatId) {
-          next = next.filter((c) => c !== oldChatId);
-        }
-        const sorted = sortChatsNewestToOldest(next);
-        localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
-        return sorted;
-      });
+      const previousChats = [...localChatsRef.current];
+      const previousTargetTimestamp = chatTimestampsRef.current[chatId];
+      const previousOldTimestamp = previousId ? chatTimestampsRef.current[previousId] : undefined;
+      const now = Date.now();
+      const revision = nextChatRevision(chatId);
+      chatSyncRecordsRef.current[chatId] = {
+        revision,
+        diskRevision: targetRecord?.diskRevision || 0,
+        diskMtime: targetRecord?.diskMtime || 0,
+        dirty: true,
+        tombstone: false,
+        updatedAt: now,
+      };
+      updateScopedChatTimestamp(chatId, now);
+      if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
 
-      // Update activeChatId if it was null or matched the oldChatId
-      setActiveChatId((prev) => {
-        if (prev === null || prev === oldChatId) {
-          return chatId;
-        }
-        return prev;
-      });
-    } catch (err) {
-      console.error('Failed to save chat body', err);
-    }
-
-    // 2. Try saving to local file system if connected and authorized
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) {
-      return true; // Succeeded in saving to browser storage!
-    }
-
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-      const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-
-      // Write new file
-      await writeFileRecursively(chatsDir, `${chatId}.json`, chatContent);
-      
-      // Delete old file if chatId changed from temporary ID
-      if (oldChatId && oldChatId !== chatId) {
-        try {
-          await chatsDir.removeEntry(`${oldChatId}.json`);
-        } catch {}
+      if (previousId) {
+        const oldRevision = nextChatRevision(previousId);
+        chatSyncRecordsRef.current[previousId] = {
+          revision: oldRevision,
+          diskRevision: previousRecord?.diskRevision || 0,
+          diskMtime: previousRecord?.diskMtime || 0,
+          dirty: false,
+          tombstone: true,
+          updatedAt: now,
+        };
+        localChatsRef.current = localChatsRef.current.filter((id) => id !== previousId);
+        delete chatTimestampsRef.current[previousId];
       }
-
-      // Sync latest filesystem directory list
       try {
-        const chats: string[] = [];
-        for await (const entry of (chatsDir as any).values()) {
-          if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-            chats.push(entry.name.slice(0, -5));
-          }
+        await saveChatBody(chatId, messages, chatStorageScopeRef.current);
+        if (previousId) await deleteChatBody(previousId, chatStorageScopeRef.current);
+      } catch (error) {
+        if (targetRecord) chatSyncRecordsRef.current[chatId] = targetRecord;
+        else delete chatSyncRecordsRef.current[chatId];
+        if (previousId) {
+          if (previousRecord) chatSyncRecordsRef.current[previousId] = previousRecord;
+          else delete chatSyncRecordsRef.current[previousId];
         }
-        
-        setLocalChats((prev) => {
-          const merged = Array.from(new Set([...prev, ...chats]));
-          const sorted = sortChatsNewestToOldest(merged);
-          localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
-          return sorted;
-        });
-      } catch {}
+        localChatsRef.current = previousChats;
+        if (previousTargetTimestamp === undefined) delete chatTimestampsRef.current[chatId];
+        else chatTimestampsRef.current[chatId] = previousTargetTimestamp;
+        if (previousId) {
+          if (previousOldTimestamp === undefined) delete chatTimestampsRef.current[previousId];
+          else chatTimestampsRef.current[previousId] = previousOldTimestamp;
+        }
+        persistChatMetadata();
+        console.error('Failed to save chat body', error);
+        return false;
+      }
+      persistChatMetadata();
 
+      setActiveChatId((current) => current === null || current === previousId ? chatId : current);
+      if (!chatsDir) return true;
+
+      try {
+        await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(messages, null, 2));
+        if (previousId) {
+          try { await chatsDir.removeEntry(`${previousId}.json`); } catch {}
+        }
+        const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+        const latest = chatSyncRecordsRef.current[chatId];
+        if (latest?.revision === revision) {
+          chatSyncRecordsRef.current[chatId] = {
+            ...latest,
+            diskRevision: revision,
+            diskMtime: written.lastModified,
+            dirty: false,
+            updatedAt: Date.now(),
+          };
+          persistChatMetadata();
+        }
+      } catch {
+        // IndexedDB succeeded; the durable dirty revision is retried later.
+      }
       return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+    });
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp]);
 
   /**
    * Save codebase/design chat sessions of respective project locally
@@ -1038,7 +1558,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   /**
    * Save media creations locally
    */
-  const saveLocalFSMedia = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
+  const saveLocalFSMediaInner = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return null;
 
@@ -1232,8 +1752,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const file = await oldHandle.getFile();
       const newHandle = await subDir.getFileHandle(finalFileName, { create: true });
       const writable = await newHandle.createWritable();
-      await writable.write(await file.arrayBuffer());
-      await writable.close();
+      await file.stream().pipeTo(writable);
       await subDir.removeEntry(oldFsName);
       return finalFileName;
     } catch (err) {
@@ -1261,17 +1780,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * intermediate temp folder (old → tmp → new), so the data always exists in
    * at least one complete copy.
    */
-  const renameLocalFSProject = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+  const renameLocalFSProjectInner = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+    newName = newName.replace(/[\/:*?"<>|]/g, '').trim();
     if (!oldName || !newName || oldName === newName) return false;
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return false;
-
-    // Record the rename BEFORE any disk work so concurrent save paths (which
-    // resolve project folders by NAME, possibly seconds after they captured
-    // it) redirect to the new name instead of resurrecting Media/<oldName>/,
-    // and so the reconciler doesn't adopt the still-on-disk old name back
-    // mid-move. Pruned by time in resolveCurrentProjectName.
-    recentProjectRenamesRef.current.set(oldName, { newName, ts: Date.now() });
 
     const copyDir = async (src: any, dst: any): Promise<void> => {
       for await (const entry of src.values()) {
@@ -1279,8 +1792,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           const file = await entry.getFile();
           const fh = await dst.getFileHandle(entry.name, { create: true });
           const w = await fh.createWritable();
-          await w.write(await file.arrayBuffer());
-          await w.close();
+          await file.stream().pipeTo(w);
         } else if (entry.kind === 'directory') {
           const sub = await dst.getDirectoryHandle(entry.name, { create: true });
           await copyDir(entry, sub);
@@ -1288,20 +1800,24 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
     };
 
-    const renameIn = async (parent: FileSystemDirectoryHandle): Promise<boolean> => {
+    const renameIn = async (
+      parent: FileSystemDirectoryHandle,
+      fromName = oldName,
+      toName = newName,
+    ): Promise<boolean> => {
       let oldHandle: any;
       try {
-        oldHandle = await parent.getDirectoryHandle(oldName);
+        oldHandle = await parent.getDirectoryHandle(fromName);
       } catch {
         return false; // project doesn't live in this parent
       }
       // Prefer a native move/rename — atomic and instant. (Not implemented for
       // directories in Chromium to date, but harmless to attempt.)
       if (typeof oldHandle.move === 'function') {
-        try { await oldHandle.move(newName); return true; } catch {}
+        try { await oldHandle.move(toName); return true; } catch {}
       }
       // Fallback: full recursive copy, THEN delete the original.
-      const newHandle = await parent.getDirectoryHandle(newName, { create: true });
+      const newHandle = await parent.getDirectoryHandle(toName, { create: true });
       // Same-entry guard (case-insensitive filesystems): copying a folder into
       // itself and deleting "the old one" would destroy the project. Route
       // through a temp sibling instead: copy old→tmp, delete old (same entry
@@ -1309,17 +1825,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       let sameEntry = false;
       try { sameEntry = await oldHandle.isSameEntry(newHandle); } catch {}
       if (sameEntry) {
-        const tmpName = `${newName}.willow-rename-tmp`;
+        const tmpName = `${toName}.willow-rename-${crypto.randomUUID?.() || Date.now().toString(36)}`;
         const tmpHandle = await parent.getDirectoryHandle(tmpName, { create: true });
         await copyDir(oldHandle, tmpHandle);
-        await parent.removeEntry(oldName, { recursive: true });
-        const finalHandle = await parent.getDirectoryHandle(newName, { create: true });
+        await parent.removeEntry(fromName, { recursive: true });
+        const finalHandle = await parent.getDirectoryHandle(toName, { create: true });
         await copyDir(tmpHandle, finalHandle);
         await parent.removeEntry(tmpName, { recursive: true });
         return true;
       }
       await copyDir(oldHandle, newHandle);
-      await parent.removeEntry(oldName, { recursive: true });
+      await parent.removeEntry(fromName, { recursive: true });
       return true;
     };
 
@@ -1327,27 +1843,110 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     try {
       const workspaceName = getSanitizedWorkspaceName();
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      let renamed = false;
+      const sourceParents: FileSystemDirectoryHandle[] = [];
       for (const parentName of ['Code', 'Media']) {
         try {
-          // Don't create Code//Media/ while renaming — a missing parent just
-          // means the project doesn't live there.
           const parent = await workspaceDir.getDirectoryHandle(parentName);
+          const source = await parent.getDirectoryHandle(oldName);
+          sourceParents.push(parent);
+          try {
+            const destination = await parent.getDirectoryHandle(newName);
+            if (!(await source.isSameEntry(destination))) return false;
+          } catch (error: any) {
+            if (error?.name && error.name !== 'NotFoundError') return false;
+          }
+        } catch (error: any) {
+          if (error?.name !== 'NotFoundError') return false;
+        }
+      }
+      if (sourceParents.length === 0) return false;
+      // A compensating rollback is itself a rename (new→old). Remove the
+      // immediately preceding reverse redirect (old→new) before recording it,
+      // otherwise resolveCurrentProjectName follows a two-node cycle and later
+      // autosaves can target the wrong side of the rolled-back move.
+      const reverseRedirect = recentProjectRenamesRef.current.get(newName);
+      if (reverseRedirect?.newName === oldName) recentProjectRenamesRef.current.delete(newName);
+      recentProjectRenamesRef.current.set(oldName, { newName, ts: Date.now() });
+      const completedParents: FileSystemDirectoryHandle[] = [];
+      let renameFailed = false;
+      for (const parent of sourceParents) {
+        try {
           const ok = await renameIn(parent);
-          renamed = renamed || ok;
-        } catch {}
+          if (ok) completedParents.push(parent);
+          else renameFailed = true;
+        } catch {
+          renameFailed = true;
+        }
+      }
+      if (renameFailed || completedParents.length !== sourceParents.length) {
+        for (const parent of [...completedParents].reverse()) {
+          try { await renameIn(parent, newName, oldName); } catch {}
+        }
+        recentProjectRenamesRef.current.delete(oldName);
+        return false;
       }
       // Invalidate the cached id for the old folder name; the new name is read fresh.
       manifestIdCacheRef.current.delete(oldName);
-      return renamed;
+      return true;
     } catch (err) {
       console.error('Error renaming project folder', err);
+      recentProjectRenamesRef.current.delete(oldName);
       return false;
     } finally {
       projectRenameOpsRef.current--;
       projectRenameSettleUntilRef.current = Date.now() + 800;
     }
   }, [getActiveHandle, getSanitizedWorkspaceName]);
+
+  const saveLocalFSMedia = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
+    const scopeId = chatScopeIdRef.current;
+    const queueKey = resolveCurrentProjectName(projectName);
+    const predecessor = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const run = predecessor
+      .catch(() => undefined)
+      .then(async () => {
+        if (chatScopeIdRef.current !== scopeId) return null;
+        const locks = (navigator as any).locks;
+        if (!locks?.request) return saveLocalFSMediaInner(queueKey, kind, fileName, blob);
+        return locks.request(`willow-project:${scopeId}:${queueKey}`, () => {
+          if (chatScopeIdRef.current !== scopeId) return null;
+          return saveLocalFSMediaInner(queueKey, kind, fileName, blob);
+        });
+      });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) {
+        projectSaveQueuesRef.current.delete(queueKey);
+        window.setTimeout(() => window.dispatchEvent(new Event('willow_disk_changed')), 350);
+      }
+    });
+    return run;
+  }, [resolveCurrentProjectName, saveLocalFSMediaInner]);
+
+  const renameLocalFSProject = useCallback((oldName: string, newName: string): Promise<boolean> => {
+    const keys = Array.from(new Set([
+      resolveCurrentProjectName(oldName),
+      resolveCurrentProjectName(newName),
+    ])).sort();
+    const predecessors = keys
+      .map((key) => projectSaveQueuesRef.current.get(key))
+      .filter(Boolean) as Promise<unknown>[];
+    const withLocks = async (index = 0): Promise<boolean> => {
+      const locks = (navigator as any).locks;
+      if (!locks?.request || index >= keys.length) return renameLocalFSProjectInner(oldName, newName);
+      return locks.request(`willow-project:${chatScopeIdRef.current}:${keys[index]}`, () => withLocks(index + 1));
+    };
+    const run = Promise.allSettled(predecessors).then(() => withLocks());
+    const settled = run.then(() => undefined, () => undefined);
+    for (const key of keys) projectSaveQueuesRef.current.set(key, settled);
+    void settled.finally(() => {
+      for (const key of keys) {
+        if (projectSaveQueuesRef.current.get(key) === settled) projectSaveQueuesRef.current.delete(key);
+      }
+    });
+    return run;
+  }, [renameLocalFSProjectInner, resolveCurrentProjectName]);
 
   /**
    * Save a project cover image to disk at Media/<projectName>/cover.<ext>,
@@ -1398,20 +1997,26 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    */
   const generateChatTitle = useCallback(async (userMessage: string, assistantMessage: string): Promise<string> => {
     // 1. Resolve which model the user has selected for Chat Naming
-    const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3-flash-preview';
+    const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
     
     // 2. Look it up across all providers to get the provider + API key
     const allModels = [
       ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
       ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
       ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
+      ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
+      ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
+      ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
     ];
     
     let targetProvider = 'gemini';
-    let targetModelId = 'gemini-3-flash-preview';
+    let targetModelId = 'gemini-3.1-flash-lite';
     
     // If it's the exact default string, we know what it is
-    if (chatNamingSelectionId === 'gemini-3-flash-preview') {
+    if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
+      targetProvider = 'gemini';
+      targetModelId = 'gemini-3.1-flash-lite';
+    } else if (chatNamingSelectionId === 'gemini-3-flash-preview') {
       targetProvider = 'gemini';
       targetModelId = 'gemini-3-flash-preview';
     } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
@@ -1429,12 +2034,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     const apiKey = apiKeys?.[targetProvider]?.[0];
     if (!apiKey) return ''; // Cannot generate if the target provider has no key
     
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
     try {
       if (targetProvider === 'gemini') {
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${targetModelId}:generateContent?key=${apiKey}`,
             {
               method: 'POST',
+              signal: controller.signal,
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{
@@ -1455,6 +2063,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       } else if (targetProvider === 'openai') {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
+            signal: controller.signal,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`
@@ -1477,6 +2086,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       } else if (targetProvider === 'anthropic') {
           const response = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
+              signal: controller.signal,
               headers: {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
@@ -1502,6 +2112,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
     } catch (err) {
       // Ignored
+    } finally {
+      window.clearTimeout(timeoutId);
     }
     return '';
   }, [apiKeys, modelConfig]);
@@ -1517,35 +2129,40 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * Load messages of a specific local chat
    */
   const loadLocalFSChat = useCallback(async (chatId: string): Promise<any[] | null> => {
-    // 1. Try loading from IndexedDB first (migrates any legacy localStorage body)
-    try {
-      const cached = await loadChatBody(chatId);
-      if (cached) {
+    return enqueueChatOperation([chatId], async () => {
+      const record = chatSyncRecordsRef.current[chatId];
+      if (record?.tombstone) return null;
+      let cached: any[] | null = null;
+      try { cached = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
+      if (record?.dirty) return cached;
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle) return cached;
+      try {
+        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
+        const chatsDir = await workspaceDir.getDirectoryHandle('Chats');
+        const file = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+        if (cached && record?.diskMtime === file.lastModified) return cached;
+        const parsed = JSON.parse(await file.text());
+        if (!Array.isArray(parsed)) return cached;
+        await saveChatBody(chatId, parsed, chatStorageScopeRef.current);
+        const revision = Math.max(record?.revision || 0, record?.diskRevision || 0);
+        chatSyncRecordsRef.current[chatId] = {
+          revision,
+          diskRevision: revision,
+          diskMtime: file.lastModified,
+          dirty: false,
+          tombstone: false,
+          updatedAt: Date.now(),
+        };
+        chatTimestampsRef.current[chatId] = file.lastModified;
+        if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
+        persistChatMetadata();
+        return parsed;
+      } catch {
         return cached;
       }
-    } catch {}
-
-    // 2. Fall back to loading from local file system if connected and authorized
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return null;
-
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-      const fileHandle = await chatsDir.getFileHandle(`${chatId}.json`);
-      const file = await fileHandle.getFile();
-      const content = await file.text();
-      const parsed = JSON.parse(content);
-
-      // Cache it back to IndexedDB
-      await saveChatBody(chatId, parsed);
-
-      return parsed;
-    } catch (err) {
-      return null;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+    });
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata]);
 
   /**
    * Scan Chats folder and refresh lists
@@ -1565,87 +2182,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // every cached chat look externally-deleted and reaped their bodies.
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
       const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-      
-      // Read disk chats
-      const diskChats: string[] = [];
-      const timestamps = (() => {
-        try {
-          const stored = localStorage.getItem('willow_chat_timestamps');
-          return stored ? JSON.parse(stored) : {};
-        } catch { return {}; }
-      })();
-      let timestampsUpdated = false;
-
-      for await (const entry of (chatsDir as any).values()) {
-        if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-          const chatId = entry.name.slice(0, -5);
-          diskChats.push(chatId);
-          if (!timestamps[chatId]) {
-            try {
-              const file = await entry.getFile();
-              timestamps[chatId] = file.lastModified;
-              timestampsUpdated = true;
-            } catch {}
-          }
-        }
-      }
-
-      if (timestampsUpdated) {
-        localStorage.setItem('willow_chat_timestamps', JSON.stringify(timestamps));
-      }
-
-      // Get cached chats list
-      let cachedChats: string[] = [];
-      try {
-        const stored = localStorage.getItem('willow_local_chats');
-        cachedChats = stored ? JSON.parse(stored) : [];
-      } catch {}
-
-      // Reconcile cache against disk. A chat in the cache but not on disk was
-      // either (a) just created and hasn't hit disk yet, or (b) deleted on disk.
-      // We only treat it as a real external delete if it WASN'T written locally
-      // in the last grace window — otherwise we keep it (and keep it visible) so
-      // the real-time poller can't race-delete a chat mid-creation.
-      const GRACE_MS = 20000;
-      const now = Date.now();
-      const validDiskChats = new Set(diskChats);
-      const keepPending: string[] = [];
-      for (const chat of cachedChats) {
-        if (validDiskChats.has(chat)) continue;
-        const recentlyWritten = (recentChatWritesRef.current.get(chat) ?? 0) > now - GRACE_MS;
-        if (recentlyWritten) {
-          // Created/edited very recently — assume it's still flushing to disk.
-          keepPending.push(chat);
-          continue;
-        }
-        // Genuinely gone from disk -> remove its body + timestamp.
-        try {
-          void deleteChatBody(chat);
-          const tsStr = localStorage.getItem('willow_chat_timestamps');
-          if (tsStr) {
-            const tsObj = JSON.parse(tsStr);
-            if (tsObj[chat]) {
-              delete tsObj[chat];
-              localStorage.setItem('willow_chat_timestamps', JSON.stringify(tsObj));
-            }
-          }
-        } catch {}
-      }
-
-      // Prune stale grace entries so the map can't grow unbounded.
-      for (const [id, ts] of recentChatWritesRef.current) {
-        if (ts <= now - GRACE_MS) recentChatWritesRef.current.delete(id);
-      }
-
-      const sorted = sortChatsNewestToOldest([...diskChats, ...keepPending]);
-      // Only update state/storage when the list actually changed, so the 3s
-      // poll doesn't re-render the sidebar on every idle tick.
-      setLocalChats(prev => {
-        const same = prev.length === sorted.length && prev.every((c, i) => c === sorted[i]);
-        if (same) return prev;
-        localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
-        return sorted;
-      });
+      await syncChatsWithDisk(chatsDir);
     } catch (err: any) {
       // A missing workspace folder is the expected no-op case (see above), not
       // an error worth spamming every poll tick.
@@ -1653,7 +2190,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         console.error('Error refreshing local chats', err);
       }
     }
-  }, [getSanitizedWorkspaceName]);
+  }, [getSanitizedWorkspaceName, syncChatsWithDisk]);
 
   /**
    * Scan Media folder and sync with IndexedDB
@@ -1667,6 +2204,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // their base64 url. Items previously on disk whose file is now gone are dropped
   // (external delete reflected). Persists the reconciled metadata by projectId.
   const refreshLocalMedia = useCallback(async (projectId: string, projectName: string, liveItems?: any[]): Promise<any[]> => {
+    const scopeIdAtStart = chatScopeIdRef.current;
+    const generationAtStart = providerGenerationRef.current;
+    const scopeIsCurrent = () => chatScopeIdRef.current === scopeIdAtStart && providerGenerationRef.current === generationAtStart;
     // Overlay the caller's LIVE in-memory items over what IndexedDB has. The
     // gallery's IndexedDB persist is debounced (~600ms) while the disk watcher
     // reconciles ~300ms after a file lands — so right after a generation batch
@@ -1679,7 +2219,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     // just-completed, not-yet-persisted item can't be dropped or re-ingested
     // as an anonymous "External Source" tile.
     const loadBaseline = async (): Promise<any[]> => {
-      const stored = (await loadProjectMedia(projectId)) || [];
+      const stored = (await loadProjectMedia(projectId, scopeIdAtStart)) || [];
+      if (!scopeIsCurrent()) return [];
       if (!liveItems || liveItems.length === 0) return stored;
       const liveById = new Map(liveItems.filter((m: any) => m?.id).map((m: any) => [m.id, m]));
       const merged = stored.map((m: any) => liveById.get(m?.id) ?? m);
@@ -1695,6 +2236,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     try {
       const hasAccess = await verifyPermission(rootHandle, false, false);
+      if (!scopeIsCurrent()) return [];
       if (!hasAccess) return await loadBaseline();
 
       // INVARIANT #13 (STORAGE_SYNC.md): never reconcile while a project
@@ -1715,9 +2257,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // in-flight rename so a reconcile right after a rename reads the moved
       // folder instead of finding nothing.
       const targetName = resolveCurrentProjectName(projectName);
+      if (projectSaveQueuesRef.current.has(targetName)) return await loadBaseline();
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
       const mediaDir = await workspaceDir.getDirectoryHandle('Media');
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
+      if (!scopeIsCurrent()) return [];
 
       const dbMedia = await loadBaseline();
       const onDisk: any[] = [];
@@ -1746,8 +2290,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             // two disk files (which would push the same id twice — duplicate
             // tiles sharing a React key, with ambiguous rename/delete-by-id).
             const kindMatches = (m: any) => m.kind === kind || !m.kind;
-            let existing = dbMedia.find((m: any) => !consumedDbIds.has(m.id) && m.fsName === fsName && kindMatches(m))
-              || dbMedia.find((m: any) => !consumedDbIds.has(m.id) && kindMatches(m) && (m.shortenedPrompt === matchName || m.prompt === matchName));
+            let existing = dbMedia.find((m: any) => !consumedDbIds.has(m.id) && m.fsName === fsName && kindMatches(m));
+            if (!existing) {
+              const promptCandidates = dbMedia.filter((m: any) =>
+                !consumedDbIds.has(m.id) && kindMatches(m) &&
+                (m.shortenedPrompt === matchName || m.prompt === matchName)
+              );
+              // Prompt matching is legacy-only. A bulk batch intentionally has
+              // several items with the same prompt, so guessing among them
+              // swaps IDs/timestamps and visibly rearranges generated tiles.
+              if (promptCandidates.length === 1) existing = promptCandidates[0];
+            }
             if (existing) {
               consumedDbIds.add(existing.id);
               // Keep metadata, mark disk-backed, drop bytes (hydrated on display).
@@ -1776,6 +2329,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // (stripped url + isSavedToFS) DROPPED it — songs silently vanished from
       // the gallery on the first reconcile after save.
       await scanFolder('Audio', 'audio');
+      if (!scopeIsCurrent()) return [];
 
       // Keep any item not matched to a disk file UNLESS it's a disk-backed item
       // whose bytes are gone (stripped url + isSavedToFS + file missing = a real
@@ -1798,9 +2352,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         return true;
       });
 
-      const merged = deduped.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const merged = deduped.sort(compareMediaItemsNewestFirst);
 
-      await saveProjectMedia(projectId, merged); // strips disk-backed bytes
+      await saveProjectMedia(projectId, merged, scopeIdAtStart); // strips disk-backed bytes
+      if (!scopeIsCurrent()) return [];
       return merged;
     } catch (err: any) {
       // Missing workspace/Media/<project> folder = nothing on disk yet for this
@@ -1817,19 +2372,23 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * real-time watcher below and on focus/visibility changes. Re-entrancy guarded.
    */
   const pollDiskNow = useCallback(async (): Promise<void> => {
-    if (isPollingRef.current) return;
-    const handle = directoryHandleRef.current;
-    if (!handle) return;
+    if (isPollingRef.current) {
+      pollPendingRef.current = true;
+      return;
+    }
     isPollingRef.current = true;
     try {
-      const hasAccess = await verifyPermission(handle, false, false);
-      if (!hasAccess) return;
-      const workspaceName = getSanitizedWorkspaceName();
-      // Read-only poll: never create the workspace folder (see refreshLocalChats).
-      // Missing folder -> throw -> caught below -> no-op until it exists.
-      const workspaceDir = await handle.getDirectoryHandle(workspaceName);
-      await syncProjectsFromDisk(workspaceDir);
-      await refreshLocalChats();
+      do {
+        pollPendingRef.current = false;
+        const handle = directoryHandleRef.current;
+        if (!handle) break;
+        const hasAccess = await verifyPermission(handle, false, false);
+        if (!hasAccess) break;
+        const workspaceName = getSanitizedWorkspaceName();
+        const workspaceDir = await handle.getDirectoryHandle(workspaceName);
+        await syncProjectsFromDisk(workspaceDir);
+        await refreshLocalChats();
+      } while (pollPendingRef.current);
     } catch {
       // transient — next tick will retry
     } finally {
@@ -1908,55 +2467,43 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onFocus);
     };
-  }, [isSupported, isLocalFolderConnected, isLocalFolderAuthorized, pollDiskNow, getSanitizedWorkspaceName]);
+  }, [isSupported, isLocalFolderConnected, isLocalFolderAuthorized, pollDiskNow, getSanitizedWorkspaceName, chatScopeId]);
 
   /**
    * Delete a local chat file
    */
   const deleteLocalFSChat = useCallback(async (chatId: string): Promise<boolean> => {
-    // 1. Delete the body from IndexedDB first
-    try {
-      await deleteChatBody(chatId);
-
-      // Delete timestamp
-      try {
-        const stored = localStorage.getItem('willow_chat_timestamps');
-        if (stored) {
-          const ts = JSON.parse(stored);
-          delete ts[chatId];
-          localStorage.setItem('willow_chat_timestamps', JSON.stringify(ts));
+    return enqueueChatOperation([chatId], async () => {
+      const previous = chatSyncRecordsRef.current[chatId];
+      const revision = nextChatRevision(chatId);
+      chatSyncRecordsRef.current[chatId] = {
+        revision,
+        diskRevision: previous?.diskRevision || 0,
+        diskMtime: previous?.diskMtime || 0,
+        dirty: false,
+        tombstone: true,
+        updatedAt: Date.now(),
+      };
+      localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
+      delete chatTimestampsRef.current[chatId];
+      persistChatMetadata();
+      try { await deleteChatBody(chatId, chatStorageScopeRef.current); } catch {}
+      setActiveChatId((current) => current === chatId ? null : current);
+      const rootHandle = await getActiveHandle();
+      if (rootHandle) {
+        try {
+          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
+          const chatsDir = await workspaceDir.getDirectoryHandle('Chats');
+          await chatsDir.removeEntry(`${chatId}.json`);
+        } catch {
+          // Tombstone remains and the reconciler retries.
         }
-      } catch {}
-
-      setLocalChats((prev) => {
-        const next = prev.filter((c) => c !== chatId);
-        localStorage.setItem('willow_local_chats', JSON.stringify(next));
-        return next;
-      });
-    } catch {}
-
-    if (activeChatId === chatId) {
-      setActiveChatId(null);
-    }
-
-    // 2. Try deleting from filesystem
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return true; // Succeeded in local cache deletion
-
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      // Deleting — nothing to create; a missing folder means the file is
-      // already gone from disk.
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const chatsDir = await workspaceDir.getDirectoryHandle('Chats');
-      await chatsDir.removeEntry(`${chatId}.json`);
+      }
       return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName, activeChatId]);
+    });
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata]);
 
-  const deleteLocalFSProject = useCallback(async (projectId: string, projectName: string): Promise<boolean> => {
+  const deleteLocalFSProjectInner = useCallback(async (_projectId: string, projectName: string): Promise<boolean> => {
     // Try deleting project folder from filesystem
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return true; // No filesystem connected, just browser storage delete
@@ -1971,14 +2518,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // folder on disk, and the disk-authoritative reconciler then re-added the
       // "deleted" project (it reappeared).
       let deletedAny = false;
+      let deleteFailed = false;
       for (const folderName of ['Media', 'Code']) {
         try {
           const folderDir = await workspaceDir.getDirectoryHandle(folderName, { create: false });
           await folderDir.removeEntry(projectName, { recursive: true });
           console.log(`Deleted project folder: ${folderName}/${projectName}`);
           deletedAny = true;
-        } catch (err) {
-          // Project not in this folder (or removal failed) — try the next one.
+        } catch (err: any) {
+          if (err?.name !== 'NotFoundError') deleteFailed = true;
         }
       }
 
@@ -1989,92 +2537,143 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (!deletedAny) {
         console.warn(`Project folder not found on disk: ${projectName}`);
       }
-      return true; // Browser storage is cleaned up by the caller regardless.
+      return !deleteFailed;
     } catch (err) {
       console.error('Failed to delete project from filesystem:', err);
       return false;
     }
   }, [getActiveHandle, getSanitizedWorkspaceName]);
 
+  const deleteLocalFSProject = useCallback((projectId: string, projectName: string): Promise<boolean> => {
+    const scopeId = chatScopeIdRef.current;
+    const queueKey = resolveCurrentProjectName(projectName);
+    const predecessor = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const run = predecessor
+      .catch(() => undefined)
+      .then(async () => {
+        if (chatScopeIdRef.current !== scopeId) return false;
+        const locks = (navigator as any).locks;
+        if (!locks?.request) {
+          const deleted = await deleteLocalFSProjectInner(projectId, queueKey);
+          if (deleted) markProjectDeleted(queueKey, scopeId, projectId);
+          return deleted;
+        }
+        return locks.request(`willow-project:${scopeId}:${queueKey}`, async () => {
+          if (chatScopeIdRef.current !== scopeId) return false;
+          const deleted = await deleteLocalFSProjectInner(projectId, queueKey);
+          if (deleted) markProjectDeleted(queueKey, scopeId, projectId);
+          return deleted;
+        });
+      });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) projectSaveQueuesRef.current.delete(queueKey);
+    });
+    return run;
+  }, [deleteLocalFSProjectInner, resolveCurrentProjectName]);
+
   /**
    * Rename a local chat file
    */
   const renameLocalFSChat = useCallback(async (oldChatId: string, newChatId: string): Promise<boolean> => {
-    // The chat id doubles as the on-disk filename (Chats/<id>.json) — strip
-    // filesystem-illegal characters exactly like every project-name path does.
-    // Without this, a rename to e.g. "Plan: v2?" renamed the IndexedDB body
-    // but silently failed the disk write, and after the 20s grace window the
-    // poller treated the chat as externally deleted and reaped it.
     newChatId = newChatId.replace(/[\/:*?"<>|]/g, '').trim();
     if (!newChatId || newChatId === oldChatId) return false;
-    // Mark both ids as just-written so the disk poller won't delete them mid-rename.
-    recentChatWritesRef.current.set(oldChatId, Date.now());
-    recentChatWritesRef.current.set(newChatId, Date.now());
-    // 1. Rename the body in IndexedDB first
-    try {
-      await renameChatBody(oldChatId, newChatId);
+    return enqueueChatOperation([oldChatId, newChatId], async () => {
+      const target = chatSyncRecordsRef.current[newChatId];
+      if (localChatsRef.current.includes(newChatId) && !target?.tombstone) return false;
+      const previousChats = [...localChatsRef.current];
+      const previousOldTimestamp = chatTimestampsRef.current[oldChatId];
+      const previousNewTimestamp = chatTimestampsRef.current[newChatId];
 
-      // Move timestamp
-      try {
-        const stored = localStorage.getItem('willow_chat_timestamps');
-        if (stored) {
-          const ts = JSON.parse(stored);
-          ts[newChatId] = ts[oldChatId] || Date.now();
-          delete ts[oldChatId];
-          localStorage.setItem('willow_chat_timestamps', JSON.stringify(ts));
+      const rootHandle = await getActiveHandle();
+      let chatsDir: FileSystemDirectoryHandle | null = null;
+      if (rootHandle) {
+        try {
+          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
+          chatsDir = await workspaceDir.getDirectoryHandle('Chats');
+          try {
+            await chatsDir.getFileHandle(`${newChatId}.json`);
+            return false;
+          } catch (error: any) {
+            if (error?.name && error.name !== 'NotFoundError') return false;
+          }
+        } catch {
+          chatsDir = null;
         }
-      } catch {}
-
-      setLocalChats((prev) => {
-        const next = prev.map((c) => (c === oldChatId ? newChatId : c));
-        const sorted = sortChatsNewestToOldest(next);
-        localStorage.setItem('willow_local_chats', JSON.stringify(sorted));
-        return sorted;
-      });
-    } catch {}
-
-    if (activeChatId === oldChatId) {
-      setActiveChatId(newChatId);
-    }
-
-    // 2. Try renaming in filesystem
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return true; // Succeeded in local cache rename
-
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-
-      // Prefer the on-disk body; if the old file never made it to disk (e.g.
-      // the chat was created while disconnected or its flush failed), fall back
-      // to the just-renamed IndexedDB body. Without the fallback the new name
-      // never landed on disk, and once its grace window expired the poller
-      // treated the renamed chat as externally deleted and reaped it.
-      let content: string | null = null;
-      try {
-        const fileHandle = await chatsDir.getFileHandle(`${oldChatId}.json`);
-        const file = await fileHandle.getFile();
-        content = await file.text();
-      } catch {
-        const body = await loadChatBody(newChatId);
-        if (body) content = JSON.stringify(body, null, 2);
       }
-      if (content === null) return false;
 
-      await writeFileRecursively(chatsDir, `${newChatId}.json`, content);
+      const body = await loadChatBody(oldChatId, chatStorageScopeRef.current);
+      if (!body) return false;
+      const oldRecord = chatSyncRecordsRef.current[oldChatId];
+      const now = Date.now();
+      const newRevision = nextChatRevision(newChatId);
+      chatSyncRecordsRef.current[newChatId] = {
+        revision: newRevision,
+        diskRevision: 0,
+        diskMtime: 0,
+        dirty: true,
+        tombstone: false,
+        updatedAt: now,
+      };
+      chatSyncRecordsRef.current[oldChatId] = {
+        revision: nextChatRevision(oldChatId),
+        diskRevision: oldRecord?.diskRevision || 0,
+        diskMtime: oldRecord?.diskMtime || 0,
+        dirty: false,
+        tombstone: true,
+        updatedAt: now,
+      };
+      chatTimestampsRef.current[newChatId] = chatTimestampsRef.current[oldChatId] || now;
+      delete chatTimestampsRef.current[oldChatId];
+      localChatsRef.current = localChatsRef.current.filter((id) => id !== oldChatId);
+      localChatsRef.current.push(newChatId);
+
       try {
-        await chatsDir.removeEntry(`${oldChatId}.json`);
-      } catch {}
+        await renameChatBody(oldChatId, newChatId, chatStorageScopeRef.current);
+      } catch {
+        if (target) chatSyncRecordsRef.current[newChatId] = target;
+        else delete chatSyncRecordsRef.current[newChatId];
+        if (oldRecord) chatSyncRecordsRef.current[oldChatId] = oldRecord;
+        else delete chatSyncRecordsRef.current[oldChatId];
+        localChatsRef.current = previousChats;
+        if (previousOldTimestamp === undefined) delete chatTimestampsRef.current[oldChatId];
+        else chatTimestampsRef.current[oldChatId] = previousOldTimestamp;
+        if (previousNewTimestamp === undefined) delete chatTimestampsRef.current[newChatId];
+        else chatTimestampsRef.current[newChatId] = previousNewTimestamp;
+        persistChatMetadata();
+        return false;
+      }
+      persistChatMetadata();
+      setActiveChatId((current) => current === oldChatId ? newChatId : current);
+      if (chatsDir) {
+        try {
+          await writeFileRecursively(chatsDir, `${newChatId}.json`, JSON.stringify(body, null, 2));
+          try { await chatsDir.removeEntry(`${oldChatId}.json`); } catch {}
+          const written = await (await chatsDir.getFileHandle(`${newChatId}.json`)).getFile();
+          const latest = chatSyncRecordsRef.current[newChatId];
+          if (latest?.revision === newRevision) {
+            chatSyncRecordsRef.current[newChatId] = {
+              ...latest,
+              diskRevision: newRevision,
+              diskMtime: written.lastModified,
+              dirty: false,
+              updatedAt: Date.now(),
+            };
+            persistChatMetadata();
+          }
+        } catch {
+          // Durable rename state will retry new-file write and old tombstone.
+        }
+      }
       return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName, activeChatId]);
+    });
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata]);
 
   return (
     <LocalFSContext.Provider
       value={{
+        chatScopeId,
         isSupported,
         isLocalFolderConnected,
         isLocalFolderAuthorized,
@@ -2083,6 +2682,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         disconnectLocalFolder,
         authorizeLocalFolder,
         saveLocalFSProject,
+        loadLocalFSProject,
         saveLocalFSChat,
         saveLocalFSProjectChat,
         saveLocalFSMedia,
@@ -2101,7 +2701,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         deleteLocalFSChat,
         deleteLocalFSProject,
         renameLocalFSChat,
-        getChatTimestamp,
+        getChatTimestamp: getScopedChatTimestamp,
         isInitializingLocalFS
       }}
     >

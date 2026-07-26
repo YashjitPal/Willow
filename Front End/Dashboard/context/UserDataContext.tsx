@@ -5,6 +5,9 @@ interface ApiKeys {
   gemini: string[];
   openai: string[];
   anthropic: string[];
+  moonshot?: string[];
+  spacexai?: string[];
+  zhipuai?: string[];
 }
 
 interface UserSettings {
