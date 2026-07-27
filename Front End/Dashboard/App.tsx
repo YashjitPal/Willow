@@ -223,9 +223,9 @@ const DashboardLayout: React.FC<{
       )}
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
-        {/* Top-right: Incognito Chat button in Chat mode */}
+        {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-4 right-4 z-30 flex items-center">
+          <div className="absolute top-[14px] right-[12px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -235,34 +235,20 @@ const DashboardLayout: React.FC<{
                   onIncognitoChat(); // Toggle to incognito chat mode
                 }
               }}
-              title={isIncognito ? "Exit incognito chat" : "Incognito chat"}
-              className={`p-1.5 rounded-lg transition-colors ${
+              title={isIncognito ? "Exit temporary chat" : "Temporary chat"}
+              aria-label="Temporary chat"
+              className={`w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors ${
                 isIncognito 
-                  ? 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10' 
-                  : 'text-white/60 hover:text-white hover:bg-white/10'
+                  ? 'bg-[#e3e3e3]/[0.16] text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.24]' 
+                  : 'bg-transparent text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
               }`}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="w-[22px] h-[22px]"
+              <span 
+                className="lumi-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
+                style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
               >
-                {/* Fedora Hat Brim */}
-                <path d="M3 14h18" />
-                {/* Fedora Hat Crown */}
-                <path d="M6 14l1.2-6.5C7.4 6.2 8.5 5.5 9.7 5.5h4.6c1.2 0 2.3 0.7 2.5 2l1.2 6.5" />
-                {/* Hat ribbon */}
-                <path d="M6.5 12h11" strokeWidth="1.5" />
-                {/* Classic circular glasses */}
-                <circle cx="8" cy="19.5" r="2" />
-                <circle cx="16" cy="19.5" r="2" />
-                {/* Glasses Bridge */}
-                <path d="M10 19.5a2 2 0 0 1 4 0" />
-              </svg>
+                gemini_chat_temp
+              </span>
             </button>
           </div>
         )}
