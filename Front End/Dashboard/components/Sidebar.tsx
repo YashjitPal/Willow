@@ -615,7 +615,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className={`dashboard-sidebar ${isCollapsed ? 'dashboard-sidebar--collapsed' : 'dashboard-sidebar--expanded'} group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
       style={{
         width: isHidden ? '0px' : `${isCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH}px`,
-        minWidth: isHidden ? '0px' : `${isCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH}px`,
+        // Keep min-width constant. A state-dependent min-width clamps the
+        // interpolated width on expansion and makes the rail snap open.
+        minWidth: '0px',
         transform: isHidden ? 'translateX(-100%)' : 'translateX(0)',
         opacity: isHidden ? 0 : 1,
         transition: `width ${GEMINI_SIDEBAR_POSITION_MOTION}, transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${GEMINI_SIDEBAR_POSITION_MOTION}, background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}`,
@@ -680,13 +682,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Gemini-style mode control: keep both presentations mounted so the control follows the rail as it animates. */}
+      {/* One persistent pill follows the rail width, so Chat/Spark visibly
+          compresses into the compact switch instead of swapping in place. */}
       <div className="relative mt-1 mb-2 h-8 w-full shrink-0 overflow-hidden">
         <div
-          aria-hidden={isCollapsed}
-          className={`absolute inset-x-1.5 top-0 flex h-8 items-center transition-opacity duration-150 ease-[cubic-bezier(0,0,0,0)] ${isCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+          className="absolute inset-x-1.5 top-0 h-8 overflow-hidden rounded-full bg-[#171717] shadow-inner"
+          style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
-          <div className="bg-[#171717] p-[3px] rounded-full flex items-center w-full shadow-inner">
+          <div
+            aria-hidden={isCollapsed}
+            className={`absolute inset-[3px] flex items-center ${isCollapsed ? 'pointer-events-none' : ''}`}
+            style={{
+              opacity: isCollapsed ? 0 : 1,
+              transform: isCollapsed ? 'scaleX(0.2)' : 'scaleX(1)',
+              transformOrigin: 'left center',
+              transition: `transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1)`,
+            }}
+          >
             <button
               type="button"
               onClick={() => onDashboardExperienceChange('chat')}
@@ -718,15 +730,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-[9px] font-semibold tracking-wider text-[#71717a] uppercase ml-0.5">BETA</span>
             </button>
           </div>
-        </div>
-        <div
-          aria-hidden={!isCollapsed}
-          className={`absolute top-0 flex h-8 items-center transition-opacity duration-100 ease-[cubic-bezier(0,0,0,0)] ${
-            isCollapsed
-              ? 'left-1.5 right-auto w-10 opacity-100'
-              : 'inset-x-1.5 pointer-events-none opacity-0'
-          }`}
-        >
           <button
             type="button"
             onClick={() => {
@@ -741,7 +744,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-pressed={dashboardExperience === 'spark'}
             title={dashboardExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
             tabIndex={isCollapsed ? 0 : -1}
-            className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+            className={`absolute left-1 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${isCollapsed ? '' : 'pointer-events-none'}`}
+            style={{
+              opacity: isCollapsed ? 1 : 0,
+              transform: isCollapsed ? 'scale(1)' : 'scale(0.72)',
+              transition: `transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1), background-color 150ms ease`,
+            }}
           >
             <span
               className="luminous-symbols inline-flex h-5 w-5 items-center justify-center overflow-hidden text-[20px] leading-5 select-none"
@@ -751,7 +759,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320',
               }}
             >
-              {dashboardExperience === 'chat' ? 'toggle_off' : 'toggle_on'}
+              toggle_off
             </span>
           </button>
         </div>
@@ -1067,12 +1075,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </>
       )}
 
-      {/* Gemini-style footer: account at the bottom, Settings beside it in
-          the expanded rail, and above it in the compact rail. */}
-      <div className={`relative mt-auto shrink-0 transition-[height] duration-200 ease-out ${isCollapsed ? 'h-[100px]' : 'h-[56px]'}`}>
-        <div className={`absolute left-1.5 right-1.5 flex items-center ${isCollapsed ? 'bottom-1 h-10' : 'top-1 h-12'}`}>
+      {/* Keep the account bottom-anchored and animate one Settings control
+          between its expanded and compact coordinates. */}
+      <div
+        className="relative mt-auto shrink-0"
+        style={{
+          height: isCollapsed ? '100px' : '56px',
+          transition: `height ${GEMINI_SIDEBAR_POSITION_MOTION}`,
+        }}
+      >
+        <div
+          className="absolute bottom-1 left-1.5 flex h-10 items-center"
+          style={{
+            right: isCollapsed ? '6px' : '48px',
+            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}`,
+          }}
+        >
           {user ? (
-            <div className="relative flex h-10 min-w-0 flex-1 items-center">
+            <div className="relative flex h-10 w-full min-w-0 items-center">
               <UserMenu
                 isOpen={isUserMenuOpen}
                 isCollapsed={isCollapsed}
@@ -1085,58 +1105,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Open account menu"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={handleUserMenuToggle}
-                className={`group/profile relative flex h-10 min-w-0 flex-1 items-center rounded-xl px-1.5 transition-colors hover:bg-white/[0.06] ${isUserMenuOpen ? 'bg-white/[0.06]' : ''}`}
+                className={`group/profile relative flex h-10 w-full min-w-0 items-center rounded-xl px-[5px] text-left transition-colors hover:bg-white/[0.06] ${isUserMenuOpen ? 'bg-white/[0.06]' : ''}`}
               >
                 {userProfile?.photoURL ? (
                   <img
                     src={userProfile.photoURL}
                     alt="User"
-                    className={`h-[30px] w-[30px] rounded-full border border-white/10 object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
+                    className={`h-[30px] w-[30px] shrink-0 rounded-full border border-white/10 object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
                   />
                 ) : (
-                  <span className={`flex h-[30px] w-[30px] items-center justify-center rounded-full border border-white/10 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}>
+                  <span className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border border-white/10 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}>
                     {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                   </span>
                 )}
-                {!isCollapsed && <span className="ml-2 min-w-0 truncate text-[13px] text-white/80">{userProfile?.displayName || user?.email || 'Account'}</span>}
+                <span
+                  aria-hidden={isCollapsed}
+                  className="min-w-0 flex-1 overflow-hidden truncate text-left text-[13px] text-white/80"
+                  style={{
+                    maxWidth: isCollapsed ? '0px' : '180px',
+                    marginLeft: isCollapsed ? '0px' : '8px',
+                    opacity: isCollapsed ? 0 : 1,
+                    transition: `max-width ${GEMINI_SIDEBAR_POSITION_MOTION}, margin-left ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1)`,
+                  }}
+                >
+                  {userProfile?.displayName || user?.email || 'Account'}
+                </span>
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => navigate('/login')}
-              className={`flex h-10 min-w-0 flex-1 items-center rounded-xl px-1.5 text-white/80 transition-colors hover:bg-white/[0.06] ${isCollapsed ? 'justify-center' : 'gap-2'}`}
+              className="flex h-10 w-full min-w-0 items-center rounded-xl px-1 text-left text-white/80 transition-colors hover:bg-white/[0.06]"
               title="Sign In"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10"><LogIn size={18} /></span>
-              {!isCollapsed && <span className="text-[13px] font-medium">Sign In</span>}
-            </button>
-          )}
-
-          {!isCollapsed && (
-            <button
-              type="button"
-              aria-label="Settings"
-              title="Settings"
-              onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-              className={`ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#e3e3e3] transition-colors hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
-            >
-              <SidebarGlyph name="settings" className="h-5 w-5 text-[20px] leading-5" />
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10"><LogIn size={18} /></span>
+              <span
+                aria-hidden={isCollapsed}
+                className="min-w-0 flex-1 overflow-hidden truncate text-[13px] font-medium"
+                style={{
+                  maxWidth: isCollapsed ? '0px' : '180px',
+                  marginLeft: isCollapsed ? '0px' : '8px',
+                  opacity: isCollapsed ? 0 : 1,
+                  transition: `max-width ${GEMINI_SIDEBAR_POSITION_MOTION}, margin-left ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1)`,
+                }}
+              >
+                Sign In
+              </span>
             </button>
           )}
         </div>
 
-        {isCollapsed && (
-          <button
-            type="button"
-            aria-label="Settings"
-            title="Settings"
-            onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-            className={`absolute left-2 top-1 flex h-9 w-9 items-center justify-center rounded-full text-[#e3e3e3] transition-colors hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
-          >
-            <SidebarGlyph name="settings" className="h-5 w-5 text-[20px] leading-5" />
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
+          className={`absolute flex h-9 w-9 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
+          style={{
+            right: isCollapsed ? '8px' : '6px',
+            top: isCollapsed ? '4px' : '10px',
+            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}, background-color 150ms ease`,
+          }}
+        >
+          <SidebarGlyph name="settings" className="h-5 w-5 text-[20px] leading-5" />
+        </button>
 
         {isCollapsed && (
           <button

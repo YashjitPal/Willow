@@ -312,10 +312,10 @@ const ModelsMenu: React.FC<{
                     {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                   </span>
                   <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                    <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                       {model.name}
                     </span>
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                    <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                       {getModelDescription(model)}
                     </span>
                   </span>
@@ -333,7 +333,7 @@ const ModelsMenu: React.FC<{
                 type="button"
                 role="menuitem"
                 aria-haspopup="menu"
-                className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]"
+                className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
               >
                 <span className="w-9 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
@@ -368,7 +368,7 @@ const ModelsMenu: React.FC<{
                         <span className="flex w-9 shrink-0 items-center justify-center">
                           {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                         </span>
-                        <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                        <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                           {getThinkingEffortLabel(model)}
                         </span>
                       </button>
@@ -869,6 +869,12 @@ export const InputBar: React.FC<{
   };
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
+  const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
+    ? getThinkingEffortLabel(activeModel)
+    : '';
+  const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
+    .filter(Boolean)
+    .join(' ');
 
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -1159,12 +1165,17 @@ export const InputBar: React.FC<{
                   <button
                     ref={modelButtonRef}
                     onClick={() => setIsModelsOpen(!isModelsOpen)}
-                    aria-label={`Open model picker, currently ${activeModelDisplayLabel}`}
+                    aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
                     aria-expanded={isModelsOpen}
-                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
                     style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                   >
-                    <span>{activeModelDisplayLabel}</span>
+                    <span className="-mr-1 flex min-w-0 items-center">
+                      <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
+                      {activeEffortDisplayLabel && (
+                        <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                      )}
+                    </span>
                     <MaterialSymbol
                       family="luminous"
                       name="keyboard_arrow_down"
