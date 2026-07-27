@@ -1,0 +1,647 @@
+.spark-computer-use,
+.spark-computer-use * {
+  box-sizing: border-box;
+}
+
+.spark-computer-use {
+  width: 100%;
+  margin: 20px 0 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: #171717;
+  color: #e3e8e4;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.2);
+}
+
+.spark-computer-use.is-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  width: auto;
+  height: auto;
+  margin: 0;
+  flex-direction: column;
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+  box-shadow: 0 28px 100px rgba(0, 0, 0, 0.72);
+}
+
+.spark-computer-use.is-expanded .spark-computer-use__browser {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.spark-computer-use.is-expanded .spark-computer-use__viewport {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.spark-computer-use.is-expanded .spark-computer-use__viewport iframe {
+  height: 100%;
+  min-height: 0;
+}
+
+.spark-computer-use.is-expanded .spark-computer-use__companion-viewport {
+  height: 100%;
+  min-height: 0;
+}
+
+.spark-computer-use__heading {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #1f1f1f;
+}
+
+.spark-computer-use__heading-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(168, 199, 250, 0.14);
+  color: #a8c7fa;
+}
+
+.spark-computer-use__heading-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spark-computer-use__heading-copy strong {
+  color: #eef3ef;
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 20px;
+}
+
+.spark-computer-use__heading-copy span {
+  overflow: hidden;
+  color: rgba(227, 232, 228, 0.58);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-computer-use__status {
+  display: inline-flex;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+  color: rgba(227, 232, 228, 0.7);
+  font-size: 11px;
+  font-weight: 520;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.spark-computer-use__status.is-running {
+  border-color: rgba(168, 199, 250, 0.3);
+  color: #a8c7fa;
+}
+
+.spark-computer-use__status.is-complete {
+  border-color: rgba(168, 199, 250, 0.22);
+  color: #a8c7fa;
+}
+
+.spark-computer-use__status.is-limited,
+.spark-computer-use__status.is-error {
+  border-color: rgba(255, 209, 102, 0.24);
+  color: #f4d58d;
+}
+
+.spark-computer-use__status-spinner {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(168, 199, 250, 0.24);
+  border-top-color: #a8c7fa;
+  border-radius: 50%;
+  animation: spark-computer-use-spin 850ms linear infinite;
+}
+
+.spark-computer-use__browser {
+  padding: 12px;
+  background: #101010;
+}
+
+.spark-computer-use__tab-strip {
+  display: flex;
+  min-height: 38px;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: #151816;
+}
+
+.spark-computer-use__local-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.spark-computer-use__local-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.spark-computer-use__tab {
+  display: flex;
+  min-width: 0;
+  max-width: min(240px, 34vw);
+  height: 32px;
+  align-items: center;
+  border-radius: 11px 11px 0 0;
+  background: transparent;
+  color: rgba(227, 232, 228, 0.52);
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+.spark-computer-use__tab.is-active {
+  background: #1f2421;
+  color: #e9f0ea;
+}
+
+.spark-computer-use__tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e9f0ea;
+}
+
+.spark-computer-use__tab-select,
+.spark-computer-use__tab-close,
+.spark-computer-use__new-tab {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.spark-computer-use__tab-select {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 4px 0 10px;
+  font-size: 11px;
+  line-height: 15px;
+  text-align: left;
+}
+
+.spark-computer-use__tab-select span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-computer-use__tab-close {
+  width: 26px;
+  flex: 0 0 26px;
+  border-radius: 50%;
+}
+
+.spark-computer-use__tab-close:hover,
+.spark-computer-use__new-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.spark-computer-use__new-tab {
+  width: 30px;
+  flex: 0 0 30px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  color: rgba(227, 232, 228, 0.72);
+}
+
+.spark-computer-use__bridge-status {
+  display: inline-flex;
+  height: 25px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  margin: 0 2px 4px 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 13px;
+  color: rgba(227, 232, 228, 0.42);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.spark-computer-use__bridge-status.is-connected {
+  border-color: rgba(168, 199, 250, 0.24);
+  color: #a8c7fa;
+}
+
+.spark-computer-use__real-tabs {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  overflow-x: auto;
+  border: 1px solid rgba(168, 199, 250, 0.12);
+  border-top: 0;
+  background: #1b1b1b;
+  scrollbar-width: thin;
+}
+
+.spark-computer-use__real-tabs-label {
+  flex: 0 0 auto;
+  color: rgba(168, 199, 250, 0.65);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.spark-computer-use__real-tabs-refresh {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(227, 232, 228, 0.58);
+  cursor: pointer;
+}
+
+.spark-computer-use__real-tabs-refresh:hover,
+.spark-computer-use__real-tabs-refresh:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #edf3ee;
+}
+
+.spark-computer-use__real-tab {
+  display: inline-flex;
+  height: 24px;
+  max-width: 210px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(227, 232, 228, 0.68);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.spark-computer-use__real-tab:hover,
+.spark-computer-use__real-tab.is-active {
+  border-color: rgba(168, 199, 250, 0.28);
+  background: rgba(168, 199, 250, 0.12);
+  color: #e9f5eb;
+}
+
+.spark-computer-use__real-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-computer-use__real-tab img {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-radius: 3px;
+}
+
+.spark-computer-use__toolbar {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-top: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: #1f1f1f;
+}
+
+.spark-computer-use__history-controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+}
+
+.spark-computer-use__toolbar button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(227, 232, 228, 0.7);
+  cursor: pointer;
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+.spark-computer-use__toolbar button:hover:not(:disabled),
+.spark-computer-use__toolbar button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef3ef;
+}
+
+.spark-computer-use__toolbar button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.spark-computer-use__address {
+  display: flex;
+  min-width: 0;
+  height: 32px;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: #111412;
+  color: rgba(227, 232, 228, 0.55);
+}
+
+.spark-computer-use__address:focus-within {
+  border-color: rgba(168, 199, 250, 0.42);
+  box-shadow: 0 0 0 2px rgba(168, 199, 250, 0.08);
+}
+
+.spark-computer-use__address input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #d9e0db;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.spark-computer-use__open-external {
+  margin-left: 2px;
+}
+
+.spark-computer-use__expand {
+  margin-left: -2px;
+}
+
+.spark-computer-use__viewport {
+  position: relative;
+  width: 100%;
+  min-height: 390px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0 0 16px 16px;
+  background: #101010;
+}
+
+.spark-computer-use__viewport iframe {
+  display: block;
+  width: 100%;
+  height: min(62vh, 620px);
+  min-height: 390px;
+  border: 0;
+  background: #101010;
+}
+
+.spark-computer-use__companion-viewport {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: min(62vh, 620px);
+  min-height: 390px;
+  place-items: center;
+  overflow: hidden;
+  background: #101010;
+  cursor: default;
+  outline: 0;
+}
+
+.spark-computer-use__companion-viewport:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(168, 199, 250, 0.62);
+}
+
+.spark-computer-use__companion-viewport img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.spark-computer-use__limited-note {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 209, 102, 0.2);
+  border-radius: 12px;
+  background: rgba(30, 29, 20, 0.94);
+  color: #f4d58d;
+  font-size: 12px;
+  line-height: 17px;
+  backdrop-filter: blur(12px);
+}
+
+.spark-computer-use__footer {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: #1f1f1f;
+}
+
+.spark-computer-use__activity {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.spark-computer-use__activity > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: rgba(227, 232, 228, 0.45);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.spark-computer-use__activity > span span:last-child {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spark-computer-use__activity > span.is-current {
+  color: rgba(227, 232, 228, 0.75);
+}
+
+.spark-computer-use__run {
+  display: inline-flex;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 17px;
+  background: #a8c7fa;
+  color: #062e6f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 130ms ease, opacity 130ms ease;
+}
+
+.spark-computer-use__run:hover:not(:disabled) {
+  background: #b8d2fa;
+}
+
+.spark-computer-use__run:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.spark-computer-use__run.is-stop {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e3e8e4;
+}
+
+.spark-computer-use__run.is-stop > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.spark-computer-use :is(button, input):focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@keyframes spark-computer-use-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 620px) {
+  .spark-computer-use {
+    border-radius: 18px;
+  }
+
+  .spark-computer-use.is-expanded {
+    inset: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .spark-computer-use__heading {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .spark-computer-use__status {
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .spark-computer-use__browser {
+    padding: 8px;
+  }
+
+  .spark-computer-use__bridge-status {
+    max-width: 34px;
+    overflow: hidden;
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+
+  .spark-computer-use__bridge-status:not(.is-connected) {
+    font-size: 0;
+  }
+
+  .spark-computer-use__tab {
+    max-width: 180px;
+  }
+
+  .spark-computer-use__viewport,
+  .spark-computer-use__viewport iframe,
+  .spark-computer-use__companion-viewport {
+    min-height: 300px;
+  }
+
+  .spark-computer-use__viewport iframe {
+    height: 56vh;
+  }
+
+  .spark-computer-use__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .spark-computer-use__run {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-computer-use__status-spinner {
+    animation-duration: 0.01ms;
+  }
+}

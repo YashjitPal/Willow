@@ -1,0 +1,19 @@
+{
+  "name": "@willow/local-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Small local-only Willow companion for Spark browser frames and workspace tools.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "dev": "node --watch src/index.mjs",
+    "test": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.55.0",
+    "ws": "^8.18.3"
+  }
+}

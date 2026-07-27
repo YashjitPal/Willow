@@ -1,0 +1,27 @@
+.spark-dashboard-scroll {
+  overflow-y: scroll !important;
+}
+
+.spark-dashboard-scroll:has(.spark-task-detail) {
+  overflow: hidden !important;
+  scrollbar-gutter: auto !important;
+}
+
+.spark-dashboard-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.spark-dashboard-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.spark-dashboard-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.spark-dashboard-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.24);
+}

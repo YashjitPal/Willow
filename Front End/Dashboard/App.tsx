@@ -1,5 +1,6 @@
 
 import React, { useState, Suspense } from 'react';
+import { useStore } from '@nanostores/react';
 import { Routes, Route, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { Sidebar, ViewType } from './components/Sidebar';
 import { HeroSection } from './components/HeroSection';
@@ -15,6 +16,7 @@ import { Onboarding } from './components/Onboarding';
 import { DashboardChat } from './components/DashboardChat';
 import { CodeWorkspaceSkeleton } from './components/CodeWorkspaceSkeleton';
 import { TopLoadingBar } from './components/ui/TopLoadingBar';
+import { MaterialSymbol } from './components/ui/MaterialSymbol';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from './lib/dashboard-layout';
@@ -26,10 +28,13 @@ import { useDrive } from './hooks/useDrive';
 import { mergeDriveProjectsIntoRegistry } from './lib/driveProjectDiscovery';
 import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from './lib/projectStorage';
 import { agentBuilderDraftFlush } from './lib/stores/agent-builder-store';
+import { sparkLocation } from './lib/stores/spark-store';
+import type { DashboardExperience } from './types';
 
 // Lazy-load StagingView to prevent WebContainer boot on login page
 const StagingView = React.lazy(() => import('./components/staging/StagingView'));
 const MediaView = React.lazy(() => import('./components/media/MediaView'));
+const SparkWorkspace = React.lazy(() => import('./components/spark/SparkWorkspace'));
 // Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
 // never ships while on Home; resolve only after the default card images are
 // warmed so the bento grid appears fully formed (skeleton shows meanwhile).
@@ -103,6 +108,8 @@ const DashboardLayout: React.FC<{
   isAuthenticated: boolean;
   dashboardMode: 'develop' | 'chat' | 'media';
   onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
+  dashboardExperience: DashboardExperience;
+  onDashboardExperienceChange: (experience: DashboardExperience) => void;
   onNewChat: () => void;
   hasActiveChat: boolean;
   isIncognito: boolean;
@@ -120,6 +127,8 @@ const DashboardLayout: React.FC<{
   isAuthenticated,
   dashboardMode,
   onModeChange,
+  dashboardExperience,
+  onDashboardExperienceChange,
   onNewChat,
   hasActiveChat,
   isIncognito,
@@ -139,18 +148,19 @@ const DashboardLayout: React.FC<{
     disconnectLocalFolder
   } = useLocalFS();
 
-  const isChatOngoing = !!activeChatId || hasActiveChat;
+  const isChatExperience = dashboardExperience === 'chat';
+  const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
   // Calculate effective background (non-authenticated users get 'lines')
   const effectiveBackground = isAuthenticated ? background : 'lines';
   const dashboardSurface = '#0f0f0f';
   
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden bg-[var(--dashboard-surface)] text-white selection:bg-pink-500/30 relative"
+      className={`dashboard-layout dashboard-layout--${dashboardExperience} flex h-screen w-screen overflow-hidden bg-[var(--dashboard-surface)] text-white selection:bg-pink-500/30 relative`}
       style={{ '--dashboard-surface': dashboardSurface } as React.CSSProperties}
     >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
-      {currentView === 'home' && effectiveBackground === 'waves' && (
+      {currentView === 'home' && isChatExperience && effectiveBackground === 'waves' && (
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
             <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
@@ -163,25 +173,53 @@ const DashboardLayout: React.FC<{
 
       {/* Only show sidebar when authenticated */}
       {isAuthenticated && (
-        <Sidebar 
-          onSearchClick={() => setIsSearchOpen(true)} 
-          currentView={currentView}
-          onViewChange={setCurrentView}
-          dashboardMode={dashboardMode}
-          onModeChange={onModeChange}
-          onSettingsClick={onSettingsClick}
-          backgroundType={effectiveBackground}
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          hasActiveChat={isChatOngoing}
-          onNewChat={() => {
-            selectLocalFSInboxChat(null);
-            onNewChat();
-          }}
-          isIncognito={isIncognito}
-          onIncognitoChat={onIncognitoChat}
-          isHidden={isSidebarHidden}
-        />
+        <>
+          {dashboardExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
+            <button
+              type="button"
+              className="dashboard-sidebar-mobile-open"
+              aria-label="Open sidebar"
+              onClick={() => setIsSidebarCollapsed(false)}
+            >
+              <MaterialSymbol
+                name="side_nav_expand"
+                family="google-symbols"
+                size={24}
+                weight={400}
+                opticalSize={24}
+              />
+            </button>
+          )}
+          <Sidebar
+            onSearchClick={() => setIsSearchOpen(true)}
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            dashboardMode={dashboardMode}
+            onModeChange={onModeChange}
+            dashboardExperience={dashboardExperience}
+            onDashboardExperienceChange={onDashboardExperienceChange}
+            onSettingsClick={onSettingsClick}
+            backgroundType={effectiveBackground}
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            hasActiveChat={isChatOngoing}
+            onNewChat={() => {
+              selectLocalFSInboxChat(null);
+              onNewChat();
+            }}
+            isIncognito={isIncognito}
+            onIncognitoChat={onIncognitoChat}
+            isHidden={isSidebarHidden}
+          />
+          {dashboardExperience === 'spark' && !isSidebarCollapsed && (
+            <button
+              type="button"
+              className="dashboard-sidebar-mobile-scrim"
+              aria-label="Close navigation"
+              onClick={() => setIsSidebarCollapsed(true)}
+            />
+          )}
+        </>
       )}
       
       {/* Show auth buttons when not authenticated */}
@@ -224,7 +262,7 @@ const DashboardLayout: React.FC<{
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
-        {currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing && (
+        {currentView === 'home' && isChatExperience && dashboardMode === 'chat' && !isChatOngoing && (
           <div className="absolute top-[14px] right-[12px] z-30 flex items-center">
             <button
               onClick={() => {
@@ -253,7 +291,7 @@ const DashboardLayout: React.FC<{
           </div>
         )}
         {/* Background rendered in content area for lines only (solid is just plain color) */}
-        {currentView === 'home' && effectiveBackground === 'lines' && (
+        {currentView === 'home' && isChatExperience && effectiveBackground === 'lines' && (
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
               <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
               <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
@@ -265,7 +303,9 @@ const DashboardLayout: React.FC<{
         )}
         {/* Solid background: No overlays, just plain color from parent */}
         <main
-          className="flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col"
+          className={`flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col ${
+            isChatExperience ? '' : 'spark-dashboard-scroll'
+          }`}
           /* Reserve scrollbar gutter so centered content (e.g. InputBar) doesn't
              shift horizontally when the main scrollbar appears/disappears
              between Develop hero, Chat hero, and Chat thread views. */
@@ -349,6 +389,7 @@ const DriveProjectDiscovery: React.FC = () => {
 
 const App: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const activeSparkLocation = useStore(sparkLocation);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
@@ -474,6 +515,7 @@ const App: React.FC = () => {
   // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  const [dashboardExperience, setDashboardExperience] = useState<DashboardExperience>('chat');
   const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
@@ -485,6 +527,7 @@ const App: React.FC = () => {
   React.useEffect(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
+      setDashboardExperience('chat');
       setDashboardMode(modeParam);
     }
   }, [searchParams]);
@@ -492,16 +535,37 @@ const App: React.FC = () => {
   const [hasActiveChat, setHasActiveChat] = useState(false);
   const [isIncognito, setIsIncognito] = useState(false);
 
+  const sparkSidebarRestoreRef = React.useRef<boolean | null>(null);
+  React.useEffect(() => {
+    const narrowViewport = window.matchMedia('(max-width: 720px)').matches;
+    const isSparkTaskDetail = dashboardExperience === 'spark' && activeSparkLocation.page === 'task';
+
+    if (isSparkTaskDetail) {
+      if (sparkSidebarRestoreRef.current === null) {
+        sparkSidebarRestoreRef.current = isSidebarCollapsed;
+      }
+      if (!isSidebarCollapsed) setIsSidebarCollapsed(true);
+      return;
+    }
+
+    if (sparkSidebarRestoreRef.current !== null) {
+      const shouldRestoreCollapsed = sparkSidebarRestoreRef.current;
+      sparkSidebarRestoreRef.current = null;
+      setIsSidebarCollapsed(narrowViewport ? true : shouldRestoreCollapsed);
+    }
+  }, [activeSparkLocation.page, dashboardExperience, isSidebarCollapsed]);
+
   const handleDashboardModeChange = (mode: 'develop' | 'chat' | 'media') => {
-    if (mode === dashboardMode) return;
+    if (dashboardExperience === 'chat' && mode === dashboardMode) return;
     startTopLoading('dashboard-mode');
+    setDashboardExperience('chat');
     setDashboardMode(mode);
   };
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-mode'));
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboardMode, finishTopLoading]);
+  }, [dashboardExperience, dashboardMode, finishTopLoading]);
 
   const handleNewChat = () => {
     setChatResetKey((k) => k + 1);
@@ -518,8 +582,8 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const viewChangeSequenceRef = React.useRef(0);
   const viewChangeIntentRef = React.useRef<ViewType | null>(null);
-  const handleViewChange = React.useCallback(async (view: ViewType) => {
-    if (view === currentView) return;
+  const handleViewChange = React.useCallback(async (view: ViewType): Promise<boolean> => {
+    if (view === currentView) return true;
     const sequence = ++viewChangeSequenceRef.current;
     viewChangeIntentRef.current = view;
     startTopLoading('dashboard-view');
@@ -530,14 +594,28 @@ const App: React.FC = () => {
           viewChangeIntentRef.current = null;
           finishTopLoading('dashboard-view');
         }
-        return;
+        return false;
       }
     }
-    if (sequence !== viewChangeSequenceRef.current) return;
+    if (sequence !== viewChangeSequenceRef.current) return false;
     if (view === 'agents') navigate('/?view=agents');
     else if (searchParams.get('view') === 'agents') navigate('/', { replace: true });
     setCurrentView(view);
+    return true;
   }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading]);
+
+  const handleDashboardExperienceChange = React.useCallback(async (experience: DashboardExperience) => {
+    if (experience === dashboardExperience && currentView === 'home') return;
+    if (currentView !== 'home' && !(await handleViewChange('home'))) return;
+    startTopLoading('dashboard-experience');
+    setDashboardExperience(experience);
+    if (experience === 'chat') setDashboardMode('chat');
+  }, [currentView, dashboardExperience, handleViewChange, startTopLoading]);
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-experience'));
+    return () => window.cancelAnimationFrame(frame);
+  }, [dashboardExperience, finishTopLoading]);
   const { user, userProfile, loading } = useAuth();
   React.useEffect(() => {
     let cancelled = false;
@@ -671,6 +749,15 @@ const App: React.FC = () => {
               initialTab={settingsInitialTab}
               initialConnector={settingsInitialConnector}
             />
+            {!(currentView === 'home' && dashboardExperience === 'spark') && (
+              <Suspense fallback={null}>
+                <SparkWorkspace
+                  backgroundOnly
+                  modelConfig={modelConfig}
+                  selectedModelId={selectedModelId}
+                />
+              </Suspense>
+            )}
             <DashboardLayout
               isSearchOpen={isSearchOpen}
               setIsSearchOpen={setIsSearchOpen}
@@ -680,6 +767,8 @@ const App: React.FC = () => {
               isAuthenticated={!!user}
               dashboardMode={dashboardMode}
               onModeChange={handleDashboardModeChange}
+              dashboardExperience={dashboardExperience}
+              onDashboardExperienceChange={handleDashboardExperienceChange}
               onNewChat={handleNewChat}
               hasActiveChat={hasActiveChat}
               isIncognito={isIncognito}
@@ -702,7 +791,15 @@ const App: React.FC = () => {
                   </div>
                 </Suspense>
               ) : currentView === 'home' ? (
-                dashboardMode === 'chat' ? (
+                dashboardExperience === 'spark' ? (
+                  <Suspense fallback={
+                    <DashboardLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                      <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
+                    </DashboardLoadingFallback>
+                  }>
+                    <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
+                  </Suspense>
+                ) : dashboardMode === 'chat' ? (
                   <DashboardChat
                     key={chatResetKey}
                     modelConfig={modelConfig}

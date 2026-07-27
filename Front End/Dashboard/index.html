@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Willow Clone</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -56,6 +59,12 @@
 
       .luminous-symbols {
         font-family: "Luminous Symbols";
+        font-feature-settings: "liga";
+        -webkit-font-smoothing: antialiased;
+        letter-spacing: normal;
+        text-transform: none;
+        direction: ltr;
+        overflow-wrap: normal;
       }
 
       .google-symbols {
@@ -312,6 +321,29 @@
           ellipse 100% 100% at center 8%,
           rgb(15, 15, 15) 0,
           rgb(6, 78, 59) 50%
+        );
+        border-radius: 9999px;
+        filter: blur(100px);
+        pointer-events: none;
+        animation: willow-gemini-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+      }
+
+      .willow-gemini-home-glow-gray::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -45%);
+        z-index: -1;
+        margin: 0 auto;
+        width: 100%;
+        max-width: 792px;
+        height: 50%;
+        max-height: 300px;
+        background: radial-gradient(
+          ellipse 100% 100% at center 8%,
+          rgb(15, 15, 15) 0,
+          rgb(35, 37, 40) 50%
         );
         border-radius: 9999px;
         filter: blur(100px);

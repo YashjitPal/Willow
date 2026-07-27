@@ -409,7 +409,7 @@ export const HeroSection: React.FC<{
   const mtClass = background === 'solid' && dashboardMode !== 'media' ? '-mt-20' : '';
 
   return (
-    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? 'willow-gemini-home-glow' : ''}`}>
+    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? (isIncognito ? 'willow-gemini-home-glow-gray' : 'willow-gemini-home-glow') : ''}`}>
       {dashboardMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}
@@ -788,10 +788,57 @@ export const HeroSection: React.FC<{
         </>
       ) : (
         <>
-          {/* Main Heading */}
-          <h1 className={`text-white text-center transition-all duration-300 ${background === 'solid' ? 'text-[26px] font-medium tracking-normal mb-8' : 'text-2xl md:text-3xl font-bold tracking-tight mb-10 drop-shadow-sm'}`}>
-            {getHeadingText()}
-          </h1>
+          {/* Main Heading Container - Fixed strictly to its original layout dimensions (36px height + mb-10) so the InputBar NEVER moves */}
+          <div className={`relative w-full flex justify-center h-[36px] ${background === 'solid' ? 'mb-8' : 'mb-10'}`}>
+            <div 
+              className={`absolute flex flex-col items-center w-full drop-shadow-sm`}
+              style={{
+                bottom: background === 'solid' ? '-32px' : '-40px', // Anchor to the exact bottom of the margin (touching the InputBar)
+                transform: isIncognito ? 'translateY(-32px)' : 'translateY(-48px)', // In incognito, the wrapper's bottom rests 32px above the input to make room for the disclaimer, naturally pushing the h1 up slightly
+                transitionProperty: 'transform, bottom',
+                transitionDuration: '300ms',
+                transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing extracted from gemini.html
+              }}
+            >
+              <h1 
+                className="text-[#e3e3e3] text-center"
+                style={{
+                  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                  fontSize: '36px',
+                  fontWeight: 320,
+                  lineHeight: '44px',
+                }}
+              >
+                {getHeadingText()}
+              </h1>
+              
+              {/* Animated Disclaimer Container */}
+              <div 
+                className="w-full flex justify-center overflow-hidden"
+                style={{
+                  maxHeight: isIncognito ? '80px' : '0px',
+                  opacity: isIncognito ? 1 : 0,
+                  marginTop: isIncognito ? '12px' : '0px',
+                  transitionProperty: 'max-height, opacity, margin-top',
+                  transitionDuration: '300ms',
+                  transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing
+                }}
+              >
+                  <p 
+                    className="text-[#c4c7c5] text-center"
+                    style={{
+                      fontFamily: '"Google Sans Text", "Google Sans", "Helvetica Neue", sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 400,
+                      lineHeight: '20px',
+                      maxWidth: '480px'
+                    }}
+                  >
+                    Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
+                  </p>
+                </div>
+              </div>
+            </div>
 
           {/* Input Component */}
           <InputBar

@@ -1,0 +1,454 @@
+.spark-skill-editor,
+.spark-skill-editor * {
+  box-sizing: border-box;
+}
+
+.spark-skill-editor {
+  width: 100%;
+  min-height: 100%;
+  padding: 48px 0 64px;
+  overflow-x: clip;
+  background: var(--dashboard-surface, #0f0f0f);
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  letter-spacing: 0;
+}
+
+.spark-skill-editor button,
+.spark-skill-editor input,
+.spark-skill-editor textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.spark-skill-editor__content {
+  width: min(660px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.spark-skill-editor__header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.spark-skill-editor__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spark-skill-editor__delete {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-skill-editor__delete:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-skill-editor__back {
+  display: inline-flex;
+  height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 22px;
+  font-weight: 430;
+  cursor: pointer;
+}
+
+.spark-skill-editor__back:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-skill-editor__create {
+  height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 20px;
+  background: #a8c7fa;
+  color: #062e6f;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.spark-skill-editor__create:disabled {
+  background: #303134;
+  color: #77787b;
+  cursor: default;
+}
+
+.spark-skill-editor__gemini-note {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: #1f3760;
+  color: #d3e3fd;
+}
+
+.spark-skill-editor__gemini-note > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.spark-skill-editor__gemini-note strong {
+  font-size: 15px;
+  font-weight: 560;
+  line-height: 20px;
+}
+
+.spark-skill-editor__gemini-note span {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.spark-skill-editor__panel {
+  display: flex;
+  padding: 28px;
+  flex-direction: column;
+  gap: 22px;
+  border-radius: 24px;
+  background: #1e1f20;
+}
+
+.spark-skill-editor__intro {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.spark-skill-editor__icon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #303030;
+  color: #c4c7c5;
+}
+
+.spark-skill-editor__intro h1,
+.spark-skill-editor__intro p {
+  margin: 0;
+}
+
+.spark-skill-editor__intro h1 {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 26px;
+}
+
+.spark-skill-editor__intro p {
+  margin-top: 2px;
+  color: #a9aaa9;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-skill-editor__file {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: #282a2c;
+  color: #c4c7c5;
+  font-size: 14px;
+}
+
+.spark-skill-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spark-skill-editor__field > span {
+  font-size: 16px;
+  font-weight: 520;
+  line-height: 24px;
+}
+
+.spark-skill-editor__field input,
+.spark-skill-editor__field textarea {
+  width: 100%;
+  padding: 0 16px;
+  border: 1px solid #5f6368;
+  border-radius: 12px;
+  outline: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.spark-skill-editor__field input {
+  height: 56px;
+}
+
+.spark-skill-editor__field textarea {
+  min-height: 220px;
+  padding-top: 16px;
+  resize: vertical;
+}
+
+.spark-skill-editor__field input::placeholder,
+.spark-skill-editor__field textarea::placeholder {
+  color: #9aa0a6;
+  opacity: 1;
+}
+
+.spark-skill-editor__field input:focus,
+.spark-skill-editor__field textarea:focus {
+  border-color: #a8c7fa;
+  box-shadow: inset 0 0 0 1px #a8c7fa;
+}
+
+.spark-skill-editor__instructions-heading {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.spark-skill-editor__instructions-heading label {
+  font-size: 16px;
+  font-weight: 520;
+  line-height: 24px;
+}
+
+.spark-skill-editor__instructions-heading button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.spark-skill-editor__instructions-heading button:hover:not(:disabled) {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.spark-skill-editor__instructions-heading button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.spark-skill-editor__assist-error {
+  margin: -2px 0 0;
+  color: #f2b8b5;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.spark-skill-editor__disclaimer {
+  margin: -4px 0 0;
+  color: #a9acaa;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.spark-skill-editor__disclaimer button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a8c7fa;
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.spark-skill-editor__back:focus-visible,
+.spark-skill-editor__create:focus-visible,
+.spark-skill-editor__delete:focus-visible,
+.spark-skill-editor__instructions-heading button:focus-visible,
+.spark-skill-editor__disclaimer button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+.spark-skill-editor__dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.64);
+}
+
+.spark-skill-editor__dialog-backdrop--discard {
+  animation: spark-skill-dialog-backdrop-in 120ms ease-out;
+}
+
+.spark-skill-editor__delete-dialog,
+.spark-skill-editor__discard-dialog {
+  width: min(400px, 100%);
+  padding: 24px;
+  border-radius: 24px;
+  background: #282a2c;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.48);
+}
+
+.spark-skill-editor__discard-dialog {
+  width: min(440px, 100%);
+  animation: spark-skill-dialog-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-skill-editor__delete-dialog h2,
+.spark-skill-editor__delete-dialog p,
+.spark-skill-editor__discard-dialog h2,
+.spark-skill-editor__discard-dialog p {
+  margin: 0;
+}
+
+.spark-skill-editor__delete-dialog h2,
+.spark-skill-editor__discard-dialog h2 {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.spark-skill-editor__delete-dialog p,
+.spark-skill-editor__discard-dialog p {
+  margin-top: 12px;
+  color: #c4c7c5;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-skill-editor__delete-dialog > div,
+.spark-skill-editor__discard-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.spark-skill-editor__delete-dialog button,
+.spark-skill-editor__discard-dialog button {
+  min-width: 72px;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background: transparent;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.spark-skill-editor__delete-dialog button:hover,
+.spark-skill-editor__discard-dialog button:hover {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.spark-skill-editor__delete-dialog button.is-danger {
+  color: #f2b8b5;
+}
+
+.spark-skill-editor__discard-dialog button.is-discard {
+  background: #a8c7fa;
+  color: #062e6f;
+  font-weight: 600;
+}
+
+.spark-skill-editor__discard-dialog button.is-discard:hover {
+  background: #b9d2fb;
+}
+
+.spark-skill-editor__delete-dialog button:focus-visible,
+.spark-skill-editor__discard-dialog button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@keyframes spark-skill-dialog-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spark-skill-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 480px) {
+  .spark-skill-editor {
+    padding: 8px 0 32px;
+  }
+
+  .spark-skill-editor__content {
+    width: 100%;
+  }
+
+  .spark-skill-editor__header {
+    min-height: 56px;
+    margin: 0;
+    padding: 4px 12px 8px;
+  }
+
+  .spark-skill-editor__back {
+    gap: 8px;
+    font-size: 20px;
+  }
+
+  .spark-skill-editor__gemini-note {
+    margin: 0 16px 12px;
+  }
+
+  .spark-skill-editor__panel {
+    min-height: calc(100vh - 68px);
+    padding: 24px 16px;
+    border-radius: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-skill-editor *,
+  .spark-skill-editor *::before,
+  .spark-skill-editor *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,619 @@
+.spark-home,
+.spark-home * {
+  box-sizing: border-box;
+}
+
+.spark-home {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  padding: 40px 0 40px;
+  overflow-x: clip;
+  overflow-y: visible;
+  background: var(--dashboard-surface, #0f0f0f);
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.spark-top-controls {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spark-release-button {
+  height: 24px;
+  border: 0.8px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: transparent;
+  color: #c4c7c5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.spark-release-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e3e3e3;
+}
+
+.spark-whats-new {
+  display: flex;
+  width: 100.2px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 1px 8px;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.spark-release-dot {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 4px;
+  border-radius: 50%;
+  background: #8ab4f8;
+}
+
+.spark-beta-label {
+  display: inline-flex;
+  width: 46.4px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  text-transform: uppercase;
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  letter-spacing: 0;
+}
+
+.spark-content {
+  width: min(660px, calc(100% - 32px));
+  margin: 0 auto;
+  padding-top: calc(25.3px + max(0px, (100svh - 807px) / 2));
+}
+
+.spark-heading-block {
+  position: relative;
+  z-index: 2;
+  height: 48px;
+  padding-top: 8px;
+  text-align: center;
+}
+
+.spark-heading-block h1,
+.spark-section-heading h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.spark-heading-block h1 {
+  color: #e3e3e3;
+  font-size: 28px;
+  font-weight: 350;
+  line-height: 36px;
+}
+
+.spark-composer-anchor {
+  position: relative;
+  z-index: 1;
+  min-height: 65.6px;
+  margin-top: 26px;
+  isolation: isolate;
+}
+
+.spark-composer-anchor::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: -1;
+  width: 792px;
+  height: 160px;
+  border-radius: 9999px;
+  background: rgb(20, 32, 79);
+  content: "";
+  filter: blur(100px);
+  pointer-events: none;
+  transform: translate(-50%, -72px);
+}
+
+.spark-composer {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 65.6px;
+  align-items: flex-end;
+  padding: 16.8px 16.8px 16.8px 14.8px;
+  border-radius: 32px;
+  background: #1e1f20;
+}
+
+.spark-composer-icon-button,
+.spark-composer-send-button,
+.spark-composer-stop-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-composer-send-button {
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-composer-stop-button {
+  border: 2px solid #c4c7c5;
+  background: transparent;
+  color: #e6e6e6;
+}
+
+.spark-composer-stop-button > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.spark-composer-icon-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-composer-send-button:hover {
+  background: #b8d2fa;
+}
+
+.spark-composer-stop-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-composer textarea {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  min-height: 24px;
+  max-height: 120px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+}
+
+.spark-composer__input-stack {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 20px 0 8px;
+}
+
+.spark-composer__context-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.spark-composer__context-chip {
+  display: inline-flex;
+  max-width: min(240px, 100%);
+  height: 32px;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-radius: 16px;
+  background: #303134;
+  color: #e3e3e3;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.spark-composer__context-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-composer__context-chip > button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-composer__context-chip > button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-composer textarea::placeholder {
+  color: #bdc1c6;
+  opacity: 1;
+}
+
+.spark-composer textarea.is-dictating {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spark-composer__waveform {
+  position: absolute;
+  top: 50%;
+  right: 58px;
+  left: 54px;
+  width: auto;
+  transform: translateY(-50%);
+}
+
+.spark-composer__voice-error {
+  position: relative;
+  z-index: 2;
+  max-width: calc(100% - 32px);
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #3c2021;
+  color: #f2b8b5;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.spark-section-heading {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.spark-section-heading h2 {
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+}
+
+.spark-recent-section {
+  margin-top: 26px;
+}
+
+.spark-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spark-task-row {
+  display: flex;
+  width: 100%;
+  height: 64px;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px 0 16px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(15, 15, 15, 0.5);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-task-row:hover,
+.spark-trending-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.spark-task-copy,
+.spark-trending-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.spark-task-title,
+.spark-trending-title {
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 15px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-title {
+  font-weight: 400;
+}
+
+.spark-trending-title {
+  font-weight: 600;
+}
+
+.spark-task-description,
+.spark-task-meta,
+.spark-trending-description {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-description-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.spark-task-description,
+.spark-trending-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-description {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.spark-task-meta {
+  display: inline-flex;
+  max-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width 140ms ease, opacity 140ms ease;
+}
+
+.spark-task-row:hover .spark-task-meta,
+.spark-task-row:focus-visible .spark-task-meta {
+  max-width: 96px;
+  opacity: 1;
+}
+
+.spark-task-status-pill {
+  display: inline-flex;
+  height: 21px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px 12px;
+  border-radius: 9999px;
+  background: #192967;
+  color: #3186ff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.spark-all-tasks-button {
+  display: flex;
+  width: max-content;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 8px 0 0;
+  padding: 0 4px 0 16px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: #c4c7c5;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.spark-all-tasks-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e3e3e3;
+}
+
+.spark-trending-section {
+  margin-top: 40px;
+}
+
+.spark-trending-list {
+  display: flex;
+  margin: 0 8px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spark-trending-row {
+  display: flex;
+  width: 100%;
+  height: 61px;
+  align-items: center;
+  padding: 12px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-trending-indicator {
+  width: 3px;
+  height: 37px;
+  flex: 0 0 3px;
+  margin-right: 12px;
+  border-radius: 9999px;
+  background: rgb(31, 59, 155);
+}
+
+.spark-release-button:focus-visible,
+.spark-composer-icon-button:focus-visible,
+.spark-composer-send-button:focus-visible,
+.spark-composer-stop-button:focus-visible,
+.spark-composer__context-chip > button:focus-visible,
+.spark-task-row:focus-visible,
+.spark-all-tasks-button:focus-visible,
+.spark-trending-row:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .spark-top-controls {
+    top: 16px;
+    right: 16px;
+  }
+
+  .spark-composer {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .spark-composer textarea {
+    margin: 0;
+  }
+
+  .spark-composer__input-stack {
+    margin-right: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .spark-home {
+    padding-bottom: 32px;
+  }
+
+  .spark-content {
+    padding-top: 34px;
+  }
+
+  .spark-heading-block {
+    height: auto;
+    min-height: 72px;
+    padding: 8px 12px 4px;
+  }
+
+  .spark-heading-block h1 {
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .spark-composer-anchor {
+    height: auto;
+    min-height: 64px;
+    margin-top: 20px;
+  }
+
+  .spark-composer {
+    height: auto;
+    min-height: 64px;
+  }
+
+  .spark-recent-section {
+    margin-top: 24px;
+  }
+
+  .spark-task-row {
+    gap: 8px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .spark-task-meta {
+    gap: 3px;
+    font-size: 12px;
+  }
+
+  .spark-task-status-pill {
+    padding: 0 10px;
+  }
+
+  .spark-trending-section {
+    margin-top: 36px;
+  }
+
+  .spark-trending-row {
+    height: auto;
+    min-height: 61px;
+    align-items: flex-start;
+  }
+
+  .spark-trending-description {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-release-button,
+  .spark-composer-icon-button,
+  .spark-composer-send-button,
+  .spark-composer-stop-button,
+  .spark-task-row,
+  .spark-all-tasks-button,
+  .spark-trending-row {
+    transition: none;
+  }
+}

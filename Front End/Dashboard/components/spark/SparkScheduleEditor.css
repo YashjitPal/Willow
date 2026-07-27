@@ -1,0 +1,591 @@
+.spark-schedule-editor,
+.spark-schedule-editor * {
+  box-sizing: border-box;
+}
+
+.spark-schedule-editor {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: clip;
+  padding: 48px 0 64px;
+  background: var(--dashboard-surface, #0f0f0f);
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  letter-spacing: 0;
+}
+
+.spark-schedule-editor button,
+.spark-schedule-editor input,
+.spark-schedule-editor select,
+.spark-schedule-editor textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.spark-schedule-editor .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.spark-schedule-editor__content {
+  width: min(660px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.spark-schedule-editor__header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.spark-schedule-editor__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spark-schedule-editor__delete {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__delete:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-schedule-editor__back {
+  display: inline-flex;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 22px;
+  font-weight: 430;
+  line-height: 28px;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-schedule-editor__back:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-schedule-editor__back:focus-visible,
+.spark-schedule-editor__create:focus-visible,
+.spark-schedule-editor__delete:focus-visible,
+.spark-schedule-editor__toggle:focus-visible,
+.spark-schedule-editor__weekdays button:focus-visible,
+.spark-schedule-editor__instructions-heading button:focus-visible,
+.spark-schedule-editor__disclaimer button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+.spark-schedule-editor__create {
+  height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 20px;
+  background: #a8c7fa;
+  color: #062e6f;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.spark-schedule-editor__create:hover:not(:disabled) {
+  background: #b8d2ff;
+}
+
+.spark-schedule-editor__create:disabled {
+  background: #303134;
+  color: #77787b;
+  cursor: default;
+}
+
+.spark-schedule-editor__panel {
+  display: flex;
+  flex-direction: column;
+  padding: 28px 28px 24px;
+  border-radius: 24px;
+  background: #1e1f20;
+}
+
+.spark-schedule-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spark-schedule-editor__field label,
+.spark-schedule-editor__when legend,
+.spark-schedule-editor__instructions-heading > label {
+  padding: 0;
+  color: #e3e3e3;
+  font-size: 16px;
+  font-weight: 520;
+  line-height: 24px;
+}
+
+.spark-schedule-editor__field input {
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border: 1px solid #5f6368;
+  border-radius: 12px;
+  outline: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.spark-schedule-editor__field input::placeholder,
+.spark-schedule-editor__panel textarea::placeholder {
+  color: #9aa0a6;
+  opacity: 1;
+}
+
+.spark-schedule-editor__field input:hover,
+.spark-schedule-editor__panel textarea:hover {
+  border-color: #8e918f;
+}
+
+.spark-schedule-editor__field input:focus,
+.spark-schedule-editor__panel textarea:focus {
+  border-color: #a8c7fa;
+  box-shadow: inset 0 0 0 1px #a8c7fa;
+}
+
+.spark-schedule-editor__enabled-row {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 20px;
+  padding: 12px 0 0;
+  border-top: 1px solid #444746;
+}
+
+.spark-schedule-editor__enabled-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.spark-schedule-editor__enabled-copy strong {
+  font-size: 15px;
+  font-weight: 520;
+  line-height: 21px;
+}
+
+.spark-schedule-editor__enabled-copy span {
+  color: #a9acaa;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.spark-schedule-editor__toggle {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  flex: 0 0 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #5f6368;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-schedule-editor__toggle > span {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e3e3e3;
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+
+.spark-schedule-editor__toggle.is-checked {
+  background: #a8c7fa;
+}
+
+.spark-schedule-editor__toggle.is-checked > span {
+  background: #062e6f;
+  transform: translateX(16px);
+}
+
+.spark-schedule-editor__when {
+  min-width: 0;
+  margin: 28px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.spark-schedule-editor__when legend {
+  margin-bottom: 12px;
+}
+
+.spark-schedule-editor__run-grid {
+  display: grid;
+  grid-template-columns: 120px minmax(248px, 1fr) 104px;
+  align-items: center;
+  gap: 12px;
+}
+
+.spark-schedule-editor__select {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.spark-schedule-editor__select select {
+  width: 100%;
+  height: 40px;
+  appearance: none;
+  padding: 0 38px 0 14px;
+  border: 1px solid #5f6368;
+  border-radius: 20px;
+  outline: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__select select:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.spark-schedule-editor__select select:focus-visible {
+  border-color: #a8c7fa;
+  box-shadow: inset 0 0 0 1px #a8c7fa;
+}
+
+.spark-schedule-editor__select select option {
+  background: #282a2c;
+  color: #e3e3e3;
+}
+
+.spark-schedule-editor__select > .inline-flex {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  pointer-events: none;
+}
+
+.spark-schedule-editor__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 32px);
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.spark-schedule-editor__weekdays button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #5f6368;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 30px;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.spark-schedule-editor__weekdays button:hover:not(.is-selected) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-schedule-editor__weekdays button.is-selected {
+  border-color: #a8c7fa;
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-schedule-editor__instructions-heading {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.spark-schedule-editor__instructions-heading button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__instructions-heading button:hover {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.spark-schedule-editor__instructions-heading button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.spark-schedule-editor__assist-error {
+  margin: 2px 0 8px;
+  color: #f2b8b5;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.spark-schedule-editor__panel textarea {
+  width: 100%;
+  min-height: 184px;
+  resize: vertical;
+  padding: 16px;
+  border: 1px solid #5f6368;
+  border-radius: 12px;
+  outline: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.spark-schedule-editor__disclaimer {
+  margin: 16px 0 0;
+  color: #a9acaa;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.spark-schedule-editor__disclaimer button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a8c7fa;
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__disclaimer button:hover {
+  text-decoration: underline;
+}
+
+.spark-schedule-editor__dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.64);
+}
+
+.spark-schedule-editor__delete-dialog,
+.spark-schedule-editor__discard-dialog {
+  width: min(400px, 100%);
+  padding: 24px;
+  border-radius: 24px;
+  background: #282a2c;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.48);
+}
+
+.spark-schedule-editor__delete-dialog h2,
+.spark-schedule-editor__delete-dialog p,
+.spark-schedule-editor__discard-dialog h2,
+.spark-schedule-editor__discard-dialog p {
+  margin: 0;
+}
+
+.spark-schedule-editor__delete-dialog h2,
+.spark-schedule-editor__discard-dialog h2 {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.spark-schedule-editor__delete-dialog p,
+.spark-schedule-editor__discard-dialog p {
+  margin-top: 12px;
+  color: #c4c7c5;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-schedule-editor__delete-dialog > div,
+.spark-schedule-editor__discard-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.spark-schedule-editor__delete-dialog button,
+.spark-schedule-editor__discard-dialog button {
+  min-width: 72px;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background: transparent;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__delete-dialog button:hover,
+.spark-schedule-editor__discard-dialog button:hover {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.spark-schedule-editor__delete-dialog button.is-danger {
+  color: #f2b8b5;
+}
+
+.spark-schedule-editor__discard-dialog {
+  width: min(420px, 100%);
+}
+
+.spark-schedule-editor__discard-dialog button.is-primary {
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-schedule-editor__discard-dialog button.is-primary:hover {
+  background: #b8d2ff;
+}
+
+.spark-schedule-editor__delete-dialog button:focus-visible,
+.spark-schedule-editor__discard-dialog button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@media (max-width: 680px) {
+  .spark-schedule-editor {
+    padding-top: 24px;
+  }
+
+  .spark-schedule-editor__run-grid {
+    grid-template-columns: 120px 104px;
+    justify-content: space-between;
+  }
+
+  .spark-schedule-editor__weekdays {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: start;
+    margin-top: 4px;
+  }
+
+  .spark-schedule-editor__time {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 480px) {
+  .spark-schedule-editor {
+    padding: 8px 0 32px;
+  }
+
+  .spark-schedule-editor__content {
+    width: 100%;
+  }
+
+  .spark-schedule-editor__header {
+    min-height: 56px;
+    margin: 0;
+    padding: 4px 12px 8px;
+  }
+
+  .spark-schedule-editor__back {
+    gap: 8px;
+    font-size: 20px;
+  }
+
+  .spark-schedule-editor__panel {
+    min-height: calc(100vh - 68px);
+    padding: 24px 16px 20px;
+    border-radius: 0;
+  }
+
+  .spark-schedule-editor__run-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .spark-schedule-editor__weekdays {
+    width: 100%;
+    grid-template-columns: repeat(7, minmax(30px, 1fr));
+    gap: 4px;
+  }
+
+  .spark-schedule-editor__weekdays button {
+    width: 100%;
+    max-width: 36px;
+    justify-self: center;
+  }
+
+  .spark-schedule-editor__panel textarea {
+    min-height: 208px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-schedule-editor *,
+  .spark-schedule-editor *::before,
+  .spark-schedule-editor *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

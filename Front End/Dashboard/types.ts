@@ -1,5 +1,7 @@
 import { LucideIcon } from 'lucide-react';
 
+export type DashboardExperience = 'chat' | 'spark';
+
 export interface NavItem {
   label: string;
   icon: LucideIcon;

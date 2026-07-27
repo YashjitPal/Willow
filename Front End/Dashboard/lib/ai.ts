@@ -1157,10 +1157,30 @@ Adhere to the following rules and guidelines:
         stream: true,
       }, signal ? { signal } : undefined);
 
+      let hasEmittedText = false;
+      let hasEmittedThought = false;
+
       for await (const chunk of stream as any) {
         throwIfAborted(signal);
-        const content = chunk.choices[0]?.delta?.content || "";
-        if (content) onToken(content);
+        const delta = chunk.choices[0]?.delta;
+        if (!delta) continue;
+
+        const reasoningContent = delta.reasoning_content;
+        if (reasoningContent) {
+          if (!hasEmittedThought) {
+            hasEmittedThought = true;
+          }
+          onThought?.(reasoningContent);
+        }
+
+        const content = delta.content || "";
+        if (content) {
+          if (!hasEmittedText) {
+            hasEmittedText = true;
+            onPhase?.('responding');
+          }
+          onToken(content);
+        }
       }
     }
   } else if (provider === 'anthropic') {
@@ -1282,10 +1302,31 @@ Adhere to the following rules and guidelines:
       stream: true,
     } as any, signal ? { signal } : undefined) as any;
 
+    let hasEmittedText = false;
+    let hasEmittedThought = false;
+
     for await (const chunk of stream) {
       throwIfAborted(signal);
-      const content = chunk.choices?.[0]?.delta?.content;
-      if (content) onToken(content);
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) continue;
+
+      const reasoningContent = delta.reasoning_content;
+      if (reasoningContent) {
+        if (!hasEmittedThought) {
+          hasEmittedThought = true;
+          // (Optional) Signal thought start if we wanted, but onThought appends
+        }
+        onThought?.(reasoningContent);
+      }
+
+      const content = delta.content;
+      if (content) {
+        if (!hasEmittedText) {
+          hasEmittedText = true;
+          onPhase?.('responding');
+        }
+        onToken(content);
+      }
     }
   }
 };
