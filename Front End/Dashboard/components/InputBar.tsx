@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { GeminiLiveSession, primeLiveChimes, playLiveChime } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
+import { MaterialSymbol } from './ui/MaterialSymbol';
+import {
+  getModelGroupKey,
+  getThinkingEffortLabel,
+  ModelEffortRecord,
+  sortModelEfforts,
+} from '../lib/model-efforts';
 import {
   Plus,
   FileText,
@@ -25,6 +32,7 @@ import {
   SquarePen,
   Github,
   Copy,
+  Check,
 } from "lucide-react";
 
 const SpotifyIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
@@ -52,6 +60,17 @@ const TOOLS: Record<ToolId, ToolMetadata> = {
   github: { id: 'github', label: 'GitHub', chipLabel: 'GitHub', icon: Github },
   quizzes: { id: 'quizzes', label: 'Quizzes', chipLabel: 'Quizzes', icon: Copy },
   spotify: { id: 'spotify', label: 'Spotify', chipLabel: 'Spotify', icon: SpotifyIcon as any },
+};
+
+const TOOL_SYMBOLS: Partial<Record<ToolId, string>> = {
+  thinking: 'lightbulb',
+  images: 'add_photo_alternate',
+  research: 'travel_explore',
+  web: 'language',
+  learn: 'school',
+  canvas: 'draw',
+  github: 'code',
+  quizzes: 'quiz',
 };
 
 export interface Attachment {
@@ -123,6 +142,33 @@ const MODES: ModeOption[] = [
   { id: "proto", label: "Proto", icon: Zap },
 ];
 
+type PickerModel = ModelEffortRecord;
+
+const DICTATION_WAVE_BARS = Array.from({ length: 72 }, (_, index) => {
+  const distance = Math.abs(index - 35.5) / 35.5;
+  return {
+    scale: 1.1 + (1 - distance) * 3.2 + ((index * 17) % 7) * 0.18,
+    delay: -((index * 37) % 760),
+    duration: 720 + ((index * 53) % 360),
+  };
+});
+
+const DictationWaveform = () => (
+  <div className="h-6 w-full flex items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
+    {DICTATION_WAVE_BARS.map((bar, index) => (
+      <span
+        key={index}
+        className="willow-dictation-bar block h-[2px] w-[2px] shrink-0 rounded-full bg-[#c4c7c5]"
+        style={{
+          '--wave-scale': bar.scale,
+          animationDelay: `${bar.delay}ms`,
+          animationDuration: `${bar.duration}ms`,
+        } as React.CSSProperties}
+      />
+    ))}
+  </div>
+);
+
 const ModelsMenu: React.FC<{
   onClose: () => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
@@ -130,9 +176,8 @@ const ModelsMenu: React.FC<{
   selectedId: string;
   onSelect: (id: string) => void;
   onAuthRequired?: () => void;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, agentSwarmEnabled, onSwarmToggle }) => {
+  geminiStyle?: boolean;
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false }) => {
   // Combine all saved models from all providers
   const ALL_MODELS = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
@@ -144,7 +189,7 @@ const ModelsMenu: React.FC<{
   ].filter(m => m.name !== "Nano Banana Pro"); // Filter out Nano Banana Pro
 
   const [localSearchQuery, setLocalSearchQuery] = useState("");
-  const [side, setSide] = useState<"top" | "bottom">("top");
+  const [side, setSide] = useState<"top" | "bottom">(geminiStyle ? "bottom" : "top");
   const [isClosing, setIsClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -160,7 +205,7 @@ const ModelsMenu: React.FC<{
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const menuHeight = menuRef.current.offsetHeight;
     const viewportHeight = window.innerHeight;
-    const spacing = 8;
+    const spacing = geminiStyle ? 4 : 8;
     const spaceAbove = triggerRect.top;
     const spaceBelow = viewportHeight - triggerRect.bottom;
 
@@ -207,10 +252,141 @@ const ModelsMenu: React.FC<{
     m.name.toLowerCase().includes(localSearchQuery.toLowerCase())
   );
 
+  const groupMap = new Map<string, { key: string; variants: PickerModel[] }>();
+  filteredModels.forEach((model: PickerModel) => {
+    const key = getModelGroupKey(model);
+    const group = groupMap.get(key) || { key, variants: [] };
+    group.variants.push(model);
+    groupMap.set(key, group);
+  });
+
+  const groupedModels = Array.from(groupMap.values()).map((group: { key: string; variants: PickerModel[] }) => ({
+    ...group,
+    variants: sortModelEfforts(group.variants),
+  }));
+
+  const selectedGroup = groupedModels.find((group) =>
+    group.variants.some((model) => model.id === selectedId)
+  );
+  const selectedEfforts = selectedGroup?.variants || [];
+  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId) || selectedEfforts[0];
+
+  const getModelDescription = (model: any) => {
+    const name = String(model.name || '').toLowerCase();
+    if (name.includes('flash lite')) return 'Fastest answers';
+    if (name.includes('flash')) return 'All-around help';
+    if (name.includes('pro')) return 'Advanced math & code';
+    if (name.includes('reason') || name.includes('thinking')) return 'Complex problem solving';
+    return `${model.provider || 'AI'} model`;
+  };
+
+  if (geminiStyle) {
+    return (
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label="Choose a model"
+        className={`absolute right-0 w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+      >
+        <div className="max-h-[208px] overflow-y-auto no-scrollbar">
+          {groupedModels.length === 0 ? (
+            <div className="px-3 py-8 text-center text-[13px] text-white/55">
+              No models configured
+            </div>
+          ) : (
+            groupedModels.map((group) => {
+              const model = group.variants.find((variant) => variant.id === selectedId) || group.variants[0];
+              const isSelected = group.variants.some((variant) => variant.id === selectedId);
+              return (
+                <button
+                  key={group.key}
+                  role="menuitem"
+                  onClick={() => {
+                    onSelect(model.id);
+                    handleClose();
+                  }}
+                  className="w-full min-h-[52px] rounded-xl flex items-center text-left transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                >
+                  <span className="w-9 shrink-0 flex items-center justify-center text-[#e6e6e6]">
+                    {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
+                  </span>
+                  <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
+                    <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                      {model.name}
+                    </span>
+                    <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                      {getModelDescription(model)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {selectedEffort && (
+          <>
+            <div className="h-px bg-[#444746] my-2" role="separator" />
+            <div className="group/effort relative">
+              <button
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]"
+              >
+                <span className="w-9 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block leading-[17px]">Thinking Effort</span>
+                  <span className="block truncate text-[12px] leading-4 text-white/55">
+                    {getThinkingEffortLabel(selectedEffort)}
+                  </span>
+                </span>
+                <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
+              </button>
+
+              <div className="pointer-events-auto absolute left-full -ml-2 top-0 hidden pl-4 group-hover/effort:block group-focus-within/effort:block">
+                <div
+                  role="menu"
+                  aria-label="Thinking Effort"
+                  className="pointer-events-auto max-h-[calc(100vh-16px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
+                >
+                  {selectedEfforts.map((model) => {
+                    const isSelected = selectedId === model.id;
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isSelected}
+                        onClick={() => {
+                          onSelect(model.id);
+                          handleClose();
+                        }}
+                        className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                      >
+                        <span className="flex w-9 shrink-0 items-center justify-center">
+                          {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
+                        </span>
+                        <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]">
+                          {getThinkingEffortLabel(model)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={menuRef}
-      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
     >
       <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
         <Search
@@ -266,32 +442,6 @@ const ModelsMenu: React.FC<{
             })
           )}
         </div>
-      </div>
-
-      {/* Agent Swarm Toggle */}
-      <div className="px-3 py-2.5 border-t border-white/5 flex items-center justify-between bg-[#1c1c1c]">
-        <div className="flex items-center gap-2.5">
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
-            <circle cx="12" cy="12" r="3"/>
-            <circle cx="5" cy="5" r="2"/>
-            <circle cx="19" cy="5" r="2"/>
-            <circle cx="5" cy="19" r="2"/>
-            <line x1="7" y1="7" x2="10" y2="10"/>
-            <line x1="17" y1="7" x2="14" y2="10"/>
-            <line x1="7" y1="17" x2="10" y2="14"/>
-          </svg>
-          <span className="text-[13px] font-medium text-zinc-300">Agent Swarm</span>
-        </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onSwarmToggle?.(!agentSwarmEnabled); }}
-          className={`relative w-8 h-[18px] rounded-full transition-colors ${
-            agentSwarmEnabled ? 'bg-purple-500' : 'bg-zinc-700'
-          }`}
-        >
-          <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
-            agentSwarmEnabled ? 'translate-x-[16px]' : 'translate-x-[2px]'
-          }`} />
-        </button>
       </div>
 
       <div className="flex items-center h-[42px] border-t border-white/10 mt-0 bg-[#1c1c1c]">
@@ -382,7 +532,7 @@ const ModesMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute left-0 w-[160px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 p-1.5 ${side === "top" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute left-0 w-[160px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 p-1.5 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
     >
       {MODES.map((mode) => (
         <button
@@ -479,7 +629,7 @@ const ThemesMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute left-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute left-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
     >
       <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
         <Search
@@ -564,8 +714,6 @@ export const InputBar: React.FC<{
   setSelectedModelId: (id: string) => void;
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
   /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
    *  to use mode="chat". Used by the standalone Dashboard chat view. */
   chatVariant?: boolean;
@@ -575,7 +723,7 @@ export const InputBar: React.FC<{
   liveActive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, chatVariant = false, liveActive = false, onStartLive, onStopLive }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, liveActive = false, onStartLive, onStopLive }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -612,6 +760,8 @@ export const InputBar: React.FC<{
         return;
       }
 
+      setIsModelsOpen(false);
+      setIsPlusMenuOpen(false);
       setIsDictating(true);
       dictationPrevPromptRef.current = promptText;
 
@@ -718,6 +868,8 @@ export const InputBar: React.FC<{
       .trim();
   };
 
+  const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
+
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
@@ -763,10 +915,14 @@ export const InputBar: React.FC<{
             }}
             className="w-4 h-4 rounded-full bg-sky-500/20 flex items-center justify-center hover:bg-sky-500/30 transition-colors cursor-pointer"
           >
-            <X size={10} className="text-[#bae6fd]" strokeWidth={3} />
+            {chatVariant
+              ? <MaterialSymbol name="close" size={12} weight={500} className="text-[#bae6fd]" />
+              : <X size={10} className="text-[#bae6fd]" strokeWidth={3} />}
           </div>
         ) : (
-          <Icon size={16} className="text-[#bae6fd]" strokeWidth={2.2} />
+          chatVariant && TOOL_SYMBOLS[toolId]
+            ? <MaterialSymbol name={TOOL_SYMBOLS[toolId]!} size={18} className="text-[#bae6fd]" />
+            : <Icon size={16} className="text-[#bae6fd]" strokeWidth={2.2} />
         )}
         <span className="text-[13.5px] font-medium leading-none text-[#bae6fd]">
           {tool.chipLabel}
@@ -795,14 +951,14 @@ export const InputBar: React.FC<{
       // Throttle resize to once per frame
       textareaResizeRafRef.current = requestAnimationFrame(() => {
         if (textareaRef.current) {
-          const isSolid = effectiveBackground === 'solid';
+          const isSolid = chatVariant || effectiveBackground === 'solid';
           const baseHeight = isSolid ? 24 : 48;
           
           if (isSolid) {
             // Disable padding transition during measurement so scrollHeight reads are exact
             textareaRef.current.style.transition = 'none';
 
-            const paddingRightVal = chatVariant ? '148px' : '76px';
+            const paddingRightVal = chatVariant ? '204px' : '76px';
             // Force narrow padding for measurement to see if it wraps inline
             textareaRef.current.style.paddingLeft = '38px';
             textareaRef.current.style.paddingRight = paddingRightVal;
@@ -850,12 +1006,12 @@ export const InputBar: React.FC<{
         cancelAnimationFrame(textareaResizeRafRef.current);
       }
     };
-  }, [promptText, selectedTool]);
+  }, [promptText, selectedTool, chatVariant, effectiveBackground]);
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
   const promptBoxBg = effectiveBackground === 'lines' 
-    ? 'bg-[#18181b]/70' 
-    : 'bg-[#18181b]';
+    ? 'bg-[#1e1f21]/70' 
+    : 'bg-[#1e1f21]';
   
   const hasContent = promptText.trim() || hasActiveAttachments || selectedTool;
 
@@ -866,10 +1022,10 @@ export const InputBar: React.FC<{
   // RAF sets them next frame and the 38→0 padding transition still plays.
   const solidExpanded = isSolidExpanded || !!selectedTool;
 
-  if (effectiveBackground === 'solid') {
+  if (chatVariant || effectiveBackground === 'solid') {
     return (
-      <div className="w-full max-w-[760px] mx-auto relative z-20">
-        <div className="w-full bg-[#2a2a2a] rounded-[28px] pl-4 pr-3 flex flex-col justify-center transition-all duration-200">
+      <div className={`w-full mx-auto relative z-20 ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}>
+        <div className={`w-full flex flex-col justify-center transition-all duration-200 ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
           
           {/* Attachments Area */}
           <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
@@ -914,10 +1070,12 @@ export const InputBar: React.FC<{
           </div>
 
           {/* Main Input Row */}
-          <div className={`flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
             <textarea 
               ref={textareaRef}
               value={promptText}
+              aria-hidden={chatVariant && isDictating ? true : undefined}
+              tabIndex={chatVariant && isDictating ? -1 : undefined}
               onChange={(e) => setPromptText(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={(e) => {
@@ -943,10 +1101,21 @@ export const InputBar: React.FC<{
                   setAttachments(prev => [...prev, ...newAttachments]);
                 }
               }}
-              placeholder="Ask anything" 
-              style={{ height: '24px', minHeight: '24px', scrollbarGutter: 'stable' }}
-              className={`w-full bg-transparent text-white placeholder-[#8e8e8e] outline-none text-[15.5px] font-normal resize-none overflow-y-auto transition-[padding] duration-200 ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : `pl-[38px] ${chatVariant ? 'pr-[148px]' : 'pr-[76px]'}`}`}
+              placeholder={chatVariant ? "Ask Willow" : "Ask anything"}
+              style={{
+                height: '24px',
+                minHeight: '24px',
+                scrollbarGutter: 'stable',
+                fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+              }}
+              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] duration-200 ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[204px]' : 'pr-[76px]'}`}`}
             />
+
+            {chatVariant && isDictating && (
+              <div className="absolute left-[46px] right-[86px] top-1/2 -translate-y-1/2">
+                <DictationWaveform />
+              </div>
+            )}
 
             <input 
               type="file" 
@@ -956,13 +1125,17 @@ export const InputBar: React.FC<{
               onChange={handleFileSelect} 
             />
             <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded ? 'bottom-[6px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
-              <div className={`w-[30px] flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
+              <div className={`${chatVariant ? 'w-8' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
-                  className="text-[#a0a0a0] hover:text-white transition-colors outline-none"
+                  aria-label="Upload & tools"
+                  aria-expanded={isPlusMenuOpen}
+                  className={`${chatVariant ? `w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537] ${isPlusMenuOpen ? 'bg-[#333537]' : ''}` : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none`}
                 >
-                  <Plus size={22} className="stroke-[2.5]" />
+                  {chatVariant
+                    ? <MaterialSymbol family="luminous" name="plus" size={24} weight={300} roundness={100} opticalSize={24} />
+                    : <Plus size={22} strokeWidth={2.5} />}
                 </button>
                 <PlusDropdownMenu 
                   isOpen={isPlusMenuOpen} 
@@ -970,6 +1143,7 @@ export const InputBar: React.FC<{
                   onFileSelect={() => fileInputRef.current?.click()} 
                   buttonRef={solidPlusRef} 
                   onToolSelect={(id) => setSelectedTool(id as ToolId)}
+                  geminiStyle={chatVariant}
                 />
               </div>
               {selectedTool && (
@@ -979,16 +1153,27 @@ export const InputBar: React.FC<{
               )}
             </div>
             
-            <div className={`absolute flex items-center gap-3 shrink-0 transition-all duration-200 ${solidExpanded ? 'bottom-[10px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
-              {chatVariant && (
+            <div className={`absolute flex items-center shrink-0 transition-all duration-200 ${chatVariant ? 'gap-1' : 'gap-3'} ${solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'bottom-[12px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+              {chatVariant && !isDictating && (
                 <div className="relative flex items-center shrink-0">
                   <button
                     ref={modelButtonRef}
                     onClick={() => setIsModelsOpen(!isModelsOpen)}
-                    className="flex items-center gap-1.5 text-[14px] font-medium text-[#a0a0a0] hover:text-white transition-colors outline-none cursor-pointer"
+                    aria-label={`Open model picker, currently ${activeModelDisplayLabel}`}
+                    aria-expanded={isModelsOpen}
+                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                    style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                   >
-                    <span>{activeModel ? getShortName(activeModel.name) : "Model"}</span>
-                    <ChevronDown size={14} className={`stroke-[2.5] transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`} />
+                    <span>{activeModelDisplayLabel}</span>
+                    <MaterialSymbol
+                      family="luminous"
+                      name="keyboard_arrow_down"
+                      size={24}
+                      weight={300}
+                      roundness={100}
+                      opticalSize={24}
+                      className={`transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`}
+                    />
                   </button>
                   {isModelsOpen && (
                     <ModelsMenu
@@ -998,22 +1183,30 @@ export const InputBar: React.FC<{
                       selectedId={selectedModelId}
                       onSelect={setSelectedModelId}
                       onAuthRequired={onAuthRequired}
-                      agentSwarmEnabled={agentSwarmEnabled}
-                      onSwarmToggle={onSwarmToggle}
+                      geminiStyle
                     />
                   )}
                 </div>
               )}
               <button 
                 onClick={handleToggleDictation}
+                aria-label={isDictating ? "Stop listening" : "Microphone"}
                 title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`transition-colors outline-none flex items-center justify-center mr-[2px] w-8 h-8 rounded-full cursor-pointer ${
-                  isDictating 
+                className={`transition-colors outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
+                  isDictating && chatVariant
+                    ? 'text-[#e6e6e6] border-2 border-[#c4c7c5] hover:bg-white/[0.08]'
+                    : isDictating
                     ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse' 
-                    : 'text-[#a0a0a0] hover:text-white'
+                    : chatVariant ? 'text-[#e6e6e6] hover:bg-white/[0.08]' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
-                <Mic size={20} strokeWidth={1.8} />
+                {isDictating && chatVariant ? (
+                  <span className="w-2 h-2 rounded-[1px] bg-current" aria-hidden="true" />
+                ) : chatVariant ? (
+                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
+                ) : (
+                  <Mic size={20} strokeWidth={1.8} />
+                )}
               </button>
               <button
                 onClick={() => {
@@ -1031,18 +1224,37 @@ export const InputBar: React.FC<{
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
+                aria-label={hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
                 className={`w-[34px] h-[34px] rounded-full flex items-center justify-center shrink-0 transition-colors shadow-sm outline-none cursor-pointer ${
-                  !hasContent && chatVariant && liveActive
-                    ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
-                    : 'bg-white hover:bg-zinc-200'
+                  chatVariant
+                    ? !hasContent && liveActive
+                      ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
+                      : 'bg-[#4a7c59] hover:bg-[#3f694a]'
+                    : !hasContent && liveActive
+                      ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
+                      : 'bg-white hover:bg-zinc-200'
                 }`}
               >
                 {hasContent ? (
-                  <ArrowUp size={18} className="text-black stroke-[3]" />
+                  chatVariant
+                    ? <MaterialSymbol name="arrow_upward" size={24} weight={400} className="text-white" />
+                    : <ArrowUp size={22} className="text-black stroke-[2]" />
                 ) : chatVariant && liveActive ? (
+                  <MaterialSymbol name="stop" size={18} weight={600} fill className="text-white" />
+                ) : chatVariant ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
+                    <line x1="7" y1="8" x2="7" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="17" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                ) : liveActive ? (
                   <Square size={14} className="text-black fill-black" />
                 ) : (
-                  <AudioLines size={16} className="text-black stroke-[2.5]" />
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-black">
+                    <line x1="7" y1="8" x2="7" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="17" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
                 )}
               </button>
             </div>
@@ -1305,8 +1517,6 @@ export const InputBar: React.FC<{
                   selectedId={selectedModelId}
                   onSelect={setSelectedModelId}
                   onAuthRequired={onAuthRequired}
-                  agentSwarmEnabled={agentSwarmEnabled}
-                  onSwarmToggle={onSwarmToggle}
                 />
               )}
             </div>
@@ -1328,11 +1538,13 @@ export const InputBar: React.FC<{
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg
                       ${
                         promptText.trim() || attachments.length > 0
-                          ? "bg-zinc-200 hover:bg-white text-black cursor-pointer"
+                          ? chatVariant
+                            ? "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer"
+                            : "bg-zinc-200 hover:bg-white text-black cursor-pointer"
                           : chatVariant
                             ? liveActive
-                              ? "bg-zinc-200 hover:bg-white text-black cursor-pointer ring-2 ring-white/20 animate-pulse"
-                              : "bg-zinc-200 hover:bg-white text-black cursor-pointer"
+                              ? "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer ring-2 ring-[#4a7c59]/20 animate-pulse"
+                              : "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer"
                             : "bg-zinc-600 text-zinc-400 cursor-not-allowed"
                       }`}
               disabled={!chatVariant && !promptText.trim() && attachments.length === 0}

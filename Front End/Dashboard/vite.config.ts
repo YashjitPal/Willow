@@ -1,5 +1,7 @@
 import path from "path";
 import { pathToFileURL } from "url";
+import http from "http";
+import https from "https";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
@@ -62,57 +64,84 @@ function conditionalCrossOriginHeaders(): Plugin {
   };
 }
 
+// Vite plugin: Dynamic LLM proxy that routes requests to any user-specified
+// base URL. Unlike a static Vite proxy entry (which hardcodes the TLS target),
+// this middleware reads the real target from the `x-proxy-target` header and
+// opens a fresh connection to that domain, so Cloudflare/SNI checks pass.
+function dynamicLlmProxy(): Plugin {
+  return {
+    name: 'dynamic-llm-proxy',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith('/llm-proxy')) return next();
+
+        const targetUrl = req.headers['x-proxy-target'];
+        if (!targetUrl || typeof targetUrl !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing x-proxy-target header' }));
+          return;
+        }
+
+        let parsed: URL;
+        try {
+          parsed = new URL(targetUrl);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid x-proxy-target URL' }));
+          return;
+        }
+
+        // Strip the /llm-proxy prefix and rebuild the full upstream path
+        const strippedPath = req.url.replace(/^\/llm-proxy/, '');
+        const upstreamPath = (parsed.pathname !== '/' ? parsed.pathname : '') + strippedPath;
+
+        // Forward all headers except browser-only ones that upstream gateways reject
+        const forwardHeaders: Record<string, string | string[]> = {};
+        for (const [key, value] of Object.entries(req.headers)) {
+          if (!value) continue;
+          const lower = key.toLowerCase();
+          if (lower === 'host' || lower === 'origin' || lower === 'referer' || lower === 'x-proxy-target') continue;
+          forwardHeaders[key] = value;
+        }
+        forwardHeaders['host'] = parsed.host;
+
+        const isHttps = parsed.protocol === 'https:';
+        const transport = isHttps ? https : http;
+
+        const proxyReq = transport.request(
+          {
+            hostname: parsed.hostname,
+            port: parsed.port || (isHttps ? 443 : 80),
+            path: upstreamPath,
+            method: req.method,
+            headers: forwardHeaders,
+          },
+          (proxyRes) => {
+            res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+            proxyRes.pipe(res);
+          },
+        );
+
+        proxyReq.on('error', (err) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Proxy error: ${err.message}` }));
+          }
+        });
+
+        req.pipe(proxyReq);
+      });
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
     server: {
       port: 3000,
       strictPort: true,
       host: "localhost",
-      proxy: {
-        '/llm-proxy-yxxb': {
-          target: 'https://sub.yxxb.eu.cc',
-          changeOrigin: true,
-          secure: true,
-          rewrite: (path) => path.replace(/^\/llm-proxy-yxxb/, ''),
-          configure: (proxy, _options) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              proxyReq.removeHeader('origin');
-              proxyReq.removeHeader('referer');
-              proxyReq.removeHeader('x-proxy-target');
-            });
-          }
-        },
-        '/llm-proxy': {
-          target: 'https://hub.linux.do',
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path.replace(/^\/llm-proxy/, ''),
-          configure: (proxy, _options) => {
-            proxy.on('proxyReq', (proxyReq, req, _res) => {
-              // Get the target base URL from a custom header if provided
-              const targetUrl = req.headers['x-proxy-target'];
-              if (targetUrl && typeof targetUrl === 'string') {
-                try {
-                  const url = new URL(targetUrl);
-                  proxyReq.protocol = url.protocol;
-                  proxyReq.host = url.host;
-                  proxyReq.setHeader('host', url.host);
-                  // Ensure the path includes the correct endpoint path from the target URL
-                  const originalPath = req.url.replace(/^\/llm-proxy/, '');
-                  proxyReq.path = (url.pathname !== '/' ? url.pathname : '') + originalPath;
-                } catch (e) {}
-              }
 
-              // Some OpenAI-compatible gateways reject server-side API calls
-              // when browser-only request metadata is forwarded by the proxy.
-              // These headers are only needed between Willow and this proxy.
-              proxyReq.removeHeader('origin');
-              proxyReq.removeHeader('referer');
-              proxyReq.removeHeader('x-proxy-target');
-            });
-          }
-        }
-      },
       open: false,
       // Allow imports from parent directory (for defaultmodel.ts in Willow Code root)
       fs: {
@@ -122,7 +151,7 @@ export default defineConfig(() => {
         ],
       },
     },
-    plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders()],
+    plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.

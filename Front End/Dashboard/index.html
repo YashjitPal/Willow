@@ -9,9 +9,73 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,400;6..144,500;6..144,700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      rel="stylesheet"
+    />
+    <style>
+      @font-face {
+        font-family: "Luminous Symbols";
+        font-style: normal;
+        font-weight: 100 700;
+        font-display: block;
+        src: url("https://fonts.gstatic.com/l/font?kit=daaDSSYgOGmYaRLpq55MPuzv2kUK2zvmTflyWwG1oySatCZuAYA-8NIsLW680OBb5BBuQa5Dapuzovt2J0psqvrJKUiguriqj38pHhH1_FWVNba9XW1Z0j1SYPtVC_039jdnbiSlMoNYz-sc0l6o2XJnFRZd3LtfgXCEn5sBwOYz9JY-vfCcEZCekq8BFb41oUHJ21PTFnZb2RMMwYCzB7F1mdUaFrYUswpxtQdEmjoEM8p6oWeeN_ktEB1SdkIa-kcux3UrQOn_dQjRWbZcMVX1_RESDzbwHtbyk5rWjbipp7mDJwP4NckVMay3Le8j78DOKTOoejXKXxhX1w78YI4BFD7bbtw99OVHnoVj&skey=bef131c18897d264&v=v38") format("woff2");
+      }
+
+      @font-face {
+        font-family: "Google Symbols";
+        font-style: normal;
+        font-weight: 100 700;
+        font-display: block;
+        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1XMoDZlWmzc_IiQP9Pl2qlTD28M00Ic5PBvgjUKh-hL5SsUfna8181gW5cw07ABjrw0mO9bD6GPxon5_oEbD-5h7ZDXXSzrmdLquZIuQBxUvaZArLpc9_WPlurKXilymEUxDQvP0_oYFlasoxiIzXiRU4pPzsiilP73kTDJCtscKKmgltNUNlkgsmao8Q6wHI_VgfRzzLWzxNYqELfM8E-dJuRFXxp-qY128dH8PUnZKTVj8zx2u_KXEpS3nOjzA0GPRNGz5f8ukRCl18Ct-hICEEPmxO7Q4sW_wAB-ZWkbBgTvN4Uun_d4BIf2dGSJve8OMEcsl17MRztjGqzBqxrF_leL8bF7GGpPDmkcMvu8h4yNIYPDnJENzL3NAuDqCmcCizwv6Lv7vHOa7yN-Gnmgdmf0dHOb_4TrJAKxeZTOYhYtXCdwVRTrpQZCogvxSOk5-y9GRF-XojLdO34CzwJA1gLhT40E1V-vuu1qmY6xFZS6yyylg2QrI2M7Om51UN_pFu4SjeXHSZiR06KF9GGbLYS4dTg9WX-7HPtoEwO29n3xpg2CgMYf8YvjMM-wkgDd4CyuqOtvTC75KUZvV_3KO42o7eR&skey=f8ec4d50247dc1c1&v=v448") format("woff2");
+      }
+
+      .material-symbols-rounded,
+      .luminous-symbols,
+      .google-symbols {
+        font-weight: normal;
+        font-style: normal;
+        letter-spacing: 0;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        word-wrap: normal;
+        direction: ltr;
+        -webkit-font-feature-settings: "liga";
+        -webkit-font-smoothing: antialiased;
+        font-feature-settings: "liga";
+      }
+
+      .material-symbols-rounded {
+        font-family: "Material Symbols Rounded";
+        font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "opsz" 24;
+      }
+
+      .luminous-symbols {
+        font-family: "Luminous Symbols";
+      }
+
+      .google-symbols {
+        font-family: "Google Symbols";
+      }
+
+      @keyframes willow-dictation-wave {
+        0%, 100% { transform: scaleY(0.7); opacity: 0.45; }
+        50% { transform: scaleY(var(--wave-scale)); opacity: 0.95; }
+      }
+
+      .willow-dictation-bar {
+        transform-origin: center;
+        animation: willow-dictation-wave 900ms ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .willow-dictation-bar { animation: none; }
+      }
+    </style>
     <script>
       tailwind.config = {
         theme: {
@@ -51,20 +115,20 @@
                 "100%": { opacity: "1" },
               },
               dropdownOpen: {
-                "0%": { opacity: "0", "clip-path": "inset(0 0 100% 0)" },
-                "100%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+                "0%": { opacity: "0", transform: "scale(0.95) translateY(-6px)" },
+                "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
               },
               dropdownClose: {
-                "0%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
-                "100%": { opacity: "0", "clip-path": "inset(0 0 100% 0)" },
+                "0%": { opacity: "1", transform: "scale(1) translateY(0)" },
+                "100%": { opacity: "0", transform: "scale(0.95) translateY(-6px)" },
               },
               dropdownOpenUp: {
-                "0%": { opacity: "0", "clip-path": "inset(100% 0 0 0)" },
-                "100%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
+                "0%": { opacity: "0", transform: "scale(0.95) translateY(6px)" },
+                "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
               },
               dropdownCloseUp: {
-                "0%": { opacity: "1", "clip-path": "inset(0 0 0 0)" },
-                "100%": { opacity: "0", "clip-path": "inset(100% 0 0 0)" },
+                "0%": { opacity: "1", transform: "scale(1) translateY(0)" },
+                "100%": { opacity: "0", transform: "scale(0.95) translateY(6px)" },
               },
               shimmer: {
                 "0%": { "background-position": "100% 0" },
@@ -165,6 +229,45 @@
       }
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.1);
+      }
+
+      .gemini-chat-scrollbar {
+        scrollbar-color: transparent transparent;
+        scrollbar-width: auto;
+      }
+      .gemini-chat-scrollbar::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+      }
+      .gemini-chat-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .gemini-chat-scrollbar::-webkit-scrollbar-thumb {
+        min-height: 48px;
+        border: 2px solid transparent;
+        border-radius: 9999px;
+        background: transparent;
+        background-clip: content-box;
+      }
+      .gemini-chat-scrollbar:hover {
+        scrollbar-color: #333537 transparent;
+      }
+      .gemini-chat-scrollbar:hover::-webkit-scrollbar-thumb {
+        background-color: #333537;
+      }
+      .gemini-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+        background-color: #444746;
+      }
+      .gemini-chat-scrollbar::-webkit-scrollbar-button {
+        width: 0;
+        height: 0;
+      }
+
+      @media (hover: none), (pointer: coarse) {
+        .gemini-user-actions {
+          opacity: 1 !important;
+          pointer-events: auto !important;
+        }
       }
 
       .no-scrollbar::-webkit-scrollbar {

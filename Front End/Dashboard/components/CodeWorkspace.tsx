@@ -117,8 +117,6 @@ interface CodeWorkspaceProps {
   setSelectedModelId: (id: string) => void;
   isAuthenticated: boolean;
   onAuthRequired?: () => void;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
   onSettingsClick?: (tab?: string) => void;
   isSidebarCollapsed?: boolean;
   onWorkspaceActive?: (active: boolean) => void;
@@ -238,8 +236,6 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   setSelectedModelId,
   isAuthenticated,
   onAuthRequired,
-  agentSwarmEnabled,
-  onSwarmToggle,
   onSettingsClick,
   isSidebarCollapsed: dashboardSidebarCollapsed = false,
   onWorkspaceActive,
@@ -1074,7 +1070,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
             <div className="relative h-[136px] bg-[#1c1c1c] pointer-events-auto z-50">
               {idleComposerHost && createPortal(
                 <div className="absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto pointer-events-auto">
-                <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
+                <div className="bg-[#1e1f21] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
                   {/* Attachments Area */}
                   <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                     <div className="overflow-hidden">
@@ -1422,8 +1418,6 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                   isProjectPromoted={hasUserCode}
                   isGeneratingName={isGeneratingName}
                   onSettingsClick={onSettingsClick}
-                  agentSwarmEnabled={agentSwarmEnabled}
-                  onSwarmToggle={onSwarmToggle}
                 />
               </div>
             </div>

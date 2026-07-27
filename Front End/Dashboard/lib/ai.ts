@@ -30,6 +30,7 @@ export interface AiOptions {
   model: string;
   apiKey: string;
   thinkingLevel?: number;
+  includeThoughts?: boolean;
   enableSearch?: boolean;
   enableCodeExecution?: boolean;
   baseUrl?: string;
@@ -457,7 +458,8 @@ export const streamChat: any = async (
   onStart: () => void,
   systemPrompt?: string,
   onPhase?: (phase: StreamPhase) => void,
-  onToolCall?: (name: string, args: any) => Promise<any>
+  onToolCall?: (name: string, args: any) => Promise<any>,
+  onThought?: (thought: string) => void
 ) => {
   const { provider, model, apiKey } = options;
   const messagesList: any = messages;
@@ -786,7 +788,8 @@ Adhere to the following rules and guidelines:
       generationConfig: {
         // @ts-ignore
         thinkingConfig: {
-          thinkingLevel: geminiThinkingLevel
+          thinkingLevel: geminiThinkingLevel,
+          includeThoughts: options.includeThoughts === true,
         }
       }
     } as any);
@@ -871,6 +874,7 @@ Adhere to the following rules and guidelines:
     // Iterative processing loop to handle arbitrary sequential tool calls without recursion (prevents compiler/runtime stack overflow)
     let keepRunning = true;
     let toolIterations = 0;
+    let hasEmittedAnyThought = false;
 
     while (keepRunning) {
       throwIfAborted(signal);
@@ -890,7 +894,8 @@ Adhere to the following rules and guidelines:
       };
 
       const pendingFunctionCalls: any[] = [];
-      let lastThoughtSignature: string | undefined = undefined;
+      const rawResponseParts: any[] = [];
+      let hasEmittedThoughtThisIteration = false;
 
       for await (const chunk of result.stream) {
         throwIfAborted(signal);
@@ -902,12 +907,10 @@ Adhere to the following rules and guidelines:
 
         const chunkParts: any[] = cand?.content?.parts ?? [];
         for (const part of chunkParts) {
-
-          if (part?.thoughtSignature) {
-            lastThoughtSignature = part.thoughtSignature;
-          } else if (part?.thought_signature) {
-            lastThoughtSignature = part.thought_signature;
-          }
+          // The legacy SDK's response aggregator drops newer Part fields such as
+          // `thought` and `thoughtSignature`. Retain each streamed delta verbatim
+          // for the model history used by subsequent tool-loop requests.
+          rawResponseParts.push({ ...part });
 
           // --- Custom Tool Invocations ---------------------------------------
           if (part?.functionCall) {
@@ -929,6 +932,16 @@ Adhere to the following rules and guidelines:
             continue;
           }
 
+          // Gemini exposes displayable thought summaries as text parts marked
+          // with `thought: true`. Keep those out of the answer stream.
+          if (part?.thought === true && typeof part?.text === 'string' && part.text.length > 0) {
+            const separator = hasEmittedAnyThought && !hasEmittedThoughtThisIteration ? '\n\n' : '';
+            onThought?.(`${separator}${part.text}`);
+            hasEmittedAnyThought = true;
+            hasEmittedThoughtThisIteration = true;
+            continue;
+          }
+
           // --- Plain text ------------------------------------------------------
           if (typeof part?.text === 'string' && part.text.length > 0) {
             if (!hasEmittedText) {
@@ -940,35 +953,12 @@ Adhere to the following rules and guidelines:
         }
       }
 
-      // Extract the canonical, correctly-merged parts from the SDK's full response object
+      // Await the SDK's final response so stream-level errors still propagate,
+      // but do not use its aggregated parts: v0.24.1 strips thought metadata.
       const fullResponse: any = await (result as any).response;
-      const canonicalParts: any[] = fullResponse?.candidates?.[0]?.content?.parts ?? [];
-
-      // Find the thoughtSignature inside the canonical parts to make absolutely sure we hold the correct verbatim token
-      for (const part of canonicalParts) {
-        if (part?.thoughtSignature) {
-          lastThoughtSignature = part.thoughtSignature;
-        } else if (part?.thought_signature) {
-          lastThoughtSignature = part.thought_signature;
-        }
-      }
-
-      // Manually attach/re-inject thought_signature to any functionCall parts to bypass SDK-stripping bugs
-      for (const part of canonicalParts) {
-        if (part && part.functionCall && lastThoughtSignature) {
-          part.thoughtSignature = lastThoughtSignature;
-          part.thought_signature = lastThoughtSignature;
-        }
-      }
-
-      // Also append a separate thought_signature part for redundancy if not already present
-      const hasSeparateSig = canonicalParts.some(p => p && (p.thoughtSignature || p.thought_signature) && !p.functionCall);
-      if (lastThoughtSignature && !hasSeparateSig) {
-        canonicalParts.push({
-          thoughtSignature: lastThoughtSignature,
-          thought_signature: lastThoughtSignature
-        });
-      }
+      const canonicalParts: any[] = rawResponseParts.length > 0
+        ? rawResponseParts
+        : fullResponse?.candidates?.[0]?.content?.parts ?? [];
 
       // Record the model's actual response parts (including functionCall and thought_signature) verbatim in the conversation history
       historyContents.push({
@@ -1038,12 +1028,6 @@ Adhere to the following rules and guidelines:
                 response: { result: sanitizedResult }
               }
             };
-
-            // Attach required thought signature to the part to maintain reasoning flow & avoid 400 bad request errors
-            if (lastThoughtSignature) {
-              functionResponsePart.thoughtSignature = lastThoughtSignature;
-              functionResponsePart.thought_signature = lastThoughtSignature;
-            }
             return functionResponsePart;
           })
         );
@@ -1228,14 +1212,7 @@ Adhere to the following rules and guidelines:
       'https://open.bigmodel.cn/api/paas/v4'
     );
     const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '3000');
-    const proxyRoute = (() => {
-      if (!isDev) return '';
-      try {
-        return new URL(baseUrl).hostname === 'sub.yxxb.eu.cc' ? '/llm-proxy-yxxb' : '/llm-proxy';
-      } catch {
-        return '/llm-proxy';
-      }
-    })();
+    const proxyRoute = isDev ? '/llm-proxy' : '';
     const proxyBaseUrl = isDev ? `${window.location.origin}${proxyRoute}` : baseUrl;
     
     const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);

@@ -16,21 +16,15 @@ export const DiscordIcon = ({ size = 18, strokeWidth = 1.2, ...props }: any) => 
   </svg>
 );
 
-export const MediaIcon = ({ size = 18, className = '', strokeWidth, ...props }: any) => {
-  const adjustedSize = Math.round(size * 1.15);
+export const MediaIcon = ({ size = 18, className = '', strokeWidth, style, ...props }: any) => {
   return (
     <svg 
       xmlns="http://www.w3.org/2000/svg" 
       viewBox="18 1 128 128" 
-      width={adjustedSize} 
-      height={adjustedSize} 
+      width={size}
+      height={size}
       className={className}
-      style={{
-        position: 'relative',
-        top: '-2.5px',
-        left: '2px',
-        ...props.style
-      }}
+      style={style}
       {...props}
     >
       <path d="M 84 33

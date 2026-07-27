@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { motion } from 'framer-motion';
-import { Lightbulb, ThumbsUp, ThumbsDown, Copy, Check, Search, Terminal, Glasses } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Glasses } from 'lucide-react';
 import { InputBar } from './InputBar';
 import { HeroSection } from './HeroSection';
 import { BottomPanel } from './BottomPanel';
 import { TextShimmer } from './ui/text-shimmer';
+import { MaterialSymbol } from './ui/MaterialSymbol';
 import { StreamingMarkdown } from './ui/StreamingMarkdown';
+import { ResponseActions, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { streamChat, ChatMessage as AiChatMessage, StreamPhase } from '../lib/ai';
 import {
   GeminiLiveSession,
@@ -16,8 +18,8 @@ import {
   primeLiveChimes,
 } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
-import { useBackground } from '../context/BackgroundContext';
-import { useLocalFS } from '../context/LocalFSContext';
+import { useLocalFS, isTempChatId } from '../context/LocalFSContext';
+import { getThinkingEffortLabel } from '../lib/model-efforts';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -27,6 +29,14 @@ interface ChatMsg {
   role: 'user' | 'assistant';
   content: string;
   thinkingTime?: number;
+  /** Displayable thought summary returned by the model, never hidden chain-of-thought data. */
+  thinkingText?: string;
+  modelSnapshot?: {
+    provider: string;
+    modelId: string;
+    label: string;
+    thinkingLevel: number;
+  };
   isError?: boolean;
   isGenerating?: boolean;
   /** User bubble is a live-voice utterance whose transcript hasn't arrived yet. */
@@ -45,8 +55,6 @@ interface DashboardChatProps {
   setSelectedModelId: (id: string) => void;
   isAuthenticated?: boolean;
   onAuthRequired?: () => void;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
   onOpenDriveSettings?: () => void;
   isIncognito?: boolean;
   onChatStartedChange?: (started: boolean) => void;
@@ -63,6 +71,12 @@ const CHAT_SYSTEM_PROMPT =
   'Only use $$...$$ for genuinely complex equations. ' +
   'Do not wrap responses in boltArtifact or any XML tags.';
 
+const getShortModelName = (name: string) => {
+  if (!name) return 'Model';
+  if (name.includes('2.5 Flash Lite')) return '2.5 Lite';
+  return name.replace(/Gemini\s+/gi, '').trim();
+};
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Component
 // ──────────────────────────────────────────────────────────────────────────────
@@ -72,14 +86,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   setSelectedModelId,
   isAuthenticated,
   onAuthRequired,
-  agentSwarmEnabled,
-  onSwarmToggle,
   onOpenDriveSettings,
   isIncognito = false,
   onChatStartedChange,
 }) => {
   const { apiKeys } = useUserDataContext();
-  const { background } = useBackground();
   const { isLocalFolderConnected, saveLocalFSChat, generateChatTitle, activeChatId, loadLocalFSChat, localChats } = useLocalFS();
 
   // Unique session ID for auto-saving chats locally
@@ -90,8 +101,6 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   const [chatTitle, setChatTitle] = useState<string | null>(null);
 
-  const effectiveBackground = isAuthenticated ? background : 'lines';
-  const bgColor = effectiveBackground === 'solid' ? '#212121' : '#1c1c1c';
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -138,6 +147,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                 role: m.role,
                 content: m.content || '',
                 thinkingTime: m.thinkingTime,
+                thinkingText: typeof m.thinkingText === 'string' ? m.thinkingText : undefined,
+                modelSnapshot: m.modelSnapshot,
                 isError: m.isError,
                 // Clear all runtime flags
                 isGenerating: false,
@@ -149,7 +160,12 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
             if (sanitized.length > 0) {
               setMessages(sanitized);
-              setChatTitle(activeChatId);
+              // `chatTitle` means "the human name this chat is saved under" —
+              // a temp id is not one. Writing it here closes the title-effect's
+              // `!chatTitle` gate permanently, so the chat can never be named
+              // and the sidebar skeleton shimmers forever. chatSessionId still
+              // adopts the id, which is what keeps the guard at ~line 153 sound.
+              setChatTitle(isTempChatId(activeChatId) ? null : activeChatId);
               setChatSessionId(activeChatId);
               return;
             }
@@ -159,7 +175,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           // with an empty thread instead (and release the load guard so the
           // first real message saves normally).
           setMessages([]);
-          setChatTitle(activeChatId);
+          setChatTitle(isTempChatId(activeChatId) ? null : activeChatId);
           setChatSessionId(activeChatId);
           lastSavedMessagesRef.current = [];
           initialLoadRef.current = false;
@@ -304,6 +320,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const sendInFlightRef = useRef(false);
   const [isThinking, setIsThinking] = useState(false);
   // Pre-response activity label. Stays on the shimmer row until the first real
   // text token streams ('responding'), so tool calls (search / code exec) don't
@@ -312,6 +329,19 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const [thinkSeconds, setThinkSeconds] = useState(0);
   const [reactions, setReactions] = useState<Record<string, 'like' | 'dislike' | null>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [listeningId, setListeningId] = useState<string | null>(null);
+  const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+
+  const stopListening = useCallback(() => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setListeningId(null);
+  }, []);
+
+  useEffect(() => {
+    stopListening();
+  }, [activeChatId, stopListening]);
 
   // Auto-save chat history locally in real-time when messages change.
   // Skip saving while generating — partial messages have empty content that
@@ -351,6 +381,14 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => {
+    // Nothing parked = nothing to replay. Without this the guard below reads
+    // `null !== null` on a brand-new chat (no reload pending AND no chat
+    // selected), falls through, and latches forceExternalReloadRef with no
+    // event having occurred. Because the only reset (line ~152) lives inside
+    // the `activeChatId` branch of the load effect, that latch survives until
+    // the first send flips activeChatId — where it bypasses the identity guard
+    // and reloads the user-message-only body over the live streaming thread.
+    if (!pendingExternalReloadRef.current) return;
     if (isLive || isGenerating || pendingExternalReloadRef.current !== activeChatId) return;
     pendingExternalReloadRef.current = null;
     forceExternalReloadRef.current = true;
@@ -362,6 +400,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const liveTurnRef = useRef<{ userId: string; assistantId: string; acc: string } | null>(null);
 
   const hasStarted = messages.length > 0 || isGenerating || isLive;
+  const lastUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id;
 
   useEffect(() => {
     onChatStartedChange?.(hasStarted);
@@ -374,7 +413,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // the reply fills it. The gap below the 👍👎Copy row and the top of the input
   // box matches Staging's gap to its suggestions row (both = the 32px gradient).
   const TARGET_VISUAL_OFFSET = 80; // = pt-20 on the thread column
-  const MESSAGE_GAP = 32;          // = gap-8 between message groups
+  const MESSAGE_GAP = 52;          // Gemini bubble edge to the following response
+  const THREAD_GAP = 32;           // All other completed-turn adjacencies
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
@@ -543,9 +583,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     recompute();
     const ro = new ResizeObserver(recompute);
     ro.observe(c);
+    const lastUserEl = lastUserMessageId ? messageRefs.current[lastUserMessageId] : null;
+    if (lastUserEl) ro.observe(lastUserEl);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStarted]);
+  }, [hasStarted, lastUserMessageId]);
 
   // ── Keep needsScrollPadding in sync with whether the reply CONTENT fits
   //    above the footer. Bidirectional: flips true when content outgrows the
@@ -586,10 +628,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     ];
     const sel = all.find((m) => m.id === selectedModelId);
     const provider = (sel?.provider ?? 'gemini') as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
-    const model = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3-flash-preview';
+    const model = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
     const thinkingLevel: number = sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
     const apiKey: string | undefined = apiKeys?.[provider]?.[0];
-    return { provider, model, thinkingLevel, apiKey };
+    const effortLabel = sel && thinkingLevel > 0 ? getThinkingEffortLabel(sel) : '';
+    const baseLabel = getShortModelName(sel?.name || model);
+    const modelLabel = `${baseLabel}${effortLabel ? ` ${effortLabel}` : ''}`;
+    return { provider, model, thinkingLevel, apiKey, modelLabel };
   }, [modelConfig, selectedModelId, apiKeys]);
 
   const newId = () => crypto.randomUUID?.() || Math.random().toString(36).slice(2);
@@ -611,10 +656,14 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, historyOverride?: ChatMsg[]) => {
       const trimmed = text.trim();
-      if (!trimmed || isGenerating) return;
+      if (!trimmed || isGenerating || sendInFlightRef.current) return;
       if (!isAuthenticated) { onAuthRequired?.(); return; }
+
+      const { provider, model, thinkingLevel, apiKey, modelLabel } = resolveModel();
+      sendInFlightRef.current = true;
+      const isBrandNewConversation = historyOverride === undefined && messages.length === 0;
 
       const userMsg: ChatMsg = { id: newId(), role: 'user', content: trimmed, isNew: true };
       const assistantId = newId();
@@ -623,12 +672,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         role: 'assistant',
         content: '',
         isGenerating: true,
+        modelSnapshot: {
+          provider,
+          modelId: model,
+          label: modelLabel,
+          thinkingLevel,
+        },
       };
 
-      const prevMessages = messages;
-      setMessages((prev) => [...prev, userMsg, assistantPlaceholder]);
+      const prevMessages = historyOverride ?? messages;
+      setMessages([...prevMessages, userMsg, assistantPlaceholder]);
 
-      if (!isIncognito && isLocalFolderConnected && prevMessages.length === 0) {
+      if (!isIncognito && isLocalFolderConnected && isBrandNewConversation) {
         // Initialize the local chat with the temporary ID so it shows up as a skeleton loader in the sidebar immediately!
         void saveLocalFSChat(chatSessionId, [userMsg], null);
       }
@@ -648,8 +703,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         setThinkSeconds(s);
       }, 1000);
 
-      const { provider, model, thinkingLevel, apiKey } = resolveModel();
       if (!apiKey) {
+        sendInFlightRef.current = false;
         stopThinking();
         setIsGenerating(false);
         finalizeAssistant(
@@ -667,11 +722,21 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       }));
 
       let acc = '';
+      let thoughtAcc = '';
       try {
         await streamChat(
           history,
           // Chat mode: search grounding + native code execution both offered.
-          { provider, model, apiKey, thinkingLevel, enableSearch: true, enableCodeExecution: true, baseUrl: (modelConfig as any)?.[provider]?.baseUrl },
+          {
+            provider,
+            model,
+            apiKey,
+            thinkingLevel,
+            includeThoughts: thinkingLevel > 0,
+            enableSearch: true,
+            enableCodeExecution: true,
+            baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
+          },
           (token) => {
             if (isThinkingRef.current) {
               const elapsed = Math.max(1, Math.ceil((Date.now() - thinkStart.current) / 1000));
@@ -688,7 +753,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             // Keep the shimmer row live with the right label until real text
             // streams. 'responding' is handled by the onToken branch above.
             if (phase !== 'responding') setThinkingPhase(phase);
-          }
+          },
+          undefined,
+          (thoughtChunk) => {
+            thoughtAcc += thoughtChunk;
+            setMessages((prev) => prev.map((message) =>
+              message.id === assistantId
+                ? { ...message, thinkingText: thoughtAcc }
+                : message
+            ));
+          },
         );
         finalizeAssistant(assistantId, acc, thinkSecondsRef.current);
       } catch (e: any) {
@@ -699,12 +773,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           true
         );
       } finally {
+        sendInFlightRef.current = false;
         stopThinking();
         setStreaming('');
         setIsGenerating(false);
       }
     },
-    [messages, isGenerating, isAuthenticated, onAuthRequired, resolveModel, stopThinking]
+    [messages, isGenerating, isAuthenticated, onAuthRequired, resolveModel, stopThinking, isIncognito, isLocalFolderConnected, saveLocalFSChat, chatSessionId, modelConfig]
   );
 
   // ── Live mode ──────────────────────────────────────────────────────────────
@@ -725,7 +800,19 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     setMessages((prev) => [
       ...prev,
       { id: userId, role: 'user', content: '', isTranscribing: true, isNew: true },
-      { id: assistantId, role: 'assistant', content: '', isGenerating: true, isLive: true },
+      {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        isGenerating: true,
+        isLive: true,
+        modelSnapshot: {
+          provider: 'gemini',
+          modelId: LIVE_MODEL_ID,
+          label: '3.1 Flash Live',
+          thinkingLevel: 0,
+        },
+      },
     ]);
 
     // Live turns are real-time: no "Thinking" shimmer, no "Thought for Xs".
@@ -934,6 +1021,57 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     setTimeout(() => setCopiedId((id) => (id === msg.id ? null : id)), 1600);
   };
 
+  const handleListen = (msg: ChatMsg) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    if (listeningId === msg.id) {
+      setListeningId(null);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(msg.content);
+    utterance.onend = () => setListeningId((id) => (id === msg.id ? null : id));
+    utterance.onerror = () => setListeningId((id) => (id === msg.id ? null : id));
+    setListeningId(msg.id);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleRegenerate = (assistantId: string) => {
+    if (isGenerating) return;
+    const assistantIndex = messages.findIndex((message) => message.id === assistantId);
+    if (assistantIndex < 1) return;
+    const userIndex = messages.slice(0, assistantIndex).map((message) => message.role).lastIndexOf('user');
+    if (userIndex < 0) return;
+
+    const userMessage = messages[userIndex];
+    stopListening();
+    setOpenThinkingMessageId(null);
+    void handleSend(userMessage.content, messages.slice(0, userIndex));
+  };
+
+  const startEditing = (msg: ChatMsg) => {
+    if (isGenerating) return;
+    setEditingUserId(msg.id);
+    setEditDraft(msg.content);
+  };
+
+  const submitEdit = (messageId: string) => {
+    const trimmed = editDraft.trim();
+    if (!trimmed || isGenerating) return;
+    const userIndex = messages.findIndex((message) => message.id === messageId);
+    if (userIndex < 0) return;
+
+    stopListening();
+    setEditingUserId(null);
+    setEditDraft('');
+    setOpenThinkingMessageId(null);
+    void handleSend(trimmed, messages.slice(0, userIndex));
+  };
+
+  useEffect(() => () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   // EMPTY STATE — render the *actual* HeroSection + BottomPanel so the layout
   // is literally the same component tree as Develop mode (single source of
@@ -951,8 +1089,6 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           setSelectedModelId={setSelectedModelId}
           onAuthRequired={onAuthRequired}
           isAuthenticated={isAuthenticated}
-          agentSwarmEnabled={agentSwarmEnabled}
-          onSwarmToggle={onSwarmToggle}
           isIncognito={isIncognito}
         />
         {isAuthenticated && (
@@ -966,22 +1102,32 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // ACTIVE STATE — ChatGPT-style thread with bottom-docked input
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
+  const thinkingMessage = openThinkingMessageId
+    ? messages.find((message) => message.id === openThinkingMessageId && message.role === 'assistant')
+    : undefined;
 
   return (
-    <div className="relative flex flex-col h-full w-full">
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden">
+      <div
+        className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col transition-[margin-right] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+          thinkingMessage ? 'min-[1024px]:mr-[428px]' : 'mr-0'
+        }`}
+      >
       {/* Scrollable message thread
           scrollbar-gutter:stable keeps the mx-auto column from nudging left
           the moment streamed content grows tall enough to spawn a scrollbar. */}
       <div
         ref={chatScrollRef}
-        className="flex-1 overflow-y-auto"
+        className="gemini-chat-scrollbar min-h-0 flex-1 overflow-y-auto"
         style={{ scrollbarGutter: 'stable' }}
       >
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.25, delay: 0.15 }}
-          className="mx-auto w-full max-w-[768px] px-5 pt-20 flex flex-col gap-8"
+          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-20 transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+            thinkingMessage ? 'min-[1024px]:pl-9' : ''
+          }`}
           style={{
             paddingBottom:
               responseAreaMinHeight !== undefined && !needsScrollPadding ? 0 : footerH,
@@ -993,8 +1139,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               <span>Incognito Mode — Temporary Session</span>
             </div>
           )}
-          {messages.map((msg) => {
+          {messages.map((msg, messageIndex) => {
+            const previousMessage = messages[messageIndex - 1];
+            const gapBefore = messageIndex === 0
+              ? (isIncognito ? THREAD_GAP : 0)
+              : previousMessage?.role === 'user' && msg.role === 'assistant'
+                ? MESSAGE_GAP
+                : THREAD_GAP;
+
             if (msg.role === 'user') {
+              const isLastUser = msg.id === lastUserMessageId;
               return (
                 <motion.div
                   key={msg.id}
@@ -1002,19 +1156,91 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                   initial={msg.isNew ? { opacity: 0, y: 8 } : false}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="flex justify-end"
+                  className="group relative flex justify-end"
+                  style={{ marginTop: gapBefore }}
                 >
-                  <div className="max-w-[78%] min-w-0 bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {msg.isTranscribing && !msg.content ? (
-                      // Live-mode utterance whose transcript hasn't landed yet.
-                      // The model has *already* got the raw audio — this is
-                      // purely a visual placeholder until inputTranscription
-                      // streams back.
-                      <span className="italic text-gray-500 select-none">Transcribing…</span>
-                    ) : (
-                      msg.content
-                    )}
-                  </div>
+                  {editingUserId === msg.id ? (
+                    <form
+                      className="w-full max-w-[508px] rounded-[28px] bg-[#141414] p-4 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+                      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        submitEdit(msg.id);
+                      }}
+                    >
+                      <textarea
+                        autoFocus
+                        value={editDraft}
+                        onChange={(event) => setEditDraft(event.target.value)}
+                        rows={3}
+                        className="gemini-chat-scrollbar min-h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[17px] font-normal leading-6 text-[#e3e3e3] outline-none"
+                        aria-label="Edit prompt"
+                      />
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingUserId(null);
+                            setEditDraft('');
+                          }}
+                          className="h-9 rounded-full px-4 text-[14px] font-medium text-[#c4c7c5] transition-colors hover:bg-white/[0.08]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={!editDraft.trim()}
+                          className="h-9 rounded-full bg-[#d3e3fd] px-4 text-[14px] font-medium text-[#041e49] transition-colors hover:bg-[#e0ebff] disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Update
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div
+                        className="min-w-0 max-w-[508px] rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                      >
+                        {msg.isTranscribing && !msg.content ? (
+                          <span className="select-none italic text-gray-500">Transcribing…</span>
+                        ) : (
+                          msg.content
+                        )}
+                      </div>
+                      {!msg.isTranscribing && (
+                        <div className="gemini-user-actions pointer-events-none absolute right-0 top-full flex h-10 items-start pt-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(msg)}
+                            className="flex h-9 w-9 items-center justify-center rounded-full text-[#e6e6e6] transition-colors hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                            aria-label="Copy prompt"
+                            title="Copy prompt"
+                          >
+                            <MaterialSymbol
+                              family="luminous"
+                              name={copiedId === msg.id ? 'check' : 'copy'}
+                              size={24}
+                              weight={copiedId === msg.id ? 400 : 300}
+                              roundness={100}
+                              opticalSize={24}
+                            />
+                          </button>
+                          {isLastUser && (
+                            <button
+                              type="button"
+                              onClick={() => startEditing(msg)}
+                              className="flex h-9 w-9 items-center justify-center rounded-full text-[#e6e6e6] transition-colors hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                              aria-label="Edit"
+                              title="Edit"
+                            >
+                              <MaterialSymbol family="luminous" name="edit" size={24} weight={300} roundness={100} opticalSize={24} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </motion.div>
               );
             }
@@ -1027,21 +1253,22 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             // the same string, so StreamingMarkdown's RAF buffer can finish
             // draining without a content swap.
             const bodyText = generating ? streaming : msg.content || streaming;
-            const thoughtSecs = generating ? thinkSeconds : msg.thinkingTime;
             // Live turns: no "Thinking" shimmer, no "Thought for Xs" — the
             // voice starts near-instantly so the row is noise.
             const showThinkingRow =
               !msg.isError &&
               !msg.isLive &&
-              (generating || msg.thinkingTime !== undefined);
+              generating &&
+              bodyText.trim().length === 0;
             const isLastAssistant = msg.id === lastAssistantId;
 
             return (
               <div
                 key={msg.id}
                 ref={(el) => { messageRefs.current[msg.id] = el; }}
-                style={
-                  isLastAssistant && responseAreaMinHeight !== undefined
+                style={{
+                  marginTop: gapBefore,
+                  ...(isLastAssistant && responseAreaMinHeight !== undefined
                     ? {
                         // Reserve exactly the visible area below the user bubble.
                         // paddingBottom = footer height so the action row clears
@@ -1052,46 +1279,46 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                           : undefined,
                         paddingBottom: !needsScrollPadding ? footerH : undefined,
                       }
-                    : undefined
-                }
+                    : {}),
+                }}
               >
                 {/* Inner wrapper = pure content height, unaffected by the outer
                     minHeight/paddingBottom. Measured for the overflow check. */}
                 <div
                   ref={isLastAssistant ? lastAssistantContentRef : undefined}
-                  className="space-y-4"
+                  className="space-y-3"
                 >
                 {showThinkingRow && (() => {
                   const active = generating && isThinking;
-                  const PhaseIcon =
-                    active && thinkingPhase === 'searching' ? Search
-                    : active && thinkingPhase === 'executing' ? Terminal
-                    : Lightbulb;
+                  const phaseSymbol =
+                    active && thinkingPhase === 'searching' ? 'search'
+                    : active && thinkingPhase === 'executing' ? 'terminal'
+                    : 'lightbulb';
                   const phaseLabel =
                     thinkingPhase === 'searching' ? 'Searching'
                     : thinkingPhase === 'executing' ? 'Running code'
                     : 'Thinking';
                   return (
                     <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
-                      <PhaseIcon size={18} />
+                      <MaterialSymbol name={phaseSymbol} size={18} opticalSize={20} />
                       {active ? (
                         <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
                           {phaseLabel}
                         </TextShimmer>
                       ) : (
-                        <span className="text-[15.15px] font-medium">
-                          Thought for {Math.round(thoughtSecs ?? 0)}s
-                        </span>
+                        <span className="text-[15.15px] font-medium">{phaseLabel}</span>
                       )}
                     </div>
                   );
                 })()}
 
-                <StreamingMarkdown
-                  text={bodyText}
-                  isStreaming={generating}
-                  animate={generating && !msg.isError}
-                />
+                {bodyText && (
+                  <StreamingMarkdown
+                    text={bodyText}
+                    isStreaming={generating}
+                    animate={generating && !msg.isError}
+                  />
+                )}
 
                 {/* Action row — fades in only after completion to avoid layout jump */}
                 <motion.div
@@ -1101,38 +1328,28 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     height: generating ? 0 : 'auto',
                   }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
+                  className="overflow-visible"
+                  style={{ pointerEvents: generating ? 'none' : 'auto' }}
                 >
-                  <div className="flex items-center gap-3 pt-4 border-t border-white/5">
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() =>
-                          setReactions((r) => ({ ...r, [msg.id]: r[msg.id] === 'like' ? null : 'like' }))
-                        }
-                        className={`p-1.5 transition-colors ${
-                          reactions[msg.id] === 'like' ? 'text-white' : 'text-gray-500 hover:text-gray-300'
-                        }`}
-                      >
-                        <ThumbsUp size={14} fill={reactions[msg.id] === 'like' ? 'currentColor' : 'none'} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setReactions((r) => ({ ...r, [msg.id]: r[msg.id] === 'dislike' ? null : 'dislike' }))
-                        }
-                        className={`p-1.5 transition-colors ${
-                          reactions[msg.id] === 'dislike' ? 'text-white' : 'text-gray-500 hover:text-gray-300'
-                        }`}
-                      >
-                        <ThumbsDown size={14} fill={reactions[msg.id] === 'dislike' ? 'currentColor' : 'none'} />
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => handleCopy(msg)}
-                      className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors"
-                    >
-                      {copiedId === msg.id ? <Check size={14} /> : <Copy size={14} />}
-                    </button>
-                  </div>
+                  <ResponseActions
+                    reaction={reactions[msg.id] || null}
+                    copied={copiedId === msg.id}
+                    listening={listeningId === msg.id}
+                    canRedo={isLastAssistant}
+                    canShowThinking={!msg.isError}
+                    onLike={() => setReactions((current) => ({
+                      ...current,
+                      [msg.id]: current[msg.id] === 'like' ? null : 'like',
+                    }))}
+                    onDislike={() => setReactions((current) => ({
+                      ...current,
+                      [msg.id]: current[msg.id] === 'dislike' ? null : 'dislike',
+                    }))}
+                    onRedo={() => handleRegenerate(msg.id)}
+                    onCopy={() => handleCopy(msg)}
+                    onListen={() => handleListen(msg)}
+                    onShowThinking={() => setOpenThinkingMessageId(msg.id)}
+                  />
                 </motion.div>
                 </div>
               </div>
@@ -1152,11 +1369,14 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       >
         <div
           className="h-8 w-full max-w-[820px]"
-          style={{ background: `linear-gradient(to top, ${bgColor} 20%, ${bgColor}00)` }}
+          style={{
+            backgroundColor: 'var(--dashboard-surface)',
+            WebkitMaskImage: 'linear-gradient(to top, black 20%, transparent)',
+            maskImage: 'linear-gradient(to top, black 20%, transparent)',
+          }}
         />
         <div
-          className="w-full flex justify-center px-4 pb-5 pointer-events-auto"
-          style={{ backgroundColor: bgColor }}
+          className="w-full flex justify-center px-4 pb-5 pointer-events-auto bg-[var(--dashboard-surface)]"
         >
           <InputBar
             chatVariant
@@ -1179,6 +1399,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           />
         </div>
       </motion.div>
+      </div>
+
+      <AnimatePresence>
+        {thinkingMessage && (
+          <ThinkingStepsSidebar
+            key={thinkingMessage.id}
+            thinkingText={thinkingMessage.thinkingText || ''}
+            modelLabel={thinkingMessage.modelSnapshot?.label || 'Model'}
+            onClose={() => setOpenThinkingMessageId(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

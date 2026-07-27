@@ -12,7 +12,7 @@ export const SidebarItem: React.FC<{
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
 }> = ({ icon: Icon, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
-  <div className="px-[14px]">
+  <div className="px-1.5">
     <div 
       role="button"
       tabIndex={0}
@@ -23,18 +23,16 @@ export const SidebarItem: React.FC<{
           else if (onClick) onClick();
         }
       }}
-      className={`relative flex items-center h-[36px] w-full transition-colors duration-150 group/item overflow-hidden cursor-pointer outline-none
-        ${active ? 'bg-[#1f1f1f] text-white' : 'text-white hover:bg-[#272729] hover:text-white'}
-        rounded-xl`}
+      className={`relative flex items-center gap-2 h-8 w-full px-2 transition-colors duration-150 group/item overflow-hidden cursor-pointer outline-none
+        ${active ? 'bg-[#171717] text-[#e6e6e6]' : 'text-[#e6e6e6] hover:bg-[#272729] hover:text-[#e6e6e6]'}
+        rounded-full`}
     >
       {Icon ? (
-        <div className="flex items-center justify-center w-[36px] shrink-0">
-          <Icon size={18} strokeWidth={active ? 2.2 : 2} className="transition-transform duration-200 group-active/item:scale-90" />
+        <div className="flex h-6 w-6 items-center justify-center shrink-0">
+          <Icon size={18} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
         </div>
-      ) : (
-        <div className="w-[9px] shrink-0" />
-      )}
-      <span className={`whitespace-nowrap text-[13.5px] font-medium tracking-tight transition-opacity duration-200 ease-linear ${isCollapsed ? 'opacity-0' : 'opacity-100'} flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+      ) : null}
+      <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-[540]' : 'font-normal'} ${isCollapsed ? 'opacity-0' : 'opacity-100'} flex-1 min-w-0 overflow-hidden text-ellipsis`}>
         {!isCollapsed && (customLabel || label)}
       </span>
       
@@ -53,7 +51,7 @@ export const SidebarItem: React.FC<{
       )}
 
       {isCollapsed && (
-        <div className="absolute left-[54px] ml-2 px-3 py-1.5 bg-[#18181b] text-white text-[12px] font-medium rounded-lg opacity-0 group-hover/item:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50 border border-white/5 shadow-2xl">
+        <div className="absolute left-[46px] ml-2 px-3 py-1.5 bg-[#18181b] text-white text-[12px] font-medium rounded-lg opacity-0 group-hover/item:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50 border border-white/5 shadow-2xl">
           {label}
         </div>
       )}
@@ -63,7 +61,7 @@ export const SidebarItem: React.FC<{
 
 export const SidebarSkeleton: React.FC<{ isCollapsed: boolean }> = ({ isCollapsed }) => {
   return (
-    <div className="px-[14px]">
+    <div className="px-1.5">
       <div className="sidebar-skeleton">
         <div className="sidebar-skeleton-shimmer" />
         {isCollapsed && (
@@ -77,8 +75,8 @@ export const SidebarSkeleton: React.FC<{ isCollapsed: boolean }> = ({ isCollapse
 };
 
 export const SectionHeader: React.FC<{ title: string; isCollapsed: boolean }> = ({ title, isCollapsed }) => (
-  <div className="h-[36px] mt-4 mb-0.5 flex items-center overflow-hidden" style={{ paddingLeft: '23px' }}>
-    <span className={`text-[13.5px] font-medium text-white transition-opacity duration-150 ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
+  <div className="h-8 mt-3 flex items-center overflow-hidden pl-[14px]">
+    <span className={`text-[13px] font-normal leading-[17px] text-white/55 transition-opacity duration-150 ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
       {!isCollapsed && title}
     </span>
   </div>

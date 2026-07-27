@@ -536,7 +536,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   };
 
   return (
-    <div className={`flex-1 w-full h-full ${background === 'solid' ? 'bg-[#212121]' : 'bg-[#1c1c1c]'} flex flex-col relative`}>
+    <div className={`flex-1 w-full h-full bg-[#0f0f0f] flex flex-col relative`}>
        <style>{`
         @keyframes subtle-star-jump {
           0%, 100% { transform: translateY(0); }
@@ -550,7 +550,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
       {/* Drive Not Connected Overlay */}
       {(!isDriveConnected && !isLocalFolderConnected) && (
         <div className="absolute inset-0 z-30 overflow-hidden">
-          <div className="absolute inset-0 backdrop-blur-md bg-[#1c1c1c]/90" />
+          <div className="absolute inset-0 backdrop-blur-md bg-[#0f0f0f]/90" />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
             <div className="w-20 h-20 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/10 shadow-xl">
               <HardDrive size={36} className="text-white/70" />

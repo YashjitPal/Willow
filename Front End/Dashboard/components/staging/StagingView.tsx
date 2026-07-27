@@ -21,11 +21,9 @@ interface StagingViewProps {
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
 }
 
-const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, agentSwarmEnabled, onSwarmToggle }) => {
+const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -499,8 +497,6 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
             projectName={projectName}
             isGeneratingName={isGeneratingName}
             onSettingsClick={onSettingsClick}
-            agentSwarmEnabled={agentSwarmEnabled}
-            onSwarmToggle={onSwarmToggle}
             onProjectHydrated={handleProjectHydrated}
           />
         </div>

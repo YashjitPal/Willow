@@ -446,9 +446,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [geminiDropdownOpen, geminiDropdownClosing, openaiDropdownOpen, openaiDropdownClosing, anthropicDropdownOpen, anthropicDropdownClosing]);
 
-  // Close dropdowns on scroll
+  // Close dropdowns on scroll outside the model selector menu
   useEffect(() => {
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest && target.closest('[data-dropdown]')) {
+        return;
+      }
       if (geminiDropdownOpen && !geminiDropdownClosing) closeGeminiDropdown();
       if (openaiDropdownOpen && !openaiDropdownClosing) closeOpenaiDropdown();
       if (anthropicDropdownOpen && !anthropicDropdownClosing) closeAnthropicDropdown();
@@ -753,15 +757,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
   const GEMINI_MODELS = [
     { 
-        id: 'gemini-3-pro-preview', 
-        name: 'Gemini 3 Pro', 
-        maxLevels: 2,
-        hasNone: false,
-        levelLabels: { 1: 'low', 2: 'high' }
+        id: 'gemini-3.6-flash',
+        name: 'Gemini 3.6 Flash',
+        maxLevels: 3,
+        hasNone: true,
+        noneLabel: 'None',
+        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
+    },
+    {
+        id: 'gemini-3.5-flash',
+        name: 'Gemini 3.5 Flash',
+        maxLevels: 3,
+        hasNone: true,
+        noneLabel: 'None',
+        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 
-        id: 'gemini-3-flash-preview', 
-        name: 'Gemini 3 Flash', 
+        id: 'gemini-3.5-flash-lite',
+        name: 'Gemini 3.5 Flash Lite',
         maxLevels: 3,
         hasNone: true,
         noneLabel: 'None',
@@ -773,14 +786,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         maxLevels: 2,
         hasNone: false,
         levelLabels: { 1: 'Low Reasoning', 2: 'High Reasoning' }
-    },
-        { 
-        id: 'gemini-3.5-flash', 
-        name: 'Gemini 3.5 Flash', 
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 
         id: 'gemini-3.1-pro-preview', 

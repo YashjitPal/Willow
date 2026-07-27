@@ -46,7 +46,6 @@ import {
   CodeXml,
   CornerLeftUp,
   AlertTriangle,
-  MessagesSquare,
   Library,
   Layout,
   Component,
@@ -76,7 +75,6 @@ import { ColorPickerMenu } from './ColorPickerMenu';
 import { VisualEditorSelectMenu } from './VisualEditorSelectMenu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
-import { isSwarmRunning as swarmRunningAtom, swarmAgents as swarmAgentsAtom } from '../../lib/agent-swarm/swarm-store';
 import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '../../lib/stores/agent-builder-store';
 import { newChatSignal } from '../../lib/stores/chat-store';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '../../lib/stores/design-store';
@@ -495,46 +493,6 @@ const stripCodeAndIndicators = (content: string): string => {
   return text;
 };
 
-// Agent Swarm Status Panel — shows per-agent status during swarm execution
-const SwarmStatusPanel: React.FC = () => {
-  const swarmRunning = useStore(swarmRunningAtom);
-  const agents = useStore(swarmAgentsAtom);
-
-  if (!swarmRunning) return null;
-
-  const agentEntries = Object.entries(agents) as [string, { status: string; statusMessage: string; streamingText: string }][];
-
-  return (
-    <div className="mx-0 mb-4 bg-[#1e1e2e] border border-purple-500/20 rounded-xl p-4 space-y-3">
-      <div className="flex items-center gap-2 text-purple-400 text-[13px] font-semibold">
-        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
-          <circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/>
-          <line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/>
-        </svg>
-        <span>Agent Swarm Active</span>
-      </div>
-      {agentEntries.map(([id, agent]) => (
-        <div key={id} className="flex items-center gap-3 text-[12px]">
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            agent.status === 'coding' || agent.status === 'thinking' || agent.status === 'assessing' || agent.status === 'synthesizing'
-              ? 'bg-green-400 animate-pulse'
-              : agent.status === 'waiting' || agent.status === 'distributing'
-              ? 'bg-yellow-400'
-              : agent.status === 'done'
-              ? 'bg-zinc-500'
-              : agent.status === 'error'
-              ? 'bg-red-400'
-              : 'bg-zinc-600'
-          }`} />
-          <span className="text-zinc-300 font-medium w-[70px]">{id.charAt(0).toUpperCase() + id.slice(1)}</span>
-          <span className="text-zinc-500 truncate flex-1">{agent.statusMessage || 'Idle'}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-
 interface SidebarProps {
   width: number;
   isCollapsed: boolean;
@@ -554,8 +512,6 @@ interface SidebarProps {
   isProjectPromoted?: boolean;
   isGeneratingName?: boolean;
   onSettingsClick?: (tab?: string) => void;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
   onProjectHydrated?: () => void;
 }
 
@@ -1634,7 +1590,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, agentSwarmEnabled, onSwarmToggle, onProjectHydrated }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
@@ -3624,20 +3580,13 @@ User Prompt:
       setCurrentThinkingTime(thinkingTimeRef.current);
     }, 1000);
 
-    // Route based on activeTab, selectedToolId, isTestMode, or Agent Swarm
+    // Route based on activeTab, selectedToolId, or isTestMode
     if (activeTab === 'canvas-screens') {
       // Design mode — isolated design generation
       await startDesignGeneration(text);
     } else if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
       await startTestGeneration(text);
-    } else if (agentSwarmEnabled && selectedToolId === null) {
-      // Agent Swarm mode — only when no tools are selected
-      const history: AiChatMessage[] = messages.map(m => ({
-          role: m.role,
-          content: m.content
-      }));
-      await startSwarmGeneration(text, history, processedAttachments, imageAssetPaths);
     } else {
       // Normal code generation - Trigger generation with history
       const history: AiChatMessage[] = messages.map(m => ({
@@ -3693,7 +3642,7 @@ User Prompt:
       } else {
         // Fallback to default
         provider = 'gemini';
-        modelId = (modelConfig.gemini?.model) || 'gemini-3-pro-preview';
+        modelId = (modelConfig.gemini?.model) || 'gemini-3.6-flash';
       }
 
       console.log(`Starting AI generation with ${provider} (${modelId})`);
@@ -4122,168 +4071,6 @@ CODING RULES:
       if (generationAbortControllerRef.current === abortController) {
         generationAbortControllerRef.current = null;
       }
-    }
-  };
-
-  // === AGENT SWARM GENERATION ===
-  const swarmAbortControllerRef = useRef<AbortController | null>(null);
-
-  const startSwarmGeneration = async (
-    text: string,
-    history: AiChatMessage[],
-    currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [],
-    imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []
-  ) => {
-    // Dynamic import to keep bundle small when not used
-    const { SwarmOrchestrator, isSwarmRunning, swarmAgents, appendChatroomMessage, resetSwarmState } = await import('../../lib/agent-swarm');
-
-    resetSwarmState();
-    isSwarmRunning.set(true);
-
-    const abortController = new AbortController();
-    swarmAbortControllerRef.current = abortController;
-    const runId = ++generationRunIdRef.current;
-    const isCurrentRun = () => generationRunIdRef.current === runId;
-
-    // Clear previously animated content tracking
-    animatedContentRef.current.clear();
-
-    // Set up streaming parser BEFORE execute so synthesis tokens stream live
-    const messageParser = workbenchStore.createMessageParser();
-    workbenchStore.isGenerating.set(true);
-    let synthesisResponseText = '';
-
-    try {
-      const projectFiles = sandpackStore.files.get();
-
-      const orchestrator = new SwarmOrchestrator({
-        apiKeys,
-        modelConfig,
-        selectedModelId,
-        projectFiles: projectFiles as any,
-        chatHistory: history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        onAgentStatusChange: (agentId, status, message) => {
-          if (!isCurrentRun()) return;
-          const current = swarmAgents.get()[agentId];
-          swarmAgents.setKey(agentId, { ...current, status, statusMessage: message });
-        },
-        onToken: (agentId, token) => {
-          if (!isCurrentRun()) return;
-          const current = swarmAgents.get()[agentId];
-          swarmAgents.setKey(agentId, { ...current, streamingText: current.streamingText + token });
-        },
-        onChatroomMessage: (message) => {
-          if (!isCurrentRun()) return;
-          appendChatroomMessage(message);
-        },
-        // Stream Willow's final synthesis live — shows file indicators + streaming text
-        onSynthesisToken: (token) => {
-          if (!isCurrentRun()) return;
-          synthesisResponseText += token;
-          setCurrentStreamingResponse(synthesisResponseText);
-          // Feed to the parser so "Editing <file>" indicators appear in real-time
-          messageParser.parse(token);
-        },
-        onComplete: () => {
-          if (!isCurrentRun()) return;
-          isSwarmRunning.set(false);
-        },
-        onError: (error) => {
-          if (!isCurrentRun()) return;
-          console.error('[Swarm] Error:', error);
-          isSwarmRunning.set(false);
-        },
-        abortSignal: abortController.signal,
-      });
-
-      const result = await orchestrator.execute(text);
-      if (!isCurrentRun()) return;
-      if (abortController.signal.aborted) {
-        setCurrentStreamingResponse('');
-        setIsCurrentlyGenerating(false);
-        setIsCurrentlyThinking(false);
-        isSwarmRunning.set(false);
-        workbenchStore.isGenerating.set(false);
-        if (swarmAbortControllerRef.current === abortController) {
-          swarmAbortControllerRef.current = null;
-        }
-        return;
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(7),
-        role: 'assistant',
-        content: result.finalResponse,
-        thinkingTime: Math.ceil(result.totalDuration / 1000),
-        hasCodeChanges: responseHasCodeChanges(result.finalResponse),
-        timestamp: Date.now(),
-      };
-
-      // Mark as completed so it won't re-animate
-      completedMessagesRef.current.add(assistantMessage.id);
-
-      setMessages(prev => [...prev, assistantMessage]);
-      setCurrentStreamingResponse('');
-      setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-
-      // Process the full response through workbench for preview rendering
-      try {
-        await workbenchStore.processAIResponse(result.finalResponse);
-        console.log('[Swarm] Processed final response with workbenchStore');
-      } catch (err) {
-        console.error('[Swarm] Error processing response:', err);
-      }
-
-      // Flush any pending file edits
-      await workbenchStore.flushPendingEdits();
-
-      if (assistantMessage.hasCodeChanges) {
-        const snapshot: Record<string, string> = {};
-        Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
-          snapshot[path] = file.content;
-        });
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantMessage.id ? { ...msg, filesSnapshot: snapshot } : msg
-        ));
-        workbenchStore.activeSnapshotId.set(assistantMessage.id);
-      }
-
-      if (isCurrentRun()) workbenchStore.isGenerating.set(false);
-      isSwarmRunning.set(false);
-      if (swarmAbortControllerRef.current === abortController) {
-        swarmAbortControllerRef.current = null;
-      }
-    } catch (error: any) {
-      if (!isCurrentRun()) return;
-      console.error('[Swarm] Execution error:', error);
-      setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-      setNeedsScrollPadding(true);
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-      isSwarmRunning.set(false);
-      // Clear the global generating flag so the preview never sticks on the
-      // loading animation after a swarm error/abort.
-      workbenchStore.isGenerating.set(false);
-      if (swarmAbortControllerRef.current === abortController) {
-        swarmAbortControllerRef.current = null;
-      }
-
-      // Add error as assistant message
-      if (abortController.signal.aborted || isAbortError(error)) {
-        setCurrentStreamingResponse('');
-        return;
-      }
-      const errorMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(7),
-        role: 'assistant',
-        content: `Agent Swarm encountered an error: ${error.message || 'Unknown error'}`,
-        hasCodeChanges: false,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      setCurrentStreamingResponse('');
     }
   };
 
@@ -5639,9 +5426,6 @@ CODING RULES:
             );
             })}
 
-            {/* Agent Swarm Status Panel */}
-            <SwarmStatusPanel />
-
             {/* Current Streaming / Thinking UI - Only for NORMAL messages (not test mode) */}
             {isCurrentlyGenerating && !testStore.isTestMode.get() && (
               <div
@@ -6151,22 +5935,6 @@ CODING RULES:
                                   </button>
                                </div>
                              )}
-                             {/* Agent Swarm Toggle */}
-                             <div className="px-3 py-2.5 border-t border-white/5 flex items-center justify-between">
-                               <div className="flex items-center gap-2">
-                                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="text-purple-400">
-                                   <circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/>
-                                   <line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/>
-                                 </svg>
-                                 <span className="text-[12px] font-medium text-zinc-400">Swarm</span>
-                               </div>
-                               <button
-                                 onClick={(e) => { e.stopPropagation(); onSwarmToggle?.(!agentSwarmEnabled); }}
-                                 className={`relative w-7 h-[16px] rounded-full transition-colors ${agentSwarmEnabled ? 'bg-purple-500' : 'bg-zinc-700'}`}
-                               >
-                                 <div className={`absolute top-[1.5px] w-[13px] h-[13px] rounded-full bg-white transition-transform ${agentSwarmEnabled ? 'translate-x-[13px]' : 'translate-x-[1.5px]'}`} />
-                               </button>
-                             </div>
                           </div>
                         )}
                         <button 
@@ -6185,8 +5953,6 @@ CODING RULES:
                               // to mutate the workbench after the user stopped.
                               generationRunIdRef.current += 1;
                               generationAbortControllerRef.current?.abort();
-                              swarmAbortControllerRef.current?.abort();
-                              swarmRunningAtom.set(false);
                               if (testStore.isTestMode.get()) testStore.cancelTest();
                               setCurrentStreamingResponse('');
                               setIsCurrentlyGenerating(false);

@@ -7,6 +7,7 @@ import { deleteCodeSessions } from '../lib/willowDB';
 import { useLocalFS } from '../context/LocalFSContext';
 import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
 import { transactionalRenameProject } from '../lib/projectRename';
+import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from '../lib/dashboard-layout';
 
 // @ts-ignore
 import willSmithVideo from '../../Content/Will smith.mp4';
@@ -47,15 +48,13 @@ export const HeroSection: React.FC<{
   setSelectedModelId: (id: string) => void;
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
-  agentSwarmEnabled?: boolean;
-  onSwarmToggle?: (enabled: boolean) => void;
   initialMode?: Mode;
   /** Chat-mode live-voice toggle. Only provided by DashboardChat; Develop leaves it undefined. */
   onStartLive?: () => void;
   dashboardMode?: 'develop' | 'media';
   isIncognito?: boolean;
   isSidebarCollapsed?: boolean;
-}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, agentSwarmEnabled, onSwarmToggle, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false }) => {
+}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false }) => {
   const { userProfile } = useAuth();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -767,7 +766,7 @@ export const HeroSection: React.FC<{
             style={{
               position: 'fixed',
               bottom: '32px',
-              left: isSidebarCollapsed ? 'calc(50vw + 32px)' : 'calc(50vw + 130px)',
+              left: `calc(50vw + ${isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH / 2 : DASHBOARD_SIDEBAR_EXPANDED_WIDTH / 2}px)`,
               transform: 'translateX(-50%)',
               transition: 'left 280ms cubic-bezier(0.32, 0.72, 0, 1)',
               zIndex: 50
@@ -804,8 +803,6 @@ export const HeroSection: React.FC<{
             setSelectedModelId={setSelectedModelId}
             onAuthRequired={onAuthRequired}
             isAuthenticated={isAuthenticated}
-            agentSwarmEnabled={agentSwarmEnabled}
-            onSwarmToggle={onSwarmToggle}
             chatVariant={initialMode === 'chat'}
             onStartLive={onStartLive}
           />

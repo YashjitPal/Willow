@@ -75,6 +75,18 @@ const SPACEXAI_MODELS: Array<GeminiModel & { defaultThinkingLevel: number }> = [
   }
 ];
 
+const STANDARD_THINKING_LABELS: Record<number, string> = {
+  1: 'Low',
+  2: 'Medium',
+  3: 'High'
+};
+
+const getConfiguredThinkingLabel = (
+  level: number,
+  levelLabels: Record<number, string> = STANDARD_THINKING_LABELS,
+  noneLabel = 'None'
+) => level === 0 ? noneLabel : levelLabels[level] || `Level ${level}`;
+
 // Custom Bulb Icon: Uses standard Lightbulb but fills it when active (Reasoning On)
 const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean, className?: string, strokeWidth?: number }) => {
     return (
@@ -422,7 +434,12 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                               id: Math.random().toString(36).substr(2, 9),
                               modelId: selectedModel.id,
                               name: selectedModel.name,
-                              thinkingLevel: prev.gemini.thinkingLevel
+                              thinkingLevel: prev.gemini.thinkingLevel,
+                              thinkingLabel: getConfiguredThinkingLabel(
+                                prev.gemini.thinkingLevel,
+                                selectedModel.levelLabels,
+                                selectedModel.noneLabel
+                              )
                             }
                           ]
                         }
@@ -550,7 +567,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.openai.model,
                             name: modelName,
-                            thinkingLevel: prev.openai.thinkingLevel
+                            thinkingLevel: prev.openai.thinkingLevel,
+                            thinkingLabel: getConfiguredThinkingLabel(prev.openai.thinkingLevel)
                           }
                         ]
                       }
@@ -668,7 +686,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.anthropic.model,
                             name: modelName,
-                            thinkingLevel: prev.anthropic.thinkingLevel
+                            thinkingLevel: prev.anthropic.thinkingLevel,
+                            thinkingLabel: getConfiguredThinkingLabel(prev.anthropic.thinkingLevel)
                           }
                         ]
                       }
@@ -784,7 +803,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.moonshot.model,
                             name: modelName,
-                            thinkingLevel: prev.moonshot.thinkingLevel
+                            thinkingLevel: prev.moonshot.thinkingLevel,
+                            thinkingLabel: getConfiguredThinkingLabel(
+                              prev.moonshot.thinkingLevel,
+                              selectedModel?.levelLabels
+                            )
                           }
                         ]
                       }
@@ -890,7 +913,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.spacexai.model,
                             name: modelName,
-                            thinkingLevel: prev.spacexai.thinkingLevel
+                            thinkingLevel: prev.spacexai.thinkingLevel,
+                            thinkingLabel: getConfiguredThinkingLabel(
+                              prev.spacexai.thinkingLevel,
+                              selectedModel?.levelLabels
+                            )
                           }
                         ]
                       }
@@ -977,7 +1004,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.zhipuai.model,
                             name: modelName,
-                            thinkingLevel: 0
+                            thinkingLevel: 0,
+                            thinkingLabel: getConfiguredThinkingLabel(0)
                           }
                         ]
                       }
@@ -1404,9 +1432,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     ].find(m => m.modelId === modelConfig.systemDefaults?.chatRenaming)?.name
                       || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3.1-flash-lite'
                         ? 'Gemini 3.1 Flash Lite'
-                        : modelConfig.systemDefaults?.chatRenaming === 'gemini-3-flash-preview'
-                          ? 'Gemini 3 Flash'
-                          : modelConfig.systemDefaults?.chatRenaming)
+                        : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.5-flash-lite'
+                          ? 'Gemini 3.5 Flash Lite'
+                          : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.6-flash'
+                            ? 'Gemini 3.6 Flash'
+                            : modelConfig.systemDefaults?.chatRenaming)
                       || 'Select model'}
                   </span>
                   <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
