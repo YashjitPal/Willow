@@ -1102,6 +1102,9 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // ACTIVE STATE — ChatGPT-style thread with bottom-docked input
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
+  const latestConversationMessageId = [...messages]
+    .reverse()
+    .find((m) => m.role === 'user' || m.role === 'assistant')?.id;
   const thinkingMessage = openThinkingMessageId
     ? messages.find((message) => message.id === openThinkingMessageId && message.role === 'assistant')
     : undefined;
@@ -1261,11 +1264,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               generating &&
               bodyText.trim().length === 0;
             const isLastAssistant = msg.id === lastAssistantId;
+            const isLatestCompletedTurn = !generating && msg.id === latestConversationMessageId;
 
             return (
               <div
                 key={msg.id}
                 ref={(el) => { messageRefs.current[msg.id] = el; }}
+                className="group/assistant-response"
                 style={{
                   marginTop: gapBefore,
                   ...(isLastAssistant && responseAreaMinHeight !== undefined
@@ -1324,12 +1329,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                 <motion.div
                   initial={false}
                   animate={{
-                    opacity: generating ? 0 : 1,
                     height: generating ? 0 : 'auto',
                   }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-visible"
-                  style={{ pointerEvents: generating ? 'none' : 'auto' }}
+                  transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
+                  className={`overflow-visible transition-opacity duration-[240ms] ease-[cubic-bezier(0.2,0,0,1)] ${
+                    generating
+                      ? 'pointer-events-none opacity-0'
+                      : isLatestCompletedTurn
+                        ? 'opacity-100'
+                        : 'pointer-events-none opacity-0 group-hover/assistant-response:pointer-events-auto group-hover/assistant-response:opacity-100 group-focus-within/assistant-response:pointer-events-auto group-focus-within/assistant-response:opacity-100'
+                  }`}
                 >
                   <ResponseActions
                     reaction={reactions[msg.id] || null}
