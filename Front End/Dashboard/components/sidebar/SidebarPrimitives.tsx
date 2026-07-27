@@ -23,18 +23,21 @@ export const SidebarItem: React.FC<{
           else if (onClick) onClick();
         }
       }}
-      className={`relative flex items-center gap-2 h-8 w-full px-2 transition-colors duration-150 group/item overflow-hidden cursor-pointer outline-none
-        ${active ? 'bg-[#171717] text-[#e6e6e6]' : 'text-[#e6e6e6] hover:bg-[#272729] hover:text-[#e6e6e6]'}
+      className={`relative flex h-8 items-center transition-colors duration-150 group/item cursor-pointer outline-none
+        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : 'mx-auto w-full gap-1.5 px-1.5 overflow-hidden'}
+        ${active ? 'bg-[#171717] text-[#e6e6e6] hover:bg-[#171717]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] hover:text-[#e6e6e6]'}
         rounded-full`}
     >
       {Icon ? (
-        <div className="flex h-6 w-6 items-center justify-center shrink-0">
-          <Icon size={18} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
+          <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
         </div>
       ) : null}
-      <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-[540]' : 'font-normal'} ${isCollapsed ? 'opacity-0' : 'opacity-100'} flex-1 min-w-0 overflow-hidden text-ellipsis`}>
-        {!isCollapsed && (customLabel || label)}
-      </span>
+      {!isCollapsed && (
+        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-[540]' : 'font-normal'} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+          {customLabel || label}
+        </span>
+      )}
       
       {href && !isCollapsed && (
         <div className="ml-auto pr-3 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center shrink-0">
@@ -74,10 +77,38 @@ export const SidebarSkeleton: React.FC<{ isCollapsed: boolean }> = ({ isCollapse
   );
 };
 
-export const SectionHeader: React.FC<{ title: string; isCollapsed: boolean }> = ({ title, isCollapsed }) => (
-  <div className="h-8 mt-3 flex items-center overflow-hidden pl-[14px]">
-    <span className={`text-[13px] font-normal leading-[17px] text-white/55 transition-opacity duration-150 ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
-      {!isCollapsed && title}
-    </span>
-  </div>
-);
+export const SectionHeader: React.FC<{
+  title: string;
+  isCollapsed: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  controlsId: string;
+}> = ({ title, isCollapsed, isExpanded, onToggle, controlsId }) => {
+  if (isCollapsed) {
+    return <div aria-hidden="true" className="h-3 shrink-0" />;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Toggle ${title}`}
+      aria-expanded={isExpanded}
+      aria-controls={controlsId}
+      onClick={onToggle}
+      className="group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center gap-1 overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal text-white/55 outline-none"
+    >
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      <span
+        aria-hidden="true"
+        className="luminous-symbols inline-flex h-4 w-4 shrink-0 items-center justify-center text-[16px] leading-4 opacity-0 transition-opacity duration-200 group-hover/section:opacity-100 group-focus-visible/section:opacity-100"
+        style={{
+          fontFamily: "'Luminous Symbols', sans-serif",
+          fontWeight: 330,
+          fontVariationSettings: '"FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100',
+        }}
+      >
+        {isExpanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right'}
+      </span>
+    </button>
+  );
+};

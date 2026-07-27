@@ -1,0 +1,2125 @@
+.spark-task-detail,
+.spark-task-detail * {
+  box-sizing: border-box;
+}
+
+.spark-task-detail {
+  --spark-base-surface: var(--dashboard-surface, #0f0f0f);
+  --spark-raised-surface: #1f1f1f;
+  --spark-panel-surface: #1f1f1f;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--spark-base-surface);
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  letter-spacing: 0;
+}
+
+@supports (background: color-mix(in srgb, black, white)) {
+  .spark-task-detail {
+    --spark-raised-surface: color-mix(in srgb, var(--spark-base-surface) 93.4%, white 6.6%);
+    --spark-panel-surface: color-mix(in srgb, var(--spark-base-surface) 93.4%, white 6.6%);
+  }
+}
+
+.spark-task-detail button,
+.spark-task-detail textarea,
+.spark-task-detail input {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.spark-task-detail button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.spark-task-detail__library {
+  position: relative;
+  width: 41.5%;
+  min-width: 430px;
+  max-width: 740px;
+  height: 100%;
+  min-height: 0;
+  flex: 0 1 41.5%;
+  padding-left: 8px;
+  overflow: hidden;
+  background: var(--spark-base-surface);
+  transition:
+    width 220ms cubic-bezier(0.2, 0, 0, 1),
+    min-width 220ms cubic-bezier(0.2, 0, 0, 1),
+    flex-basis 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 140ms ease;
+}
+
+.spark-task-detail.is-library-collapsed .spark-task-detail__library {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  flex-basis: 0;
+  padding-left: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spark-task-detail__library-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 660px;
+  height: 100%;
+  margin: 0 auto;
+  padding: 56px 0 32px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.spark-task-detail__library-inner:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.spark-task-detail__library-inner::-webkit-scrollbar,
+.spark-task-detail__conversation-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.spark-task-detail__library-inner::-webkit-scrollbar-track,
+.spark-task-detail__conversation-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.spark-task-detail__library-inner::-webkit-scrollbar-thumb,
+.spark-task-detail__conversation-scroll::-webkit-scrollbar-thumb {
+  border: 4px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.spark-task-detail__library-inner:hover::-webkit-scrollbar-thumb,
+.spark-task-detail__conversation-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.spark-task-detail__new-composer,
+.spark-task-detail__followup-composer {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 65.6px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 16.8px 16px 16.8px 14px;
+  border-radius: 32px;
+  background: #1e1f20;
+}
+
+.spark-task-detail__new-composer {
+  width: min(430px, calc(100% - 32px));
+  margin: -6px auto 0;
+  isolation: isolate;
+}
+
+.spark-task-detail__new-composer::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: -1;
+  width: 792px;
+  height: 160px;
+  border-radius: 9999px;
+  background: rgb(20, 32, 79);
+  content: "";
+  filter: blur(100px);
+  pointer-events: none;
+  transform: translate(-50%, -72px);
+}
+
+.spark-task-detail__new-composer textarea,
+.spark-task-detail__followup-composer textarea {
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  min-height: 24px;
+  max-height: 144px;
+  margin: 0 12px 4px 8px;
+  flex: 1 1 120px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.spark-task-detail__new-composer textarea::placeholder,
+.spark-task-detail__followup-composer textarea::placeholder {
+  color: #bdc1c6;
+  opacity: 1;
+}
+
+.spark-task-detail__new-composer textarea.is-dictating,
+.spark-task-detail__followup-composer textarea.is-dictating {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spark-task-detail__context-chips {
+  order: -1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0 2px 0 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.spark-task-detail__context-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.spark-task-detail__context-chip {
+  display: inline-flex;
+  max-width: min(220px, 72vw);
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 6px 0 10px;
+  border-radius: 16px;
+  background: #303134;
+  color: #e3e3e3;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.spark-task-detail__context-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__context-chip > button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-task-detail__context-chip > button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__context-chip > button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.spark-task-detail__icon-button,
+.spark-task-detail__send-button,
+.spark-task-detail__stop-button,
+.spark-task-detail__header-icon,
+.spark-task-detail__response-actions button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.spark-task-detail__icon-button:hover,
+.spark-task-detail__header-icon:hover,
+.spark-task-detail__response-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__icon-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.spark-task-detail__icon-button:disabled:hover {
+  background: transparent;
+}
+
+.spark-task-detail__response-actions button.is-selected {
+  background: rgba(255, 255, 255, 0.09);
+  color: #e3e3e3;
+}
+
+.spark-task-detail__send-button {
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-task-detail__send-button:hover:not(:disabled) {
+  background: #b8d2fa;
+}
+
+.spark-task-detail__send-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.spark-task-detail__send-button.is-submitting .luminous-symbols {
+  animation: spark-task-progress-spin 1.1s linear infinite;
+}
+
+.spark-task-detail__stop-button {
+  border: 2px solid #c4c7c5;
+  background: transparent;
+}
+
+.spark-task-detail__stop-button > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.spark-task-detail__stop-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__dictation-waveform {
+  position: absolute;
+  top: 50%;
+  right: 58px;
+  left: 54px;
+  width: auto;
+  transform: translateY(-50%);
+}
+
+.spark-task-detail__composer-error {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 16px;
+  z-index: 20;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #3c2021;
+  color: #f2b8b5;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.spark-task-detail__recent {
+  position: relative;
+  margin-top: 26px;
+}
+
+.spark-task-detail__new-composer.has-error + .spark-task-detail__recent {
+  margin-top: 66px;
+}
+
+.spark-task-detail__filter-button {
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-task-detail__filter-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.spark-task-detail__filter-menu {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  z-index: 18;
+  width: 170px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+  animation: spark-task-popover-in 150ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: top left;
+}
+
+.spark-task-detail__filter-menu button {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-task-detail__filter-menu button:hover,
+.spark-task-detail__filter-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.spark-task-detail__filter-check {
+  display: inline-flex;
+  width: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.spark-task-detail__recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 8px 16px 0;
+}
+
+.spark-task-detail__task-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 64px;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px 0 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  transition: background-color 140ms ease;
+}
+
+.spark-task-detail__task-row:has(.spark-task-detail__list-task-menu) {
+  z-index: 20;
+  overflow: visible;
+}
+
+.spark-task-detail__task-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.spark-task-detail__task-row.is-selected {
+  background: var(--spark-raised-surface);
+}
+
+.spark-task-detail__task-open {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 0 8px 0 16px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-task-detail__task-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.spark-task-detail__task-title {
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__task-description {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-detail__task-description > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__task-time,
+.spark-task-detail__pinned-icon {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.spark-task-detail__task-row:not(.is-selected) .spark-task-detail__task-time {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.spark-task-detail__task-row:not(.is-selected):hover .spark-task-detail__task-time,
+.spark-task-detail__task-row:not(.is-selected):focus-within .spark-task-detail__task-time,
+.spark-task-detail__task-row.is-menu-open .spark-task-detail__task-time {
+  visibility: visible;
+  opacity: 1;
+}
+
+.spark-task-detail__task-meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.spark-task-detail__needs-input-badge {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: #0b57d0;
+  color: #a8c7fa;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.spark-task-detail__row-menu-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: background-color 140ms ease, opacity 100ms ease;
+}
+
+.spark-task-detail__task-row:hover .spark-task-detail__row-menu-button,
+.spark-task-detail__task-row:focus-within .spark-task-detail__row-menu-button,
+.spark-task-detail__task-row.is-selected .spark-task-detail__row-menu-button,
+.spark-task-detail__task-row.is-menu-open .spark-task-detail__row-menu-button,
+.spark-task-detail__row-menu-button:hover,
+.spark-task-detail__row-menu-button[aria-expanded="true"] {
+  opacity: 1;
+  visibility: visible;
+}
+
+.spark-task-detail__row-menu-button:hover,
+.spark-task-detail__row-menu-button[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__list-task-menu {
+  position: absolute;
+  top: 56px;
+  right: 8px;
+  z-index: 22;
+  width: 200px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: #2b2b2b;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+  animation: spark-task-popover-in 150ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: top right;
+}
+
+.spark-task-detail__list-task-menu button {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-task-detail__list-task-menu button:hover,
+.spark-task-detail__list-task-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__list-task-menu button.is-danger {
+  color: #f2b8b5;
+}
+
+.spark-task-detail__empty-list {
+  margin: 20px 16px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.spark-task-detail__library-divider {
+  position: relative;
+  z-index: 28;
+  width: 1px;
+  height: 100%;
+  flex: 0 0 1px;
+}
+
+.spark-task-detail__library-divider::before,
+.spark-task-detail__library-divider::after {
+  position: absolute;
+  content: "";
+}
+
+.spark-task-detail__library-divider::before {
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 1px;
+  background: transparent;
+  transition: background-color 140ms ease;
+}
+
+.spark-task-detail__library-divider::after {
+  top: 0;
+  bottom: 0;
+  left: -10px;
+  width: 21px;
+}
+
+.spark-task-detail__library-divider:hover::before,
+.spark-task-detail__library-divider:focus-within::before {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.spark-task-detail__library-divider button {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: 2;
+  display: inline-flex;
+  width: 30px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  background: #1f1f1f;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  color: #d3d6d4;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -50%) scale(0.92);
+  transition:
+    opacity 120ms ease,
+    visibility 120ms ease,
+    transform 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 120ms ease;
+}
+
+.spark-task-detail__library-divider:hover button,
+.spark-task-detail__library-divider:focus-within button,
+.spark-task-detail__library-divider button:focus-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.spark-task-detail__library-divider button:hover {
+  background: #292929;
+}
+
+.spark-task-detail__workspace {
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 8px 8px 8px 0;
+}
+
+.spark-task-detail__panel {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #171717;
+  border-radius: 28px;
+  background: var(--spark-panel-surface);
+}
+
+.spark-task-detail__header {
+  position: relative;
+  z-index: 8;
+  display: flex;
+  height: 52px;
+  min-height: 52px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 28px;
+}
+
+.spark-task-detail__header-title {
+  margin: 0;
+  min-width: 0;
+  max-width: min(42vw, 410px);
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__beta-pill {
+  height: 22px;
+  padding: 3px 8px 2px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px;
+  color: #c4c7c5;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.spark-task-detail__header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.spark-task-detail__header-icon.is-open {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.spark-task-detail__mobile-back {
+  display: none;
+}
+
+.spark-task-detail__status-pill {
+  display: inline-flex;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spark-task-detail__status-pill .luminous-symbols {
+  color: #c4c7c5;
+}
+
+.spark-task-detail__status-pill:hover,
+.spark-task-detail__status-pill.is-open {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.spark-task-detail__progress-popover,
+.spark-task-detail__task-menu {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 20;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #2b2b2b;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+  animation: spark-task-popover-in 150ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: top right;
+}
+
+.spark-task-detail__progress-popover {
+  top: 43px;
+  right: 60px;
+  width: 304px;
+  height: auto;
+  max-height: min(404px, calc(100% - 55px));
+  padding: 20px 16px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 28px;
+  background: #101010;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.spark-task-detail__popover-heading {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  margin: 0;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.spark-task-detail__progress-summary {
+  display: flex;
+  height: 52px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.spark-task-detail__status-symbol.is-running {
+  animation: spark-task-progress-spin 1.5s linear infinite;
+}
+
+.spark-task-detail__menu-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.spark-task-detail__popover-group {
+  margin-top: 12px;
+}
+
+.spark-task-detail__popover-group h2 {
+  height: 24px;
+  margin: 0;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.spark-task-detail__popover-schedule {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 8px;
+}
+
+.spark-task-detail__popover-schedule-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.spark-task-detail__popover-schedule-copy strong {
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__popover-schedule-copy > span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__popover-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 10px;
+  background: #a8c7fa;
+  cursor: pointer;
+}
+
+.spark-task-detail__popover-toggle > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #062e6f;
+}
+
+.spark-task-detail__popover-toggle.is-off {
+  justify-content: flex-start;
+  border: 1px solid #8e918f;
+  background: transparent;
+}
+
+.spark-task-detail__popover-toggle.is-off > span {
+  background: #c4c7c5;
+}
+
+.spark-task-detail__popover-toggle:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.spark-task-detail__popover-files {
+  margin-top: 24px;
+}
+
+.spark-task-detail__popover-file-list {
+  display: grid;
+  margin-top: 6px;
+  gap: 2px;
+}
+
+.spark-task-detail__popover-file {
+  display: flex;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: #e6e6e6;
+  font-size: 13px;
+}
+
+.spark-task-detail__popover-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__popover-capabilities {
+  margin-top: 23px;
+}
+
+.spark-task-detail__popover-capabilities > h2 {
+  margin-bottom: 8px;
+}
+
+.spark-task-detail__popover-capability {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.spark-task-detail__capability-icon {
+  flex: 0 0 24px;
+  overflow: visible !important;
+}
+
+.spark-task-detail__popover-empty {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.spark-task-detail__task-menu {
+  width: 200px;
+  padding: 8px;
+  border-radius: 16px;
+}
+
+.spark-task-detail__task-menu button {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-task-detail__task-menu button:hover,
+.spark-task-detail__task-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__task-menu button.is-danger {
+  color: #f2b8b5;
+}
+
+.spark-task-detail__conversation-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 35px 24px var(--spark-followup-inset, 145px);
+  scroll-padding-bottom: var(--spark-followup-inset, 145px);
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+  direction: rtl;
+}
+
+.spark-task-detail__conversation-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.spark-task-detail__conversation {
+  width: 100%;
+  max-width: 724px;
+  min-height: 100%;
+  margin: 0 auto;
+  direction: ltr;
+  transform: translateX(8.85px);
+}
+
+.spark-task-detail.has-computer-use .spark-task-detail__conversation {
+  max-width: none;
+  transform: none;
+}
+
+.spark-task-detail.has-computer-use .spark-task-detail__assistant-response,
+.spark-task-detail.has-computer-use .spark-task-detail__working-row,
+.spark-task-detail.has-computer-use .spark-task-detail__approval-result,
+.spark-task-detail.has-computer-use .spark-task-detail__response-actions {
+  width: min(724px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.spark-task-detail__computer-use-slot {
+  width: 100%;
+}
+
+.spark-task-detail__user-row {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.spark-task-detail__sent-message {
+  display: flex;
+  max-width: min(452px, 100%);
+  align-items: flex-end;
+  flex-direction: column;
+}
+
+.spark-task-detail__attachment-pills {
+  display: flex;
+  max-width: 452px;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.spark-task-detail__attachment-pills > span {
+  display: inline-flex;
+  max-width: 220px;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 17px;
+  background: #282a2c;
+  color: #c4c7c5;
+  font-size: 12px;
+}
+
+.spark-task-detail__attachment-pills > span > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__user-bubble {
+  max-width: 452px;
+  padding: 20px 28px;
+  border-radius: 40px;
+  background: #171717;
+  color: #e6e6e6;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.spark-task-detail__user-actions {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.spark-task-detail__user-row:hover .spark-task-detail__user-actions,
+.spark-task-detail__user-row:focus-within .spark-task-detail__user-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.spark-task-detail__user-actions button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-task-detail__user-actions button:hover:not(:disabled),
+.spark-task-detail__user-actions button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6e6;
+}
+
+.spark-task-detail__user-actions button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.spark-task-detail__user-editor {
+  display: flex;
+  width: min(452px, 100%);
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 28px;
+  background: #2b2b2b;
+}
+
+.spark-task-detail__user-editor textarea {
+  width: 100%;
+  min-height: 48px;
+  max-height: 192px;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.spark-task-detail__user-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.spark-task-detail__user-editor-actions button {
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.spark-task-detail__user-editor-actions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.spark-task-detail__user-editor-actions button.is-primary {
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-task-detail__user-editor-actions button.is-primary:hover:not(:disabled) {
+  background: #b8d2fa;
+}
+
+.spark-task-detail__user-editor-actions button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.spark-task-detail__assistant-turn {
+  margin-top: 42px;
+  color: #e6e6e6;
+}
+
+.spark-task-detail__assistant-turn.is-needs-input {
+  margin-top: 49px;
+}
+
+.spark-task-detail__schedule-label,
+.spark-task-detail__working-row,
+.spark-task-detail__approval-result {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-detail__schedule-label {
+  min-height: 20px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-task-detail__working-row {
+  min-height: 36px;
+  margin-top: 12px;
+  color: #c4c7c5;
+}
+
+.spark-task-detail__assistant-turn.is-active .spark-task-detail__working-row .luminous-symbols,
+.spark-task-detail__local-response .spark-task-detail__working-row .luminous-symbols {
+  animation: spark-task-progress-spin 1.6s linear infinite;
+}
+
+.spark-task-detail__assistant-turn.is-needs-input .spark-task-detail__working-row {
+  width: max-content;
+  min-height: 32px;
+  margin-top: 0;
+  margin-left: -9px;
+  padding: 0 8px;
+}
+
+.spark-task-detail__assistant-response {
+  margin: 10px 8px 0;
+  color: #e6e6e6;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.spark-task-detail__assistant-response > :first-child {
+  margin-top: 0;
+}
+
+.spark-task-detail__assistant-response > :last-child {
+  margin-bottom: 0;
+}
+
+.spark-task-detail__assistant-response p,
+.spark-task-detail__assistant-response ul,
+.spark-task-detail__assistant-response ol {
+  margin: 0 0 16px;
+}
+
+.spark-task-detail__assistant-response ul,
+.spark-task-detail__assistant-response ol {
+  padding-left: 24px;
+}
+
+.spark-task-detail__assistant-response h1,
+.spark-task-detail__assistant-response h2,
+.spark-task-detail__assistant-response h3 {
+  margin: 24px 0 12px;
+  color: #e6e6e6;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 24px;
+}
+
+.spark-task-detail__assistant-response a {
+  color: #a8c7fa;
+}
+
+.spark-task-detail__assistant-response code {
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 1px 4px;
+  font-family: "Roboto Mono", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.spark-task-detail__assistant-response pre {
+  max-width: 100%;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background: #171717;
+}
+
+.spark-task-detail__assistant-response pre code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.spark-task-detail__assistant-response blockquote {
+  margin: 0 0 16px;
+  padding-left: 14px;
+  border-left: 3px solid rgba(168, 199, 250, 0.55);
+  color: #c4c7c5;
+}
+
+.spark-task-detail__assistant-response table {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.spark-task-detail__assistant-response th,
+.spark-task-detail__assistant-response td {
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+}
+
+.spark-task-detail__approval-card {
+  display: flex;
+  flex-direction: column;
+  margin: 24px 8px 0;
+  padding: 24px;
+  border: 0;
+  border-radius: 28px;
+  background: #171717;
+}
+
+.spark-task-detail__approval-card h3,
+.spark-task-detail__approval-card p,
+.spark-task-detail__approval-card ul {
+  margin: 0;
+}
+
+.spark-task-detail__approval-card h3 {
+  color: #e6e6e6;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.spark-task-detail__approval-body {
+  min-height: 112px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-detail__approval-body > p:first-child {
+  margin-bottom: 8px;
+}
+
+.spark-task-detail__approval-body ul {
+  padding-left: 27px;
+}
+
+.spark-task-detail__approval-body li {
+  min-height: 17px;
+  margin-bottom: 8px;
+  padding-left: 4px;
+  white-space: nowrap;
+}
+
+.spark-task-detail__approval-body a {
+  color: #e6e6e6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.spark-task-detail__approval-plan-heading {
+  margin-top: 16px !important;
+  font-weight: 700;
+}
+
+.spark-task-detail__approval-plan {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: #1f1f1f;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-detail__approval-actions {
+  display: flex;
+  min-height: 48px;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.spark-task-detail__approval-actions button,
+.spark-task-detail__rename-actions button {
+  height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: #1f1f1f;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+.spark-task-detail__approval-actions button:hover,
+.spark-task-detail__rename-actions button:hover {
+  background: #2a2a2a;
+}
+
+.spark-task-detail__rename-actions button[type="submit"] {
+  border-color: #a8c7fa;
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-task-detail__approval-actions button.is-primary {
+  background: #a8c7fa;
+  color: #062e6f;
+}
+
+.spark-task-detail__approval-actions button.is-primary:hover:not(:disabled) {
+  background: #b8d2fa;
+}
+
+.spark-task-detail__approval-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.spark-task-detail__approval-result {
+  min-height: 40px;
+  margin-top: 18px;
+  color: #c4c7c5;
+}
+
+.spark-task-detail__response-actions {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 0;
+  margin-top: 20px;
+}
+
+.spark-task-detail__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
+.spark-task-detail__response-actions.is-needs-input {
+  margin-top: 36px;
+}
+
+.spark-task-detail__response-menu {
+  position: fixed;
+  z-index: 200;
+  width: 208px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 20px;
+  background: #1f1f1f;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+  color: #e6e6e6;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  letter-spacing: 0;
+}
+
+.spark-task-detail__response-menu.opens-above {
+  animation: spark-task-response-menu-in-above 140ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: left bottom;
+}
+
+.spark-task-detail__response-menu.opens-below {
+  animation: spark-task-response-menu-in-below 140ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: left top;
+}
+
+.spark-task-detail__response-menu button {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-task-detail__response-menu button:hover,
+.spark-task-detail__response-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__response-menu button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: -2px;
+}
+
+.spark-task-detail__response-menu-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  color: #c4c7c5;
+}
+
+.spark-task-detail__thinking-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 34;
+  display: flex;
+  width: min(400px, calc(100% - 32px));
+  min-width: 320px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: var(--spark-base-surface, #101010);
+  box-shadow: -20px 0 48px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(34px);
+  transition:
+    opacity 180ms cubic-bezier(0.2, 0, 0, 1),
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-task-detail__thinking-panel.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.spark-task-detail__thinking-header {
+  display: flex;
+  height: 64px;
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 24px;
+  background: transparent;
+}
+
+.spark-task-detail__thinking-header-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.spark-task-detail__thinking-header-copy strong {
+  color: #e6e6e6;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.spark-task-detail__thinking-header > button {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-task-detail__thinking-header > button:hover,
+.spark-task-detail__thinking-header > button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6e6;
+}
+
+.spark-task-detail__thinking-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 8px 24px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.spark-task-detail__thinking-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.spark-task-detail__thinking-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.spark-task-detail__thinking-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.spark-task-detail__thinking-scroll::-webkit-scrollbar-thumb {
+  border: 4px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.spark-task-detail__thinking-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.spark-task-detail__thinking-timeline {
+  position: relative;
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 16px;
+  list-style: none;
+}
+
+.spark-task-detail__thinking-timeline::before {
+  position: absolute;
+  top: 0;
+  bottom: 52px;
+  left: 9px;
+  width: 1px;
+  background-image: radial-gradient(circle closest-side, #e6e6e6 100%, transparent 100%);
+  background-position: 0 0;
+  background-repeat: repeat-y;
+  background-size: 1px 4px;
+  content: "";
+}
+
+.spark-task-detail__thinking-timeline > li {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.spark-task-detail__thinking-node {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+}
+
+.spark-task-detail__thinking-step {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-task-detail__thinking-step :first-child {
+  margin-top: 0;
+}
+
+.spark-task-detail__thinking-step :last-child {
+  margin-bottom: 0;
+}
+
+.spark-task-detail__thinking-step p {
+  margin: 0 0 10px;
+}
+
+.spark-task-detail__thinking-step :is(ul, ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.spark-task-detail__thinking-timeline > li.is-done,
+.spark-task-detail__thinking-timeline > li.is-model-used {
+  align-items: center;
+  color: #e3e3e3;
+}
+
+.spark-task-detail__thinking-timeline > li.is-done .spark-task-detail__thinking-node,
+.spark-task-detail__thinking-timeline > li.is-model-used .spark-task-detail__thinking-node {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #e3e3e3;
+}
+
+.spark-task-detail__thinking-timeline > li.is-done .spark-task-detail__thinking-step,
+.spark-task-detail__thinking-timeline > li.is-model-used .spark-task-detail__thinking-step {
+  display: flex;
+  flex-direction: column;
+}
+
+.spark-task-detail__thinking-timeline > li.is-done strong,
+.spark-task-detail__thinking-timeline > li.is-model-used strong {
+  overflow: hidden;
+  color: #e3e3e3;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__local-turn {
+  margin-top: 52px;
+}
+
+.spark-task-detail__local-response {
+  margin-top: 36px;
+}
+
+.spark-task-detail__followup-zone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  padding: 28px 24px 30px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--spark-panel-surface) 92%, transparent) 24px,
+    var(--spark-panel-surface) 52px
+  );
+}
+
+.spark-task-detail__followup-composer {
+  max-width: 632px;
+  margin: 0 auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transform: translateX(12px);
+}
+
+.spark-task-detail__followup-composer.has-error + .spark-task-detail__disclaimer {
+  margin-top: 38px;
+}
+
+.spark-task-detail__disclaimer {
+  min-height: 16px;
+  margin: 3px auto 0;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: center;
+}
+
+.spark-task-detail__dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.56);
+  animation: spark-task-fade-in 150ms ease;
+}
+
+.spark-task-detail__rename-dialog,
+.spark-task-detail__delete-dialog {
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: #2b2b2b;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.48);
+}
+
+.spark-task-detail__rename-dialog h2,
+.spark-task-detail__delete-dialog h2 {
+  margin: 0 0 20px;
+  color: #e6e6e6;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 26px;
+}
+
+.spark-task-detail__delete-dialog > p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.spark-task-detail__rename-dialog input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(168, 199, 250, 0.75);
+  border-radius: 8px;
+  outline: 0;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.spark-task-detail__rename-dialog input:focus {
+  border-color: #a8c7fa;
+  box-shadow: 0 0 0 1px #a8c7fa;
+}
+
+.spark-task-detail__rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.spark-task-detail__delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.spark-task-detail__delete-actions button {
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-task-detail__delete-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-task-detail__delete-actions button.is-danger {
+  background: #f2b8b5;
+  color: #601410;
+}
+
+.spark-task-detail__delete-actions button.is-danger:hover {
+  background: #f5c4c1;
+}
+
+.spark-task-detail__rename-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.spark-task-detail :is(button, textarea, input):focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@keyframes spark-task-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spark-task-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spark-task-progress-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spark-task-response-menu-in-above {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spark-task-response-menu-in-below {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 1040px) {
+  .spark-task-detail__library-inner {
+    padding-right: 0;
+  }
+
+  .spark-task-detail__conversation-scroll {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .spark-task-detail__conversation,
+  .spark-task-detail__followup-composer {
+    transform: none;
+  }
+}
+
+@media (max-width: 880px) {
+  .spark-task-detail__library {
+    display: none;
+  }
+
+  .spark-task-detail__workspace {
+    width: 100%;
+    padding: 0;
+  }
+
+  .spark-task-detail__panel {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .spark-task-detail__header {
+    gap: 4px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .spark-task-detail__mobile-back {
+    display: inline-flex;
+  }
+
+  .spark-task-detail__header-title {
+    max-width: none;
+    flex: 1 1 0;
+  }
+
+  .spark-task-detail__conversation-scroll {
+    padding: 26px 16px 145px;
+  }
+
+  .spark-task-detail__followup-zone {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
+@media (max-width: 520px) {
+  .spark-task-detail__thinking-panel {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+  }
+
+  .spark-task-detail__thinking-header {
+    padding-left: 18px;
+  }
+
+  .spark-task-detail__thinking-scroll {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .spark-task-detail__beta-pill {
+    display: none;
+  }
+
+  .spark-task-detail__header-title {
+    max-width: none;
+  }
+
+  .spark-task-detail__status-pill {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .spark-task-detail__status-pill > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spark-task-detail__progress-popover {
+    right: 8px;
+    width: min(304px, calc(100% - 16px));
+  }
+
+  .spark-task-detail__user-bubble {
+    max-width: 90%;
+    padding: 16px 22px;
+  }
+
+  .spark-task-detail__approval-card {
+    margin-right: 0;
+    margin-left: 0;
+    padding: 20px;
+  }
+
+  .spark-task-detail__approval-body {
+    height: auto;
+  }
+
+  .spark-task-detail__approval-body li {
+    height: auto;
+    white-space: normal;
+  }
+
+  .spark-task-detail__approval-plan {
+    height: auto;
+    min-height: 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-task-detail *,
+  .spark-task-detail *::before,
+  .spark-task-detail *::after,
+  .spark-task-detail__response-menu {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

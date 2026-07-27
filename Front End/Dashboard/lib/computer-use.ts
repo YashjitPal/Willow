@@ -25,6 +25,14 @@ export interface TestResult {
   actionsPerformed: string[];
 }
 
+export interface ComputerUseTaskResult {
+  completed: boolean;
+  explanation: string;
+  actionsPerformed: string[];
+  /** True when the page opened but browser same-origin rules stopped automation. */
+  limited?: boolean;
+}
+
 // Conversation message for context
 export interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -129,6 +137,24 @@ User: "test the calculator"
 You: "I'll test the calculator by entering some numbers and operations. I'll try addition and see if the result is correct."
 
 Keep it brief and conversational. Don't use bullet points or formatting - just a simple paragraph.`;
+
+/**
+ * System instructions for Spark's local browser surface.  This intentionally
+ * stays separate from the QA prompt above: Spark is asked to complete a task,
+ * not to produce a test report.  The browser is an iframe, so the agent must
+ * also be honest when a cross-origin page cannot be inspected from the app.
+ */
+const COMPUTER_USE_TASK_SYSTEM_PROMPT = `You are Willow Spark's local computer-use agent.
+
+Complete the user's request in the browser shown in the screenshot. Use exactly one
+computer action per turn, wait for the next screenshot, and then continue. Prefer
+click_at, type_text_at, scroll_at, key_combination, and navigate. Do not claim that
+an action succeeded unless the tool result says it succeeded. Do not perform a
+destructive or irreversible action unless the user explicitly asked for it.
+
+If the page cannot be inspected because it is cross-origin or blocked from being
+embedded, explain that limitation plainly and stop. When the task is complete,
+return a concise user-facing summary of what was done and any remaining limitation.`;
 
 // Custom Function Declarations to simulate Computer Use on models like gemini-3.5-flash
 const LOCAL_COMPUTER_USE_TOOLS = [
@@ -533,10 +559,18 @@ async function executeAction(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const iframeWindow = iframe.contentWindow;
-    const iframeDocument = iframe.contentDocument || iframeWindow?.document;
-    
-    if (!iframeWindow || !iframeDocument) {
+    if (!iframeWindow) {
       return { success: false, error: 'Cannot access iframe content' };
+    }
+
+    // Reading `contentWindow.document` throws for a cross-origin frame.  URL
+    // navigation is still allowed by the browser in that situation, so defer
+    // the document requirement until actions that actually inspect the page.
+    let iframeDocument: Document | null = null;
+    try {
+      iframeDocument = iframe.contentDocument || iframeWindow.document;
+    } catch {
+      iframeDocument = null;
     }
     
     // CRITICAL: Use the ACTUAL dimensions for clicking, not the normalized ones
@@ -544,6 +578,10 @@ async function executeAction(
     const actualDimensions = screenshotDimensions;
     
     const { name, args } = action;
+
+    if (!iframeDocument && !['navigate', 'search', 'go_back', 'go_forward', 'open_web_browser'].includes(name)) {
+      return { success: false, error: 'The embedded page is cross-origin and cannot be controlled from Willow.' };
+    }
     
     console.log(`[ComputerUse] Executing action: ${name}`, args);
     
@@ -612,7 +650,7 @@ async function executeAction(
         // Wait for click animation
         await new Promise(resolve => setTimeout(resolve, 150));
         
-        const element = iframeDocument.elementFromPoint(x, y);
+        const element = iframeDocument?.elementFromPoint(x, y);
         console.log(`[ComputerUse] Element at (${x}, ${y}):`, element?.tagName, element?.className, element?.textContent?.substring(0, 50));
         
         if (element) {
@@ -662,7 +700,7 @@ async function executeAction(
         testStore.triggerClick(); // Click to focus
         await new Promise(resolve => setTimeout(resolve, 150));
         
-        const element = iframeDocument.elementFromPoint(x, y) as HTMLElement | null;
+        const element = iframeDocument?.elementFromPoint(x, y) as HTMLElement | null;
         if (element && ('value' in element || element.isContentEditable)) {
           element.focus();
           
@@ -708,7 +746,7 @@ async function executeAction(
         testStore.moveCursor(args.x as number, args.y as number);
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        const element = iframeDocument.elementFromPoint(x, y);
+        const element = iframeDocument?.elementFromPoint(x, y);
         if (element) {
           element.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: x, clientY: y }));
           element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
@@ -725,7 +763,7 @@ async function executeAction(
         
         console.log(`[ComputerUse] Scrolling ${direction} at (${x}, ${y})`);
         
-        const element = iframeDocument.elementFromPoint(x, y);
+        const element = iframeDocument?.elementFromPoint(x, y);
         if (element) {
           const scrollAmount = direction === 'down' ? magnitude : -magnitude;
           
@@ -771,7 +809,7 @@ async function executeAction(
           bubbles: true,
         });
         
-        iframeDocument.dispatchEvent(keyEvent);
+        iframeDocument?.dispatchEvent(keyEvent);
         return { success: true };
       }
       
@@ -794,9 +832,13 @@ async function executeAction(
       }
       
       case 'navigate': {
-        const url = args.url as string;
-        console.log(`[ComputerUse] Navigating to ${url}`);
-        iframeWindow.location.href = url;
+        const rawUrl = String(args.url ?? '').trim();
+        const parsedUrl = new URL(rawUrl, globalThis.location?.href ?? 'http://localhost/');
+        if (!['http:', 'https:', 'about:'].includes(parsedUrl.protocol)) {
+          return { success: false, error: `Navigation to ${parsedUrl.protocol} URLs is not allowed.` };
+        }
+        console.log(`[ComputerUse] Navigating to ${parsedUrl.href}`);
+        iframe.src = parsedUrl.href;
         return { success: true };
       }
       
@@ -808,7 +850,7 @@ async function executeAction(
 
       case 'search': {
         console.log('[ComputerUse] Navigating to search engine (google.com)');
-        iframeWindow.location.href = 'https://www.google.com';
+        iframe.src = 'https://www.google.com';
         return { success: true };
       }
 
@@ -825,7 +867,7 @@ async function executeAction(
         await new Promise(resolve => setTimeout(resolve, 300));
         
         // Simulate drag mouse events on the element
-        const startElement = iframeDocument.elementFromPoint(x, y);
+        const startElement = iframeDocument?.elementFromPoint(x, y);
         if (startElement) {
           const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y, which: 1 });
           startElement.dispatchEvent(mousedownEvent);
@@ -838,7 +880,7 @@ async function executeAction(
           const mousemoveEvent = new MouseEvent('mousemove', { bubbles: true, clientX: destX, clientY: destY, which: 1 });
           const mouseupEvent = new MouseEvent('mouseup', { bubbles: true, clientX: destX, clientY: destY });
           
-          const endElement = iframeDocument.elementFromPoint(destX, destY) || startElement;
+          const endElement = iframeDocument?.elementFromPoint(destX, destY) || startElement;
           endElement.dispatchEvent(mousemoveEvent);
           await new Promise(resolve => setTimeout(resolve, 100));
           endElement.dispatchEvent(mouseupEvent);
@@ -1480,6 +1522,220 @@ Please analyze the screenshot and perform the necessary actions to test this fea
       explanation: `Error during testing: ${error.message}`,
       actionsPerformed,
     };
+  }
+}
+
+/**
+ * Runs a small task-oriented computer-use loop for Spark's embedded local
+ * browser.  It shares the proven screenshot and action execution primitives
+ * with the staging QA runner, while using task-oriented instructions and a
+ * smaller turn budget suitable for an in-chat surface.
+ */
+export async function runComputerUseTask(
+  apiKey: string,
+  userPrompt: string,
+  iframe: HTMLIFrameElement,
+  onUpdate: (update: TestUpdate) => void,
+  conversationHistory: ConversationMessage[] = [],
+  shouldCancel?: () => boolean,
+  abortSignal?: AbortSignal,
+): Promise<ComputerUseTaskResult> {
+  const actionsPerformed: string[] = [];
+  const isCancelled = () => Boolean(abortSignal?.aborted || shouldCancel?.());
+  const throwIfCancelled = () => {
+    if (isCancelled()) throw new DOMException('Computer-use task cancelled.', 'AbortError');
+  };
+  const describeAction = (action: ComputerUseAction) => {
+    const args = action.args ?? {};
+    if (action.name === 'click_at') return `Clicking at (${args.x}, ${args.y})`;
+    if (action.name === 'type_text_at') {
+      const value = String(args.text ?? '');
+      return `Typing “${value.slice(0, 36)}${value.length > 36 ? '…' : ''}”`;
+    }
+    if (action.name === 'scroll_at' || action.name === 'scroll_document') {
+      return `Scrolling ${String(args.direction ?? 'the page')}`;
+    }
+    if (action.name === 'navigate') return `Opening ${String(args.url ?? 'a page')}`;
+    if (action.name === 'key_combination') return `Pressing ${String(args.keys ?? 'a key')}`;
+    return getActionType(action.name, args);
+  };
+  const getFrameUrl = () => {
+    try {
+      return iframe.contentWindow?.location?.href || iframe.src || 'about:srcdoc';
+    } catch {
+      return iframe.src || 'about:blank';
+    }
+  };
+  const waitForFrame = async (timeoutMs = 2_500) => {
+    try {
+      if (iframe.contentDocument?.readyState === 'complete') return;
+    } catch {
+      // A navigated cross-origin frame cannot expose its document to Willow.
+      // It can still emit `load`, after which screenshot capture reports the
+      // limited-access state handled by the caller.
+    }
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        iframe.removeEventListener('load', finish);
+        resolve();
+      };
+      iframe.addEventListener('load', finish, { once: true });
+      setTimeout(finish, timeoutMs);
+    });
+  };
+
+  try {
+    throwIfCancelled();
+    const client = getClient(apiKey);
+    onUpdate({ type: 'plan', message: 'Opening the local browser and preparing the task.' });
+    onUpdate({ type: 'screenshot', message: 'Reading the current browser view…' });
+    testStore.showCursor();
+    testStore.setThought('Reading the page…');
+    await waitForFrame();
+    const firstScreenshot = await captureIframeScreenshot(iframe);
+    let currentDimensions = {
+      width: firstScreenshot.actualWidth,
+      height: firstScreenshot.actualHeight,
+    };
+    const historyContext = conversationHistory
+      .slice(-8)
+      .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.content.slice(0, 600)}`)
+      .join('\n');
+    const contents: Content[] = [{
+      role: 'user',
+      parts: [
+        {
+          text: [
+            `Task: ${userPrompt}`,
+            historyContext ? `Recent conversation:\n${historyContext}` : '',
+            'Use the screenshot to take the next best action. Complete the task before stopping.',
+          ].filter(Boolean).join('\n\n'),
+        },
+        {
+          inlineData: {
+            mimeType: 'image/png',
+            data: firstScreenshot.data,
+          },
+        } as Part,
+      ],
+    }];
+    let finalText = '';
+
+    for (let turn = 1; turn <= 16; turn += 1) {
+      throwIfCancelled();
+      onUpdate({ type: 'thinking', message: turn === 1 ? 'Planning the first action…' : 'Checking the updated page…' });
+      const response = await client.models.generateContent({
+        model: COMPUTER_USE_MODEL,
+        contents,
+        config: {
+          systemInstruction: COMPUTER_USE_TASK_SYSTEM_PROMPT,
+          // @ts-ignore - supported by the Gemini API even when older SDK types lag behind.
+          thinkingConfig: { includeThoughts: true, thinkingLevel: 'low' as any },
+          tools: LOCAL_COMPUTER_USE_TOOLS as any,
+          abortSignal,
+        },
+      });
+      throwIfCancelled();
+
+      const thought = extractThought(response);
+      const thoughtSignature = extractThoughtSignature(response);
+      const textResponse = extractText(response).trim();
+      const functionCalls = extractFunctionCalls(response);
+      if (thought) {
+        testStore.setThought(thought);
+        onUpdate({
+          type: 'thinking',
+          message: thought.length > 120 ? `${thought.slice(0, 120)}…` : thought,
+          thought,
+          thoughtSignature: thoughtSignature ?? undefined,
+        });
+      }
+      if (textResponse) {
+        finalText = textResponse;
+        onUpdate({ type: 'text', message: textResponse });
+      }
+
+      const modelContent = response.candidates?.[0]?.content;
+      if (modelContent) contents.push(modelContent as Content);
+      if (!functionCalls.length) {
+        const explanation = finalText || 'The browser task is complete.';
+        onUpdate({ type: 'complete', message: 'Browser task complete' });
+        testStore.hideCursor();
+        return { completed: true, explanation, actionsPerformed };
+      }
+
+      const action = functionCalls[0];
+      actionsPerformed.push(action.name);
+      onUpdate({
+        type: 'action',
+        message: describeAction(action),
+        actionName: action.name,
+        actionType: getActionType(action.name, action.args),
+        thought: thought ?? undefined,
+        thoughtSignature: thoughtSignature ?? undefined,
+      });
+      const actionResult = await executeAction(action, iframe, currentDimensions);
+      throwIfCancelled();
+      await waitForFrame(action.name === 'navigate' || action.name === 'search' ? 3_500 : 900);
+
+      let nextScreenshot: ScreenshotResult;
+      try {
+        nextScreenshot = await captureIframeScreenshot(iframe);
+      } catch (captureError) {
+        const explanation = actionResult.success
+          ? 'The page opened in Willow’s local browser, but it is cross-origin or blocks embedding, so this frontend-only harness cannot inspect or control it further.'
+          : actionResult.error || 'The embedded page could not be controlled.';
+        onUpdate({ type: 'error', message: explanation });
+        testStore.hideCursor();
+        return {
+          completed: false,
+          explanation,
+          actionsPerformed,
+          limited: true,
+        };
+      }
+      currentDimensions = {
+        width: nextScreenshot.actualWidth,
+        height: nextScreenshot.actualHeight,
+      };
+      contents.push({
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: action.name,
+              response: {
+                success: actionResult.success,
+                error: actionResult.error,
+                url: getFrameUrl(),
+              },
+            },
+          } as Part,
+          {
+            inlineData: {
+              mimeType: 'image/png',
+              data: nextScreenshot.data,
+            },
+          } as Part,
+        ],
+      });
+    }
+
+    const explanation = finalText || 'The local browser reached its current action limit before the task was finished.';
+    onUpdate({ type: 'error', message: explanation });
+    testStore.hideCursor();
+    return { completed: false, explanation, actionsPerformed };
+  } catch (error: any) {
+    testStore.hideCursor();
+    const cancelled = error?.name === 'AbortError' || isCancelled();
+    const explanation = cancelled
+      ? 'The browser task was stopped.'
+      : `The browser task could not continue: ${error instanceof Error ? error.message : 'Unknown error.'}`;
+    onUpdate({ type: cancelled ? 'complete' : 'error', message: explanation });
+    return { completed: false, explanation, actionsPerformed };
   }
 }
 
