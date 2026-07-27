@@ -1,0 +1,374 @@
+/* Willow Figma — scoped styles. Every class is prefixed `figx-` so nothing
+   leaks into (or collides with) the rest of the dashboard. */
+
+.figx-root {
+  --figx-bg: #1e1e1e;
+  --figx-panel: #2c2c2c;
+  --figx-panel-2: #383838;
+  --figx-border: #444444;
+  --figx-border-soft: rgba(255, 255, 255, 0.08);
+  --figx-text: #ffffff;
+  --figx-text-2: #b3b3b3;
+  --figx-text-3: #7f7f7f;
+  --figx-accent: #0d99ff;
+  --figx-accent-hover: #0a87e0;
+  --figx-purple: #9747ff;
+  --figx-danger: #f24822;
+  --figx-radius: 13px;
+  --figx-radius-sm: 6px;
+  --figx-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 11px;
+  color: var(--figx-text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.figx-root *,
+.figx-root *::before,
+.figx-root *::after {
+  box-sizing: border-box;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+
+.figx-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.figx-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.figx-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+.figx-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Floating panels (Figma UI3 look) ────────────────────────────────────── */
+
+.figx-panel {
+  background: var(--figx-panel);
+  border: 1px solid var(--figx-border-soft);
+  border-radius: var(--figx-radius);
+  box-shadow: var(--figx-shadow);
+}
+
+.figx-panel-section {
+  border-bottom: 1px solid var(--figx-border-soft);
+  padding: 8px 8px 10px;
+}
+.figx-panel-section:last-child {
+  border-bottom: none;
+}
+
+.figx-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--figx-text);
+  padding: 4px 8px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+
+.figx-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--figx-radius-sm);
+  color: var(--figx-text);
+  font-size: 11px;
+  font-family: inherit;
+  height: 28px;
+  padding: 0 6px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+.figx-input:hover {
+  border-color: var(--figx-border);
+}
+.figx-input:focus {
+  border-color: var(--figx-accent);
+}
+.figx-input::selection {
+  background: rgba(13, 153, 255, 0.45);
+}
+
+.figx-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--figx-panel-2);
+  border: 1px solid transparent;
+  border-radius: var(--figx-radius-sm);
+  height: 28px;
+  padding: 0 4px 0 7px;
+}
+.figx-input-wrap:hover {
+  border-color: var(--figx-border);
+}
+.figx-input-wrap:focus-within {
+  border-color: var(--figx-accent);
+}
+.figx-input-wrap > input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--figx-text);
+  font-size: 11px;
+  font-family: inherit;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+}
+.figx-input-label {
+  color: var(--figx-text-3);
+  font-size: 10px;
+  flex-shrink: 0;
+  min-width: 10px;
+  text-align: center;
+  cursor: ew-resize;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.figx-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--figx-radius-sm);
+  color: var(--figx-text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+.figx-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--figx-text);
+}
+.figx-icon-btn.figx-active {
+  background: var(--figx-accent);
+  color: #fff;
+}
+.figx-icon-btn.figx-active:hover {
+  background: var(--figx-accent);
+}
+
+.figx-btn-primary {
+  background: var(--figx-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--figx-radius-sm);
+  height: 32px;
+  padding: 0 14px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.figx-btn-primary:hover {
+  background: var(--figx-accent-hover);
+}
+
+.figx-btn-secondary {
+  background: transparent;
+  color: var(--figx-text);
+  border: 1px solid var(--figx-border);
+  border-radius: var(--figx-radius-sm);
+  height: 32px;
+  padding: 0 14px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.figx-btn-secondary:hover {
+  border-color: var(--figx-text-3);
+}
+
+/* ── Menus / popovers ────────────────────────────────────────────────────── */
+
+.figx-menu {
+  background: #1e1e1e;
+  border: 1px solid var(--figx-border-soft);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  min-width: 200px;
+  z-index: 1000;
+}
+.figx-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--figx-text);
+  font-size: 11.5px;
+  cursor: default;
+  white-space: nowrap;
+  width: 100%;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+}
+.figx-menu-item:hover:not(:disabled) {
+  background: var(--figx-accent);
+  color: #fff;
+}
+.figx-menu-item:disabled {
+  color: var(--figx-text-3);
+}
+.figx-menu-item .figx-menu-shortcut {
+  color: var(--figx-text-3);
+  font-size: 10.5px;
+}
+.figx-menu-item:hover:not(:disabled) .figx-menu-shortcut {
+  color: rgba(255, 255, 255, 0.7);
+}
+.figx-menu-sep {
+  height: 1px;
+  background: var(--figx-border-soft);
+  margin: 5px 8px;
+}
+
+/* ── Layers tree ─────────────────────────────────────────────────────────── */
+
+.figx-layer-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding-right: 6px;
+  border-radius: 6px;
+  color: var(--figx-text-2);
+  font-size: 11px;
+  cursor: default;
+  position: relative;
+  white-space: nowrap;
+}
+.figx-layer-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--figx-text);
+}
+.figx-layer-row.figx-selected {
+  background: rgba(13, 153, 255, 0.24);
+  color: var(--figx-text);
+}
+.figx-layer-row.figx-hovered-canvas {
+  box-shadow: inset 0 0 0 1px var(--figx-accent);
+}
+
+/* ── Tooltips ────────────────────────────────────────────────────────────── */
+
+.figx-tooltip {
+  position: fixed;
+  background: #111;
+  color: #fff;
+  font-size: 10.5px;
+  border-radius: 5px;
+  padding: 4px 8px;
+  pointer-events: none;
+  z-index: 2000;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Text editing overlay ────────────────────────────────────────────────── */
+
+.figx-text-editor {
+  position: absolute;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: #0d99ff;
+  z-index: 40;
+  user-select: text;
+}
+.figx-text-editor::selection,
+.figx-text-editor *::selection {
+  background: rgba(13, 153, 255, 0.45);
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+
+@keyframes figx-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.figx-fade-in {
+  animation: figx-fade-in 120ms ease-out;
+}
+
+@keyframes figx-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.figx-pop-in {
+  animation: figx-pop-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* Multiplayer cursor label */
+.figx-cursor-label {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  pointer-events: none;
+  white-space: nowrap;
+  transform: translate(10px, 4px);
+}
+
+/* Comment pin */
+.figx-comment-pin {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px 14px 14px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 0 0 2px #fff;
+  transform: translate(-2px, -26px);
+}

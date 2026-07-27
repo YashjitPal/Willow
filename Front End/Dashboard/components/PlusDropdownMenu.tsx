@@ -3,6 +3,7 @@ import {
   Paperclip, Image as ImageIcon, Lightbulb, Telescope, MoreHorizontal, 
   ChevronRight, Globe, BookOpen, SquarePen, Github, Copy, ImagePlus
 } from 'lucide-react';
+import { MaterialSymbol } from './ui/MaterialSymbol';
 
 const SpotifyIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="#1ed760">
@@ -10,13 +11,25 @@ const SpotifyIcon = ({ size = 20 }: { size?: number }) => (
   </svg>
 );
 
+const GEMINI_TOOL_SYMBOLS: Record<string, string> = {
+  'Create image': 'add_photo_alternate',
+  Thinking: 'lightbulb',
+  'Deep research': 'travel_explore',
+  'Web search': 'language',
+  'Study and learn': 'school',
+  Canvas: 'draw',
+  GitHub: 'code',
+  Quizzes: 'quiz',
+};
+
 export const PlusDropdownMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onFileSelect: () => void;
   buttonRef: React.RefObject<HTMLButtonElement>;
   onToolSelect: (toolId: string) => void;
-}> = ({ isOpen, onClose, onFileSelect, buttonRef, onToolSelect }) => {
+  geminiStyle?: boolean;
+}> = ({ isOpen, onClose, onFileSelect, buttonRef, onToolSelect, geminiStyle = false }) => {
   const [isMoreHovered, setIsMoreHovered] = useState(false);
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,7 +80,7 @@ export const PlusDropdownMenu: React.FC<{
   if (!isOpen) return null;
 
   const MenuItem = ({ icon: Icon, label, onClick, closeSubmenu, toolId }: { icon: any, label: string, onClick?: () => void, closeSubmenu?: boolean, toolId?: string }) => (
-    <div 
+    <button
       onClick={() => {
         if (toolId) {
           onToolSelect(toolId);
@@ -80,11 +93,19 @@ export const PlusDropdownMenu: React.FC<{
       onMouseEnter={() => {
         if (closeSubmenu) setIsMoreHovered(false);
       }}
-      className="flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer"
+      className={geminiStyle
+        ? "w-full h-9 flex items-center gap-2 px-2 rounded-xl hover:bg-[#333537] cursor-pointer text-left transition-colors"
+        : "w-[calc(100%-12px)] flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer text-left"}
     >
-      {Icon === SpotifyIcon ? <SpotifyIcon size={20} /> : <Icon size={20} className="text-[#e0e0e0]" strokeWidth={1.6} />}
-      <span className="text-[14.5px] text-[#e0e0e0] font-normal">{label}</span>
-    </div>
+      {Icon === SpotifyIcon ? (
+        <SpotifyIcon size={20} />
+      ) : geminiStyle ? (
+        <MaterialSymbol name={GEMINI_TOOL_SYMBOLS[label]} className="text-[#e6e6e6]" />
+      ) : (
+        <Icon size={20} className="shrink-0 text-[#e6e6e6]" strokeWidth={1.6} />
+      )}
+      <span className={`${geminiStyle ? "text-[13px] leading-[17px] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]" : 'text-[14.5px]'} text-[#e6e6e6] font-normal`}>{label}</span>
+    </button>
   );
 
   const handleMoreEnter = () => {
@@ -103,18 +124,26 @@ export const PlusDropdownMenu: React.FC<{
       ref={menuRef}
       className={`absolute ${
         side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
-      } left-0 w-[230px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[100] border border-white/5`}
+      } left-0 z-[100] ${geminiStyle ? 'w-[249px] bg-[#1f1f1f] rounded-[20px] shadow-[0_0_20px_rgba(0,0,0,0.28)] p-2' : 'w-[230px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 border border-white/5'}`}
+      role="menu"
+      aria-label="Willow tools"
     >
-      <div 
+      <button
         onClick={() => { onFileSelect(); onClose(); }}
         onMouseEnter={() => setIsMoreHovered(false)}
-        className="flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer"
+        className={geminiStyle
+          ? "w-full h-9 flex items-center gap-2 px-2 rounded-xl hover:bg-[#333537] cursor-pointer text-left transition-colors"
+          : "w-[calc(100%-12px)] flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer text-left"}
       >
-        <Paperclip size={20} className="text-[#e0e0e0]" strokeWidth={1.6} />
-        <span className="text-[14.5px] text-[#e0e0e0] font-normal">Add photos & files</span>
-      </div>
+        {geminiStyle
+          ? <MaterialSymbol name="attach_file" className="text-[#e6e6e6]" />
+          : <Paperclip size={20} className="shrink-0 text-[#e6e6e6]" strokeWidth={1.6} />}
+        <span className={`${geminiStyle ? "text-[13px] leading-[17px] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]" : 'text-[14.5px]'} text-[#e6e6e6] font-normal`}>
+          {geminiStyle ? 'Upload files' : 'Add photos & files'}
+        </span>
+      </button>
       
-      <div className="h-[1px] bg-white/10 mx-3 my-1.5" />
+      <div className={`${geminiStyle ? 'h-px bg-[#444746] mx-2 my-2' : 'h-[1px] bg-white/10 mx-3 my-1.5'}`} role="separator" />
       
       <MenuItem icon={ImagePlus} label="Create image" closeSubmenu toolId="images" />
       <MenuItem icon={Lightbulb} label="Thinking" closeSubmenu toolId="thinking" />
@@ -125,21 +154,33 @@ export const PlusDropdownMenu: React.FC<{
         onMouseEnter={handleMoreEnter}
         onMouseLeave={handleMoreLeave}
       >
-        <div 
-          className={`flex items-center justify-between px-3 py-2 mx-1.5 mt-1 rounded-lg cursor-pointer transition-colors ${isMoreHovered ? 'bg-white/10' : 'hover:bg-white/10'}`}
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={isMoreHovered}
+          onClick={() => setIsMoreHovered(true)}
+          className={`${geminiStyle ? 'h-9 px-2 rounded-xl' : 'px-3 py-2 mx-1.5 mt-1 rounded-lg'} flex items-center justify-between cursor-pointer transition-colors ${isMoreHovered ? (geminiStyle ? 'bg-[#333537]' : 'bg-white/10') : (geminiStyle ? 'hover:bg-[#333537]' : 'hover:bg-white/10')}`}
         >
-          <div className="flex items-center gap-3">
-            <MoreHorizontal size={20} className="text-[#e0e0e0]" strokeWidth={1.6} />
-            <span className="text-[14.5px] text-[#e0e0e0] font-normal">More</span>
+          <div className={`flex items-center ${geminiStyle ? 'gap-2' : 'gap-3'}`}>
+            {geminiStyle
+              ? <MaterialSymbol name="more_horiz" className="text-[#e6e6e6]" />
+              : <MoreHorizontal size={20} className="text-[#e6e6e6]" strokeWidth={1.6} />}
+            <span className={`${geminiStyle ? "text-[13px] leading-[17px] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]" : 'text-[14.5px]'} text-[#e6e6e6] font-normal`}>
+              {geminiStyle ? 'More tools' : 'More'}
+            </span>
           </div>
-          <ChevronRight size={16} className="text-[#a0a0a0]" strokeWidth={2} />
-        </div>
+          {geminiStyle
+            ? <MaterialSymbol name="chevron_right" className="text-[#c4c7c5]" />
+            : <ChevronRight size={16} className="text-[#c4c7c5]" strokeWidth={2} />}
+        </button>
 
         {isMoreHovered && (
           <div
             className={`absolute ${
               side === 'top' ? 'bottom-[-8px]' : 'top-[-8px]'
-            } left-[calc(100%+4px)] w-[200px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 z-[110] border border-white/5`}
+            } left-[calc(100%+4px)] z-[110] ${geminiStyle ? 'w-[233px] bg-[#1f1f1f] rounded-[20px] shadow-[0_0_20px_rgba(0,0,0,0.28)] p-2 max-sm:left-0 max-sm:top-auto max-sm:bottom-[calc(100%+4px)]' : 'w-[200px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 border border-white/5'}`}
+            role="menu"
+            aria-label="More tools"
           >
             <MenuItem icon={Globe} label="Web search" toolId="web" />
             <MenuItem icon={BookOpen} label="Study and learn" toolId="learn" />

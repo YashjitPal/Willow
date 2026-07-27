@@ -17,6 +17,7 @@ import { CodeWorkspaceSkeleton } from './components/CodeWorkspaceSkeleton';
 import { TopLoadingBar } from './components/ui/TopLoadingBar';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
+import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from './lib/dashboard-layout';
 import { BackgroundProvider, useBackground } from './context/BackgroundContext';
 import { UserDataProvider } from './context/UserDataContext';
 import { LocalFSProvider, useLocalFS } from './context/LocalFSContext';
@@ -141,15 +142,22 @@ const DashboardLayout: React.FC<{
   const isChatOngoing = !!activeChatId || hasActiveChat;
   // Calculate effective background (non-authenticated users get 'lines')
   const effectiveBackground = isAuthenticated ? background : 'lines';
+  const dashboardSurface = '#0f0f0f';
   
   return (
-    <div className={`flex h-screen w-screen overflow-hidden ${effectiveBackground === 'solid' ? 'bg-[#212121]' : 'bg-[#1c1c1c]'} text-white selection:bg-pink-500/30 relative`}>
+    <div
+      className="flex h-screen w-screen overflow-hidden bg-[var(--dashboard-surface)] text-white selection:bg-pink-500/30 relative"
+      style={{ '--dashboard-surface': dashboardSurface } as React.CSSProperties}
+    >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
       {currentView === 'home' && effectiveBackground === 'waves' && (
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
             <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
-            <div className="absolute inset-0 z-[2] bg-[radial-gradient(circle_at_center,transparent_30%,#1c1c1c_110%)] pointer-events-none" />
+            <div
+              className="absolute inset-0 z-[2] pointer-events-none"
+              style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--dashboard-surface) 110%)' }}
+            />
         </div>
       )}
 
@@ -263,7 +271,10 @@ const DashboardLayout: React.FC<{
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
               <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
               <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
-              <div className="absolute inset-0 z-[2] bg-[radial-gradient(circle_at_center,transparent_30%,#1c1c1c_110%)] pointer-events-none" />
+              <div
+                className="absolute inset-0 z-[2] pointer-events-none"
+                style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--dashboard-surface) 110%)' }}
+              />
           </div>
         )}
         {/* Solid background: No overlays, just plain color from parent */}
@@ -395,41 +406,42 @@ const App: React.FC = () => {
   // (local-only, same policy as API keys — never sent to Willow servers).
   const DEFAULT_MODEL_CONFIG = {
     gemini: {
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.6-flash',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
         savedModels: [
-          { id: 'default-flash-lite', name: 'Gemini 3.1 Flash Lite', thinkingLevel: 1, modelId: 'gemini-3.1-flash-lite' },
-          { id: 'default-flash-high', name: 'Gemini 3 Flash', thinkingLevel: 3, modelId: 'gemini-3-flash-preview' },
-          { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, modelId: 'gemini-3.1-pro-preview' }
-        ] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+          { id: 'default-flash-36', name: 'Gemini 3.6 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.6-flash' },
+          { id: 'default-flash-35-lite', name: 'Gemini 3.5 Flash Lite', thinkingLevel: 1, thinkingLabel: 'Low', modelId: 'gemini-3.5-flash-lite' },
+          { id: 'default-flash-lite', name: 'Gemini 3.1 Flash Lite', thinkingLevel: 1, thinkingLabel: 'Low', modelId: 'gemini-3.1-flash-lite' },
+          { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.1-pro-preview' }
+        ] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     openai: {
         model: 'gpt-5.2-thinking',
         thinkingLevel: 2,
-        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     anthropic: {
         model: 'claude-sonnet-4.5',
         thinkingLevel: 2,
-        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     moonshot: {
         model: 'kimi-k3',
         thinkingLevel: 0,
         baseUrl: 'https://api.moonshot.cn/v1',
-        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     spacexai: {
         model: 'grok-2-1212',
         thinkingLevel: 0,
         baseUrl: 'https://api.x.ai/v1',
-        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     zhipuai: {
         model: 'glm-4-plus',
         thinkingLevel: 0,
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>
+        savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     systemDefaults: {
       chatRenaming: 'gemini-3.1-flash-lite',
@@ -465,8 +477,6 @@ const App: React.FC = () => {
       return "";
     }
   });
-  const [agentSwarmEnabled, setAgentSwarmEnabled] = useState(false);
-
   // Persist model config + selection on every change.
   React.useEffect(() => {
     try { localStorage.setItem('modelConfig', JSON.stringify(modelConfig)); } catch { /* ignore */ }
@@ -665,7 +675,7 @@ const App: React.FC = () => {
           <>
             <TopLoadingBar
               active={isTopLoading}
-              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? 64 : 260)}
+              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH)}
             />
             <SettingsModal 
               isOpen={isSettingsOpen} 
@@ -695,7 +705,7 @@ const App: React.FC = () => {
               {currentView === 'agents' ? (
                 <Suspense fallback={
                   <DashboardLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                    <div className="flex h-full w-full items-center justify-center bg-[#1c1c1c] text-sm text-[#888]">Loading Agents...</div>
+                    <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
                   </DashboardLoadingFallback>
                 }>
                   <div className="h-full w-full">
@@ -714,8 +724,6 @@ const App: React.FC = () => {
                     setSelectedModelId={setSelectedModelId}
                     isAuthenticated={!!user}
                     onAuthRequired={!user ? () => navigate('/login') : undefined}
-                    agentSwarmEnabled={agentSwarmEnabled}
-                    onSwarmToggle={setAgentSwarmEnabled}
                     onOpenDriveSettings={openDriveSettings}
                     isIncognito={isIncognito}
                     onChatStartedChange={setHasActiveChat}
@@ -748,8 +756,6 @@ const App: React.FC = () => {
                       setSelectedModelId={setSelectedModelId}
                       onAuthRequired={!user ? () => navigate('/login') : undefined}
                       isAuthenticated={!!user}
-                      agentSwarmEnabled={agentSwarmEnabled}
-                      onSwarmToggle={setAgentSwarmEnabled}
                       dashboardMode="media"
                       isSidebarCollapsed={isSidebarCollapsed}
                     />
@@ -775,8 +781,6 @@ const App: React.FC = () => {
                       setSelectedModelId={setSelectedModelId}
                       isAuthenticated={!!user}
                       onAuthRequired={!user ? () => navigate('/login') : undefined}
-                      agentSwarmEnabled={agentSwarmEnabled}
-                      onSwarmToggle={setAgentSwarmEnabled}
                       onSettingsClick={(tab) => {
                         if (tab) setSettingsInitialTab(tab as any);
                         setIsSettingsOpen(true);
@@ -796,7 +800,7 @@ const App: React.FC = () => {
         
         <Route path="/project1" element={
           <StagingRouteGuard>
-            <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
+            <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
               <SettingsModal
                 isOpen={isSettingsOpen}
                 onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
@@ -804,7 +808,7 @@ const App: React.FC = () => {
                 setModelConfig={setModelConfig}
                 initialTab={settingsInitialTab}
               />
-              <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
+              <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
                 <StagingView
                   onSettingsClick={(tab?: string) => {
                     if (tab) setSettingsInitialTab(tab as any);
@@ -814,8 +818,6 @@ const App: React.FC = () => {
                   setModelConfig={setModelConfig}
                   selectedModelId={selectedModelId}
                   setSelectedModelId={setSelectedModelId}
-                  agentSwarmEnabled={agentSwarmEnabled}
-                  onSwarmToggle={setAgentSwarmEnabled}
                 />
               </Suspense>
             </div>
@@ -824,8 +826,8 @@ const App: React.FC = () => {
 
         <Route path="/media/*" element={
           <StagingRouteGuard>
-            <div className="h-screen w-screen overflow-hidden bg-[#1c1c1c]">
-              <Suspense fallback={<div className="h-screen w-screen bg-[#1c1c1c] flex items-center justify-center text-white">Loading...</div>}>
+            <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
+              <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
                 <MediaView />
               </Suspense>
             </div>

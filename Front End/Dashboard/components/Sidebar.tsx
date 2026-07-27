@@ -42,9 +42,13 @@ import {
 import logo from '../src/assets/logo.png';
 import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
-import { useLocalFS } from '../context/LocalFSContext';
+import { useLocalFS, isTempChatId } from '../context/LocalFSContext';
 import { useBackground, BackgroundType } from '../context/BackgroundContext';
 import { isCodeChat, markCodeChat, migrateVerifiedLegacyCodeChat, renameCodeChat, unmarkCodeChat } from '../lib/codeChatStorage';
+import {
+  DASHBOARD_SIDEBAR_COLLAPSED_WIDTH,
+  DASHBOARD_SIDEBAR_EXPANDED_WIDTH,
+} from '../lib/dashboard-layout';
 // NOTE: import from './sidebar/index' (not './sidebar'). On a case-insensitive
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
@@ -120,7 +124,7 @@ const WorkspaceMenu: React.FC<{ isOpen: boolean; onClose: () => void; onSettings
   return (
     <div 
       ref={menuRef}
-      className={`absolute top-[50px] left-3 w-[270px] bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl p-2 z-[60] origin-top-left ${isClosing ? 'menu-fade-out' : 'menu-fade-in'}`}
+      className={`absolute top-[50px] left-3 w-[270px] bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl p-2 z-[60] origin-top-left ${isClosing ? 'menu-fade-out' : 'menu-fade-in'}`}
     >
       {/* Header */}
       <div className="flex items-center gap-3 p-2 mb-2">
@@ -232,10 +236,8 @@ const InboxMenu: React.FC<{ isOpen: boolean; onClose: () => void; triggerRef?: R
   if (!shouldRender) return null;
 
   const sidebarBgClass = backgroundType === 'waves' 
-    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
-    : backgroundType === 'solid'
-      ? 'bg-[#181818]'
-      : 'bg-[#0d0d0d]';
+    ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
+    : 'bg-[#1f1f1f]';
 
   return (
     <div 
@@ -330,6 +332,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onIncognitoChat,
   isHidden = false
 }) => {
+  const navigate = useNavigate();
   const { user, userProfile } = useAuth();
   const {
     chatScopeId,
@@ -545,10 +548,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     window.addEventListener('click', handleClose);
     return () => window.removeEventListener('click', handleClose);
   }, [shouldRenderMenu, isMenuClosing]);
-  const navigate = useNavigate();
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isInboxMenuOpen, setIsInboxMenuOpen] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'spark'>('chat');
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const inboxButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -587,43 +590,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Apply transparency only for 'waves' background - 90% opacity (happy medium)
   const sidebarBgClass = backgroundType === 'waves' 
-    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
-    : backgroundType === 'solid'
-      ? 'bg-[#181818]'
-      : 'bg-[#0d0d0d]';
+    ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
+    : 'bg-[#1f1f1f]';
 
-  const glowGradient = backgroundType === 'solid'
-    ? 'linear-gradient(to bottom, #181818 15%, rgba(24, 24, 24, 0))'
-    : backgroundType === 'waves'
-      ? 'linear-gradient(to bottom, rgba(13, 13, 13, 0.9) 15%, rgba(13, 13, 13, 0))'
-      : 'linear-gradient(to bottom, #0d0d0d 15%, rgba(13, 13, 13, 0))';
+  const glowGradient = backgroundType === 'waves'
+    ? 'linear-gradient(to bottom, rgba(31, 31, 31, 0.9) 15%, rgba(31, 31, 31, 0))'
+    : 'linear-gradient(to bottom, #1f1f1f 15%, rgba(31, 31, 31, 0))';
 
   return (
     <aside 
-      className={`group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50`}
+      className={`group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
       style={{ 
-        width: isHidden ? '0px' : (isCollapsed ? '64px' : '260px'),
+        width: isHidden ? '0px' : `${isCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH}px`,
         transform: isHidden ? 'translateX(-100%)' : 'translateX(0)',
         opacity: isHidden ? 0 : 1,
         transition: 'width 280ms cubic-bezier(0.32, 0.72, 0, 1), transform 280ms cubic-bezier(0.32, 0.72, 0, 1), opacity 280ms cubic-bezier(0.32, 0.72, 0, 1)',
         pointerEvents: isHidden ? 'none' : 'auto'
       }}
     >
-      <div className="h-16 flex items-center relative min-w-[64px]">
-        <div className="w-[64px] flex items-center justify-center shrink-0">
+      <div className="h-[52px] flex items-center relative min-w-[52px] shrink-0">
+        <div className="w-[52px] flex items-center justify-center shrink-0">
           <button 
             onClick={onToggleCollapse}
-            className="w-full h-10 flex items-center justify-center transition-all duration-200 active:scale-95 cursor-pointer relative group/logo"
+            className="w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 active:scale-95 cursor-pointer relative group/logo"
           >
             <div className={`transition-all duration-200 flex items-center justify-center
               ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : 'opacity-100 scale-100'}`}>
-              <img src={logo} alt="Logo" className="h-[31px] w-auto object-contain shrink-0" />
+              <img src={logo} alt="Logo" className="h-7 w-auto object-contain shrink-0" />
             </div>
             {isCollapsed && (
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 transform scale-90 group-hover:scale-110 pointer-events-none">
                 <PanelLeft 
-                  size={18} 
-                  strokeWidth={2.5} 
+                  size={24}
+                  strokeWidth={2}
                   className="text-zinc-400 group-hover:text-white" 
                 />
               </div>
@@ -632,19 +631,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         
         {!isCollapsed && (
-          <div className="absolute right-4">
-            <button 
-          onClick={onToggleCollapse}
-          className="p-1 text-[#a1a1aa] hover:text-white transition-colors"
-        >
-          {isCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+          <div className="absolute right-[14px] top-2">
+            <button
+              onClick={onToggleCollapse}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-white/[0.08] hover:text-white transition-colors"
+            >
+              {isCollapsed ? <PanelLeft size={24} /> : <PanelLeftClose size={24} strokeWidth={1.8} />}
             </button>
           </div>
         )}
       </div>
 
       {user && (
-        <div className="px-[14px] mb-4 transition-all duration-200 ease-linear relative">
+        <div className="px-1.5 mb-2 transition-all duration-200 ease-linear relative">
           <button 
             ref={workspaceButtonRef}
             onClick={(e) => {
@@ -653,16 +652,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setIsUserMenuOpen(false);
               setIsInboxMenuOpen(false);
             }}
-            className={`relative flex items-center h-[36px] w-full rounded-xl bg-[#1b1b1b] hover:bg-[#27272a] text-white transition-all duration-200 ease-linear group/ws overflow-hidden active:scale-[0.98] ring-1 ring-inset ${isCollapsed ? 'ring-transparent' : 'ring-white/5'}`}
+            className={`relative flex items-center h-8 w-full rounded-lg bg-[#1f1f1f] hover:bg-white/5 text-white transition-all duration-200 ease-linear group/ws overflow-hidden active:scale-[0.98] ring-1 ring-inset ${isCollapsed ? 'ring-transparent' : 'ring-white/5'}`}
           >
-              <div className="flex items-center justify-center w-[36px] shrink-0">
+              <div className="flex items-center justify-center w-8 shrink-0">
                   <div className={`w-6 h-6 shrink-0 rounded-lg ${workspaceColorClass} flex items-center justify-center text-[10px] font-bold text-white shadow-inner`}>{workspaceInitial}</div>
               </div>
-              <div className={`flex items-center justify-between flex-1 pr-3 transition-opacity duration-200 ease-linear ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
+              <div className={`flex items-center justify-between flex-1 pl-2 pr-2 transition-opacity duration-200 ease-linear ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
                   {!isCollapsed && (
                     <>
-                      <span className="font-semibold text-[13.5px] whitespace-nowrap tracking-tight ml-1">{workspaceName}</span>
-                      <ChevronDown size={14} className="text-white shrink-0 transition-colors" />
+                      <span className="font-normal text-[13px] leading-[17px] whitespace-nowrap">{workspaceName}</span>
+                      <ChevronDown size={16} className="text-white shrink-0 transition-colors" />
                     </>
                   )}
               </div>
@@ -678,8 +677,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
+      {/* Segmented Mode Toggle: Chat / Spark BETA */}
+      {!isCollapsed && (
+        <div className="px-1.5 mb-2 shrink-0">
+          <div className="bg-[#171717] p-[3px] rounded-full flex items-center w-full shadow-inner">
+            <button
+              type="button"
+              onClick={() => setSidebarMode('chat')}
+              className={`flex-1 py-1 rounded-full text-[13px] leading-[17px] font-normal transition-all duration-200 text-center select-none cursor-pointer ${
+                sidebarMode === 'chat'
+                  ? 'bg-[#1f1f1f] text-white shadow-sm'
+                  : 'text-[#a1a1aa] hover:text-white'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarMode('spark')}
+              className={`flex-1 py-1 rounded-full text-[13px] leading-[17px] font-normal transition-all duration-200 text-center flex items-center justify-center gap-1 select-none cursor-pointer ${
+                sidebarMode === 'spark'
+                  ? 'bg-[#1f1f1f] text-white shadow-sm'
+                  : 'text-[#a1a1aa] hover:text-white'
+              }`}
+            >
+              <span>Spark</span>
+              <span className="text-[9px] font-semibold tracking-wider text-[#71717a] uppercase ml-0.5">BETA</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Fixed top-level navigation: Home & Search */}
-      <div className="pt-2 space-y-0.5 shrink-0">
+      <div className="pt-2 space-y-0 shrink-0">
         <SidebarItem 
           icon={isChatOngoing ? SquarePen : Home} 
           label={isChatOngoing ? "New chat" : "Home"} 
@@ -710,9 +740,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1 relative min-h-0">
         <div
           onScroll={handleScroll}
-          className="h-full overflow-y-auto pt-0.5 pb-4 no-scrollbar"
+          className="h-full overflow-y-auto pt-0 pb-4 no-scrollbar"
         >
-          <div className="space-y-0.5">
+          <div className="space-y-0">
             <SidebarItem 
               icon={Terminal} 
               label="Code" 
@@ -745,7 +775,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {(user || isLocalFolderConnected) && (
             <>
               <SectionHeader title="Projects" isCollapsed={isCollapsed} />
-              <div className="space-y-0.5">
+              <div className="space-y-0">
                 <SidebarItem 
                   icon={LayoutGrid} 
                   label="All projects" 
@@ -772,9 +802,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {!isInitializingLocalFS && isLocalFolderConnected && (!isLocalFolderAuthorized || localChats.length > 0) && (
                 <>
                   <div className="flex items-center justify-between pr-[23px]">
-                    <SectionHeader title="Chats" isCollapsed={isCollapsed} />
+                    <SectionHeader title="Recents" isCollapsed={isCollapsed} />
                   </div>
-                  <div className="space-y-0.5">
+                  <div className="space-y-0">
                     {localChats.length === 0 ? null : (
                       (() => {
                         // The context owns the deterministic newest-first
@@ -785,7 +815,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           ...localChats.filter((chat) => !pinnedChats.includes(chat)),
                         ];
                         return sortedChats.map((chat) => {
-                          const isTemp = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chat);
+                          const isTemp = isTempChatId(chat);
                           if (isTemp && activeChatId === chat) {
                             return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
                           }
@@ -873,9 +903,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       </div>
 
-      <div className={`flex items-center transition-all duration-200 ease-linear h-16 relative border-t border-white/5 mt-auto`}>
+      <div className="flex h-[52px] items-center relative border-t border-white/5 mt-auto transition-all duration-200 ease-linear">
         {user ? (
-          <div className="flex items-center justify-center w-[64px] shrink-0">
+          <div className="flex items-center justify-center w-[52px] shrink-0">
               <div className="relative group/profile">
                   <UserMenu 
                     isOpen={isUserMenuOpen} 
@@ -893,13 +923,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       alt="User" 
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={handleUserMenuToggle}
-                      className={`relative w-8 h-8 rounded-full border border-white/10 shrink-0 cursor-pointer transition-all active:scale-90 object-cover ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`} 
+                      className={`relative w-[30px] h-[30px] rounded-full border border-white/10 shrink-0 cursor-pointer transition-all active:scale-90 object-cover ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
                     />
                   ) : (
                     <div 
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={handleUserMenuToggle}
-                      className={`relative w-8 h-8 rounded-full border border-white/10 shrink-0 cursor-pointer transition-all active:scale-90 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white text-[12px] font-medium ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
+                      className={`relative w-[30px] h-[30px] rounded-full border border-white/10 shrink-0 cursor-pointer transition-all active:scale-90 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white text-[12px] font-medium ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
                     >
                       {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                     </div>
@@ -907,7 +937,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center w-[64px] shrink-0">
+          <div className="flex items-center justify-center w-[52px] shrink-0">
              <button 
                onClick={() => navigate('/login')}
                className={`relative flex items-center justify-center w-8 h-8 rounded-full border border-white/10 text-white hover:bg-white/5 transition-all active:scale-90`}
@@ -919,7 +949,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
         
         {!isCollapsed && (
-          <div className="flex-1 flex items-center justify-end pr-4 transition-opacity duration-300">
+          <div className="flex-1 flex items-center justify-end pr-[14px] transition-opacity duration-300">
              {user && (
                <div className="relative">
                  <button 

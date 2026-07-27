@@ -215,7 +215,7 @@ const AgentsHome: React.FC<{
   }, [prompt]);
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#1c1c1c] text-white no-scrollbar" data-testid="agents-home">
+    <div className="h-full w-full overflow-y-auto bg-[#0f0f0f] text-white no-scrollbar" data-testid="agents-home">
       <div className="mx-auto flex min-h-full w-full max-w-[1080px] flex-col px-6 pb-20 pt-16 sm:px-10 lg:px-12 relative">
         {/* Subtle ambient glow in the background */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none rounded-full blur-[80px]" />
@@ -457,7 +457,7 @@ export const AgentsWorkspace: React.FC<AgentsWorkspaceProps> = ({ isSidebarColla
     return (
       <React.Suspense
         fallback={(
-          <div className="flex h-full w-full items-center justify-center bg-[#1c1c1c] text-[12px] text-[#77777f]">
+          <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-[12px] text-[#77777f]">
             Loading agent builder...
           </div>
         )}

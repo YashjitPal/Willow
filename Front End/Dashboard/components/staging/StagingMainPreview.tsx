@@ -5,7 +5,6 @@ import "@xyflow/react/dist/style.css";
 import { useStore } from "@nanostores/react";
 import TopBar from "./StagingTopBar";
 import StagingCodePanel from "./StagingCodePanel";
-import { SwarmChatroom } from "./SwarmChatroom";
 import { AgentBuilder } from "../agents/AgentBuilder";
 // ScanningOverlay import removed - component not yet created
 import VisualEditingOverlay from "./VisualEditingOverlay";
@@ -1100,17 +1099,6 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               </div>
             </div>
 
-            {/* Swarm Chatroom Panel */}
-            <div
-              className={`absolute inset-0 transition-opacity duration-150 ${
-                activeTab === "swarm"
-                  ? "opacity-100 z-10"
-                  : "opacity-0 z-0 pointer-events-none"
-              }`}
-            >
-              <SwarmChatroom />
-            </div>
-
             {/* Agent Builder Panel */}
             <div
               className={`absolute inset-0 transition-opacity duration-150 flex flex-col overflow-hidden bg-[#141414] rounded-[12px] border border-[#27272a] ${
@@ -1138,7 +1126,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               className={`absolute inset-0 bg-[#1c1c1c] rounded-[12px] overflow-hidden transition-opacity duration-150 ${
                 (!(previewUrl && hasUserCode) || errors.length > 0) && activeTab !== 'canvas-screens' && activeTab !== 'canvas-elements' ? 'border border-[#27272a]' : ''
               } ${
-                activeTab !== "code" && activeTab !== "swarm" && activeTab !== "agent-builder" && activeTab !== "canvas-screens" && activeTab !== "canvas-elements"
+                activeTab !== "code" && activeTab !== "agent-builder" && activeTab !== "canvas-screens" && activeTab !== "canvas-elements"
                   ? "opacity-100 z-10"
                   : "opacity-0 z-0 pointer-events-none"
               }`}

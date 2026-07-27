@@ -13,7 +13,6 @@ import {
   Globe,
   Cloud,
   Pin,
-  MessagesSquare,
   Beaker,
   FlaskConical,
   Settings,
@@ -69,7 +68,6 @@ export const ALL_TOOLS = [
   { id: 'code', label: 'Code', icon: Code2 },
   { id: 'design', label: 'Edit', icon: VisualEditsIcon },
   { id: 'cloud', label: 'Cloud', icon: Cloud },
-  { id: 'swarm', label: 'Swarm', icon: MessagesSquare },
   { id: 'agents', label: 'Agents', icon: AgentIcon },
   { id: 'canvas', label: 'Design', icon: Palette },
 ];

@@ -100,11 +100,18 @@ const chatMetadataKeysForScope = (scopeId: string): ChatMetadataKeys => {
   };
 };
 
+// A brand-new chat is stored under a generated timestamp id
+// ("YYYY-MM-DDTHH-MM-SS_xxxxxx") until the naming agent renames it to a real
+// title. Single source of truth: the sidebar's skeleton, the timestamp parser
+// and the load path must all agree on what "still unnamed" means, or a chat can
+// shimmer as un-named in one place while counting as named in another.
+export const isTempChatId = (chatId: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chatId);
+
 // Parse the creation time embedded in a temp chat id
 // ("YYYY-MM-DDTHH-MM-SS_xxxxxx"), or 0 if the id isn't in that format.
 export const parseTempIdTimestamp = (chatId: string): number => {
-  const isTemp = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chatId);
-  if (!isTemp) return 0;
+  if (!isTempChatId(chatId)) return 0;
   try {
     const firstPart = chatId.split('_')[0]; // "2026-06-06T06-44-09"
     const tIdx = firstPart.indexOf('T');
@@ -2016,9 +2023,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
       targetProvider = 'gemini';
       targetModelId = 'gemini-3.1-flash-lite';
-    } else if (chatNamingSelectionId === 'gemini-3-flash-preview') {
+    } else if (chatNamingSelectionId === 'gemini-3.5-flash-lite') {
       targetProvider = 'gemini';
-      targetModelId = 'gemini-3-flash-preview';
+      targetModelId = 'gemini-3.5-flash-lite';
+    } else if (chatNamingSelectionId === 'gemini-3.6-flash') {
+      targetProvider = 'gemini';
+      targetModelId = 'gemini-3.6-flash';
     } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
         targetProvider = 'anthropic';
         targetModelId = 'claude-sonnet-4.5';

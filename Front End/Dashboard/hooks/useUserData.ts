@@ -17,21 +17,20 @@ interface UserSettings {
     gemini: { 
       model: string; 
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
     };
     openai: { 
       model: string;
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
     };
     anthropic: { 
       model: string;
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
     };
   };
   selectedModelId: string;
-  agentSwarmEnabled: boolean;
 }
 
 interface UserData {
@@ -55,7 +54,6 @@ const DEFAULT_SETTINGS: UserSettings = {
     anthropic: { model: 'claude-sonnet-4.5', thinkingLevel: 2, savedModels: [] }
   },
   selectedModelId: '',
-  agentSwarmEnabled: false,
 };
 
 const getUserStorageKeys = (uid: string) => ({

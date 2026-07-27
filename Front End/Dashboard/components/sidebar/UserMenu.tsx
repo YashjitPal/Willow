@@ -64,10 +64,8 @@ export const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollap
   if (!shouldRender) return null;
 
   const sidebarBgClass = backgroundType === 'waves' 
-    ? 'bg-[#0d0d0d]/90 backdrop-blur-xl' 
-    : backgroundType === 'solid'
-      ? 'bg-[#181818]'
-      : 'bg-[#0d0d0d]';
+    ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
+    : 'bg-[#1f1f1f]';
 
   return (
     <div 

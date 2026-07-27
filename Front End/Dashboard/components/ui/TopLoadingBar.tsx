@@ -50,7 +50,7 @@ export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset
     >
       <div
         key={cycle}
-        className="h-full w-full origin-left bg-[#2583ff] shadow-[0_0_8px_rgba(37,131,255,0.85)] motion-reduce:transition-none"
+        className="h-full w-full origin-left bg-[#4a7c59] shadow-[0_0_8px_rgba(74,124,89,0.85)] motion-reduce:transition-none"
         style={{
           transform: `scaleX(${progress})`,
           transition: progress === 1

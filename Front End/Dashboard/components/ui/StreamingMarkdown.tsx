@@ -179,10 +179,17 @@ const Word = React.memo(
     }
     const cls =
       base +
-      (strong ? ' font-semibold text-gray-100' : '') +
+      (strong ? ' font-bold text-[#e3e3e3]' : '') +
       (em ? ' italic' : '') +
       (strike ? ' line-through text-gray-400' : '');
-    return <span className={cls}>{children}</span>;
+    return (
+      <span
+        className={cls}
+        style={strong ? { fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' } : undefined}
+      >
+        {children}
+      </span>
+    );
   },
   (a, b) =>
     a.children === b.children &&
@@ -1191,9 +1198,10 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
 
   return (
     <div
-      className={`text-gray-300 text-[15px] leading-[1.7] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
+      className={`text-[#e3e3e3] text-[17px] leading-6 font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
         animate ? '' : 'smd-static'
       } ${className}`}
+      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       {rendered}
     </div>
