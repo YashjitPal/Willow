@@ -1625,9 +1625,7 @@ export const InputBar: React.FC<{
               )}
             </div>
 
-            <button className="text-zinc-400 hover:text-white p-2.5 transition-all active:scale-90">
-              <AudioLines size={20} strokeWidth={2} />
-            </button>
+
             <button
               onClick={() => {
                 if (promptText.trim() || attachments.length > 0) return handleSubmit();
@@ -1639,30 +1637,30 @@ export const InputBar: React.FC<{
                   ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                   : undefined
               }
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90
                       ${
                         promptText.trim() || attachments.length > 0
                           ? chatVariant
-                            ? "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer"
+                            ? "bg-[#a8c7fa] hover:bg-[#b4d0fc] text-[#062e6f] cursor-pointer"
                             : "bg-zinc-200 hover:bg-white text-black cursor-pointer"
                           : chatVariant
                             ? liveActive
-                              ? "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer ring-2 ring-[#4a7c59]/20 animate-pulse"
-                              : "bg-[#4a7c59] hover:bg-[#3f694a] text-white cursor-pointer"
+                              ? "bg-[#1e1f20] hover:bg-[#333639] text-[#c4c7c5] cursor-pointer"
+                              : "bg-transparent hover:bg-white/5 text-[#c4c7c5] cursor-pointer"
                             : "bg-zinc-600 text-zinc-400 cursor-not-allowed"
                       }`}
               disabled={!chatVariant && !promptText.trim() && attachments.length === 0}
             >
               {promptText.trim() || attachments.length > 0 ? (
-                <ArrowUp size={20} strokeWidth={3} />
+                <MaterialSymbol name="arrow_upward" size={24} opticalSize={24} />
               ) : chatVariant ? (
                 liveActive ? (
                   <Square size={14} className="fill-current" />
                 ) : (
-                  <AudioLines size={18} strokeWidth={2.2} />
+                  <MaterialSymbol name="mic" size={24} opticalSize={24} />
                 )
               ) : (
-                <ArrowUp size={20} strokeWidth={3} />
+                <MaterialSymbol name="arrow_upward" size={24} opticalSize={24} />
               )}
             </button>
           </div>
