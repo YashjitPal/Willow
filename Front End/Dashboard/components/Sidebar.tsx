@@ -659,6 +659,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </button>
         </div>
+
+        {!isCollapsed && (
+          <span
+            className="gemini-sidenav-text text-[17.5px] leading-6 text-[#e0e0e0] select-none -ml-0.5 whitespace-nowrap overflow-hidden text-ellipsis transition-opacity duration-200"
+            style={{
+              fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+              fontWeight: 470,
+              fontVariationSettings: '"wght" 470'
+            }}
+          >
+            Willow
+          </span>
+        )}
         
         {!isCollapsed && (
           <div className="absolute right-[14px] top-1.5">
@@ -685,14 +698,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* One persistent pill follows the rail width, so Chat/Spark visibly
           compresses into the compact switch instead of swapping in place. */}
-      <div className="relative mt-1 mb-2 h-8 w-full shrink-0 overflow-hidden">
+      <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5">
         <div
-          className="absolute inset-x-1.5 top-0 h-8 overflow-hidden rounded-full bg-[#171717] shadow-inner"
+          className="relative flex h-8 w-full items-center rounded-full bg-[#171717] p-[2px]"
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
+          {/* Sliding active pill indicator - matches sidebar surface color (#1f1f1f) */}
+          <div
+            className="absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full bg-[#1f1f1f] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
+            style={{
+              transform: dashboardExperience === 'spark' ? 'translateX(calc(100%))' : 'translateX(0px)',
+              opacity: isCollapsed ? 0 : 1,
+            }}
+          />
+
           <div
             aria-hidden={isCollapsed}
-            className={`absolute inset-[3px] flex items-center ${isCollapsed ? 'pointer-events-none' : ''}`}
+            className={`relative z-10 flex h-full w-full items-center ${isCollapsed ? 'pointer-events-none' : ''}`}
             style={{
               opacity: isCollapsed ? 0 : 1,
               transform: isCollapsed ? 'scaleX(0.2)' : 'scaleX(1)',
@@ -705,10 +727,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onDashboardExperienceChange('chat')}
               aria-pressed={dashboardExperience === 'chat'}
               tabIndex={isCollapsed ? -1 : 0}
-              className={`flex-1 py-1 rounded-full text-[13px] leading-[17px] font-normal transition-all duration-200 text-center select-none cursor-pointer ${
+              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 dashboardExperience === 'chat'
-                  ? 'bg-[#1f1f1f] text-white shadow-sm'
-                  : 'text-[#a1a1aa] hover:text-white'
+                  ? 'text-[#e3e3e3]'
+                  : 'text-white/55 hover:text-white'
               }`}
             >
               Chat
@@ -721,16 +743,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               aria-pressed={dashboardExperience === 'spark'}
               tabIndex={isCollapsed ? -1 : 0}
-              className={`flex-1 py-1 rounded-full text-[13px] leading-[17px] font-normal transition-all duration-200 text-center flex items-center justify-center gap-1 select-none cursor-pointer ${
+              className={`flex-1 flex h-full items-center justify-center gap-1 rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 dashboardExperience === 'spark'
-                  ? 'bg-[#1f1f1f] text-white shadow-sm'
-                  : 'text-[#a1a1aa] hover:text-white'
+                  ? 'text-[#e3e3e3]'
+                  : 'text-white/55 hover:text-white'
               }`}
             >
               <span>Spark</span>
-              <span className="text-[9px] font-semibold tracking-wider text-[#71717a] uppercase ml-0.5">BETA</span>
+              <span className="text-[7px] font-medium leading-none text-[#e3e3e3] opacity-70">beta</span>
             </button>
           </div>
+
           <button
             type="button"
             onClick={() => {
@@ -760,14 +783,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320',
               }}
             >
-              toggle_off
+              {dashboardExperience === 'spark' ? 'toggle_on' : 'toggle_off'}
             </span>
           </button>
         </div>
       </div>
 
       {dashboardExperience === 'spark' ? (
-        <div className={`min-h-0 flex-1 pb-4 ${isCollapsed ? 'pt-2' : 'pt-[9px]'}`}>
+        <div className={`min-h-0 flex-1 pb-4 ${isCollapsed ? 'pt-2' : 'pt-0'}`}>
           <SparkSidebarItem
             label="Tasks"
             symbol="edit_rectangle"
@@ -812,28 +835,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               goToSparkSkills();
             }}
           />
-          <SidebarItem 
-            symbol="edit_square" 
-            label={isChatOngoing ? "New chat" : "Home"} 
-            isCollapsed={isCollapsed} 
-            active={currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing}
-            onClick={() => {
-              if (isChatOngoing) {
-                selectLocalFSInboxChat(null);
-                if (onNewChat) {
-                  onNewChat();
-                }
-              }
-              onViewChange('home');
-              onModeChange?.('chat');
-            }}
-          />
-          <SidebarItem 
-            symbol="search" 
-            label="Search" 
-            isCollapsed={isCollapsed} 
-            onClick={onSearchClick}
-          />
           <SparkSidebarItem
             label="Connected apps"
             symbol="extension"
@@ -849,7 +850,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ) : (
         <>
       {/* Fixed top-level navigation: Home & Search */}
-      <div className="pt-2 space-y-0 shrink-0">
+      <div className="pt-0 space-y-0 shrink-0">
         <SidebarItem 
           symbol="gemini_chat" 
           label="New chat" 
