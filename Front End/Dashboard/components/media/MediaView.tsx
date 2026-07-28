@@ -779,19 +779,45 @@ const TileContent = React.memo(({
         <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
         <span>Move to trash</span>
       </button>
+      
+      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
+      
+      <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
+        <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
+        <span>Share</span>
+      </button>
     </>
   );
+
+  const [isImageReady, setIsImageReady] = React.useState(false);
+
+  React.useEffect(() => {
+    if (item.status === 'completed' && item.url) {
+      if (item.kind === 'video') {
+        setIsImageReady(true);
+      } else {
+        const img = new window.Image();
+        img.src = item.url;
+        img.onload = () => setIsImageReady(true);
+        img.onerror = () => setIsImageReady(true);
+      }
+    } else if (item.status === 'generating') {
+      setIsImageReady(false);
+    }
+  }, [item.status, item.url, item.kind]);
+
+  const showGeneratingOverlay = item.status === 'generating' || (item.status === 'completed' && !isImageReady);
 
   return (
   <>
     <AnimatePresence>
-      {item.status === 'generating' && (
+      {showGeneratingOverlay && (
         <motion.div 
           className="mesh-container-generating"
-          initial={{ opacity: 1, backdropFilter: 'blur(0px)' }}
-          exit={{ opacity: 0, backdropFilter: 'blur(24px)' }}
-          transition={{ duration: 1.5, ease: "easeInOut" }}
-          style={{ zIndex: 50 }}>
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0, filter: 'blur(12px)' }}
+          transition={{ duration: 2.2, ease: [0.16, 1, 0.3, 1] }}
+          style={{ zIndex: 50, pointerEvents: 'none' }}>
           <div className="absolute inset-0 z-10 overflow-hidden rounded-[18px] opacity-100 pointer-events-none" style={{ filter: 'brightness(1) contrast(1)', mixBlendMode: 'luminosity' }}>
             <div className="absolute inset-0 bg-black" style={{ filter: 'blur(12px) contrast(0.9)' }}>
               <div 
