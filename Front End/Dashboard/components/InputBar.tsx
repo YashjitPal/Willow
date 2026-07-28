@@ -1422,7 +1422,7 @@ export const InputBar: React.FC<{
               )}
             </div>
             
-            <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 transition-all duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'gap-3 transition-all duration-200'} ${solidExpanded && chatVariant ? 'bottom-[12px] right-[1px]' : solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'top-1/2 -translate-y-1/2 right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 transition-all duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'gap-3 transition-all duration-200'} ${chatVariant ? `bottom-[12px] ${solidExpanded ? 'right-[1px]' : 'right-[0px]'}` : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictating && (
                 <div className="relative flex items-center shrink-0">
                   <button
@@ -1467,7 +1467,7 @@ export const InputBar: React.FC<{
                 onClick={handleToggleDictation}
                 aria-label={isDictating ? "Stop listening" : "Microphone"}
                 title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${solidExpanded && chatVariant && !isDictating ? 'ml-[2px] mr-[6px]' : ''} ${
+                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
                   isDictating && chatVariant
                     ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
                     : isDictating
@@ -1502,7 +1502,7 @@ export const InputBar: React.FC<{
                       : undefined
                 }
                 aria-label={hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
-                className={`${solidExpanded && chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[width,height,background-color] duration-200 shadow-sm outline-none cursor-pointer ${
+                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer ${
                   chatVariant
                     ? !hasContent && liveActive
                       ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
