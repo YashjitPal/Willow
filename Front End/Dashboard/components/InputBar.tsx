@@ -778,17 +778,22 @@ export const InputBar: React.FC<{
   /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
    *  to use mode="chat". Used by the standalone Dashboard chat view. */
   chatVariant?: boolean;
+  /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
+  showDisclaimer?: boolean;
   /** Chat live-voice session wiring. When `liveActive`, the empty-state send
    *  button becomes a stop control; otherwise it starts the session. Only
    *  consulted in `chatVariant` — Develop / Staging input is untouched. */
   liveActive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, liveActive = false, onStartLive, onStopLive }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
+  const [isComposerMaximized, setIsComposerMaximized] = useState(false);
+  const [canMaximizeComposer, setCanMaximizeComposer] = useState(false);
+  const [collapsedChatPaddingRight, setCollapsedChatPaddingRight] = useState(204);
   const { apiKeys } = useUserDataContext();
   const [isDictating, setIsDictating] = useState(false);
   const [isMicRippling, setIsMicRippling] = useState(false);
@@ -812,6 +817,10 @@ export const InputBar: React.FC<{
   const handleToggleDictation = () => {
     setIsMicRippling(true);
     setTimeout(() => setIsMicRippling(false), 400);
+
+    if (!isDictating && isComposerMaximized) {
+      setIsComposerMaximized(false);
+    }
 
     if (isDictating) {
       setIsExitingDictation(true);
@@ -980,8 +989,49 @@ export const InputBar: React.FC<{
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const micButtonRef = useRef<HTMLButtonElement>(null);
+  const rightControlsRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaResizeRafRef = useRef<number | null>(null);
+
+  const toggleComposerMaximized = () => {
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? promptText.length;
+    const selectionEnd = textarea?.selectionEnd ?? promptText.length;
+
+    setIsModelsOpen(false);
+    setIsPlusMenuOpen(false);
+    setIsComposerMaximized((current) => !current);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const nextTextarea = textareaRef.current;
+        if (!nextTextarea) return;
+        nextTextarea.focus();
+        nextTextarea.setSelectionRange(selectionStart, selectionEnd);
+      });
+    });
+  };
+
+  useEffect(() => {
+    if (!isComposerMaximized) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isComposerMaximized]);
+
+  useEffect(() => {
+    if (!isComposerMaximized) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isModelsOpen || isPlusMenuOpen) return;
+      event.preventDefault();
+      toggleComposerMaximized();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isComposerMaximized, isModelsOpen, isPlusMenuOpen]);
 
   const CurrentModeIcon =
     MODES.find((m) => m.id === currentMode)?.icon || Rocket;
@@ -993,6 +1043,8 @@ export const InputBar: React.FC<{
       setPromptText("");
       setAttachments([]);
       setSelectedTool(null);
+      setIsComposerMaximized(false);
+      setCanMaximizeComposer(false);
     }
   };
 
@@ -1064,29 +1116,67 @@ export const InputBar: React.FC<{
           if (isSolid) {
             // Disable padding transition during measurement so scrollHeight reads are exact
             textareaRef.current.style.transition = 'none';
+            // Never let the temporary one-row measurement create a scrollbar.
+            // A scrollbar narrows the editor, which can make scrollHeight report
+            // one more wrapped line than the final, scrollbar-free textarea uses.
+            textareaRef.current.style.overflowY = 'hidden';
 
-            const paddingRightVal = chatVariant ? '204px' : '76px';
+            const collapsedPaddingLeftVal = '40px';
+            const collapsedPaddingRightVal = chatVariant ? `${collapsedChatPaddingRight}px` : '76px';
+            // Gemini's multiline editor begins 24px inside the prompt shell.
+            // Willow's shell already contributes 14px left / 15px right, so
+            // only the remaining inset belongs on the expanded textarea.
+            const expandedPaddingLeftVal = chatVariant ? '10px' : '0px';
+            const expandedPaddingRightVal = chatVariant ? '9px' : '0px';
+            const expandedPaddingRightWithToggleVal = chatVariant ? '41px' : '0px';
             // Force narrow padding for measurement to see if it wraps inline
-            textareaRef.current.style.paddingLeft = '38px';
-            textareaRef.current.style.paddingRight = paddingRightVal;
+            textareaRef.current.style.scrollbarGutter = 'stable';
+            textareaRef.current.style.paddingLeft = collapsedPaddingLeftVal;
+            textareaRef.current.style.paddingRight = collapsedPaddingRightVal;
             textareaRef.current.style.height = `${baseHeight}px`;
             
             const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
-            const shouldExpand = (hypotheticalScrollHeight > baseHeight) || !!selectedTool;
+            const shouldExpand = (chatVariant && isComposerMaximized)
+              || (hypotheticalScrollHeight > baseHeight)
+              || !!selectedTool;
             
             setIsSolidExpanded(shouldExpand);
+            textareaRef.current.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
             
             // To prevent height glitch before React re-renders, 
             // force the target padding before calculating final height
-            textareaRef.current.style.paddingLeft = shouldExpand ? '0px' : '38px';
-            textareaRef.current.style.paddingRight = shouldExpand ? '0px' : paddingRightVal;
-            
+            textareaRef.current.style.paddingLeft = shouldExpand
+              ? expandedPaddingLeftVal
+              : collapsedPaddingLeftVal;
+            textareaRef.current.style.paddingRight = shouldExpand
+              ? expandedPaddingRightVal
+              : collapsedPaddingRightVal;
+
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const naturalExpandedScrollHeight = textareaRef.current.scrollHeight;
+            const nextCanMaximizeComposer = chatVariant
+              && shouldExpand
+              && naturalExpandedScrollHeight >= baseHeight * 3;
+            setCanMaximizeComposer(nextCanMaximizeComposer);
+
+            textareaRef.current.style.paddingRight = shouldExpand
+              ? (nextCanMaximizeComposer || isComposerMaximized
+                  ? expandedPaddingRightWithToggleVal
+                  : expandedPaddingRightVal)
+              : collapsedPaddingRightVal;
             textareaRef.current.style.height = `${baseHeight}px`;
             const scrollHeight = textareaRef.current.scrollHeight;
-            
-            if (scrollHeight > baseHeight) {
-              const newHeight = Math.min(scrollHeight, 300);
+            const maxTextareaHeight = chatVariant ? 168 : 300;
+
+            if (chatVariant && isComposerMaximized) {
+              textareaRef.current.style.height = '100%';
+              textareaRef.current.style.overflowY = 'auto';
+            } else if (scrollHeight > baseHeight) {
+              const newHeight = Math.min(scrollHeight, maxTextareaHeight);
               textareaRef.current.style.height = `${newHeight}px`;
+              textareaRef.current.style.overflowY = scrollHeight > maxTextareaHeight ? 'auto' : 'hidden';
+            } else {
+              textareaRef.current.style.overflowY = 'hidden';
             }
             
             // Clean up inline styles so Tailwind classes take over smoothly
@@ -1113,7 +1203,7 @@ export const InputBar: React.FC<{
         cancelAnimationFrame(textareaResizeRafRef.current);
       }
     };
-  }, [promptText, selectedTool, chatVariant, effectiveBackground]);
+  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight]);
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
   const promptBoxBg = effectiveBackground === 'lines' 
@@ -1126,13 +1216,66 @@ export const InputBar: React.FC<{
   // chip mounts in the same render, so the left group's bottom/py must flip now
   // (not 1 frame later via useEffect) or the taller chip shoves Plus upward.
   // Container pb + textarea padding intentionally stay on isSolidExpanded so the
-  // RAF sets them next frame and the 38→0 padding transition still plays.
-  const solidExpanded = isSolidExpanded || !!selectedTool;
+  // RAF sets them next frame and the collapsed→multiline padding transition
+  // still plays without disturbing the attachment-row expansion.
+  const solidExpanded = isSolidExpanded || !!selectedTool || (chatVariant && isComposerMaximized);
+  const showComposerMaximizeToggle = chatVariant && (canMaximizeComposer || isComposerMaximized);
+
+  // The single-line editor must end before the model pill, regardless of how
+  // long the selected model/effort label becomes. Measure the rendered control
+  // group instead of relying on the previous fixed 204px reservation.
+  useLayoutEffect(() => {
+    if (!chatVariant || solidExpanded || isDictating) return;
+
+    const controls = rightControlsRef.current;
+    const modelButton = modelButtonRef.current;
+    const micButton = micButtonRef.current;
+    if (!controls || !modelButton || !micButton) return;
+
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const controlsRect = controls.getBoundingClientRect();
+      const modelRect = modelButton.getBoundingClientRect();
+      const micRect = micButton.getBoundingClientRect();
+
+      const occupiedWidthFromModelPill = controlsRect.right - modelRect.left;
+      const modelToMicControlGap = Math.max(0, micRect.left - modelRect.right);
+      // Account for the mic glyph's side bearing so this is an optical gap,
+      // matching the visible pill-to-mic distance rather than button boxes.
+      const opticalGap = Math.max(12, modelToMicControlGap + (micRect.width - 24) / 2);
+      const nextPadding = Math.ceil(occupiedWidthFromModelPill + opticalGap);
+
+      setCollapsedChatPaddingRight((current) => current === nextPadding ? current : nextPadding);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(controls);
+    observer.observe(modelButton);
+    observer.observe(micButton);
+    void document.fonts?.ready.then(measure);
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [chatVariant, solidExpanded, isDictating, activeModelAndEffortLabel]);
 
   if (chatVariant || effectiveBackground === 'solid') {
     return (
-      <div className={`w-full mx-auto relative z-20 ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}>
-        <div className={`w-full flex flex-col justify-center transition-all duration-200 ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
+      <div
+        className={isComposerMaximized && chatVariant
+          ? 'fixed inset-0 z-[120] flex flex-col items-center p-4'
+          : `w-full mx-auto relative z-20 ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}
+        style={{
+          '--chat-collapsed-right-padding': `${collapsedChatPaddingRight}px`,
+          ...(isComposerMaximized && chatVariant
+            ? { backgroundColor: 'var(--dashboard-surface, #0f0f0f)' }
+            : {}),
+        } as React.CSSProperties}
+      >
+        <div className={`relative w-full flex flex-col transition-all duration-200 ${isComposerMaximized && chatVariant ? 'max-w-[660px] flex-1 min-h-0 justify-start' : 'justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
           
           {/* Attachments Area */}
           <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
@@ -1177,7 +1320,26 @@ export const InputBar: React.FC<{
           </div>
 
           {/* Main Input Row */}
-          <div className={`textarea-wrapper ${isExitingDictation ? 'exiting-dictation' : ''} flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper ${isExitingDictation ? 'exiting-dictation' : ''} flex flex-col w-full relative ${chatVariant ? 'transition-[padding] duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : isSolidExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+            {showComposerMaximizeToggle && !isDictating && (
+              <button
+                type="button"
+                onClick={toggleComposerMaximized}
+                className="absolute right-[1px] top-[12px] z-[70] flex h-8 w-8 items-center justify-center rounded-full text-[#e3e3e3] transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                aria-label={isComposerMaximized ? 'Exit full screen' : 'Open full screen'}
+                aria-pressed={isComposerMaximized}
+                title={isComposerMaximized ? 'Exit full screen' : 'Open full screen'}
+              >
+                <MaterialSymbol
+                  family="luminous"
+                  name={isComposerMaximized ? 'close_fullscreen' : 'open_in_full'}
+                  size={20}
+                  weight={300}
+                  roundness={100}
+                  opticalSize={20}
+                />
+              </button>
+            )}
             <textarea 
               ref={textareaRef}
               value={promptText}
@@ -1212,10 +1374,10 @@ export const InputBar: React.FC<{
               style={{
                 height: '24px',
                 minHeight: '24px',
-                scrollbarGutter: 'stable',
+                scrollbarGutter: solidExpanded ? 'auto' : 'stable',
                 fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
               }}
-              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] duration-200 ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isSolidExpanded ? 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[204px]' : 'pr-[76px]'}`}`}
+              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isComposerMaximized && chatVariant ? `pl-[10px] ${showComposerMaximizeToggle ? 'pr-[41px]' : 'pr-[9px]'}` : isSolidExpanded ? chatVariant ? `pl-[10px] ${showComposerMaximizeToggle ? 'pr-[41px]' : 'pr-[9px]'}` : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictating && (
@@ -1231,7 +1393,7 @@ export const InputBar: React.FC<{
               ref={fileInputRef} 
               onChange={handleFileSelect} 
             />
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded ? 'bottom-[6px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
               <div className={`${chatVariant ? 'w-8' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
@@ -1260,7 +1422,7 @@ export const InputBar: React.FC<{
               )}
             </div>
             
-            <div className={`absolute flex items-center h-10 shrink-0 transition-all duration-200 ${chatVariant ? 'gap-1' : 'gap-3'} ${solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'top-1/2 -translate-y-1/2 right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 transition-all duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'gap-3 transition-all duration-200'} ${solidExpanded && chatVariant ? 'bottom-[12px] right-[1px]' : solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'top-1/2 -translate-y-1/2 right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictating && (
                 <div className="relative flex items-center shrink-0">
                   <button
@@ -1301,10 +1463,11 @@ export const InputBar: React.FC<{
                 </div>
               )}
               <button 
+                ref={micButtonRef}
                 onClick={handleToggleDictation}
                 aria-label={isDictating ? "Stop listening" : "Microphone"}
                 title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
+                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${solidExpanded && chatVariant && !isDictating ? 'ml-[2px] mr-[6px]' : ''} ${
                   isDictating && chatVariant
                     ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
                     : isDictating
@@ -1325,6 +1488,7 @@ export const InputBar: React.FC<{
                 onClick={() => {
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
+                  if (isComposerMaximized) setIsComposerMaximized(false);
                   // Empty input in chat → the AudioLines button is the Live
                   // toggle. Same 34×34 circle so footer height is unchanged
                   // and the Chat spacing math stays valid.
@@ -1338,7 +1502,7 @@ export const InputBar: React.FC<{
                       : undefined
                 }
                 aria-label={hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
-                className={`w-[34px] h-[34px] rounded-full flex items-center justify-center shrink-0 transition-colors shadow-sm outline-none cursor-pointer ${
+                className={`${solidExpanded && chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[width,height,background-color] duration-200 shadow-sm outline-none cursor-pointer ${
                   chatVariant
                     ? !hasContent && liveActive
                       ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
@@ -1374,6 +1538,14 @@ export const InputBar: React.FC<{
           </div>
           
         </div>
+        {chatVariant && showDisclaimer && (
+          <p
+            className={`${isComposerMaximized ? 'mt-4 shrink-0' : 'pointer-events-none absolute left-0 right-0 top-full mt-4'} text-center text-[13px] font-normal leading-[17px] text-[#c4c7c5] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+            style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+          >
+            Willow is AI and can make mistakes.
+          </p>
+        )}
       </div>
     );
   }
