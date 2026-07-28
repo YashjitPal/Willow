@@ -791,6 +791,8 @@ export const InputBar: React.FC<{
   const [promptText, setPromptText] = useState("");
   const { apiKeys } = useUserDataContext();
   const [isDictating, setIsDictating] = useState(false);
+  const [isMicRippling, setIsMicRippling] = useState(false);
+  const [isExitingDictation, setIsExitingDictation] = useState(false);
   const dictationSessionRef = useRef<GeminiLiveSession | null>(null);
   const dictationPrevPromptRef = useRef<string>("");
   const promptTextRef = useRef(promptText);
@@ -808,7 +810,13 @@ export const InputBar: React.FC<{
   const speechRecognitionRef = useRef<any>(null);
 
   const handleToggleDictation = () => {
+    setIsMicRippling(true);
+    setTimeout(() => setIsMicRippling(false), 400);
+
     if (isDictating) {
+      setIsExitingDictation(true);
+      setTimeout(() => setIsExitingDictation(false), 350);
+
       if (speechRecognitionRef.current) {
         try { speechRecognitionRef.current.stop(); } catch {}
         speechRecognitionRef.current = null;
@@ -1169,7 +1177,7 @@ export const InputBar: React.FC<{
           </div>
 
           {/* Main Input Row */}
-          <div className={`flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper ${isExitingDictation ? 'exiting-dictation' : ''} flex flex-col w-full relative transition-all duration-200 ${isSolidExpanded ? 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
             <textarea 
               ref={textareaRef}
               value={promptText}
@@ -1296,16 +1304,17 @@ export const InputBar: React.FC<{
                 onClick={handleToggleDictation}
                 aria-label={isDictating ? "Stop listening" : "Microphone"}
                 title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`transition-colors outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
+                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
                   isDictating && chatVariant
-                    ? 'text-[#e6e6e6] border-2 border-[#c4c7c5] hover:bg-white/[0.08]'
+                    ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
                     : isDictating
                     ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse' 
                     : chatVariant ? 'text-[#e6e6e6] hover:bg-white/[0.08]' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
+                {isMicRippling && <span className="gemini-mic-ripple-effect" />}
                 {isDictating && chatVariant ? (
-                  <span className="w-2 h-2 rounded-[1px] bg-current" aria-hidden="true" />
+                  <span className="w-2.5 h-2.5 rounded-[1.5px] bg-[#e3e3e3]" aria-hidden="true" />
                 ) : chatVariant ? (
                   <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
                 ) : (
