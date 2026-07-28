@@ -247,21 +247,22 @@ const SparkSidebarItem: React.FC<{
       aria-label={label}
       aria-current={active ? 'page' : undefined}
       title={isCollapsed ? label : undefined}
-      className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 text-[#e6e6e6] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
-        active ? 'bg-transparent' : 'hover:bg-[#272729]'
+      className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
+        active ? 'bg-[#171717] text-white font-medium' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
       }`}
     >
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+      <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
         <MaterialSymbol
           family="luminous"
           name={symbol}
           size={20}
           opticalSize={20}
+          fill={active}
           className="transition-transform duration-200 group-active/spark-item:scale-90"
         />
-      </span>
+      </div>
       {!isCollapsed && (
-        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] font-normal leading-[17px]">
+        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'}`}>
           {label}
         </span>
       )}
@@ -811,6 +812,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
               goToSparkSkills();
             }}
           />
+          <SidebarItem 
+            symbol="edit_square" 
+            label={isChatOngoing ? "New chat" : "Home"} 
+            isCollapsed={isCollapsed} 
+            active={currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing}
+            onClick={() => {
+              if (isChatOngoing) {
+                selectLocalFSInboxChat(null);
+                if (onNewChat) {
+                  onNewChat();
+                }
+              }
+              onViewChange('home');
+              onModeChange?.('chat');
+            }}
+          />
+          <SidebarItem 
+            symbol="search" 
+            label="Search" 
+            isCollapsed={isCollapsed} 
+            onClick={onSearchClick}
+          />
           <SparkSidebarItem
             label="Connected apps"
             symbol="extension"
@@ -828,8 +851,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Fixed top-level navigation: Home & Search */}
       <div className="pt-2 space-y-0 shrink-0">
         <SidebarItem 
-          icon={isChatOngoing ? SquarePen : Home} 
-          label={isChatOngoing ? "New chat" : "Home"} 
+          symbol="gemini_chat" 
+          label="New chat" 
           isCollapsed={isCollapsed} 
           active={currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing}
           onClick={() => {
@@ -845,7 +868,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
         {user && (
           <SidebarItem 
-            icon={Search} 
+            symbol="search" 
             label="Search" 
             isCollapsed={isCollapsed} 
             onClick={onSearchClick}
