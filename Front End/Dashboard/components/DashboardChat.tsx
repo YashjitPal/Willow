@@ -51,6 +51,7 @@ interface ChatMsg {
 }
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
+const USER_MESSAGE_EXPANDED_CONTROL_RESERVE = 24;
 
 const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & {
   onToggleStart?: (willExpand: boolean) => void;
@@ -86,8 +87,13 @@ const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & 
   }, [content]);
 
   const canToggle = !isTranscribing && naturalHeight > USER_MESSAGE_COLLAPSED_HEIGHT;
+  const expandedControlReserve = canToggle && isExpanded
+    ? USER_MESSAGE_EXPANDED_CONTROL_RESERVE
+    : 0;
   const visibleHeight = canToggle
-    ? (isExpanded ? naturalHeight : USER_MESSAGE_COLLAPSED_HEIGHT)
+    ? (isExpanded
+      ? naturalHeight + USER_MESSAGE_EXPANDED_CONTROL_RESERVE
+      : USER_MESSAGE_COLLAPSED_HEIGHT)
     : (naturalHeight || undefined);
   const toggleLabel = isExpanded ? 'Collapse text' : 'Expand text';
 
@@ -100,7 +106,8 @@ const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & 
         className="overflow-hidden"
         style={{
           maxHeight: visibleHeight,
-          transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1)',
+          paddingBottom: expandedControlReserve,
+          transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1), padding-bottom 300ms cubic-bezier(0.2, 0, 0, 1)',
         }}
         onTransitionEnd={(event) => {
           if (event.propertyName === 'max-height') onToggleEnd?.();
@@ -1267,6 +1274,49 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     setEditDraft(msg.content);
   };
 
+  const cancelEditing = () => {
+    const container = chatScrollRef.current;
+    const previousScrollTop = container?.scrollTop ?? 0;
+    const wasPinnedToBottom = container
+      ? container.scrollHeight - container.clientHeight - container.scrollTop <= 2
+      : false;
+
+    // Closing the tall editor and restoring the normal user-to-response gap
+    // changes both halves of the thread layout. Commit that DOM change first,
+    // then restore its inverse response reserve before the browser can paint a
+    // transient shorter page and clamp the current scroll position.
+    flushSync(() => {
+      setEditingUserId(null);
+      setEditDraft('');
+    });
+
+    if (!container) return;
+
+    const lastUser = [...messagesRef.current].reverse().find((message) => message.role === 'user');
+    const messageElement = lastUser ? messageRefs.current[lastUser.id] : null;
+    if (messageElement) {
+      const liveFooterHeight = footerRef.current?.offsetHeight ?? 0;
+      const nextReserve = Math.max(
+        0,
+        container.clientHeight
+          - TARGET_VISUAL_OFFSET
+          - messageElement.offsetHeight
+          - MESSAGE_GAP
+          - liveFooterHeight,
+      );
+
+      flushSync(() => {
+        setFooterH(liveFooterHeight);
+        setResponseAreaMinHeight((current) => (current === undefined ? current : nextReserve));
+      });
+    }
+
+    const maximumScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = wasPinnedToBottom
+      ? maximumScrollTop
+      : Math.min(previousScrollTop, maximumScrollTop);
+  };
+
   const submitEdit = (messageId: string) => {
     const trimmed = editDraft.trim();
     if (!trimmed || isGenerating) return;
@@ -1398,7 +1448,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                           rows={1}
                           maxLength={1000000}
                           enterKeyHint="send"
-                          className="gemini-chat-scrollbar relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 text-[#e6e6e6] outline-none"
+                          className="relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 text-[#e6e6e6] outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                           style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                           aria-label="Edit prompt"
                         />
@@ -1406,10 +1456,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                       <div className="mt-4 flex h-12 justify-end">
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingUserId(null);
-                            setEditDraft('');
-                          }}
+                          onClick={cancelEditing}
                           className="relative mx-1 flex h-12 min-w-[72px] items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium text-[#e6e6e6] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e6e6e6] before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
                         >
                           <span className="relative z-10">Cancel</span>
