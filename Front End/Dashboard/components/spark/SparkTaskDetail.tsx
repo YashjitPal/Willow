@@ -15,7 +15,7 @@ import {
 } from '../../lib/spark-attachment-storage';
 import { PlusDropdownMenu } from '../PlusDropdownMenu';
 import { MaterialSymbol } from '../ui/MaterialSymbol';
-import { SparkDictationWaveform } from './SparkDictationWaveform';
+import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
@@ -1452,7 +1452,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             )}
             <AutoSizeTextarea
               value={newTaskDraft}
-              placeholder="Describe a task"
+              placeholder={newTaskDictation.isDictating ? "Listening..." : "Describe a task"}
               ariaLabel="Describe a new task"
               ariaDescribedBy={newTaskDictation.error || newTaskAttachmentError ? newTaskErrorId : undefined}
               hiddenForDictation={newTaskDictation.isDictating}
@@ -1460,20 +1460,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               onChange={setNewTaskDraft}
               onSubmit={submitNewTask}
             />
-            {newTaskDictation.isDictating && (
-              <SparkDictationWaveform className="spark-task-detail__dictation-waveform" />
-            )}
-            {newTaskDictation.isDictating ? (
-              <button
-                type="button"
-                className="spark-task-detail__stop-button"
-                aria-label="Stop listening"
-                title="Stop voice dictation"
-                onClick={newTaskDictation.stopDictation}
-              >
-                <span aria-hidden="true" />
-              </button>
-            ) : newTaskDraft.trim() ? (
+            {newTaskDraft.trim() && !newTaskDictation.isDictating ? (
               <button
                 type="submit"
                 className={`spark-task-detail__send-button${isNewTaskSubmitting ? ' is-submitting' : ''}`}
@@ -1491,11 +1478,18 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             ) : (
               <button
                 type="button"
-                className="spark-task-detail__icon-button"
-                aria-label="Use voice input"
-                title="Use voice input"
-                onClick={toggleNewTaskDictation}
+                className={`spark-task-detail__icon-button ${newTaskDictation.isDictating ? 'is-dictating' : ''} spark-mic-button`}
+                aria-label={newTaskDictation.isDictating ? "Stop listening" : "Use voice input"}
+                title={newTaskDictation.isDictating ? "Stop voice dictation" : "Use voice input"}
+                onClick={() => {
+                  if (newTaskDictation.isDictating) {
+                    newTaskDictation.stopDictation();
+                  } else {
+                    toggleNewTaskDictation();
+                  }
+                }}
               >
+                {newTaskDictation.isDictating && <SparkMicPulseOverlay />}
                 <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
               </button>
             )}
@@ -1974,7 +1968,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           >
                             Review risks
                           </a>{' '}
-                          and manage browser data in Gemini Spark Settings.
+                          and manage browser data in Willow Spark Settings.
                         </li>
                       </ul>
                       <p className="spark-task-detail__approval-plan-heading">
@@ -2177,7 +2171,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               )}
               <AutoSizeTextarea
                 value={followUpDraft}
-                placeholder={followUpPlaceholder}
+                placeholder={followUpDictation.isDictating ? "Listening..." : followUpPlaceholder}
                 ariaLabel="Add a follow-up to this task"
                 ariaDescribedBy={followUpDictation.error || followUpAttachmentError ? followUpErrorId : undefined}
                 hiddenForDictation={followUpDictation.isDictating}
@@ -2185,20 +2179,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 onChange={setFollowUpDraft}
                 onSubmit={submitFollowUp}
               />
-              {followUpDictation.isDictating && (
-                <SparkDictationWaveform className="spark-task-detail__dictation-waveform" />
-              )}
-              {followUpDictation.isDictating ? (
-                <button
-                  type="button"
-                  className="spark-task-detail__stop-button"
-                  aria-label="Stop listening"
-                  title="Stop voice dictation"
-                  onClick={followUpDictation.stopDictation}
-                >
-                  <span aria-hidden="true" />
-                </button>
-              ) : followUpDraft.trim() ? (
+              {followUpDraft.trim() && !followUpDictation.isDictating ? (
                 <button
                   type="submit"
                   className={`spark-task-detail__send-button${isFollowUpSubmitting ? ' is-submitting' : ''}`}
@@ -2220,12 +2201,19 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               ) : (
                 <button
                   type="button"
-                  className="spark-task-detail__icon-button"
-                  aria-label="Use voice input"
-                  title={followUpBlocked ? followUpPlaceholder : 'Use voice input'}
+                  className={`spark-task-detail__icon-button ${followUpDictation.isDictating ? 'is-dictating' : ''} spark-mic-button`}
+                  aria-label={followUpDictation.isDictating ? "Stop listening" : "Use voice input"}
+                  title={followUpDictation.isDictating ? "Stop voice dictation" : followUpBlocked ? followUpPlaceholder : 'Use voice input'}
                   disabled={isFollowUpSubmitting || followUpBlocked}
-                  onClick={toggleFollowUpDictation}
+                  onClick={() => {
+                    if (followUpDictation.isDictating) {
+                      followUpDictation.stopDictation();
+                    } else {
+                      toggleFollowUpDictation();
+                    }
+                  }}
                 >
+                  {followUpDictation.isDictating && <SparkMicPulseOverlay />}
                   <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
                 </button>
               )}

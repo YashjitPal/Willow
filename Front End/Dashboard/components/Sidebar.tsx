@@ -877,11 +877,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Scrollable lower navigation wrapper */}
-      <div className="flex-1 relative min-h-0">
+      {/* Scrollable lower navigation wrapper with bottom fade gradient mask */}
+      <div 
+        className="flex-1 relative min-h-0"
+        style={{
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 10px), rgba(0, 0, 0, 0.2) 100%)',
+          maskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 10px), rgba(0, 0, 0, 0.2) 100%)'
+        }}
+      >
         <div
           onScroll={handleScroll}
-          className="h-full overflow-y-auto pt-0 pb-4 no-scrollbar"
+          className="h-full overflow-y-auto pt-0 pb-0 no-scrollbar"
         >
           <div className="space-y-0">
             <SidebarItem 
@@ -1104,15 +1110,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div
         className="relative mt-auto shrink-0"
         style={{
-          height: isCollapsed ? '100px' : '56px',
+          height: isCollapsed ? '100px' : '52px',
           transition: `height ${GEMINI_SIDEBAR_POSITION_MOTION}`,
         }}
       >
         <div
-          className="absolute bottom-1 left-1.5 flex h-10 items-center"
+          className="absolute left-1.5 flex h-10 items-center"
           style={{
+            top: isCollapsed ? 'auto' : '6px',
+            bottom: isCollapsed ? '4px' : 'auto',
             right: isCollapsed ? '6px' : '48px',
-            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}`,
+            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}`,
           }}
         >
           {user ? (
@@ -1188,7 +1196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`absolute flex h-9 w-9 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
           style={{
             right: isCollapsed ? '8px' : '6px',
-            top: isCollapsed ? '4px' : '10px',
+            top: isCollapsed ? '4px' : '8px',
             transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}, background-color 150ms ease`,
           }}
         >

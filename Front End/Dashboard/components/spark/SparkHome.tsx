@@ -7,7 +7,7 @@ import {
   validateSparkAttachmentFiles,
 } from '../../lib/spark-attachment-storage';
 import { getActiveSparkStorageScope } from '../../lib/stores/spark-store';
-import { SparkDictationWaveform } from './SparkDictationWaveform';
+import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import {
   formatSparkRelativeTime,
   type SparkTask,
@@ -177,16 +177,12 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   return (
     <div className={`spark-home ${className}`.trim()} aria-labelledby={pageHeadingId}>
       <div className="spark-top-controls" aria-label="Spark release information">
-        <button type="button" className="spark-release-button spark-whats-new" onClick={onOpenWhatsNew}>
-          <span>What's new</span>
-          <span className="spark-release-dot" aria-hidden="true" />
-        </button>
         <span className="spark-beta-label">Beta</span>
       </div>
 
       <div className="spark-content">
         <div className="spark-heading-block">
-          <h1 id={pageHeadingId}>Put Gemini Spark to work for you</h1>
+          <h1 id={pageHeadingId}>Put Willow Spark to work for you</h1>
         </div>
 
         <div className={`spark-composer-anchor${composerError ? ' has-error' : ''}`}>
@@ -303,7 +299,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                 rows={1}
                 value={prompt}
                 aria-label="Enter a prompt for Gemini"
-                placeholder="Describe a task"
+                placeholder={isDictating ? "Listening..." : "Describe a task"}
                 autoComplete="off"
                 spellCheck
                 disabled={isSubmitting}
@@ -319,19 +315,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
               />
             </div>
 
-            {isDictating && <SparkDictationWaveform className="spark-composer__waveform" />}
-
-            {isDictating ? (
-              <button
-                type="button"
-                className="spark-composer-stop-button"
-                aria-label="Stop listening"
-                title="Stop voice dictation"
-                onClick={stopDictation}
-              >
-                <span aria-hidden="true" />
-              </button>
-            ) : prompt.trim() ? (
+            {prompt.trim() && !isDictating ? (
               <button
                 type="submit"
                 className="spark-composer-send-button"
@@ -351,14 +335,19 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
             ) : (
               <button
                 type="button"
-                className="spark-composer-icon-button spark-mic-button"
-                aria-label="Microphone"
-                title="Microphone"
+                className={`spark-composer-icon-button spark-mic-button ${isDictating ? 'is-dictating' : ''}`}
+                aria-label={isDictating ? "Stop listening" : "Microphone"}
+                title={isDictating ? "Stop voice dictation" : "Microphone"}
                 onClick={() => {
-                  onMicClick?.();
-                  toggleDictation();
+                  if (isDictating) {
+                    stopDictation();
+                  } else {
+                    onMicClick?.();
+                    toggleDictation();
+                  }
                 }}
               >
+                {isDictating && <SparkMicPulseOverlay />}
                 <MaterialSymbol
                   family="luminous"
                   name="mic"
