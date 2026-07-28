@@ -791,147 +791,58 @@ const TileContent = React.memo(({
           initial={{ opacity: 1, backdropFilter: 'blur(0px)' }}
           exit={{ opacity: 0, backdropFilter: 'blur(24px)' }}
           transition={{ duration: 1.5, ease: "easeInOut" }}
-          style={{ zIndex: 50 }}
-        >
+          style={{ zIndex: 50 }}>
+          <div className="absolute inset-0 z-10 overflow-hidden rounded-[18px] opacity-100 pointer-events-none" style={{ filter: 'brightness(1) contrast(1)', mixBlendMode: 'luminosity' }}>
+            <div className="absolute inset-0 bg-black" style={{ filter: 'blur(12px) contrast(0.9)' }}>
+              <div 
+                className="absolute inset-0 bg-transparent mix-blend-normal origin-center"
+                style={{
+                  backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
+                  backgroundRepeat: 'repeat',
+                  backgroundSize: '100%',
+                  backgroundPosition: '0% 50%',
+                  animation: 'flow-perlin-1 9s linear infinite',
+                  filter: 'contrast(1.5)',
+                  transform: 'scale(3.5)',
+                  opacity: 1
+                }}
+              />
+              <div 
+                className="absolute inset-0 bg-transparent mix-blend-multiply origin-center"
+                style={{
+                  backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
+                  backgroundRepeat: 'repeat',
+                  backgroundSize: '100%',
+                  backgroundPosition: '0% 50%',
+                  animation: 'flow-perlin-2 6s linear infinite',
+                  filter: 'contrast(1.5)',
+                  transform: 'scale(2)',
+                  opacity: 1
+                }}
+              />
+            </div>
+          </div>
+          
           <style dangerouslySetInnerHTML={{ __html: `
           .mesh-container-generating {
             position: absolute;
             inset: 0;
             border-radius: 18px;
-            background-color: #1a1b1f;
+            background-color: #5F6368; 
             overflow: hidden;
-          }
-
-          .mesh-container-generating::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 18px;
-            pointer-events: none;
-            z-index: 30;
-          }
-
-          /* Soft, highly blurred blobs for liquid blending */
-          .mesh-blob {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(45px); 
-            opacity: 0.85;
-            will-change: transform;
-          }
-
-          /* Lighter top-left highlight sweeping */
-          .blob-1 {
-            top: -20%;
-            left: -20%;
-            width: 80%;
-            height: 80%;
-            background-color: #a3a8b5; /* Changed to a much lighter silvery gray */
-            animation: move1 8s infinite ease-in-out; /* Drastically faster */
-          }
-
-          /* Mid-tone gray */
-          .blob-2 {
-            bottom: -20%;
-            right: -20%;
-            width: 70%;
-            height: 70%;
-            background-color: #757a87; /* Changed to a medium-light gray */
-            animation: move2 9s infinite ease-in-out; /* Drastically faster */
-          }
-
-          /* Deep shadow block 1 - Sweeping organically */
-          .blob-3 {
-            top: -15%;
-            left: -15%;
-            width: 65%;
-            height: 65%;
-            background-color: #12141a; /* Adjusted to a deep dark gray */
-            animation: move3 13s infinite ease-in-out; 
-          }
-
-          /* Secondary highlight acting as a separator */
-          .blob-4 {
-            bottom: 10%;
-            left: 10%;
-            width: 60%;
-            height: 60%;
-            background-color: #c2c6d1; /* Brightest light gray highlight */
-            animation: move4 15s infinite ease-in-out; /* Changed timing */
-            z-index: 2;
-          }
-
-          /* Deep shadow block 2 - Sweeping organically */
-          .blob-5 {
-            bottom: -15%;
-            right: -15%;
-            width: 70%;
-            height: 70%;
-            background-color: #0d0f14; /* Adjusted to a deep dark gray */
-            animation: move5 17s infinite ease-in-out; 
-          }
-
-          /* * Continuous looping keyframes (0% matches 100%)
-           * This prevents the "bounce" of alternate keyframes and stops blobs from clumping.
-           */
-          @keyframes move1 {
-            0% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(25%, 15%) scale(1.05); }
-            66% { transform: translate(-10%, 25%) scale(0.95); }
-            100% { transform: translate(0, 0) scale(1); }
+            container-type: inline-size;
           }
           
-          @keyframes move2 {
-            0% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(-25%, -15%) scale(0.95); }
-            66% { transform: translate(15%, -25%) scale(1.05); }
-            100% { transform: translate(0, 0) scale(1); }
+          @keyframes flow-perlin-1 {
+            0% { background-position: 100cqw center; }
+            100% { background-position: 0px center; } 
           }
           
-          /* Dark Ridge 1 takes a wider, more erratic path */
-          @keyframes move3 {
-            0% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(70%, 20%) scale(1.15); } /* Sweeps far right */
-            66% { transform: translate(20%, 70%) scale(0.85); } /* Drops low */
-            100% { transform: translate(0, 0) scale(1); }
-          }
-          
-          @keyframes move4 {
-            0% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(-20%, 20%) scale(1.1); }
-            66% { transform: translate(30%, -15%) scale(0.9); }
-            100% { transform: translate(0, 0) scale(1); }
-          }
-
-          /* Dark Ridge 2 takes an independent, overlapping path */
-          @keyframes move5 {
-            0% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(-80%, -30%) scale(1.1); } /* Sweeps far left */
-            66% { transform: translate(-10%, -80%) scale(0.9); } /* Rises high */
-            100% { transform: translate(0, 0) scale(1); }
-          }
-
-          /* Fine grain texture overlay just like the video */
-          .noise-layer {
-            position: absolute;
-            inset: 0;
-            z-index: 10;
-            opacity: 0.045;
-            mix-blend-mode: overlay;
-            pointer-events: none;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+          @keyframes flow-perlin-2 {
+            0% { background-position: 0% center; }
+            100% { background-position: 100cqw center; }
           }
         `}} />
-
-        {/* Animated fluid mesh background layers */}
-        <div className="mesh-blob blob-1"></div>
-        <div className="mesh-blob blob-2"></div>
-        <div className="mesh-blob blob-3"></div>
-        <div className="mesh-blob blob-4"></div>
-        <div className="mesh-blob blob-5"></div>
-
-        {/* Subtle noise overlay for premium cinematic texture */}
-        <div className="noise-layer"></div>
 
         {/* Foreground Content */}
         <div className="absolute top-4 left-4 pointer-events-none z-30 select-none">
