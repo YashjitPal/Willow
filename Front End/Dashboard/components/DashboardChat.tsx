@@ -52,9 +52,14 @@ interface ChatMsg {
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
 
-const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'>> = ({
+const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & {
+  onToggleStart?: (willExpand: boolean) => void;
+  onToggleEnd?: () => void;
+}> = ({
   content,
   isTranscribing,
+  onToggleStart,
+  onToggleEnd,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [naturalHeight, setNaturalHeight] = useState(0);
@@ -88,14 +93,17 @@ const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'>> =
 
   return (
     <div
-      className="relative min-w-0 max-w-[508px] overflow-hidden rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+      className="relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       <div
         className="overflow-hidden"
         style={{
           maxHeight: visibleHeight,
-          transition: 'max-height 400ms cubic-bezier(0.2, 0, 0, 1)',
+          transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1)',
+        }}
+        onTransitionEnd={(event) => {
+          if (event.propertyName === 'max-height') onToggleEnd?.();
         }}
       >
         <div ref={contentRef}>
@@ -108,31 +116,36 @@ const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'>> =
       </div>
 
       {canToggle && (
-        <>
+        <div className="pointer-events-none absolute bottom-5 right-5 h-6 w-10">
           {!isExpanded && (
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-5 right-[56px] z-10 h-6 w-[88px] bg-gradient-to-r from-transparent via-[#141414] to-[#141414]"
+              className="absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 bg-[linear-gradient(to_right,transparent,#141414_56px,#141414_100%)]"
             />
           )}
           <button
             type="button"
-            onClick={() => setIsExpanded((expanded) => !expanded)}
-            className="absolute bottom-5 right-6 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-[#28292a] text-[#c4c7c5] transition-colors hover:bg-[#333537] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-            aria-label={toggleLabel}
+            onClick={() => {
+              onToggleStart?.(!isExpanded);
+              setIsExpanded((expanded) => !expanded);
+            }}
+            className="pointer-events-auto absolute right-0 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-transparent p-2 text-[#c4c7c5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+            aria-label={isExpanded ? 'Collapse' : 'Expand'}
             aria-expanded={isExpanded}
             title={toggleLabel}
           >
-            <MaterialSymbol
-              family="luminous"
-              name={isExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-              size={24}
-              weight={300}
-              roundness={100}
-              opticalSize={24}
-            />
+            <span className="flex h-[22px] w-8 shrink-0 items-center justify-center rounded-[22px] bg-[#1e1f20]">
+              <MaterialSymbol
+                family="luminous"
+                name={isExpanded ? 'expand_less' : 'expand_more'}
+                size={20}
+                weight={320}
+                roundness={100}
+                opticalSize={20}
+              />
+            </span>
           </button>
-        </>
+        </div>
       )}
     </div>
   );
@@ -462,6 +475,26 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const syncEditTextareaHeight = useCallback(() => {
+    const textarea = editTextareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = '24px';
+    textarea.style.height = `${Math.min(288, Math.max(24, Math.ceil(textarea.scrollHeight)))}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!editingUserId) return;
+    syncEditTextareaHeight();
+  }, [editDraft, editingUserId, syncEditTextareaHeight]);
+
+  useEffect(() => {
+    if (!editingUserId) return;
+    window.addEventListener('resize', syncEditTextareaHeight);
+    return () => window.removeEventListener('resize', syncEditTextareaHeight);
+  }, [editingUserId, syncEditTextareaHeight]);
 
   const stopListening = useCallback(() => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -548,11 +581,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const userBubbleCollapsePinnedToBottomRef = useRef(false);
   // Inner content of the last assistant block — measured for the overflow
   // check so it's independent of the outer minHeight/paddingBottom we apply.
   const lastAssistantContentRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledUserId = useRef<string | null>(null);
-  const scrollAnimRaf = useRef<number | null>(null);
   const isFirstScrollRef = useRef(false);
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
@@ -561,6 +594,25 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // tool chips / attachments, so this must be reactive for the reserve + gap
   // math to stay correct.
   const [footerH, setFooterH] = useState(0);
+
+  const handleUserBubbleToggleStart = useCallback((willExpand: boolean) => {
+    const container = chatScrollRef.current;
+    if (!container || willExpand) {
+      userBubbleCollapsePinnedToBottomRef.current = false;
+      return;
+    }
+
+    const distanceFromBottom = container.scrollHeight - container.clientHeight - container.scrollTop;
+    userBubbleCollapsePinnedToBottomRef.current = distanceFromBottom <= 2;
+  }, []);
+
+  const handleUserBubbleToggleEnd = useCallback(() => {
+    const container = chatScrollRef.current;
+    if (container && userBubbleCollapsePinnedToBottomRef.current) {
+      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    }
+    userBubbleCollapsePinnedToBottomRef.current = false;
+  }, []);
 
   // Mirror messages in a ref so resize-driven recomputes can read the latest
   // list without re-running (and racing) on every setMessages.
@@ -588,7 +640,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         if (!c || !msgEl) return prev;
         return Math.max(
           0,
-          c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP - h,
+          c.clientHeight
+            - TARGET_VISUAL_OFFSET
+            - msgEl.offsetHeight
+            - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - h,
         );
       });
     };
@@ -596,7 +652,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     const ro = new ResizeObserver(sync);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [hasStarted]);
+  }, [hasStarted, editingUserId]);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const thinkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -609,17 +665,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   useEffect(() => () => {
     if (thinkTimer.current) clearInterval(thinkTimer.current);
-    if (scrollAnimRaf.current) cancelAnimationFrame(scrollAnimRaf.current);
     if (streamingClearRafRef.current !== null) {
       cancelAnimationFrame(streamingClearRafRef.current);
     }
   }, []);
 
   // ── Scroll-to-top animation on each new user turn ──────────────────────────
-  // Mirrors StagingSidebar: reserve the response-area height FIRST via
-  // flushSync so the scroll target is always reachable (turn-1 clamp fix),
-  // then 85% instant-jump + 200ms ease-out to land the bubble at
-  // TARGET_VISUAL_OFFSET.
+  // Gemini reserves the response area first, then lets the browser smoothly
+  // scroll the new turn to its anchor. Native smooth scrolling preserves the
+  // browser's distance-aware timing instead of stacking another easing curve
+  // on top of the sent-message entrance.
   useLayoutEffect(() => {
     const container = chatScrollRef.current;
     if (!container) return;
@@ -649,12 +704,6 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         setNeedsScrollPadding(false);
       });
 
-      // The previous reply is now at its natural height, so the 👍👎Copy row
-      // sits directly above the new bubble and they sweep together.
-      // Animate from the CURRENT scroll position — never snap — so nothing
-      // teleports; the bubble simply rises from exactly where it appeared.
-      const targetScrollTop = Math.max(0, msgEl.offsetTop - TARGET_VISUAL_OFFSET);
-      
       const N = 4;
       if (isFirstScrollRef.current && messages.length > N) {
         const targetIndex = messages.length - 1 - N;
@@ -666,25 +715,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       }
       isFirstScrollRef.current = false;
 
-      const animStart = Math.min(c.scrollTop, targetScrollTop);
-      // Animate the FULL distance (no instant-jump) so the bubble visibly
-      // rises from the prompt box to the top.
-      const distance = targetScrollTop - animStart;
-      const t0 = performance.now();
-      const dur = 320;
-      const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-
-      const step = (now: number) => {
-        const p = Math.min((now - t0) / dur, 1);
-        c.scrollTop = animStart + distance * easeOutCubic(p);
-        if (p < 1) {
-          scrollAnimRaf.current = requestAnimationFrame(step);
-        } else {
-          c.scrollTop = targetScrollTop;
-          scrollAnimRaf.current = null;
-        }
-      };
-      scrollAnimRaf.current = requestAnimationFrame(step);
+      msgEl.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+        inline: 'nearest',
+      });
     });
   }, [messages]);
 
@@ -696,7 +731,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     const c = chatScrollRef.current;
     if (!c) return;
     const recompute = () => {
-      setResponseAreaMinHeight((prev) => {
+      const updateReservedHeight = () => setResponseAreaMinHeight((prev) => {
         if (prev === undefined) return prev;
         const msgs = messagesRef.current;
         const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
@@ -708,9 +743,24 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         const liveFooterH = footerRef.current?.offsetHeight ?? 0;
         return Math.max(
           0,
-          c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP - liveFooterH,
+          c.clientHeight
+            - TARGET_VISUAL_OFFSET
+            - msgEl.offsetHeight
+            - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - liveFooterH,
         );
       });
+
+      if (userBubbleCollapsePinnedToBottomRef.current) {
+        // During the user-bubble max-height transition, update the inverse
+        // assistant reserve in the same frame. Otherwise scrollHeight dips for
+        // one paint, the browser clamps scrollTop, and the thread bounces down
+        // before returning upward on the next ResizeObserver tick.
+        flushSync(updateReservedHeight);
+        c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+      } else {
+        updateReservedHeight();
+      }
     };
     recompute();
     const ro = new ResizeObserver(recompute);
@@ -719,7 +769,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     if (lastUserEl) ro.observe(lastUserEl);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStarted, lastUserMessageId]);
+  }, [hasStarted, lastUserMessageId, editingUserId]);
 
   // ── Keep needsScrollPadding in sync with whether the reply CONTENT fits
   //    above the footer. Bidirectional: flips true when content outgrows the
@@ -1270,6 +1320,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const thinkingMessage = openThinkingMessageId
     ? messages.find((message) => message.id === openThinkingMessageId && message.role === 'assistant')
     : undefined;
+  const shouldAnimateFirstPromptEntrance =
+    messages.length === 2 &&
+    messages[0]?.role === 'user' &&
+    messages[0].isNew === true;
 
   return (
     <div className="relative flex h-full min-h-0 w-full overflow-hidden">
@@ -1287,9 +1341,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         style={{ scrollbarGutter: 'stable' }}
       >
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.25, delay: 0.15 }}
+          initial={shouldAnimateFirstPromptEntrance ? { opacity: 0, y: 200 } : false}
+          animate={{ opacity: 1, y: 0 }}
+          transition={shouldAnimateFirstPromptEntrance
+            ? { duration: 0.5, ease: [0.2, 0, 0, 1] }
+            : undefined}
           className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-20 transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
             thinkingMessage ? 'min-[1024px]:pl-9' : ''
           }`}
@@ -1309,55 +1365,61 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             const gapBefore = messageIndex === 0
               ? (isIncognito ? THREAD_GAP : 0)
               : previousMessage?.role === 'user' && msg.role === 'assistant'
-                ? MESSAGE_GAP
+                ? (editingUserId === previousMessage.id ? 0 : MESSAGE_GAP)
                 : THREAD_GAP;
 
             if (msg.role === 'user') {
               const isLastUser = msg.id === lastUserMessageId;
               return (
-                <motion.div
+                <div
                   key={msg.id}
                   ref={(el) => { messageRefs.current[msg.id] = el; }}
-                  initial={msg.isNew ? { opacity: 0, y: 8 } : false}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}
                   className="group relative flex justify-end"
-                  style={{ marginTop: gapBefore }}
+                  style={{ marginTop: gapBefore, scrollMarginTop: TARGET_VISUAL_OFFSET }}
                 >
                   {editingUserId === msg.id ? (
                     <form
-                      className="w-full max-w-[508px] rounded-[28px] bg-[#141414] p-4 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
-                      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                      className="w-full max-w-[508px] pb-3 font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif]"
                       onSubmit={(event) => {
                         event.preventDefault();
                         submitEdit(msg.id);
                       }}
                     >
-                      <textarea
-                        autoFocus
-                        value={editDraft}
-                        onChange={(event) => setEditDraft(event.target.value)}
-                        rows={3}
-                        className="gemini-chat-scrollbar min-h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[17px] font-normal leading-6 text-[#e3e3e3] outline-none"
-                        aria-label="Edit prompt"
-                      />
-                      <div className="mt-3 flex justify-end gap-2">
+                      <div className="relative ml-4 mr-2 rounded-[40px] px-7 py-5">
+                        <div
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-0 rounded-[40px] border-[0.8px] border-[#1f3b9b]"
+                        />
+                        <textarea
+                          ref={editTextareaRef}
+                          autoFocus
+                          value={editDraft}
+                          onChange={(event) => setEditDraft(event.target.value)}
+                          rows={1}
+                          maxLength={1000000}
+                          enterKeyHint="send"
+                          className="gemini-chat-scrollbar relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 text-[#e6e6e6] outline-none"
+                          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                          aria-label="Edit prompt"
+                        />
+                      </div>
+                      <div className="mt-4 flex h-12 justify-end">
                         <button
                           type="button"
                           onClick={() => {
                             setEditingUserId(null);
                             setEditDraft('');
                           }}
-                          className="h-9 rounded-full px-4 text-[14px] font-medium text-[#c4c7c5] transition-colors hover:bg-white/[0.08]"
+                          className="relative mx-1 flex h-12 min-w-[72px] items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium text-[#e6e6e6] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e6e6e6] before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
                         >
-                          Cancel
+                          <span className="relative z-10">Cancel</span>
                         </button>
                         <button
                           type="submit"
-                          disabled={!editDraft.trim()}
-                          className="h-9 rounded-full bg-[#d3e3fd] px-4 text-[14px] font-medium text-[#041e49] transition-colors hover:bg-[#e0ebff] disabled:cursor-not-allowed disabled:opacity-45"
+                          disabled={!editDraft.trim() || editDraft === msg.content || isGenerating}
+                          className="relative ml-1 flex h-12 items-center justify-center overflow-hidden rounded-full bg-[#1f3b9b] px-4 text-[14px] font-medium text-[#e6e6e6] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e6e6e6] before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-default disabled:bg-[rgba(230,230,230,0.12)] disabled:text-[rgba(230,230,230,0.38)] disabled:before:opacity-0"
                         >
-                          Update
+                          <span className="relative z-10">Update</span>
                         </button>
                       </div>
                     </form>
@@ -1366,41 +1428,51 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                       <UserMessageBubble
                         content={msg.content}
                         isTranscribing={msg.isTranscribing}
+                        onToggleStart={handleUserBubbleToggleStart}
+                        onToggleEnd={handleUserBubbleToggleEnd}
                       />
                       {!msg.isTranscribing && (
-                        <div className="gemini-user-actions pointer-events-none absolute right-0 top-full flex h-10 items-start pt-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(msg)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full text-[#e6e6e6] transition-colors hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-                            aria-label="Copy prompt"
-                            title="Copy prompt"
-                          >
-                            <MaterialSymbol
-                              family="luminous"
-                              name={copiedId === msg.id ? 'check' : 'copy'}
-                              size={24}
-                              weight={copiedId === msg.id ? 400 : 300}
-                              roundness={100}
-                              opticalSize={24}
-                            />
-                          </button>
-                          {isLastUser && (
+                        <>
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-auto absolute inset-x-0 top-full z-0 bg-transparent"
+                            style={{ height: MESSAGE_GAP }}
+                          />
+                          <div className="gemini-user-actions pointer-events-none absolute right-3 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                             <button
                               type="button"
-                              onClick={() => startEditing(msg)}
-                              className="flex h-9 w-9 items-center justify-center rounded-full text-[#e6e6e6] transition-colors hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-                              aria-label="Edit"
-                              title="Edit"
+                              onClick={() => handleCopy(msg)}
+                              className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e0e0e0] before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                              aria-label="Copy prompt"
+                              title="Copy prompt"
                             >
-                              <MaterialSymbol family="luminous" name="edit" size={24} weight={300} roundness={100} opticalSize={24} />
+                              <MaterialSymbol
+                                family="luminous"
+                                name={copiedId === msg.id ? 'check' : 'copy'}
+                                size={20}
+                                weight={320}
+                                roundness={100}
+                                opticalSize={20}
+                                className="relative z-10"
+                              />
                             </button>
-                          )}
-                        </div>
+                            {isLastUser && (
+                              <button
+                                type="button"
+                                onClick={() => startEditing(msg)}
+                                className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e0e0e0] before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                                aria-label="Edit"
+                                title="Edit"
+                              >
+                                <MaterialSymbol family="luminous" name="edit" size={20} weight={320} roundness={100} opticalSize={20} className="relative z-10" />
+                              </button>
+                            )}
+                          </div>
+                        </>
                       )}
                     </>
                   )}
-                </motion.div>
+                </div>
               );
             }
 
