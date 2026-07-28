@@ -153,21 +153,82 @@ const DICTATION_WAVE_BARS = Array.from({ length: 72 }, (_, index) => {
   };
 });
 
-const DictationWaveform = () => (
-  <div className="h-6 w-full flex items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
-    {DICTATION_WAVE_BARS.map((bar, index) => (
-      <span
-        key={index}
-        className="willow-dictation-bar block h-[2px] w-[2px] shrink-0 rounded-full bg-[#c4c7c5]"
-        style={{
-          '--wave-scale': bar.scale,
-          animationDelay: `${bar.delay}ms`,
-          animationDuration: `${bar.duration}ms`,
-        } as React.CSSProperties}
-      />
-    ))}
-  </div>
-);
+const DictationWaveform = () => {
+  const [audioLevel, setAudioLevel] = React.useState(0.2);
+  const animFrameRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    let audioCtx: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let stream: MediaStream | null = null;
+
+    async function initAudio() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.4;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const update = () => {
+          if (!analyser) return;
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length;
+          const norm = Math.min(1, Math.max(0.02, avg / 60));
+          setAudioLevel((prev) => prev * 0.4 + norm * 0.6);
+          animFrameRef.current = requestAnimationFrame(update);
+        };
+        update();
+      } catch {
+        let phase = 0;
+        const fallbackLoop = () => {
+          phase += 0.12;
+          setAudioLevel(0.25 + Math.sin(phase) * 0.2 + Math.cos(phase * 1.7) * 0.15);
+          animFrameRef.current = requestAnimationFrame(fallbackLoop);
+        };
+        fallbackLoop();
+      }
+    }
+
+    initAudio();
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (audioCtx) audioCtx.close();
+    };
+  }, []);
+
+  return (
+    <div className="h-6 w-full flex items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
+      {DICTATION_WAVE_BARS.map((_, index) => {
+        const total = DICTATION_WAVE_BARS.length;
+        const distFromCenter = Math.abs(index - total / 2) / (total / 2);
+        const envelope = Math.pow(Math.cos(distFromCenter * (Math.PI / 2)), 0.7);
+        const voiceExpansion = 0.12 + envelope * (0.2 + audioLevel * 1.5);
+
+        return (
+          <span
+            key={index}
+            className="block h-[18px] w-[2px] shrink-0 rounded-full bg-[#c4c7c5] transition-transform duration-75 origin-center"
+            style={{
+              transform: `scaleY(${Math.max(0.1, voiceExpansion).toFixed(3)})`,
+              opacity: Math.min(1, 0.45 + voiceExpansion * 0.55),
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+};
 
 const ModelsMenu: React.FC<{
   onClose: () => void;
@@ -744,52 +805,84 @@ export const InputBar: React.FC<{
     };
   }, []);
 
+  const speechRecognitionRef = useRef<any>(null);
+
   const handleToggleDictation = () => {
     if (isDictating) {
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch {}
+        speechRecognitionRef.current = null;
+      }
       dictationSessionRef.current?.stop();
       dictationSessionRef.current = null;
       setIsDictating(false);
     } else {
-      if (!isAuthenticated) {
-        onAuthRequired?.();
-        return;
-      }
-      const apiKey = apiKeys?.gemini?.[0];
-      if (!apiKey) {
-        alert("A Gemini API key is required for voice dictation. Please add one in Settings → Models.");
-        return;
-      }
-
       setIsModelsOpen(false);
       setIsPlusMenuOpen(false);
       setIsDictating(true);
       dictationPrevPromptRef.current = promptText;
 
-      const session = new GeminiLiveSession({
-        apiKey,
-        model: 'gemini-3.1-flash-live-preview',
-        transcribeOnly: true,
-        onUserTranscript: (full) => {
-          const separator = dictationPrevPromptRef.current.trim() ? " " : "";
-          setPromptText(dictationPrevPromptRef.current + separator + full);
-        },
-        onTurnComplete: () => {
-          dictationPrevPromptRef.current = promptTextRef.current;
-        },
-        onError: (err) => {
-          // eslint-disable-next-line no-console
-          console.error('[InputBar] Dictation error', err);
-          setIsDictating(false);
-          dictationSessionRef.current = null;
-        },
-        onClose: () => {
-          setIsDictating(false);
-          dictationSessionRef.current = null;
-        }
-      });
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-      dictationSessionRef.current = session;
-      void session.start();
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+
+          recognition.onresult = (event: any) => {
+            let transcript = '';
+            for (let i = 0; i < event.results.length; i++) {
+              transcript += event.results[i][0].transcript;
+            }
+            const separator = dictationPrevPromptRef.current.trim() ? " " : "";
+            setPromptText(dictationPrevPromptRef.current + separator + transcript);
+          };
+
+          recognition.onerror = () => {
+            // Handled silently
+          };
+
+          recognition.onend = () => {
+            setIsDictating(false);
+            speechRecognitionRef.current = null;
+          };
+
+          speechRecognitionRef.current = recognition;
+          recognition.start();
+          return;
+        } catch {
+          // Fallback to GeminiLiveSession
+        }
+      }
+
+      const apiKey = apiKeys?.gemini?.[0] || getGeminiApiKey(modelConfig);
+      if (apiKey) {
+        const session = new GeminiLiveSession({
+          apiKey,
+          model: 'gemini-2.0-flash-exp',
+          transcribeOnly: true,
+          onUserTranscript: (full) => {
+            const separator = dictationPrevPromptRef.current.trim() ? " " : "";
+            setPromptText(dictationPrevPromptRef.current + separator + full);
+          },
+          onTurnComplete: () => {
+            dictationPrevPromptRef.current = promptTextRef.current;
+          },
+          onError: () => {
+            setIsDictating(false);
+            dictationSessionRef.current = null;
+          },
+          onClose: () => {
+            setIsDictating(false);
+            dictationSessionRef.current = null;
+          }
+        });
+
+        dictationSessionRef.current = session;
+        void session.start();
+      }
     }
   };
   const [isSolidExpanded, setIsSolidExpanded] = useState(false);
@@ -1159,7 +1252,7 @@ export const InputBar: React.FC<{
               )}
             </div>
             
-            <div className={`absolute flex items-center shrink-0 transition-all duration-200 ${chatVariant ? 'gap-1' : 'gap-3'} ${solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'bottom-[12px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div className={`absolute flex items-center h-10 shrink-0 transition-all duration-200 ${chatVariant ? 'gap-1' : 'gap-3'} ${solidExpanded ? 'bottom-[10px] right-[0px]' : chatVariant ? 'top-1/2 -translate-y-1/2 right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictating && (
                 <div className="relative flex items-center shrink-0">
                   <button

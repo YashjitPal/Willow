@@ -7,7 +7,7 @@ import {
   validateSparkAttachmentFiles,
 } from '../../lib/spark-attachment-storage';
 import { getActiveSparkStorageScope } from '../../lib/stores/spark-store';
-import { SparkDictationWaveform } from './SparkDictationWaveform';
+import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime, type SparkTask, type SparkTaskAttachment } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
@@ -416,165 +416,157 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   return (
     <section className="spark-all-tasks" aria-labelledby={headingId}>
       <div className="spark-all-tasks__content">
-        <h1 id={headingId}>Put Gemini Spark to work for you</h1>
+        <h1 id={headingId}>Put Willow Spark to work for you</h1>
 
-        <form className="spark-all-tasks__composer" aria-busy={isSubmitting} onSubmit={submitPrompt}>
-          <button
-            ref={plusButtonRef}
-            type="button"
-            className="spark-all-tasks__icon-button"
-            aria-label="Add files and context"
-            title="Add files and context"
-            aria-haspopup="menu"
-            aria-expanded={plusOpen}
-            disabled={isSubmitting}
-            onClick={() => {
-              setFilterOpen(false);
-              setOpenTaskMenuId(null);
-              setPlusOpen((open) => !open);
-            }}
-          >
-            <MaterialSymbol {...SYMBOL_PROPS} name="plus" size={24} opticalSize={24} />
-          </button>
-          <PlusDropdownMenu
-            isOpen={plusOpen}
-            onClose={() => setPlusOpen(false)}
-            onFileSelect={() => fileInputRef.current?.click()}
-            buttonRef={plusButtonRef}
-            onToolSelect={setSelectedTool}
-            geminiStyle
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            disabled={isSubmitting}
-            onChange={(event) => {
-              const incoming = Array.from(event.target.files ?? []);
-              const merged = mergeSelectedFiles(attachedFiles, incoming);
-              try {
-                validateSparkAttachmentFiles(merged);
-                setAttachedFiles(merged);
-                setAttachmentError('');
-              } catch (error) {
-                setAttachmentError(error instanceof Error
-                  ? error.message
-                  : 'These files could not be attached.');
-              }
-              event.target.value = '';
-            }}
-          />
-
-          <div className="spark-all-tasks__input-stack">
-            {(attachedFiles.length > 0 || selectedTool) && !isDictating && (
-              <div className="spark-all-tasks__context-row" aria-label="Task context">
-                {attachedFiles.length > 0 && (
-                  <span className="spark-all-tasks__context-chip">
-                    <MaterialSymbol
-                      {...SYMBOL_PROPS}
-                      name="attach_file"
-                      size={16}
-                      opticalSize={16}
-                    />
-                    <span>
-                      {`${attachedFiles[0].name}${attachedFiles.length > 1 ? ` +${attachedFiles.length - 1}` : ''}`}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove attached files"
-                      disabled={isSubmitting}
-                      onClick={() => {
-                        setAttachedFiles([]);
-                        setAttachmentError('');
-                      }}
-                    >
-                      <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
-                    </button>
-                  </span>
-                )}
-
-                {selectedTool && (
-                  <span className="spark-all-tasks__context-chip spark-all-tasks__context-chip--tool">
-                    <MaterialSymbol
-                      {...SYMBOL_PROPS}
-                      name="auto_awesome"
-                      size={16}
-                      opticalSize={16}
-                    />
-                    <span>{SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}</span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}`}
-                      disabled={isSubmitting}
-                      onClick={() => setSelectedTool(null)}
-                    >
-                      <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
-                    </button>
-                  </span>
-                )}
-              </div>
-            )}
-
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={prompt}
-              aria-label="Describe a task for Gemini Spark"
-              aria-describedby={(dictationError || attachmentError) ? composerErrorId : undefined}
-              placeholder="Describe a task"
-              autoComplete="off"
-              spellCheck
-              disabled={isSubmitting}
-              aria-hidden={isDictating || undefined}
-              tabIndex={isDictating ? -1 : undefined}
-              className={isDictating ? 'is-dictating' : ''}
-              onFocus={() => {
-                setFilterOpen(false);
-                setOpenTaskMenuId(null);
-              }}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }}
-            />
-          </div>
-          {isDictating && <SparkDictationWaveform className="spark-all-tasks__waveform" />}
-          {isDictating ? (
+        <div className="spark-all-tasks__composer-anchor">
+          <form className="spark-all-tasks__composer" aria-busy={isSubmitting} onSubmit={submitPrompt}>
             <button
-              type="button"
-              className="spark-all-tasks__stop-button"
-              aria-label="Stop listening"
-              title="Stop voice dictation"
-              onClick={stopDictation}
-            >
-              <span aria-hidden="true" />
-            </button>
-          ) : prompt.trim() ? (
-            <button
-              type="submit"
-              className="spark-all-tasks__send-button"
-              aria-label="Create task"
-              title={isSubmitting ? 'Preparing files' : 'Create task'}
-              disabled={isSubmitting}
-            >
-              <MaterialSymbol {...SYMBOL_PROPS} name="arrow_upward" size={20} opticalSize={20} />
-            </button>
-          ) : (
-            <button
+              ref={plusButtonRef}
               type="button"
               className="spark-all-tasks__icon-button"
-              aria-label="Use voice input"
-              title="Use voice input"
+              aria-label="Add files and context"
+              title="Add files and context"
+              aria-haspopup="menu"
+              aria-expanded={plusOpen}
               disabled={isSubmitting}
-              onClick={toggleDictation}
+              onClick={() => {
+                setFilterOpen(false);
+                setOpenTaskMenuId(null);
+                setPlusOpen((open) => !open);
+              }}
             >
-              <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
+              <MaterialSymbol {...SYMBOL_PROPS} name="plus" size={24} opticalSize={24} />
             </button>
-          )}
-        </form>
+            <PlusDropdownMenu
+              isOpen={plusOpen}
+              onClose={() => setPlusOpen(false)}
+              onFileSelect={() => fileInputRef.current?.click()}
+              buttonRef={plusButtonRef}
+              onToolSelect={setSelectedTool}
+              geminiStyle
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              disabled={isSubmitting}
+              onChange={(event) => {
+                const incoming = Array.from(event.target.files ?? []);
+                const merged = mergeSelectedFiles(attachedFiles, incoming);
+                try {
+                  validateSparkAttachmentFiles(merged);
+                  setAttachedFiles(merged);
+                  setAttachmentError('');
+                } catch (error) {
+                  setAttachmentError(error instanceof Error
+                    ? error.message
+                    : 'These files could not be attached.');
+                }
+                event.target.value = '';
+              }}
+            />
+
+            <div className="spark-all-tasks__input-stack">
+              {(attachedFiles.length > 0 || selectedTool) && !isDictating && (
+                <div className="spark-all-tasks__context-row" aria-label="Task context">
+                  {attachedFiles.length > 0 && (
+                    <span className="spark-all-tasks__context-chip">
+                      <MaterialSymbol
+                        {...SYMBOL_PROPS}
+                        name="attach_file"
+                        size={16}
+                        opticalSize={16}
+                      />
+                      <span>
+                        {`${attachedFiles[0].name}${attachedFiles.length > 1 ? ` +${attachedFiles.length - 1}` : ''}`}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove attached files"
+                        disabled={isSubmitting}
+                        onClick={() => {
+                          setAttachedFiles([]);
+                          setAttachmentError('');
+                        }}
+                      >
+                        <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
+                      </button>
+                    </span>
+                  )}
+
+                  {selectedTool && (
+                    <span className="spark-all-tasks__context-chip spark-all-tasks__context-chip--tool">
+                      <MaterialSymbol
+                        {...SYMBOL_PROPS}
+                        name="auto_awesome"
+                        size={16}
+                        opticalSize={16}
+                      />
+                      <span>{SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}`}
+                        disabled={isSubmitting}
+                        onClick={() => setSelectedTool(null)}
+                      >
+                        <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={prompt}
+                aria-label="Describe a task for Willow Spark"
+                aria-describedby={(dictationError || attachmentError) ? composerErrorId : undefined}
+                placeholder={isDictating ? "Listening..." : "Describe a task"}
+                autoComplete="off"
+                spellCheck
+                disabled={isSubmitting}
+                aria-hidden={isDictating || undefined}
+                tabIndex={isDictating ? -1 : undefined}
+                className={isDictating ? 'is-dictating' : ''}
+                onFocus={() => {
+                  setFilterOpen(false);
+                  setOpenTaskMenuId(null);
+                }}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }}
+              />
+            </div>
+            {prompt.trim() && !isDictating ? (
+              <button
+                type="submit"
+                className="spark-all-tasks__send-button"
+                aria-label="Create task"
+                title={isSubmitting ? 'Preparing files' : 'Create task'}
+                disabled={isSubmitting}
+              >
+                <MaterialSymbol {...SYMBOL_PROPS} name="arrow_upward" size={20} opticalSize={20} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`spark-all-tasks__icon-button ${isDictating ? 'is-dictating' : ''} spark-mic-button`}
+                aria-label={isDictating ? "Stop listening" : "Use voice input"}
+                title={isDictating ? "Stop voice dictation" : "Use voice input"}
+                disabled={isSubmitting}
+                onClick={toggleDictation}
+              >
+                {isDictating && <SparkMicPulseOverlay />}
+                <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
+              </button>
+            )}
+          </form>
+        </div>
         {(dictationError || attachmentError) && (
           <p id={composerErrorId} className="spark-all-tasks__voice-error" role="alert">
             {dictationError || attachmentError}
