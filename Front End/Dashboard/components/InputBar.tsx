@@ -992,6 +992,7 @@ export const InputBar: React.FC<{
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const rightControlsRef = useRef<HTMLDivElement>(null);
+  const composerShellRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaResizeRafRef = useRef<number | null>(null);
 
@@ -1264,9 +1265,42 @@ export const InputBar: React.FC<{
     };
   }, [chatVariant, solidExpanded, isDictating, activeModelAndEffortLabel]);
 
+  // The empty-state composer intentionally sits slightly above the viewport's
+  // vertical center while collapsed. Once fullscreen is opened, Gemini centers
+  // the enlarged shell itself instead, leaving equal space above and below it.
+  // Translate only that one state so closing fullscreen restores the existing
+  // elevated empty-state position and the active-chat footer is unaffected.
+  useLayoutEffect(() => {
+    const shell = composerShellRef.current;
+    if (!shell) return;
+
+    if (!chatVariant || !isComposerMaximized || showDisclaimer) {
+      shell.style.translate = '';
+      return;
+    }
+
+    const centerFullscreenShell = () => {
+      // Measure from the shell's unshifted flow position on every pass so a
+      // viewport resize cannot compound the previous centering offset.
+      shell.style.translate = '0 0';
+      const shellRect = shell.getBoundingClientRect();
+      const centeredTop = (window.innerHeight - shellRect.height) / 2;
+      shell.style.translate = `0 ${Math.round(centeredTop - shellRect.top)}px`;
+    };
+
+    centerFullscreenShell();
+    window.addEventListener('resize', centerFullscreenShell);
+
+    return () => {
+      window.removeEventListener('resize', centerFullscreenShell);
+      shell.style.translate = '';
+    };
+  }, [chatVariant, isComposerMaximized, showDisclaimer]);
+
   if (chatVariant || effectiveBackground === 'solid') {
     return (
       <div
+        ref={composerShellRef}
         className={`w-full mx-auto relative ${isComposerMaximized && chatVariant ? 'z-[120]' : 'z-20'} ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}
         style={{
           '--chat-collapsed-right-padding': `${collapsedChatPaddingRight}px`,
@@ -1322,7 +1356,7 @@ export const InputBar: React.FC<{
               <button
                 type="button"
                 onClick={toggleComposerMaximized}
-                className={`absolute right-[-7px] top-[12px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 text-[#c4c7c5] transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
+                className={`absolute right-[-7px] top-[8px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 text-[#c4c7c5] transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
                 aria-label="Expand input to Fullscreen"
                 aria-pressed={isComposerMaximized}
                 aria-hidden={!showComposerMaximizeToggle}
