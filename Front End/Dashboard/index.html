@@ -222,6 +222,22 @@
         background-color: #030303;
         color: white;
         overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Exact Gemini typography rule for bold text: 540 weight instead of chunky 700 */
+      b, strong {
+        font-weight: 540;
+        font-variation-settings: "wght" 540;
+        font-synthesis-weight: none;
+      }
+
+      /* Prevent artificial browser font swelling on sidebar items */
+      .group\/spark-item button,
+      .group\/item,
+      [role="button"] {
+        font-synthesis-weight: none;
       }
 
       /* Universal Minimal Modern Scrollbar */

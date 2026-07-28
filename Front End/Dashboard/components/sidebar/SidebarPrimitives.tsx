@@ -1,8 +1,10 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
+import { MaterialSymbol } from '../ui/MaterialSymbol';
 
 export const SidebarItem: React.FC<{ 
   icon?: React.ElementType; 
+  symbol?: string;
   label: string; 
   customLabel?: React.ReactNode;
   active?: boolean; 
@@ -11,7 +13,7 @@ export const SidebarItem: React.FC<{
   href?: string;
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
-}> = ({ icon: Icon, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
+}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
   <div className="px-1.5">
     <div 
       role="button"
@@ -28,13 +30,24 @@ export const SidebarItem: React.FC<{
         ${active ? 'bg-[#171717] text-[#e6e6e6] hover:bg-[#171717]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] hover:text-[#e6e6e6]'}
         rounded-full`}
     >
-      {Icon ? (
+      {symbol ? (
         <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
+          <MaterialSymbol
+            family="luminous"
+            name={symbol}
+            size={20}
+            opticalSize={20}
+            fill={active}
+            className="transition-transform duration-200 group-active/item:scale-90"
+          />
+        </div>
+      ) : Icon ? (
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 ml-[2px]`}>
           <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
         </div>
       ) : null}
       {!isCollapsed && (
-        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-[540]' : 'font-normal'} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}

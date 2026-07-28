@@ -111,9 +111,9 @@
   display: flex;
   width: 100%;
   min-height: 65.6px;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: wrap;
-  padding: 16.8px 16px 16.8px 14px;
+  padding: 12px 16px;
   border-radius: 32px;
   background: #1e1f20;
 }

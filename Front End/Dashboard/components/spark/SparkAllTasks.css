@@ -45,9 +45,9 @@
   display: flex;
   width: 100%;
   min-height: 65.6px;
-  align-items: flex-end;
+  align-items: center;
   margin: 26px auto 0;
-  padding: 16.8px 16.8px 16.8px 14.8px;
+  padding: 12px 16px;
   border-radius: 32px;
   background: #1e1f20;
   isolation: isolate;
