@@ -50,6 +50,94 @@ interface ChatMsg {
   isNew?: boolean;
 }
 
+const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
+
+const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'>> = ({
+  content,
+  isTranscribing,
+}) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [naturalHeight, setNaturalHeight] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const nextHeight = Math.ceil(element.getBoundingClientRect().height);
+      setNaturalHeight((currentHeight) => (
+        currentHeight === nextHeight ? currentHeight : nextHeight
+      ));
+      if (nextHeight <= USER_MESSAGE_COLLAPSED_HEIGHT) {
+        setIsExpanded(false);
+      }
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [content]);
+
+  const canToggle = !isTranscribing && naturalHeight > USER_MESSAGE_COLLAPSED_HEIGHT;
+  const visibleHeight = canToggle
+    ? (isExpanded ? naturalHeight : USER_MESSAGE_COLLAPSED_HEIGHT)
+    : (naturalHeight || undefined);
+  const toggleLabel = isExpanded ? 'Collapse text' : 'Expand text';
+
+  return (
+    <div
+      className="relative min-w-0 max-w-[508px] overflow-hidden rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+    >
+      <div
+        className="overflow-hidden"
+        style={{
+          maxHeight: visibleHeight,
+          transition: 'max-height 400ms cubic-bezier(0.2, 0, 0, 1)',
+        }}
+      >
+        <div ref={contentRef}>
+          {isTranscribing && !content ? (
+            <span className="select-none italic text-gray-500">Transcribing…</span>
+          ) : (
+            content
+          )}
+        </div>
+      </div>
+
+      {canToggle && (
+        <>
+          {!isExpanded && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-5 right-[56px] z-10 h-6 w-[88px] bg-gradient-to-r from-transparent via-[#141414] to-[#141414]"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setIsExpanded((expanded) => !expanded)}
+            className="absolute bottom-5 right-6 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-[#28292a] text-[#c4c7c5] transition-colors hover:bg-[#333537] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+            aria-label={toggleLabel}
+            aria-expanded={isExpanded}
+            title={toggleLabel}
+          >
+            <MaterialSymbol
+              family="luminous"
+              name={isExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+              size={24}
+              weight={300}
+              roundness={100}
+              opticalSize={24}
+            />
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
 interface DashboardChatProps {
   modelConfig: any;
   selectedModelId: string;
@@ -1275,16 +1363,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     </form>
                   ) : (
                     <>
-                      <div
-                        className="min-w-0 max-w-[508px] rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-                        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-                      >
-                        {msg.isTranscribing && !msg.content ? (
-                          <span className="select-none italic text-gray-500">Transcribing…</span>
-                        ) : (
-                          msg.content
-                        )}
-                      </div>
+                      <UserMessageBubble
+                        content={msg.content}
+                        isTranscribing={msg.isTranscribing}
+                      />
                       {!msg.isTranscribing && (
                         <div className="gemini-user-actions pointer-events-none absolute right-0 top-full flex h-10 items-start pt-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                           <button
@@ -1463,10 +1545,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           }}
         />
         <div
-          className="w-full flex justify-center px-4 pb-5 pointer-events-auto bg-[var(--dashboard-surface)]"
+          className="w-full flex justify-center px-4 pb-[53px] pointer-events-auto bg-[var(--dashboard-surface)]"
         >
           <InputBar
             chatVariant
+            showDisclaimer
             currentMode="chat"
             onModeChange={() => {}}
             onSubmit={(prompt) => {
