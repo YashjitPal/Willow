@@ -3,6 +3,7 @@ import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { GeminiLiveSession, primeLiveChimes, playLiveChime } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
 import { MaterialSymbol } from './ui/MaterialSymbol';
+import './InputBar.css';
 import {
   getModelGroupKey,
   getThinkingEffortLabel,
@@ -1127,8 +1128,11 @@ export const InputBar: React.FC<{
             // Willow's shell already contributes 14px left / 15px right, so
             // only the remaining inset belongs on the expanded textarea.
             const expandedPaddingLeftVal = chatVariant ? '10px' : '0px';
-            const expandedPaddingRightVal = chatVariant ? '9px' : '0px';
-            const expandedPaddingRightWithToggleVal = chatVariant ? '41px' : '0px';
+            // Gemini permanently reserves the same compact right-side inset,
+            // including before its fullscreen control becomes visible. This
+            // prevents the editor width (and therefore wrapping) from jumping
+            // when the third line reveals the control.
+            const expandedPaddingRightVal = chatVariant ? '24px' : '0px';
             // Force narrow padding for measurement to see if it wraps inline
             textareaRef.current.style.scrollbarGutter = 'stable';
             textareaRef.current.style.paddingLeft = collapsedPaddingLeftVal;
@@ -1160,9 +1164,7 @@ export const InputBar: React.FC<{
             setCanMaximizeComposer(nextCanMaximizeComposer);
 
             textareaRef.current.style.paddingRight = shouldExpand
-              ? (nextCanMaximizeComposer || isComposerMaximized
-                  ? expandedPaddingRightWithToggleVal
-                  : expandedPaddingRightVal)
+              ? expandedPaddingRightVal
               : collapsedPaddingRightVal;
             textareaRef.current.style.height = `${baseHeight}px`;
             const scrollHeight = textareaRef.current.scrollHeight;
@@ -1265,17 +1267,12 @@ export const InputBar: React.FC<{
   if (chatVariant || effectiveBackground === 'solid') {
     return (
       <div
-        className={isComposerMaximized && chatVariant
-          ? 'fixed inset-0 z-[120] flex flex-col items-center p-4'
-          : `w-full mx-auto relative z-20 ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}
+        className={`w-full mx-auto relative ${isComposerMaximized && chatVariant ? 'z-[120]' : 'z-20'} ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}
         style={{
           '--chat-collapsed-right-padding': `${collapsedChatPaddingRight}px`,
-          ...(isComposerMaximized && chatVariant
-            ? { backgroundColor: 'var(--dashboard-surface, #0f0f0f)' }
-            : {}),
         } as React.CSSProperties}
       >
-        <div className={`relative w-full flex flex-col transition-all duration-200 ${isComposerMaximized && chatVariant ? 'max-w-[660px] flex-1 min-h-0 justify-start' : 'justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
+        <div className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : 'justify-center'}` : 'transition-all duration-200 justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
           
           {/* Attachments Area */}
           <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
@@ -1321,22 +1318,23 @@ export const InputBar: React.FC<{
 
           {/* Main Input Row */}
           <div className={`textarea-wrapper ${isExitingDictation ? 'exiting-dictation' : ''} flex flex-col w-full relative ${chatVariant ? 'transition-[padding] duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : isSolidExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
-            {showComposerMaximizeToggle && !isDictating && (
+            {chatVariant && !isDictating && (
               <button
                 type="button"
                 onClick={toggleComposerMaximized}
-                className="absolute right-[1px] top-[12px] z-[70] flex h-8 w-8 items-center justify-center rounded-full text-[#e3e3e3] transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-                aria-label={isComposerMaximized ? 'Exit full screen' : 'Open full screen'}
+                className={`absolute right-[-7px] top-[12px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 text-[#c4c7c5] transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
+                aria-label="Expand input to Fullscreen"
                 aria-pressed={isComposerMaximized}
-                title={isComposerMaximized ? 'Exit full screen' : 'Open full screen'}
+                aria-hidden={!showComposerMaximizeToggle}
+                tabIndex={showComposerMaximizeToggle ? 0 : -1}
+                title="Expand input to Fullscreen"
               >
                 <MaterialSymbol
-                  family="luminous"
-                  name={isComposerMaximized ? 'close_fullscreen' : 'open_in_full'}
+                  family="google-symbols"
+                  name={isComposerMaximized ? 'collapse_content' : 'expand_content'}
                   size={20}
-                  weight={300}
-                  roundness={100}
-                  opticalSize={20}
+                  weight={400}
+                  roundness={0}
                 />
               </button>
             )}
@@ -1377,7 +1375,7 @@ export const InputBar: React.FC<{
                 scrollbarGutter: solidExpanded ? 'auto' : 'stable',
                 fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
               }}
-              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isComposerMaximized && chatVariant ? `pl-[10px] ${showComposerMaximizeToggle ? 'pr-[41px]' : 'pr-[9px]'}` : isSolidExpanded ? chatVariant ? `pl-[10px] ${showComposerMaximizeToggle ? 'pr-[41px]' : 'pr-[9px]'}` : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
+              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : isSolidExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictating && (
@@ -1540,7 +1538,7 @@ export const InputBar: React.FC<{
         </div>
         {chatVariant && showDisclaimer && (
           <p
-            className={`${isComposerMaximized ? 'mt-4 shrink-0' : 'pointer-events-none absolute left-0 right-0 top-full mt-4'} text-center text-[13px] font-normal leading-[17px] text-[#c4c7c5] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+            className="pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] text-[#c4c7c5] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
             style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
           >
             Willow is AI and can make mistakes.

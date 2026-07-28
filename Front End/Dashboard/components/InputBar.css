@@ -1,0 +1,13 @@
+.willow-gemini-composer {
+  height: auto;
+}
+
+.willow-gemini-composer--fullscreen {
+  height: calc(100dvh - 114px);
+}
+
+@media (max-width: 959px) {
+  .willow-gemini-composer--fullscreen {
+    height: calc(100dvh - 74px);
+  }
+}
