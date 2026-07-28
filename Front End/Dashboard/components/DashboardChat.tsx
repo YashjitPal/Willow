@@ -77,6 +77,22 @@ const getShortModelName = (name: string) => {
   return name.replace(/Gemini\s+/gi, '').trim();
 };
 
+const waitForBrowserPaint = () => new Promise<void>((resolve) => {
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    resolve();
+  };
+  // Background tabs can pause requestAnimationFrame indefinitely. The short
+  // fallback keeps response finalisation from getting stuck when unfocused.
+  const fallback = window.setTimeout(finish, 50);
+  requestAnimationFrame(() => {
+    window.clearTimeout(fallback);
+    finish();
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Component
 // ──────────────────────────────────────────────────────────────────────────────
@@ -321,6 +337,9 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const sendInFlightRef = useRef(false);
+  // React 19 may batch rapid SDK stream callbacks with the completion cleanup.
+  // Track the deferred clear so a new turn can cancel it before accepting text.
+  const streamingClearRafRef = useRef<number | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   // Pre-response activity label. Stays on the shimmer row until the first real
   // text token streams ('responding'), so tool calls (search / code exec) don't
@@ -481,6 +500,9 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   useEffect(() => () => {
     if (thinkTimer.current) clearInterval(thinkTimer.current);
     if (scrollAnimRaf.current) cancelAnimationFrame(scrollAnimRaf.current);
+    if (streamingClearRafRef.current !== null) {
+      cancelAnimationFrame(streamingClearRafRef.current);
+    }
   }, []);
 
   // ── Scroll-to-top animation on each new user turn ──────────────────────────
@@ -663,6 +685,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
       const { provider, model, thinkingLevel, apiKey, modelLabel } = resolveModel();
       sendInFlightRef.current = true;
+      if (streamingClearRafRef.current !== null) {
+        cancelAnimationFrame(streamingClearRafRef.current);
+        streamingClearRafRef.current = null;
+      }
       const isBrandNewConversation = historyOverride === undefined && messages.length === 0;
 
       const userMsg: ChatMsg = { id: newId(), role: 'user', content: trimmed, isNew: true };
@@ -745,7 +771,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               stopThinking();
             }
             acc += token;
-            setStreaming(acc);
+            // The provider callbacks can be drained from an already-buffered SSE
+            // response in a tight microtask chain. Force each accumulated value
+            // into React before the final message/cleanup updates can absorb it.
+            flushSync(() => setStreaming(acc));
           },
           () => {},
           CHAT_SYSTEM_PROMPT,
@@ -764,6 +793,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
             ));
           },
         );
+        // Give the browser one generating-state paint after the final delta. If
+        // finalisation happens in the same task, React can otherwise replace the
+        // streaming buffer with the completed message before it was ever shown.
+        await waitForBrowserPaint();
         finalizeAssistant(assistantId, acc, thinkSecondsRef.current);
       } catch (e: any) {
         finalizeAssistant(
@@ -775,7 +808,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       } finally {
         sendInFlightRef.current = false;
         stopThinking();
-        setStreaming('');
+        // Keep the final streaming value alive through the completion commit.
+        // The completed message now owns the same text, so clearing next frame is
+        // visually lossless and cannot erase the last delta before paint.
+        streamingClearRafRef.current = requestAnimationFrame(() => {
+          streamingClearRafRef.current = null;
+          setStreaming('');
+        });
         setIsGenerating(false);
       }
     },
@@ -793,6 +832,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   //   • onTurnComplete   → finalizeAssistant + clear streaming, ready for next
   //                       utterance; session stays open.
   const openLiveTurn = useCallback(() => {
+    if (streamingClearRafRef.current !== null) {
+      cancelAnimationFrame(streamingClearRafRef.current);
+      streamingClearRafRef.current = null;
+    }
     const userId = newId();
     const assistantId = newId();
     liveTurnRef.current = { userId, assistantId, acc: '' };
@@ -847,7 +890,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           lastScrolledUserId.current = null;
           setResponseAreaMinHeight(undefined);
         }
-        if (!hadTranscript) { setStreaming(''); return; }
+        if (!hadTranscript) {
+          streamingClearRafRef.current = requestAnimationFrame(() => {
+            streamingClearRafRef.current = null;
+            setStreaming('');
+          });
+          return;
+        }
       }
       // Interrupted: the text released so far is exactly what was *spoken*
       // (the audio-synced drain dropped everything after the barge-in point).
@@ -875,7 +924,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
               : m
         )
       );
-      setStreaming('');
+      streamingClearRafRef.current = requestAnimationFrame(() => {
+        streamingClearRafRef.current = null;
+        setStreaming('');
+      });
     },
     [stopThinking]
   );
@@ -957,7 +1009,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         // `chunk` is released by live.ts only when its audio is actually being
         // spoken, so `turn.acc` == what the user has *heard* so far.
         turn.acc += chunk;
-        setStreaming(turn.acc);
+        flushSync(() => setStreaming(turn.acc));
       },
       onTurnComplete: ({ aborted }) => closeLiveTurn({ aborted }),
       onError: (err) => {

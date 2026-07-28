@@ -1,17 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * StreamingMarkdown
  * A self-contained, markdown-aware text renderer tuned for LLM token streams.
  *
- *   • Adaptive RAF pacing    — smooths bursty network chunks into a constant,
- *                              readable flow that speeds up when it falls
- *                              behind and coasts when caught up.
- *   • Per-word reveal        — each word mounts exactly once with a GPU-
- *                              accelerated blur→crisp lift. Stable keys mean
- *                              re-renders never replay old words.
- *   • Living caret           — a glowing orb that breathes at the insertion
- *                              point and fades when the stream settles.
+ *   • Direct stream commits  — every upstream append renders immediately,
+ *                              without a second client-side text buffer.
+ *   • Gemini chunk reveal    — newly committed text fades from transparent
+ *                              to opaque over 400ms; previous text stays put.
  *   • Markdown-native        — headings, lists, fenced code, inline
  *                              bold/italic/code all animate coherently.
  *
@@ -23,47 +19,37 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 // Styles (injected once)
 // ────────────────────────────────────────────────────────────────────────────
 const STYLE_ID = 'streaming-markdown-styles';
+const STREAM_FADE_MS = 400;
 const STYLE_CSS = `
-@keyframes smd-word-in {
-  0%   { opacity: 0; transform: translateY(0.25em); filter: blur(8px); }
-  100% { opacity: 1; transform: translateY(0);      filter: blur(0);   }
+@keyframes smd-fade-in-text {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-@keyframes smd-head-in {
-  0%   { opacity: 0; transform: translateY(0.3em) scale(0.97); filter: blur(10px); }
-  60%  { opacity: 1; transform: translateY(-0.04em) scale(1.01); filter: blur(0); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+.smd-streaming {
+  --animation-duration: ${STREAM_FADE_MS}ms;
+  --fade-animation-function: ease-out;
 }
-@keyframes smd-code-in {
-  0%   { opacity: 0; transform: translateY(6px) scale(0.985); box-shadow: 0 0 0 0 rgba(96,165,250,0); }
-  40%  { opacity: 1; transform: translateY(0) scale(1); box-shadow: 0 0 28px -2px rgba(96,165,250,0.28); }
-  100% { opacity: 1; transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(96,165,250,0); }
+.smd-streaming .smd-w,
+.smd-streaming .smd-h,
+.smd-streaming .smd-code-block {
+  animation-duration: var(--animation-duration);
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+  animation-name: smd-fade-in-text;
+  animation-timing-function: var(--fade-animation-function);
 }
-/* fill-mode:backwards (not both) — retain the 0% frame before start, but
-   release all animated props once finished so the span drops its compositor
-   layer instead of holding transform/filter/will-change forever. */
-.smd-w {
-  display: inline-block;
-  animation: smd-word-in 0.42s cubic-bezier(0.22, 0.65, 0.3, 0.98) backwards;
-}
-.smd-h {
-  display: inline-block;
-  animation: smd-head-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1.1) backwards;
-}
-.smd-code-block {
-  animation: smd-code-in 0.9s cubic-bezier(0.22, 0.65, 0.3, 0.98) backwards;
-}
-.smd-static .smd-w,
-.smd-static .smd-h,
-.smd-static .smd-code-block,
-.smd-settled { animation: none; }
+.smd-streaming .smd-settled { animation: none; }
+.smd-pending { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .smd-w, .smd-h, .smd-code-block { animation: none !important; }
+  .smd-streaming .smd-w,
+  .smd-streaming .smd-h,
+  .smd-streaming .smd-code-block { animation: none !important; }
 }
 `;
 
 function useInjectStyles() {
-  useEffect(() => {
+  useInsertionEffect(() => {
     if (typeof document === 'undefined') return;
     if (document.getElementById(STYLE_ID)) return;
     const el = document.createElement('style');
@@ -71,75 +57,6 @@ function useInjectStyles() {
     el.textContent = STYLE_CSS;
     document.head.appendChild(el);
   }, []);
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Adaptive pacing — releases characters at a speed proportional to backlog.
-// Guarantees visual smoothness regardless of how bursty the upstream is.
-// ────────────────────────────────────────────────────────────────────────────
-function useSmoothText(target: string, enabled: boolean) {
-  const [len, setLen] = useState(enabled ? 0 : target.length);
-  const lenRef = useRef(len);
-  const targetRef = useRef(target);
-  const rafRef = useRef<number | null>(null);
-  const lastRef = useRef<number>(0);
-
-  // keep refs fresh without re-kicking the loop effect
-  targetRef.current = target;
-
-  const tick = (now: number) => {
-    const dt = Math.min(64, now - lastRef.current); // clamp dt (tab-switch safety)
-    lastRef.current = now;
-    const gap = targetRef.current.length - lenRef.current;
-
-    if (gap > 0) {
-      // Adaptive: base 90 cps, +8 cps per buffered char, capped at 2200 cps.
-      const speed = Math.min(2200, 90 + gap * 8);
-      const advance = Math.max(1, Math.round((speed * dt) / 1000));
-      lenRef.current = Math.min(targetRef.current.length, lenRef.current + advance);
-      setLen(lenRef.current);
-      rafRef.current = requestAnimationFrame(tick);
-    } else {
-      // Caught up — park the loop until new target arrives.
-      rafRef.current = null;
-    }
-  };
-  const tickRef = useRef(tick);
-  tickRef.current = tick;
-
-  // Kick (or re-kick) the loop only when there's backlog to drain.
-  useEffect(() => {
-    if (!enabled) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-      lenRef.current = target.length;
-      setLen(target.length);
-      return;
-    }
-    if (target.length > lenRef.current && rafRef.current === null) {
-      lastRef.current = performance.now();
-      rafRef.current = requestAnimationFrame((t) => tickRef.current(t));
-    }
-  }, [enabled, target]);
-
-  // Cancel on unmount
-  useEffect(
-    () => () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    },
-    []
-  );
-
-  // If target shrinks (shouldn't in append-only streams, but guard anyway)
-  useEffect(() => {
-    if (len > target.length) {
-      lenRef.current = target.length;
-      setLen(target.length);
-    }
-  }, [target, len]);
-
-  const caughtUp = len >= target.length;
-  return { text: target.slice(0, len), caughtUp };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -966,7 +883,29 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
 }) {
   useInjectStyles();
 
-  const { text: shown } = useSmoothText(text, animate);
+  // The transport already supplies append-only chunks. Rendering that source
+  // directly keeps the UI in lockstep with generation instead of waiting for
+  // a second, client-side character queue to drain.
+  const shown = text;
+  const shouldAnimateStream = animate && isStreaming;
+  const [keepTailAnimation, setKeepTailAnimation] = useState(shouldAnimateStream);
+
+  // Generation and its final text commit can land in the same React update.
+  // Keep the streaming class for one full fade after completion so that final
+  // append still receives Gemini's reveal instead of flashing in fully opaque.
+  useEffect(() => {
+    if (shouldAnimateStream) {
+      if (!keepTailAnimation) setKeepTailAnimation(true);
+      return;
+    }
+    if (!keepTailAnimation) return;
+    const timeoutId = window.setTimeout(() => {
+      setKeepTailAnimation(false);
+    }, STREAM_FADE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [keepTailAnimation, shouldAnimateStream]);
+
+  const animationEnabled = shouldAnimateStream || keepTailAnimation;
   const processedBlocks = useMemo(() => {
     const blocks = parseBlocks(closeDangling(shown));
     
@@ -1005,8 +944,6 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     }
     return out;
   }, [shown]);
-
-  void isStreaming; // reserved for future caret/indicator use
 
   // A word / block is "settled" iff its first character already existed in the
   // previously *committed* `shown` string. Purely derived from a post-commit
@@ -1199,8 +1136,9 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
   return (
     <div
       className={`text-[#e3e3e3] text-[17px] leading-6 font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
-        animate ? '' : 'smd-static'
+        animationEnabled ? 'smd-streaming' : 'smd-static'
       } ${className}`}
+      data-streaming={animationEnabled ? 'true' : undefined}
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       {rendered}
