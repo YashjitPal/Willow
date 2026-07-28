@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 SETLOCAL EnableDelayedExpansion
 
 echo ===================================================
@@ -9,6 +10,7 @@ echo ===================================================
 git rev-parse --is-inside-work-tree >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] This directory is not a Git repository.
+    echo.
     pause
     exit /b 1
 )
@@ -61,6 +63,8 @@ if not defined HAS_UNCOMMITTED (
         echo ===================================================
         echo  SUCCESS: Everything is already up to date on GitHub.
         echo ===================================================
+        echo.
+        pause
         ENDLOCAL
         exit /b 0
     )
@@ -81,4 +85,6 @@ if %ERRORLEVEL% equ 0 (
     echo ===================================================
 )
 
+echo.
+pause
 ENDLOCAL
