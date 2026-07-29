@@ -76,7 +76,8 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
   const models = modelMode === 'image' ? [
     { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
     { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
-    { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' }
+    { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' },
+    { id: 'grok-imagine', name: 'Grok Imagine' }
   ] : [
     { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast' },
     { id: 'veo-3.1', name: 'Veo 3.1' },

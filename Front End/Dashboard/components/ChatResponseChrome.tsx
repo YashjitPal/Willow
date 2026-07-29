@@ -186,7 +186,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
                     disabled={unavailable}
                     aria-disabled={unavailable}
                     title={unavailable ? 'Unavailable in Willow' : undefined}
-                    className="flex h-9 w-full items-center gap-2 px-2 text-left text-[13px] font-normal leading-[17px] text-[#e6e6e6] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.08] focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className="flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-[13px] font-normal leading-[17px] text-[#e6e6e6] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.08] focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     onClick={() => runMenuAction(action)}
                   >
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#e3e3e3]">

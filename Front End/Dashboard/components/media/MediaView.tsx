@@ -3337,7 +3337,26 @@ export const MediaView: React.FC = () => {
     window.dispatchEvent(new Event('willow_projects_updated'));
   }, [projectId, chatScopeId, saveLocalFSCover]);
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
-  type ImageModelId = 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
+  // Read user saved models from localStorage
+  const savedConfigRaw = typeof window !== 'undefined' ? localStorage.getItem('modelConfig') : null;
+  const userSavedModels = React.useMemo(() => {
+    try {
+      const parsed = savedConfigRaw ? JSON.parse(savedConfigRaw) : null;
+      if (!parsed) return [];
+      return [
+        ...(parsed.gemini?.savedModels || []),
+        ...(parsed.openai?.savedModels || []),
+        ...(parsed.anthropic?.savedModels || []),
+        ...(parsed.moonshot?.savedModels || []),
+        ...(parsed.spacexai?.savedModels || []),
+        ...(parsed.zhipuai?.savedModels || []),
+      ];
+    } catch {
+      return [];
+    }
+  }, [savedConfigRaw]);
+
+  type ImageModelId = string;
   const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
   const [musicModel, setMusicModel] = React.useState<string>('lyria-3-pro');
   const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
@@ -3345,21 +3364,74 @@ export const MediaView: React.FC = () => {
   const imageModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const imageModelButtonRef = React.useRef<HTMLButtonElement>(null);
 
-  type VideoModelId = 'veo-3.1-fast' | 'veo-3.1' | 'veo-3.1-lite' | 'omni-flash';
-  const VIDEO_MODELS: { id: VideoModelId; name: string; apiId: string }[] = [
+  const availableImageModels = React.useMemo(() => {
+    const userImageModels = userSavedModels.filter((m: any) => {
+      const id = (m.modelId || m.id || '').toLowerCase();
+      const name = (m.name || '').toLowerCase();
+      return id === 'grok-imagine' || id.includes('banana') || id.includes('image') || id.includes('imagine') || name.includes('imagine') || name.includes('banana');
+    });
+    if (userImageModels.length > 0) {
+      return userImageModels.map((m: any) => ({
+        id: m.modelId || m.id,
+        name: m.name || (m.modelId === 'grok-imagine' ? 'Grok Imagine' : 'Nano Banana')
+      }));
+    }
+    return [{ id: 'none', name: 'No image models configured' }];
+  }, [userSavedModels]);
+
+  type VideoModelId = string;
+  const DEFAULT_VIDEO_MODELS: { id: VideoModelId; name: string; apiId: string }[] = [
     { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', apiId: 'veo-3.1-fast-generate-preview' },
     { id: 'veo-3.1', name: 'Veo 3.1', apiId: 'veo-3.1-generate-preview' },
     { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', apiId: 'veo-3.0-fast-generate-001' },
-    { id: 'omni-flash', name: 'Omni Flash', apiId: 'gemini-omni-flash-preview' },
+    { id: 'omni-flash', name: 'Gemini Omni Flash', apiId: 'gemini-omni-flash-preview' },
   ];
+
+  const availableVideoModels = React.useMemo(() => {
+    const userVideoModels = userSavedModels.filter((m: any) => {
+      const id = (m.modelId || m.id || '').toLowerCase();
+      const name = (m.name || '').toLowerCase();
+      return id.includes('veo') || id.includes('omni') || name.includes('veo') || name.includes('omni');
+    });
+    if (userVideoModels.length > 0) {
+      return userVideoModels.map((m: any) => {
+        const id = m.modelId || m.id;
+        const match = DEFAULT_VIDEO_MODELS.find(v => v.id === id);
+        return {
+          id: id,
+          name: m.name || match?.name || 'Video Model',
+          apiId: match?.apiId || id
+        };
+      });
+    }
+    return [{ id: 'none', name: 'No video models configured', apiId: '' }];
+  }, [userSavedModels]);
+
+  const availableMusicModels = React.useMemo(() => {
+    const userMusicModels = userSavedModels.filter((m: any) => {
+      const id = (m.modelId || m.id || '').toLowerCase();
+      const name = (m.name || '').toLowerCase();
+      return id.includes('lyria') || id.includes('voice') || name.includes('lyria') || name.includes('voice');
+    });
+    if (userMusicModels.length > 0) {
+      return userMusicModels.map((m: any) => ({
+        id: m.modelId || m.id,
+        name: m.name || (m.modelId === 'grok-voice' ? 'Grok Voice' : 'Lyria 3 Pro')
+      }));
+    }
+    return [{ id: 'none', name: 'No music models configured' }];
+  }, [userSavedModels]);
+
+  const VIDEO_MODELS = availableVideoModels;
+
   const getVideoApiModelId = (id: VideoModelId) =>
-    VIDEO_MODELS.find(m => m.id === id)?.apiId ?? 'veo-3.1-fast-generate-preview';
+    availableVideoModels.find(m => m.id === id)?.apiId ?? 'veo-3.1-fast-generate-preview';
   const [videoModel, setVideoModel] = React.useState<VideoModelId>('omni-flash');
   const [isVideoModelDropdownOpen, setIsVideoModelDropdownOpen] = React.useState(false);
   const [videoModelDropDirection, setVideoModelDropDirection] = React.useState<'down' | 'up'>('down');
   const videoModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const videoModelButtonRef = React.useRef<HTMLButtonElement>(null);
-  const getVideoModelName = (id: VideoModelId) => VIDEO_MODELS.find(m => m.id === id)?.name ?? 'Omni Flash';
+  const getVideoModelName = (id: VideoModelId) => availableVideoModels.find(m => m.id === id)?.name ?? 'Gemini Omni Flash';
 
   // Estimate dropdown panel height: each item ~42px + container padding 8px
   const estimateDropdownHeight = (itemCount: number) => itemCount * 42 + 8;
@@ -3428,8 +3500,11 @@ export const MediaView: React.FC = () => {
   }, [isVideoModelDropdownOpen]);
 
   const getImageModelName = (id: string) => {
+    const found = availableImageModels.find(m => m.id === id);
+    if (found) return found.name;
     if (id === 'gemini-3-pro-image-preview') return 'Nano Banana Pro';
     if (id === 'gemini-3.1-flash-image-preview') return 'Nano Banana 2';
+    if (id === 'grok-imagine') return 'Grok Imagine';
     return 'Nano Banana Lite';
   };
 
@@ -3845,6 +3920,108 @@ export const MediaView: React.FC = () => {
     activeAttachments: ImageAttachment[],
   ) => {
     try {
+      const isGrok = modelId === 'grok-imagine';
+      const isOpenAi = modelId === 'gpt-image-2';
+      
+      if (isGrok || isOpenAi) {
+        const savedConfigRaw = typeof window !== 'undefined' ? localStorage.getItem('modelConfig') : null;
+        let modelConfig: any = null;
+        try {
+          modelConfig = savedConfigRaw ? JSON.parse(savedConfigRaw) : null;
+        } catch (e) {}
+
+        const provider = isGrok ? 'spacexai' : 'openai';
+        const config = modelConfig?.[provider];
+        const key = apiKeys?.[provider]?.[0];
+        
+        // Load baseUrl from local config
+        let baseUrl = config?.baseUrl;
+        
+        // If not found in config, look up from willow:providerState session storage cache
+        if (!baseUrl && typeof window !== 'undefined' && user?.uid) {
+          try {
+            const providerStateKey = `willow:providerState:${user.uid}`;
+            const serialized = sessionStorage.getItem(providerStateKey);
+            if (serialized) {
+              const ps = JSON.parse(serialized);
+              baseUrl = ps?.[provider]?.baseUrl;
+            }
+          } catch (e) {}
+        }
+        
+        baseUrl = (baseUrl || (isGrok ? 'https://api.x.ai/v1' : 'https://api.openai.com/v1')).trim();
+        // Standardize: remove trailing slashes and trailing /v1 to prevent duplicate path suffixes
+        baseUrl = baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+        
+        if (!key) {
+          throw new Error(`API key not configured for ${isGrok ? 'Grok' : 'OpenAI'}. Please set it up in the Settings panel.`);
+        }
+
+        const response = await fetch(`/llm-proxy/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${key}`,
+            'Content-Type': 'application/json',
+            'x-proxy-target': baseUrl
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [
+              { role: 'user', content: `${activePrompt}${ratio ? ` [Aspect Ratio: ${ratio}]` : ''}` }
+            ]
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const msg = errData?.error?.message || `API error (${response.status})`;
+          throw new Error(msg);
+        }
+
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        
+        const extractImageFromContent = (contentStr: string): string | null => {
+          if (!contentStr) return null;
+          
+          // 1. Look for inline base64 data URIs
+          const dataUriIndex = contentStr.indexOf('data:image/');
+          if (dataUriIndex !== -1) {
+            const sub = contentStr.slice(dataUriIndex);
+            const endMatch = sub.match(/[\r\n\s\)\"']/);
+            const endIndex = endMatch ? endMatch.index : sub.length;
+            const rawUri = sub.slice(0, endIndex);
+            return rawUri.replace(/[\r\n\s]+/g, '');
+          }
+          
+          // 2. Look for absolute http/https URLs
+          const httpsIndex = contentStr.indexOf('https://');
+          const httpIndex = contentStr.indexOf('http://');
+          const startIndex = httpsIndex !== -1 ? httpsIndex : httpIndex;
+          if (startIndex !== -1) {
+            const sub = contentStr.slice(startIndex);
+            const endMatch = sub.match(/[\r\n\s\)\"']/);
+            const endIndex = endMatch ? endMatch.index : sub.length;
+            return sub.slice(0, endIndex).trim();
+          }
+
+          return null;
+        };
+
+        const imageUrl = extractImageFromContent(content);
+        if (!imageUrl) {
+          throw new Error('No image was returned in the model response. Try a different prompt.');
+        }
+
+        setMediaItems(prev =>
+          prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: imageUrl } : m)),
+        );
+        if (isLocalFolderConnected) {
+          void saveGeneratedMedia({ ...item, url: imageUrl }, imageUrl);
+        }
+        return;
+      }
+
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
 
       const response = await fetch(
@@ -5526,6 +5703,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           onModelChange={(id) => {
             setMusicModel(id as string);
           }}
+          availableModels={availableMusicModels}
           onSongGenerated={(item: MediaItem) => {
             setMediaItems(prev => {
               const updated = [item, ...prev];
@@ -5551,6 +5729,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           onModelChange={(id) => {
             setMusicModel(id as string);
           }}
+          availableModels={availableMusicModels}
           initialItem={fullscreenMusicItem}
         />
       </div>
@@ -6755,11 +6934,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
                             {isImageModelDropdownOpen && (
                               <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-[120]`}>
-                                {[
-                                  { id: 'gemini-3-pro-image-preview' as ImageModelId, name: 'Nano Banana Pro' },
-                                  { id: 'gemini-3.1-flash-image-preview' as ImageModelId, name: 'Nano Banana 2' },
-                                  { id: 'gemini-3.1-flash-lite-image' as ImageModelId, name: 'Nano Banana Lite' },
-                                ].map(modelOpt => (
+                                {availableImageModels.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
                                     type="button"

@@ -1,5 +1,24 @@
 import React from 'react';
-import { ChevronDown, Check, X, Lightbulb, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, Check, X, Lightbulb, ChevronLeft, ChevronRight, Loader2, Sparkles, Image as ImageIcon, Video, Music } from 'lucide-react';
+
+const getModelCategory = (id: string): 'text' | 'image' | 'video' | 'audio' => {
+  const lowercaseId = id.toLowerCase();
+  if (['gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'grok-imagine'].includes(lowercaseId)) return 'image';
+  if (['veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash'].includes(lowercaseId)) return 'video';
+  if (['lyria-3-pro', 'grok-voice'].includes(lowercaseId)) return 'audio';
+  if (lowercaseId.includes('imagine') || lowercaseId.includes('-image')) return 'image';
+  if (lowercaseId.includes('veo') || lowercaseId.includes('video')) return 'video';
+  if (lowercaseId.includes('lyria') || lowercaseId.includes('voice') || lowercaseId.includes('audio')) return 'audio';
+  return 'text';
+};
+
+const ModelCategoryIcon: React.FC<{ modelId: string; className?: string; size?: number }> = ({ modelId, className = "text-zinc-500", size = 14 }) => {
+  const category = getModelCategory(modelId);
+  if (category === 'image') return <ImageIcon size={size} className={className} />;
+  if (category === 'video') return <Video size={size} className={className} />;
+  if (category === 'audio') return <Music size={size} className={className} />;
+  return <Sparkles size={size} className={className} />;
+};
 
 const MOONSHOT_MODELS = [
   {
@@ -64,16 +83,23 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'gemini-3.6-flash': '$0.15/$0.60',
     'gemini-3.5-flash': '$0.15/$0.60',
     'gemini-3.5-flash-lite': '$0.075/$0.30',
-    'gemini-3-pro-image-preview': '$1.25/$5.00',
     'gemini-3.1-pro-preview': '$2.50/$10.00',
-    'gemini-3.1-flash-lite': '$0.075/$0.30',
-    'gemini-3.1-flash-lite-preview': '$0.075/$0.30',
     'gemini-2.5-flash-lite': '$0.075/$0.30',
+    'gemini-3-pro-image-preview': '$1.25/$5.00',
+    'gemini-3.1-flash-image-preview': '$0.15/$0.60',
+    'gemini-3.1-flash-lite-image': '$0.075/$0.30',
+    'omni-flash': '$0.15/$0.60',
+    'lyria-3-pro': '$1.00/$4.00',
+    'lyria-3': '$0.50/$2.00',
+    'veo-3.1-fast': '$2.00/$8.00',
+    'veo-3.1': '$3.00/$12.00',
+    'veo-3.1-lite': '$1.00/$4.00',
     // OpenAI
     'gpt-5.2-thinking': '$5.00/$25.00',
     'gpt-5.2-pro': '$5.00/$25.00',
     'gpt-5.1-codex-high-max': '$3.00/$15.00',
     'gpt-5.2-codex': '$3.00/$15.00',
+    'gpt-image-2': '$0.50/$2.00',
     // Anthropic
     'claude-opus-5': '$15.00/$75.00',
     'claude-sonnet-5': '$3.00/$15.00',
@@ -351,7 +377,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                               {GEMINI_MODELS.map((model, index) => (
+                               <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
+                                 {GEMINI_MODELS.map((model, index) => (
                                    <button
                                        key={model.id}
                                        onClick={() => {
@@ -373,7 +400,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                            <Check size={16} className="text-white" />
                                        )}
                                    </button>
-                               ))}
+                                 ))}
+                               </div>
                            </div>
                        )}
                   </div>
@@ -427,24 +455,28 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 <div className="space-y-3">
                   <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Model</label>
                   <div className="relative" ref={openaiRef} data-dropdown="openai">
-                       <button
-                           onClick={() => {
-                               if (openaiDropdownOpen) {
-                                   closeOpenaiDropdown();
-                               } else {
-                                   setOpenaiDirection(determineDirection(openaiRef));
-                                   setOpenaiDropdownOpen(true);
-                               }
-                           }}
-                           className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
-                       >
-                            <span>{
-                                {
-                                    'gpt-5.6-sol': 'GPT 5.6 Sol',
-                                    'gpt-5.6-terra': 'GPT 5.6 Terra',
-                                    'gpt-5.6-luna': 'GPT 5.6 Luna'
-                                }[modelConfig.openai.model] || 'Select model'
-                            }</span>
+                        <button
+                            onClick={() => {
+                                if (openaiDropdownOpen) {
+                                    closeOpenaiDropdown();
+                                } else {
+                                    setOpenaiDirection(determineDirection(openaiRef));
+                                    setOpenaiDropdownOpen(true);
+                                }
+                            }}
+                            className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                        >
+                            <span className="flex items-center gap-2">
+                                <span>{
+                                    {
+                                        'gpt-5.6-sol': 'GPT 5.6 Sol',
+                                        'gpt-5.6-terra': 'GPT 5.6 Terra',
+                                        'gpt-5.6-luna': 'GPT 5.6 Luna',
+                                        'gpt-image-2': 'GPT Image 2'
+                                    }[modelConfig.openai.model] || 'Select model'
+                                }</span>
+                                <ModelCategoryIcon modelId={modelConfig.openai.model} size={14} className="text-zinc-400" />
+                            </span>
                             <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
                         </button>
                         
@@ -454,33 +486,39 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                 <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
                                 <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
                                 <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                                {[
-                                    { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' },
-                                    { id: 'gpt-5.6-terra', name: 'GPT 5.6 Terra' },
-                                    { id: 'gpt-5.6-luna', name: 'GPT 5.6 Luna' }
-                                ].map((model, index, arr) => (
-                                    <button
-                                        key={model.id}
-                                        onClick={() => {
-                                            setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, model: model.id } }));
-                                            closeOpenaiDropdown();
-                                        }}
-                                        className={`
-                                            relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                            ${modelConfig.openai.model === model.id 
-                                                ? 'bg-white/10 text-white' 
-                                                : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                            }
-                                            ${index === 0 ? 'rounded-t-lg' : ''}
-                                            ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
-                                        `}
-                                    >
-                                        <span className="font-medium">{model.name}</span>
-                                        {modelConfig.openai.model === model.id && (
-                                            <Check size={16} className="text-white" />
-                                        )}
-                                    </button>
-                                ))}
+                                <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
+                                    {[
+                                        { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' },
+                                        { id: 'gpt-5.6-terra', name: 'GPT 5.6 Terra' },
+                                        { id: 'gpt-5.6-luna', name: 'GPT 5.6 Luna' },
+                                        { id: 'gpt-image-2', name: 'GPT Image 2' }
+                                    ].map((model, index, arr) => (
+                                        <button
+                                            key={model.id}
+                                            onClick={() => {
+                                                setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, model: model.id } }));
+                                                closeOpenaiDropdown();
+                                            }}
+                                            className={`
+                                                relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
+                                                ${modelConfig.openai.model === model.id 
+                                                    ? 'bg-white/10 text-white' 
+                                                    : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                                                }
+                                                ${index === 0 ? 'rounded-t-lg' : ''}
+                                                ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
+                                            `}
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <span className="font-medium">{model.name}</span>
+                                                <ModelCategoryIcon modelId={model.id} size={13} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+                                            </span>
+                                            {modelConfig.openai.model === model.id && (
+                                                <Check size={16} className="text-white" />
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                    </div>
@@ -491,7 +529,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     const modelNames: Record<string, string> = {
                       'gpt-5.6-sol': 'GPT 5.6 Sol',
                       'gpt-5.6-terra': 'GPT 5.6 Terra',
-                      'gpt-5.6-luna': 'GPT 5.6 Luna'
+                      'gpt-5.6-luna': 'GPT 5.6 Luna',
+                      'gpt-image-2': 'GPT Image 2'
                     };
                     const modelName = modelNames[modelConfig.openai.model] || modelConfig.openai.model.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
@@ -539,13 +578,16 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                            }}
                            className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
                        >
-                           <span>{
-                               {
-                                   'claude-opus-5': 'Claude Opus 5',
-                                   'claude-sonnet-5': 'Claude Sonnet 5',
-                                   'claude-fable-5': 'Claude Fable 5'
-                               }[modelConfig.anthropic.model] || 'Select model'
-                           }</span>
+                           <span className="flex items-center gap-2">
+                               <span>{
+                                   {
+                                       'claude-opus-5': 'Claude Opus 5',
+                                       'claude-sonnet-5': 'Claude Sonnet 5',
+                                       'claude-fable-5': 'Claude Fable 5'
+                                   }[modelConfig.anthropic.model] || 'Select model'
+                               }</span>
+                               <ModelCategoryIcon modelId={modelConfig.anthropic.model} size={14} className="text-zinc-400" />
+                           </span>
                            <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${anthropicDropdownOpen ? 'rotate-180' : ''}`} />
                        </button>
                        
@@ -555,33 +597,38 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                               {[
-                                   { id: 'claude-opus-5', name: 'Claude Opus 5' },
-                                   { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
-                                   { id: 'claude-fable-5', name: 'Claude Fable 5' }
-                               ].map((model, index, arr) => (
-                                   <button
-                                       key={model.id}
-                                       onClick={() => {
-                                           setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, model: model.id } }));
-                                           closeAnthropicDropdown();
-                                       }}
-                                       className={`
-                                           relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                           ${modelConfig.anthropic.model === model.id 
-                                               ? 'bg-white/10 text-white' 
-                                               : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                           }
-                                           ${index === 0 ? 'rounded-t-lg' : ''}
-                                           ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
-                                       `}
-                                   >
-                                       <span className="font-medium">{model.name}</span>
-                                       {modelConfig.anthropic.model === model.id && (
-                                           <Check size={16} className="text-white" />
-                                       )}
-                                   </button>
-                               ))}
+                               <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
+                                 {[
+                                     { id: 'claude-opus-5', name: 'Claude Opus 5' },
+                                     { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+                                     { id: 'claude-fable-5', name: 'Claude Fable 5' }
+                                 ].map((model, index, arr) => (
+                                     <button
+                                         key={model.id}
+                                         onClick={() => {
+                                             setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, model: model.id } }));
+                                             closeAnthropicDropdown();
+                                         }}
+                                         className={`
+                                             relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
+                                             ${modelConfig.anthropic.model === model.id 
+                                                 ? 'bg-white/10 text-white' 
+                                                 : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                                             }
+                                             ${index === 0 ? 'rounded-t-lg' : ''}
+                                             ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
+                                         `}
+                                     >
+                                         <span className="flex items-center gap-2">
+                                             <span className="font-medium">{model.name}</span>
+                                             <ModelCategoryIcon modelId={model.id} size={13} className="text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+                                         </span>
+                                         {modelConfig.anthropic.model === model.id && (
+                                             <Check size={16} className="text-white" />
+                                         )}
+                                     </button>
+                                 ))}
+                               </div>
                            </div>
                        )}
                   </div>
@@ -936,8 +983,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     </div>
                     
                     <div className="flex items-center gap-6">
-                      <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[13px] font-mono font-medium text-zinc-300">
-                        {getModelPricing(saved.modelId, saved.provider)}
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[13px] font-mono font-medium text-zinc-300">
+                        <ModelCategoryIcon modelId={saved.modelId} size={13} className="text-zinc-400" />
+                        <span>{getModelPricing(saved.modelId, saved.provider)}</span>
                       </div>
                       <button 
                         onClick={(e) => {

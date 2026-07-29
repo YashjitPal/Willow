@@ -781,33 +781,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 
-        id: 'gemini-3-pro-image-preview', 
-        name: 'Nano Banana Pro', 
-        maxLevels: 2,
-        hasNone: false,
-        levelLabels: { 1: 'Low Reasoning', 2: 'High Reasoning' }
-    },
-    { 
         id: 'gemini-3.1-pro-preview', 
         name: 'Gemini 3.1 Pro', 
         maxLevels: 3,
         hasNone: false,
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    { 
-        id: 'gemini-3.1-flash-lite', 
-        name: 'Gemini 3.1 Flash Lite', 
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    { 
-        id: 'gemini-3.1-flash-lite-preview', 
-        name: 'Gemini 3.1 Flash Lite (Preview)', 
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 
@@ -817,6 +794,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         hasNone: true,
         noneLabel: 'None (Disabled)',
         levelLabels: { 1: '8k Tokens', 2: '16k Tokens', 3: '24k Tokens' }
+    },
+    { 
+        id: 'gemini-3-pro-image-preview', 
+        name: 'Nano Banana Pro', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'gemini-3.1-flash-image-preview', 
+        name: 'Nano Banana 2', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'gemini-3.1-flash-lite-image', 
+        name: 'Nano Banana Lite', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'omni-flash', 
+        name: 'Gemini Omni Flash', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'lyria-3-pro', 
+        name: 'Lyria 3 Pro', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'lyria-3', 
+        name: 'Lyria 3', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'veo-3.1-fast', 
+        name: 'Veo 3.1 Fast', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'veo-3.1', 
+        name: 'Veo 3.1', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'veo-3.1-lite', 
+        name: 'Veo 3.1 Lite', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
     }
   ];
 
@@ -874,10 +914,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 customIconColor={getWorkspaceColorClass()}
                 customIconInitial={workspaceInitial}
              />
-             <SettingsSidebarItem icon={Users} label="People" active={activeTab === 'people'} onClick={() => setActiveTab('people')} />
              <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
-             <SettingsSidebarItem icon={Cloud} label="Cloud & AI balance" active={activeTab === 'cloud'} onClick={() => setActiveTab('cloud')} />
-             <SettingsSidebarItem icon={Lock} label="Privacy & security" active={activeTab === 'privacy'} onClick={() => setActiveTab('privacy')} />
              <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => setActiveTab('governance')} />
 
              <SettingsSectionTitle title="Account" />
