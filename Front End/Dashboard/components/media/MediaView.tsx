@@ -244,6 +244,9 @@ type MediaItem = {
   isSavedToFS?: boolean;
   fsName?: string;
   lyrics?: {time: number; text: string}[];
+  effort?: string;
+  quality?: string;
+  resolution?: string;
 };
 
 // Videos are stored durably as base64 data URLs (so they survive reload), but a
@@ -3576,6 +3579,9 @@ export const MediaView: React.FC = () => {
 
   const [imageRatio, setImageRatio] = React.useState('16:9');
   const [imageBatch, setImageBatch] = React.useState('x4');
+  const [imageEffort, setImageEffort] = React.useState<'low' | 'medium' | 'high' | 'minimal'>('low');
+  const [imageQuality, setImageQuality] = React.useState<string>('high');
+  const [imageResolution, setImageResolution] = React.useState<string>('1k');
   const [videoMode, setVideoMode] = React.useState<'frames' | 'ingredients'>('ingredients');
   const [videoRatio, setVideoRatio] = React.useState('16:9');
   const [videoBatch, setVideoBatch] = React.useState('x4');
@@ -3967,8 +3973,13 @@ export const MediaView: React.FC = () => {
           body: JSON.stringify({
             model: modelId,
             messages: [
-              { role: 'user', content: `${activePrompt}${ratio ? ` [Aspect Ratio: ${ratio}]` : ''}` }
-            ]
+              { 
+                role: 'user', 
+                content: `${activePrompt}${ratio ? ` [Aspect Ratio: ${ratio}]` : ''}${modelId === 'gpt-image-2' ? ` [Quality: ${imageQuality}] [Resolution: ${imageResolution}]` : ''}` 
+              }
+            ],
+            // Only attach reasoning_effort parameter for models that natively support it
+            ...( (modelId === 'gpt-image-2') ? { reasoning_effort: imageEffort === 'minimal' ? 'low' : imageEffort } : {} )
           })
         });
 
@@ -4038,7 +4049,10 @@ export const MediaView: React.FC = () => {
             }],
             generationConfig: {
               responseModalities: ['IMAGE'],
-              imageConfig: { aspectRatio: ratio, imageSize: '1K' },
+              imageConfig: { 
+                aspectRatio: ratio, 
+                imageSize: imageResolution === '1k' ? '1K' : imageResolution === '2k' ? '2K' : imageResolution === '4k' ? '4K' : '2K'
+              },
             },
           }),
         },
@@ -4637,6 +4651,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 modelName: modelToUse === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2',
                 ratio: ratioToUse,
                 timestamp: batchTimestamps[i],
+                effort: imageEffort,
+                quality: imageQuality,
+                resolution: imageResolution,
                 ...(refAttachments.length > 0 ? { attachments: refAttachments } : {})
               };
             });
@@ -4995,16 +5012,26 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       setAttachments([]);
     }
 
-    const apiKey = apiKeys?.gemini?.[0];
+    const getApiKeyForModel = (modelIdStr: string) => {
+      const isGPT = modelIdStr === 'gpt-image-2';
+      const isGrok = modelIdStr === 'grok-imagine';
+      const provider = isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini';
+      return apiKeys?.[provider]?.[0] || '';
+    };
+
+    const activeModelId = modelMode === 'image' ? imageModel : videoModel;
+    const apiKey = getApiKeyForModel(activeModelId);
     if (!apiKey) {
-      setGenerationError('Google Gemini API Key is missing. Please add it under Settings > Models & API.');
+      const isGPT = activeModelId === 'gpt-image-2';
+      const isGrok = activeModelId === 'grok-imagine';
+      const providerName = isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini';
+      setGenerationError(`${providerName} API Key is missing. Please add it under Settings > Models & API.`);
       return;
     }
 
     const batchStr = modelMode === 'image' ? imageBatch : videoBatch;
     const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
     const activeRatio = modelMode === 'image' ? imageRatio : videoRatio;
-    const activeModelId = modelMode === 'image' ? imageModel : videoModel;
     const activeModelName =
       modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
 
@@ -5019,6 +5046,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       ratio: activeRatio,
       timestamp: batchTimestamps[i],
       attachments: activeAttachments,
+      ...(modelMode === 'image' ? {
+        effort: imageEffort,
+        quality: imageQuality,
+        resolution: imageResolution,
+      } : {})
     }));
 
     setIsLayoutSuppressing(true);
@@ -5040,7 +5072,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   };
 
   const handleRefreshItem = async (targetItem: MediaItem) => {
-    const apiKey = apiKeys?.gemini?.[0];
+    const isGPT = targetItem.modelId === 'gpt-image-2';
+    const isGrok = targetItem.modelId === 'grok-imagine';
+    const provider = isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini';
+    const apiKey = apiKeys?.[provider]?.[0];
     if (!apiKey) return;
 
     if (isLocalFolderConnected && !isLocalFolderAuthorized) {
@@ -5057,6 +5092,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       ratio: targetItem.ratio,
       timestamp: Date.now(),
       attachments: targetItem.attachments,
+      effort: targetItem.effort,
+      quality: targetItem.quality,
+      resolution: targetItem.resolution,
     };
     
     setIsLayoutSuppressing(true);
@@ -5087,6 +5125,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     if (targetItem.kind === 'image') {
       setImageModel(targetItem.modelId as ImageModelId);
       setImageRatio(targetItem.ratio);
+      if (targetItem.effort) {
+        setImageEffort(targetItem.effort as any);
+      }
+      if (targetItem.quality) {
+        setImageQuality(targetItem.quality);
+      }
+      if (targetItem.resolution) {
+        setImageResolution(targetItem.resolution);
+      }
     } else {
       setVideoModel(targetItem.modelId as VideoModelId);
       setVideoRatio(targetItem.ratio);
@@ -5357,9 +5404,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   const handleViewerGenerate = async () => {
     if (!editPrompt.trim() || !selectedItem || isAnimating) return;
 
-    const apiKey = apiKeys?.gemini?.[0];
+    const newModelId = viewerModelId || selectedItem.modelId;
+    const newModelName = viewerModelName || selectedItem.modelName;
+    const isGPT = newModelId === 'gpt-image-2';
+    const isGrok = newModelId === 'grok-imagine';
+    const provider = isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini';
+    const apiKey = apiKeys?.[provider]?.[0];
     if (!apiKey) {
-      setGenerationError('Google Gemini API Key is missing. Please add it under Settings > Models & API.');
+      const providerName = isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini';
+      setGenerationError(`${providerName} API Key is missing. Please add it under Settings > Models & API.`);
       return;
     }
 
@@ -5369,8 +5422,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const fullPrompt = `[Context: ${systemPrompt}] ${editPrompt}`;
 
     const isImage = selectedItem.kind === 'image';
-    const newModelId = viewerModelId || selectedItem.modelId;
-    const newModelName = viewerModelName || selectedItem.modelName;
 
     const selectedInlinePart = await getAnnotatedImageBase64();
     const attachments: ImageAttachment[] = [];
@@ -5394,7 +5445,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelName: newModelName,
       ratio: selectedItem.ratio,
       timestamp: Date.now(),
-      attachments: attachments.length > 0 ? attachments : undefined
+      attachments: attachments.length > 0 ? attachments : undefined,
+      effort: imageEffort,
+      quality: imageQuality,
+      resolution: imageResolution,
     };
 
     setIsLayoutSuppressing(true);
@@ -6893,14 +6947,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           {/* Image Aspect Ratios */}
                           <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1 justify-between">
                             {['16:9', '4:3', '1:1', '3:4', '9:16'].map(ratio => (
-                              <button
-                                key={ratio}
-                                onClick={() => setImageRatio(ratio)}
-                                className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-[10px] transition-colors ${imageRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
-                              >
-                                <RatioIcon ratio={ratio} className="w-4 h-4" />
-                                <span className={`text-[11px] font-normal text-white`}>{ratio}</span>
-                              </button>
+                               <button
+                                 key={ratio}
+                                 onClick={() => setImageRatio(ratio)}
+                                 className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-[10px] transition-colors ${imageRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
+                               >
+                                 <RatioIcon ratio={ratio} className="w-4 h-4" />
+                                 <span className={`text-[11px] font-normal text-white`}>{ratio}</span>
+                               </button>
                             ))}
                           </motion.div>
 
@@ -6916,6 +6970,76 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                               </button>
                             ))}
                           </motion.div>
+
+                           {/* Dynamic Effort Level Selector (For Supported Models) */}
+                           { (imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
+                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                               { imageModel === 'gpt-image-2' ? (
+                                 // OpenAI Effort Levels: Standard, Balanced, Reasoning
+                                 [
+                                   { id: 'low', name: 'Standard' },
+                                   { id: 'medium', name: 'Balanced' },
+                                   { id: 'high', name: 'Reasoning' }
+                                 ].map(eff => (
+                                   <button
+                                     key={eff.id}
+                                     type="button"
+                                     onClick={() => setImageEffort(eff.id as any)}
+                                     className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageEffort === eff.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                   >
+                                     {eff.name}
+                                   </button>
+                                 ))
+                               ) : (
+                                 // Gemini Effort Levels: Standard, Reasoning
+                                 [
+                                   { id: 'minimal', name: 'Standard' },
+                                   { id: 'high', name: 'Reasoning' }
+                                 ].map(eff => (
+                                   <button
+                                     key={eff.id}
+                                     type="button"
+                                     onClick={() => setImageEffort(eff.id as any)}
+                                     className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageEffort === eff.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                   >
+                                     {eff.name}
+                                   </button>
+                                 ))
+                               )}
+                             </motion.div>
+                           )}
+
+                           {/* Dynamic Quality Selector (For Supported Models) */}
+                           { imageModel === 'gpt-image-2' && (
+                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                               {['low', 'medium', 'high'].map(qual => (
+                                 <button
+                                   key={qual}
+                                   type="button"
+                                   onClick={() => setImageQuality(qual)}
+                                   className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal capitalize transition-colors ${imageQuality === qual ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                 >
+                                   {qual}
+                                 </button>
+                               ))}
+                             </motion.div>
+                           )}
+
+                           {/* Dynamic Resolution Selector (For All Image Models: Google & GPT) */}
+                           { (imageModel === 'gemini-3-pro-image-preview' || imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
+                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                               {['1k', '2k', '4k'].map(res => (
+                                 <button
+                                   key={res}
+                                   type="button"
+                                   onClick={() => setImageResolution(res)}
+                                   className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal uppercase transition-colors ${imageResolution === res ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                 >
+                                   {res}
+                                 </button>
+                               ))}
+                             </motion.div>
+                           )}
 
                           {/* Model Selector */}
                           <motion.div variants={popupItemVariants} className="relative" ref={imageModelDropdownRef}>
