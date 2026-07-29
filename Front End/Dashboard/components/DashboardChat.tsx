@@ -815,12 +815,30 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
       ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
     ];
-    const sel = all.find((m) => m.id === selectedModelId);
+    let sel = all.find((m) => m.id === selectedModelId);
+    let explicitThinkingLevel: number | undefined;
+
+    if (!sel && selectedModelId?.includes('::effort-')) {
+      const parts = selectedModelId.split('::effort-');
+      const baseId = parts[0];
+      explicitThinkingLevel = Number(parts[1]);
+      sel = all.find((m) => m.id === baseId || m.modelId === baseId);
+    }
+
     const provider = (sel?.provider ?? 'gemini') as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
-    const model = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
-    const thinkingLevel: number = sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
+    const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
+    const thinkingLevel: number = explicitThinkingLevel ?? sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
+
+    let model = rawModel;
+    if (provider === 'openai' && (thinkingLevel === 6 || rawModel.endsWith('-pro'))) {
+      if (!rawModel.endsWith('-pro')) {
+        model = `${rawModel}-pro`;
+      }
+    }
+
     const apiKey: string | undefined = apiKeys?.[provider]?.[0];
-    const effortLabel = sel && thinkingLevel > 0 ? getThinkingEffortLabel(sel) : '';
+    const dummyObj = { ...sel, thinkingLevel, provider };
+    const effortLabel = sel && thinkingLevel > 0 ? getThinkingEffortLabel(dummyObj) : '';
     const baseLabel = getShortModelName(sel?.name || model);
     const modelLabel = `${baseLabel}${effortLabel ? ` ${effortLabel}` : ''}`;
     return { provider, model, thinkingLevel, apiKey, modelLabel };

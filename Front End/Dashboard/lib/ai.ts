@@ -1048,12 +1048,14 @@ Adhere to the following rules and guidelines:
     const openai = getOpenAIClient(apiKey);
 
     // Map UI thinking levels to OpenAI reasoning_effort values.
-    const reasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "xhigh"> = {
+    const reasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "xhigh" | "max"> = {
         0: "none",
         1: "low",
         2: "medium",
         3: "high",
-        4: "xhigh"
+        4: "xhigh",
+        5: "max",
+        6: "max"
     };
     const reasoningEffort = reasoningEffortMap[options.thinkingLevel ?? 1] ?? "medium";
 

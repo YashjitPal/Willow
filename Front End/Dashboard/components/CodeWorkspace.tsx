@@ -13,6 +13,9 @@ import { workbenchStore } from '../lib/sandpack';
 import { getCachedFirstName, cacheFirstName } from '../lib/displayName';
 import { readProjectRegistry, writeProjectRegistry } from '../lib/projectStorage';
 import { MessageLoading } from './ui/message-loading';
+import { ModelsMenu } from './InputBar';
+import { getThinkingEffortLabel } from '../lib/model-efforts';
+import { MaterialSymbol } from './ui/MaterialSymbol';
 import { BottomPanel } from './BottomPanel';
 import logoG from '../src/assets/logog.png';
 import { PROJECT_NAME_MODEL } from '@models';
@@ -369,6 +372,34 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   ];
   
   const currentTool = selectedToolId ? TOOLS.find(t => t.id === selectedToolId) : null;
+
+  const ALL_MODELS = [
+    ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'Google' })),
+    ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'OpenAI' })),
+    ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'Anthropic' })),
+    ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
+    ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
+    ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
+  ].filter((m: any) => m.name !== "Nano Banana Pro");
+
+  const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
+
+  const getShortName = (name: string) => {
+    if (!name) return "Model";
+    if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
+    return name
+      .replace(/Gemini\s+/gi, '')
+      .replace(/\s+Extended$/gi, '')
+      .trim();
+  };
+
+  const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
+  const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
+    ? getThinkingEffortLabel(activeModel)
+    : '';
+  const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
+    .filter(Boolean)
+    .join(' ');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1070,7 +1101,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
             <div className="relative h-[136px] bg-[#1c1c1c] pointer-events-auto z-50">
               {idleComposerHost && createPortal(
                 <div className="absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto pointer-events-auto">
-                <div className="bg-[#1e1f21] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
+                <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
                   {/* Attachments Area */}
                   <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                     <div className="overflow-hidden">
@@ -1207,87 +1238,56 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="relative" ref={modelsMenuRef}>
-                        {isModelsMenuOpen && (
-                          <div 
-                            style={{
-                              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
-                            }}
-                            className="absolute bottom-full right-0 mb-2 w-44 bg-[#1c1c1c] rounded-xl overflow-hidden z-50 settings-fade-in"
-                          >
-                            {['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].map((provider) => {
-                              const providerModels = modelConfig[provider]?.savedModels || [];
-                              if (providerModels.length === 0) return null;
-                              
-                              return (
-                                <div key={provider} className="border-b border-white/5 last:border-0">
-                                  <div className="px-3 py-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider bg-white/[0.02]">
-                                    MODELS
-                                  </div>
-                                  {providerModels.map((model: any) => {
-                                    const shortenName = (name: string) => {
-                                      return name
-                                        .replace(/Gemini\s+/i, '')
-                                        .replace(/flash\s+lite/i, 'Lite')
-                                        .replace(/gpt-/i, '')
-                                        .replace(/claude\s+/i, '');
-                                    };
-                                    
-                                    const isSelected = selectedModelId === model.id;
-                                    
-                                    return (
-                                      <button 
-                                        key={model.id}
-                                        onClick={() => {
-                                          setSelectedModelId(model.id);
-                                          setModelConfig((prev: any) => ({
-                                            ...prev,
-                                            [provider]: { ...prev[provider], model: model.modelId, thinkingLevel: model.thinkingLevel }
-                                          }));
-                                          setIsModelsMenuOpen(false);
-                                        }}
-                                        className={`flex items-center justify-between w-full px-3 py-2.5 transition-colors text-[13px] font-medium text-left
-                                          ${isSelected ? 'bg-[#1e2b48] text-[#58a1ff]' : 'hover:bg-[#27272a] text-gray-300 hover:text-white'}
-                                        `}
-                                      >
-                                        <div className="flex items-center gap-2.5">
-                                          <GeminiLogo size={14} className={isSelected ? 'text-[#58a1ff]' : (provider === 'gemini' ? 'text-blue-400' : provider === 'openai' ? 'text-green-400' : provider === 'anthropic' ? 'text-orange-400' : provider === 'moonshot' ? 'text-amber-500' : provider === 'spacexai' ? 'text-white' : 'text-cyan-400')} />
-                                          <span className="truncate max-w-[110px]">{shortenName(model.name)}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <div className="flex items-center gap-1">
-                                            {Array.from({ length: model.thinkingLevel || 1 }).map((_, i) => (
-                                              <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-[#58a1ff]' : 'bg-[#fbbf24]'}`} />
-                                            ))}
-                                          </div>
-                                          {isSelected && <Check size={14} className="text-[#58a1ff]" />}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                            {!(modelConfig.gemini.savedModels.length || modelConfig.openai.savedModels.length || modelConfig.anthropic.savedModels.length || (modelConfig.moonshot?.savedModels || []).length || (modelConfig.spacexai?.savedModels || []).length || (modelConfig.zhipuai?.savedModels || []).length) && (
-                              <div className="px-4 py-6 text-center text-gray-500">
-                                <Sparkles size={24} className="mx-auto mb-2 opacity-20" />
-                                <p className="text-[12px]">No model presets added.</p>
-                                <button 
-                                  onClick={() => { setIsModelsMenuOpen(false); onSettingsClick?.('models'); }}
-                                  className="mt-2 text-[#58a1ff] hover:underline text-[11px]"
-                                >
-                                  Configure in Settings
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <button 
+                      <div className="relative flex items-center shrink-0" ref={modelsMenuRef}>
+                        <button
+                          ref={modelsMenuRef as any}
                           onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
-                          className={`p-2.5 rounded-full bg-[#3f3f46]/60 text-gray-300 hover:bg-[#3f3f46] hover:text-white transition-all flex-shrink-0 cursor-pointer ${isModelsMenuOpen ? 'bg-[#3f3f46] text-white' : ''}`}
+                          aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
+                          aria-expanded={isModelsMenuOpen}
+                          className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsMenuOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                         >
-                          <GeminiLogo size={18} />
+                          <span className="-mr-1 flex min-w-0 items-center">
+                            <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
+                            {activeEffortDisplayLabel && (
+                              <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                            )}
+                          </span>
+                          <MaterialSymbol
+                            family="luminous"
+                            name="keyboard_arrow_down"
+                            size={24}
+                            weight={300}
+                            roundness={100}
+                            opticalSize={24}
+                            className={`transition-transform duration-200 ${isModelsMenuOpen ? 'rotate-180' : ''}`}
+                          />
                         </button>
+                        {isModelsMenuOpen && (
+                          <ModelsMenu
+                            triggerRef={modelsMenuRef as any}
+                            onClose={() => setIsModelsMenuOpen(false)}
+                            modelConfig={modelConfig}
+                            selectedId={selectedModelId}
+                            onSelect={(id) => {
+                              setSelectedModelId(id);
+                              const sel = ALL_MODELS.find(m => m.id === id);
+                              if (sel) {
+                                const providerKey = sel.provider === 'Google' ? 'gemini'
+                                  : sel.provider === 'OpenAI' ? 'openai'
+                                  : sel.provider === 'Anthropic' ? 'anthropic'
+                                  : sel.provider === 'Moonshot AI' ? 'moonshot'
+                                  : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
+                                setModelConfig((prev: any) => ({
+                                  ...prev,
+                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: sel.thinkingLevel }
+                                }));
+                              }
+                            }}
+                            onAuthRequired={onAuthRequired}
+                            geminiStyle
+                          />
+                        )}
                       </div>
                       <button
                         onClick={handleIdleSubmit}

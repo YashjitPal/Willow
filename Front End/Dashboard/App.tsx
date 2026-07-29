@@ -443,12 +443,12 @@ const App: React.FC = () => {
         ] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     openai: {
-        model: 'gpt-5.2-thinking',
+        model: 'gpt-5.6-sol',
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     anthropic: {
-        model: 'claude-sonnet-4.5',
+        model: 'claude-sonnet-5',
         thinkingLevel: 2,
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
@@ -459,13 +459,13 @@ const App: React.FC = () => {
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     spacexai: {
-        model: 'grok-2-1212',
+        model: 'grok-4.5',
         thinkingLevel: 0,
         baseUrl: 'https://api.x.ai/v1',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     zhipuai: {
-        model: 'glm-4-plus',
+        model: 'glm-5.2',
         thinkingLevel: 0,
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
@@ -476,6 +476,16 @@ const App: React.FC = () => {
     }
   };
 
+  const dedupeSavedModels = (models: any[] = []) => {
+    const seen = new Set<string>();
+    return models.filter(m => {
+      const key = m.modelId || m.id;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   const [modelConfig, setModelConfig] = React.useState(() => {
     try {
       const raw = localStorage.getItem('modelConfig');
@@ -483,13 +493,20 @@ const App: React.FC = () => {
         const parsed = JSON.parse(raw);
         // Merge per-provider so new fields/defaults aren't lost if the stored
         // shape is older than the current code.
+        const gemini = { ...DEFAULT_MODEL_CONFIG.gemini, ...parsed.gemini };
+        const openai = { ...DEFAULT_MODEL_CONFIG.openai, ...parsed.openai };
+        const anthropic = { ...DEFAULT_MODEL_CONFIG.anthropic, ...parsed.anthropic };
+        const moonshot = { ...DEFAULT_MODEL_CONFIG.moonshot, ...(parsed.moonshot || {}) };
+        const spacexai = { ...DEFAULT_MODEL_CONFIG.spacexai, ...(parsed.spacexai || {}) };
+        const zhipuai = { ...DEFAULT_MODEL_CONFIG.zhipuai, ...(parsed.zhipuai || {}) };
+
         return {
-          gemini: { ...DEFAULT_MODEL_CONFIG.gemini, ...parsed.gemini },
-          openai: { ...DEFAULT_MODEL_CONFIG.openai, ...parsed.openai },
-          anthropic: { ...DEFAULT_MODEL_CONFIG.anthropic, ...parsed.anthropic },
-          moonshot: { ...DEFAULT_MODEL_CONFIG.moonshot, ...(parsed.moonshot || {}) },
-          spacexai: { ...DEFAULT_MODEL_CONFIG.spacexai, ...(parsed.spacexai || {}) },
-          zhipuai: { ...DEFAULT_MODEL_CONFIG.zhipuai, ...(parsed.zhipuai || {}) },
+          gemini: { ...gemini, savedModels: dedupeSavedModels(gemini.savedModels) },
+          openai: { ...openai, savedModels: dedupeSavedModels(openai.savedModels) },
+          anthropic: { ...anthropic, savedModels: dedupeSavedModels(anthropic.savedModels) },
+          moonshot: { ...moonshot, savedModels: dedupeSavedModels(moonshot.savedModels) },
+          spacexai: { ...spacexai, savedModels: dedupeSavedModels(spacexai.savedModels) },
+          zhipuai: { ...zhipuai, savedModels: dedupeSavedModels(zhipuai.savedModels) },
           systemDefaults: { ...DEFAULT_MODEL_CONFIG.systemDefaults, ...(parsed.systemDefaults || {}) },
         };
       }
