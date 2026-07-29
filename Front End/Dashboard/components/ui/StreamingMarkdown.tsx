@@ -1,1149 +1,1861 @@
-import React, { useEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import hljs from 'highlight.js/lib/common';
+import katex from 'katex';
+import 'katex/contrib/mhchem';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
+import 'katex/dist/katex.min.css';
+import { MaterialSymbol } from './MaterialSymbol';
 
-/* ════════════════════════════════════════════════════════════════════════════
- * StreamingMarkdown
- * A self-contained, markdown-aware text renderer tuned for LLM token streams.
- *
- *   • Direct stream commits  — every upstream append renders immediately,
- *                              without a second client-side text buffer.
- *   • Gemini chunk reveal    — newly committed text fades from transparent
- *                              to opaque over 400ms; previous text stays put.
- *   • Markdown-native        — headings, lists, fenced code, inline
- *                              bold/italic/code all animate coherently.
- *
- * Everything (keyframes included) lives in this file so it can be dropped
- * into any view without touching global CSS.
- * ══════════════════════════════════════════════════════════════════════════ */
-
-// ────────────────────────────────────────────────────────────────────────────
-// Styles (injected once)
-// ────────────────────────────────────────────────────────────────────────────
 const STYLE_ID = 'streaming-markdown-styles';
 const STREAM_FADE_MS = 400;
-const STYLE_CSS = `
-@keyframes smd-fade-in-text {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-.smd-streaming {
-  --animation-duration: ${STREAM_FADE_MS}ms;
-  --fade-animation-function: ease-out;
-}
-.smd-streaming .smd-w,
-.smd-streaming .smd-h,
-.smd-streaming .smd-code-block {
-  animation-duration: var(--animation-duration);
-  animation-fill-mode: forwards;
-  animation-iteration-count: 1;
-  animation-name: smd-fade-in-text;
-  animation-timing-function: var(--fade-animation-function);
-}
-.smd-streaming .smd-settled { animation: none; }
-.smd-pending { display: none; }
 
-@media (prefers-reduced-motion: reduce) {
-  .smd-streaming .smd-w,
-  .smd-streaming .smd-h,
-  .smd-streaming .smd-code-block { animation: none !important; }
-}
-`;
+const STYLE_CSS = [
+  '@keyframes smd-fade-in-text {',
+  '  from { opacity: 0; }',
+  '  to { opacity: 1; }',
+  '}',
+  '@keyframes smd-media-drift {',
+  '  0%, 100% { transform: translate3d(-8%, -5%, 0) scale(1); }',
+  '  50% { transform: translate3d(8%, 7%, 0) scale(1.08); }',
+  '}',
+  '.smd-root {',
+  '  display: flex;',
+  '  min-width: 0;',
+  '  max-width: 100%;',
+  '  flex-direction: column;',
+  '  gap: 16px;',
+  '  color: rgb(227, 227, 227);',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 17px;',
+  '  font-weight: 400;',
+  '  line-height: 24px;',
+  '  overflow-wrap: break-word;',
+  '  text-rendering: auto;',
+  '  white-space: pre-wrap;',
+  '  word-break: auto-phrase;',
+  '}',
+  '.smd-root > :first-child { margin-top: 0 !important; }',
+  '.smd-root > :last-child { margin-bottom: 0 !important; }',
+  '.smd-root p { margin: 0; white-space: pre-wrap; }',
+  '.smd-streaming {',
+  '  --animation-duration: 400ms;',
+  '  --fade-animation-function: ease-out;',
+  '}',
+  '.smd-streaming .smd-w,',
+  '.smd-streaming .smd-h,',
+  '.smd-streaming .smd-code-block,',
+  '.smd-streaming .smd-table-block,',
+  '.smd-streaming .smd-media-gallery,',
+  '.smd-streaming .smd-math-display {',
+  '  animation-duration: var(--animation-duration);',
+  '  animation-fill-mode: forwards;',
+  '  animation-iteration-count: 1;',
+  '  animation-name: smd-fade-in-text;',
+  '  animation-timing-function: var(--fade-animation-function);',
+  '}',
+  '.smd-streaming .smd-settled { animation: none; }',
+  '.smd-heading {',
+  '  color: rgb(227, 227, 227);',
+  '  padding: 0;',
+  '  white-space: pre-wrap;',
+  '}',
+  '.smd-heading-1 { font-size: 28px; font-weight: 350; line-height: 36px; margin: 24px 0 0; }',
+  '.smd-heading-2 { font-size: 24px; font-weight: 380; line-height: 28px; margin: 24px 0 0; }',
+  '.smd-heading-3, .smd-heading-4, .smd-heading-5, .smd-heading-6 { font-size: 20px; font-weight: 470; line-height: 24px; margin: 24px 0 -8px; }',
+  '.smd-heading-1 + .smd-heading-2 { margin-top: 8px; }',
+  '.smd-heading-2 + .smd-heading-3,',
+  '.smd-heading-3 + .smd-heading-4,',
+  '.smd-heading-4 + .smd-heading-5,',
+  '.smd-heading-5 + .smd-heading-6 { margin-top: 0; }',
+  '.smd-link {',
+  '  color: rgb(230, 230, 230);',
+  '  text-decoration-line: underline;',
+  '  text-decoration-style: dotted;',
+  '  text-decoration-thickness: 1.36px;',
+  '  text-decoration-color: rgb(230, 230, 230);',
+  '  text-underline-offset: 3.91px;',
+  '}',
+  '.smd-link:hover { color: #ffffff; text-decoration-color: #ffffff; }',
+  '.smd-inline-code {',
+  '  display: inline;',
+  '  border-radius: 9999px;',
+  '  background: rgb(23, 23, 23);',
+  '  color: rgba(255, 255, 255, 0.55);',
+  '  font-family: "Google Sans Code", ui-monospace, SFMono-Regular, Consolas, monospace;',
+  '  font-size: 15px;',
+  '  font-weight: 400;',
+  '  line-height: 20px;',
+  '  padding: 4px 6px;',
+  '  white-space: break-spaces;',
+  '}',
+  '.smd-list {',
+  '  display: block;',
+  '  margin: 0;',
+  '  padding: 0 0 0 3.36px;',
+  '  list-style: none;',
+  '}',
+  '.smd-list-ordered { padding-left: 4px; }',
+  '.smd-list > li {',
+  '  position: relative;',
+  '  margin: 0;',
+  '  padding: 0 0 0 36px;',
+  '  list-style: none;',
+  '}',
+  '.smd-list > li + li { margin-top: 12px; }',
+  '.smd-list-unordered > li::before {',
+  '  position: absolute;',
+  '  top: 7.5px;',
+  '  left: 0;',
+  '  width: 9px;',
+  '  height: 9px;',
+  '  background: currentColor;',
+  '  content: "";',
+  '  -webkit-mask-image: url("data:image/svg+xml,%3Csvg width=%229%22 height=%229%22 viewBox=%220 0 9 9%22 fill=%22none%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Ccircle cx=%224.2998%22 cy=%224.30005%22 r=%223.65%22 stroke=%22currentColor%22 stroke-width=%221.3%22/%3E%3C/svg%3E");',
+  '  mask-image: url("data:image/svg+xml,%3Csvg width=%229%22 height=%229%22 viewBox=%220 0 9 9%22 fill=%22none%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Ccircle cx=%224.2998%22 cy=%224.30005%22 r=%223.65%22 stroke=%22currentColor%22 stroke-width=%221.3%22/%3E%3C/svg%3E");',
+  '  -webkit-mask-repeat: no-repeat;',
+  '  mask-repeat: no-repeat;',
+  '  -webkit-mask-size: contain;',
+  '  mask-size: contain;',
+  '}',
+  '.smd-list-ordered > li { counter-increment: smd-list-item; }',
+  '.smd-list-ordered > li::before {',
+  '  position: absolute;',
+  '  top: 0;',
+  '  left: 0;',
+  '  width: 24px;',
+  '  height: 24px;',
+  '  content: counter(smd-list-item) ".";',
+  '}',
+  '.smd-list .smd-list-ordered > li::before { content: counter(smd-list-item, lower-alpha) "."; }',
+  '.smd-list .smd-list-ordered .smd-list-ordered > li::before { content: counter(smd-list-item, lower-roman) "."; }',
+  '.smd-list-content {',
+  '  display: flex;',
+  '  min-width: 0;',
+  '  flex-direction: column;',
+  '  gap: 0;',
+  '}',
+  '.smd-list-content > .smd-paragraph { padding-left: 4px; }',
+  '.smd-list-content > .smd-list { margin-top: 12px; }',
+  '.smd-task-item::before { display: none !important; }',
+  '.smd-task-box {',
+  '  position: absolute;',
+  '  top: 3px;',
+  '  left: 0;',
+  '  display: inline-flex;',
+  '  width: 18px;',
+  '  height: 18px;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  border: 1px solid rgba(227, 227, 227, 0.55);',
+  '  border-radius: 4px;',
+  '  color: rgb(23, 23, 23);',
+  '}',
+  '.smd-task-box[data-checked="true"] { background: rgb(227, 227, 227); }',
+  '.smd-blockquote { display: block; margin: 0; padding: 0; border: 0; color: inherit; }',
+  '.smd-hr {',
+  '  width: 100%;',
+  '  height: 1px;',
+  '  margin: 8px 0;',
+  '  border: 0;',
+  '  background: rgba(255, 255, 255, 0.12);',
+  '}',
+  '.smd-math-inline {',
+  '  display: inline;',
+  '  vertical-align: baseline;',
+  '}',
+  '.smd-math-display {',
+  '  width: 100%;',
+  '  max-width: 100%;',
+  '  overflow: auto;',
+  '  padding: 0;',
+  '  text-align: start;',
+  '}',
+  '.smd-math-display .katex-display { margin: 24px 0; text-align: center; }',
+  '.smd-math-display .katex { font-size: 24px; line-height: 1.2; }',
+  '.smd-math-error {',
+  '  color: #ffb4ab;',
+  '  font-family: "Google Sans Code", ui-monospace, monospace;',
+  '  font-size: 15px;',
+  '}',
+  '.smd-code-block {',
+  '  position: relative;',
+  '  min-width: 0;',
+  '  margin: 16px -16px 0;',
+  '  overflow: clip;',
+  '  border-radius: 40px;',
+  '  background: rgb(23, 23, 23);',
+  '  padding: 26px 0 32px 32px;',
+  '}',
+  '.smd-code-header {',
+  '  position: sticky;',
+  '  top: 0;',
+  '  z-index: 2;',
+  '  display: flex;',
+  '  width: 100%;',
+  '  height: 36px;',
+  '  align-items: center;',
+  '  justify-content: space-between;',
+  '  background: rgb(23, 23, 23);',
+  '  padding: 0 11px 0 0;',
+  '  color: rgb(255, 255, 255);',
+  '}',
+  '.smd-code-language {',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 15px;',
+  '  font-weight: 540;',
+  '  line-height: 20px;',
+  '}',
+  '.smd-code-buttons { display: flex; width: 72px; height: 36px; }',
+  '.smd-icon-button {',
+  '  display: inline-flex;',
+  '  width: 36px;',
+  '  height: 36px;',
+  '  flex: 0 0 36px;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  border: 0;',
+  '  border-radius: 9999px;',
+  '  background: transparent;',
+  '  color: rgb(255, 255, 255);',
+  '  cursor: pointer;',
+  '  padding: 6px;',
+  '}',
+  '.smd-icon-button:hover { background: rgba(255, 255, 255, 0.08); }',
+  '.smd-icon-button:focus-visible { outline: 2px solid rgba(138, 180, 248, 0.9); outline-offset: 1px; }',
+  '.smd-code-scroll { width: 100%; overflow: auto; }',
+  '.smd-code-pre {',
+  '  width: 100%;',
+  '  margin: 0;',
+  '  padding: 0;',
+  '  overflow: visible;',
+  '  background: transparent;',
+  '  white-space: pre;',
+  '}',
+  '.smd-code-pre code {',
+  '  display: block;',
+  '  min-width: max-content;',
+  '  padding: 16px 32px 0 0;',
+  '  background: transparent;',
+  '  color: rgb(255, 255, 255);',
+  '  font-family: "Google Sans Code", ui-monospace, SFMono-Regular, Consolas, monospace;',
+  '  font-size: 14px;',
+  '  font-weight: 400;',
+  '  line-height: 21px;',
+  '  tab-size: 4;',
+  '}',
+  '.smd-code-block .hljs { color: rgb(255, 255, 255); background: transparent; }',
+  '.smd-code-block .hljs-comment, .smd-code-block .hljs-quote { color: rgb(128, 128, 128); }',
+  '.smd-code-block .hljs-keyword, .smd-code-block .hljs-selector-id, .smd-code-block .hljs-selector-class { color: rgb(150, 157, 255); }',
+  '.smd-code-block .hljs-string, .smd-code-block .hljs-regexp, .smd-code-block .hljs-addition, .smd-code-block .hljs-template-tag { color: rgb(96, 214, 115); }',
+  '.smd-code-block .hljs-number, .smd-code-block .hljs-literal, .smd-code-block .hljs-attr, .smd-code-block .hljs-variable, .smd-code-block .hljs-template-variable { color: rgb(255, 150, 218); }',
+  '.smd-code-block .hljs-title, .smd-code-block .hljs-title.function_, .smd-code-block .hljs-section { color: rgb(255, 219, 15); }',
+  '.smd-code-block .hljs-name, .smd-code-block .hljs-selector-tag { color: rgb(79, 160, 255); }',
+  '.smd-code-block .hljs-meta, .smd-code-block .hljs-built_in, .smd-code-block .hljs-builtin-name, .smd-code-block .hljs-deletion { color: rgb(255, 90, 89); }',
+  '.smd-code-block .hljs-meta .hljs-keyword { color: rgb(255, 90, 89); font-weight: 700; }',
+  '.smd-table-block { position: relative; width: calc(100% - 16px); min-width: 0; }',
+  '.smd-table-content { overflow: auto; padding: 8px 0; }',
+  '.smd-table-block.has-scrollbar .smd-table-content {',
+  '  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000 48px, #000 calc(100% - 48px), rgba(0, 0, 0, 0.2));',
+  '  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000 48px, #000 calc(100% - 48px), rgba(0, 0, 0, 0.2));',
+  '}',
+  '.smd-table-block.has-scrollbar.is-at-scroll-start .smd-table-content {',
+  '  -webkit-mask-image: linear-gradient(90deg, #000, #000 calc(100% - 48px), rgba(0, 0, 0, 0.2));',
+  '  mask-image: linear-gradient(90deg, #000, #000 calc(100% - 48px), rgba(0, 0, 0, 0.2));',
+  '}',
+  '.smd-table-block.has-scrollbar.is-at-scroll-end .smd-table-content {',
+  '  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000 48px, #000);',
+  '  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000 48px, #000);',
+  '}',
+  '.smd-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; }',
+  '.smd-table th, .smd-table td {',
+  '  position: relative;',
+  '  width: 173px;',
+  '  min-width: 173px;',
+  '  max-width: 320px;',
+  '  vertical-align: top;',
+  '  color: rgb(227, 227, 227);',
+  '  font: inherit;',
+  '  font-weight: 400;',
+  '  text-align: left;',
+  '  white-space: normal;',
+  '}',
+  '.smd-table th { padding: 12px 12px 16px; }',
+  '.smd-table td { padding: 16px 12px; }',
+  '.smd-table th:first-child { padding-left: 0; }',
+  '.smd-table th:last-child { padding-right: 0; }',
+  '.smd-table td:first-child { padding-left: 0; }',
+  '.smd-table td:last-child { padding-right: 0; }',
+  '.smd-table thead th::after,',
+  '.smd-table tbody tr:not(:last-child) > td::after {',
+  '  position: absolute;',
+  '  right: 12px;',
+  '  bottom: 0;',
+  '  left: 12px;',
+  '  height: 1px;',
+  '  background: rgba(255, 255, 255, 0.12);',
+  '  content: "";',
+  '}',
+  '.smd-table tr > :first-child::after { left: 0; }',
+  '.smd-table tr > :last-child::after { right: 0; }',
+  '.smd-table-footer {',
+  '  position: relative;',
+  '  display: flex;',
+  '  height: 20px;',
+  '  align-items: center;',
+  '  justify-content: flex-start;',
+  '  margin-top: 10px;',
+  '}',
+  '.smd-table-block.has-scrollbar .smd-table-footer { margin-top: 0; }',
+  '.smd-table-menu-trigger {',
+  '  display: inline-flex;',
+  '  width: 32px;',
+  '  height: 20px;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  border: 0;',
+  '  border-radius: 9999px;',
+  '  background: rgb(23, 23, 23);',
+  '  color: rgb(230, 230, 230);',
+  '  cursor: pointer;',
+  '  padding: 0;',
+  '}',
+  '.smd-table-menu-trigger:hover { background: rgb(42, 42, 42); }',
+  '.smd-table-menu {',
+  '  position: absolute;',
+  '  top: 28px;',
+  '  left: 0;',
+  '  z-index: 20;',
+  '  width: 174px;',
+  '  overflow: hidden;',
+  '  border: 1px solid rgba(255, 255, 255, 0.08);',
+  '  border-radius: 16px;',
+  '  background: rgb(31, 31, 31);',
+  '  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);',
+  '  padding: 6px;',
+  '}',
+  '.smd-table-menu button {',
+  '  display: flex;',
+  '  width: 100%;',
+  '  height: 40px;',
+  '  align-items: center;',
+  '  gap: 12px;',
+  '  border: 0;',
+  '  border-radius: 10px;',
+  '  background: transparent;',
+  '  color: rgb(230, 230, 230);',
+  '  cursor: pointer;',
+  '  font: inherit;',
+  '  font-size: 14px;',
+  '  padding: 0 10px;',
+  '  text-align: left;',
+  '}',
+  '.smd-table-menu button:hover { background: rgba(255, 255, 255, 0.08); }',
+  '.smd-media-gallery {',
+  '  display: grid;',
+  '  width: 100%;',
+  '  grid-template-columns: repeat(2, minmax(0, 1fr));',
+  '  gap: 8px;',
+  '}',
+  '.smd-media-gallery[data-count="1"] { grid-template-columns: minmax(0, 1fr); }',
+  '.smd-media-card {',
+  '  display: block;',
+  '  width: 100%;',
+  '  min-width: 0;',
+  '  border: 0;',
+  '  background: transparent;',
+  '  color: inherit;',
+  '  cursor: pointer;',
+  '  padding: 0;',
+  '  text-align: left;',
+  '}',
+  '.smd-media-frame {',
+  '  position: relative;',
+  '  width: 100%;',
+  '  aspect-ratio: var(--smd-media-ratio, 4 / 3);',
+  '  min-height: 148px;',
+  '  overflow: hidden;',
+  '  border: 1px solid rgba(255, 255, 255, 0.07);',
+  '  border-radius: 16px;',
+  '  background: rgb(23, 23, 23);',
+  '}',
+  '.smd-media-card:hover .smd-media-frame { border-color: rgba(255, 255, 255, 0.18); }',
+  '.smd-media-frame img, .smd-media-frame video {',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  width: 100%;',
+  '  height: 100%;',
+  '  object-fit: cover;',
+  '}',
+  '.smd-media-loading {',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  overflow: hidden;',
+  '  background: radial-gradient(circle at 28% 25%, #b4bac7 0, #767d8c 30%, #1b1e25 67%, #0d0f14 100%);',
+  '}',
+  '.smd-media-loading::before, .smd-media-loading::after {',
+  '  position: absolute;',
+  '  width: 72%;',
+  '  height: 72%;',
+  '  border-radius: 50%;',
+  '  filter: blur(18px);',
+  '  content: "";',
+  '  animation: smd-media-drift 8s ease-in-out infinite;',
+  '}',
+  '.smd-media-loading::before { top: -25%; left: -15%; background: rgba(235, 239, 247, 0.5); }',
+  '.smd-media-loading::after { right: -18%; bottom: -25%; background: rgba(10, 12, 17, 0.88); animation-delay: -4s; }',
+  '.smd-media-error {',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  align-items: flex-start;',
+  '  justify-content: flex-start;',
+  '  gap: 8px;',
+  '  background: linear-gradient(180deg, #232323, #171717);',
+  '  color: rgb(227, 227, 227);',
+  '  padding: 18px;',
+  '}',
+  '.smd-media-error-title { font-size: 15px; font-weight: 540; }',
+  '.smd-media-error-detail { color: rgb(196, 199, 197); font-size: 13px; line-height: 18px; }',
+  '.smd-inline-image {',
+  '  display: inline-block;',
+  '  max-width: 100%;',
+  '  max-height: 360px;',
+  '  border-radius: 12px;',
+  '  object-fit: cover;',
+  '  vertical-align: middle;',
+  '}',
+  '.smd-footnotes {',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  gap: 12px;',
+  '  border-top: 1px solid rgba(255, 255, 255, 0.12);',
+  '  color: rgb(196, 199, 197);',
+  '  font-size: 14px;',
+  '  line-height: 20px;',
+  '  padding-top: 16px;',
+  '}',
+  '.smd-footnotes ol { margin: 0; padding-left: 24px; }',
+  '.smd-footnote-ref { font-size: 12px; line-height: 1; vertical-align: super; }',
+  '.smd-scroll { scrollbar-width: auto; scrollbar-color: auto; }',
+  '.smd-scroll::-webkit-scrollbar, .smd-scroll::-webkit-scrollbar-corner { width: 12px; height: 12px; background: transparent; }',
+  '.smd-scroll::-webkit-scrollbar-track { background: transparent; }',
+  '.smd-scroll::-webkit-scrollbar-thumb { min-width: 48px; min-height: 48px; border: 2px solid transparent; border-radius: 9999px; background: transparent; background-clip: content-box; }',
+  '.smd-scroll:hover::-webkit-scrollbar-thumb { background-color: #333537; background-clip: content-box; }',
+  '.smd-scroll::-webkit-scrollbar-thumb:hover, .smd-scroll::-webkit-scrollbar-thumb:active { background-color: #444746; background-clip: content-box; }',
+  '.smd-scroll::-webkit-scrollbar-button { width: 0; height: 0; }',
+  '@media (max-width: 640px) {',
+  '  .smd-code-block { margin: 8px 0 0; border-radius: 28px; padding: 20px 0 24px 20px; }',
+  '  .smd-code-pre code { padding-right: 20px; }',
+  '  .smd-media-gallery { grid-template-columns: minmax(0, 1fr); }',
+  '  .smd-table-block { width: 100%; }',
+  '  .smd-table th, .smd-table td { min-width: 132px; }',
+  '}',
+  '@media (prefers-reduced-motion: reduce) {',
+  '  .smd-streaming .smd-w, .smd-streaming .smd-h, .smd-streaming .smd-code-block,',
+  '  .smd-streaming .smd-table-block, .smd-streaming .smd-media-gallery, .smd-streaming .smd-math-display { animation: none !important; }',
+  '  .smd-media-loading::before, .smd-media-loading::after { animation: none !important; }',
+  '}',
+].join('\n');
 
 function useInjectStyles() {
   useInsertionEffect(() => {
-    if (typeof document === 'undefined') return;
-    if (document.getElementById(STYLE_ID)) return;
-    const el = document.createElement('style');
-    el.id = STYLE_ID;
-    el.textContent = STYLE_CSS;
-    document.head.appendChild(el);
+    if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
+    const element = document.createElement('style');
+    element.id = STYLE_ID;
+    element.textContent = STYLE_CSS;
+    document.head.appendChild(element);
   }, []);
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Atomic animated word.
-// `settled` is frozen at mount: if this span stays mounted the animation runs
-// to completion; if React remounts it later (container reshaped mid-stream)
-// the fresh mount reads the *current* `settled` → true → no replay.
-// Memo comparator ignores `settled` so the false→true flip one frame after
-// mount doesn't trigger a re-render.
-// ────────────────────────────────────────────────────────────────────────────
+interface WordProps {
+  children: string;
+  variant: 'w' | 'h';
+  strong?: boolean;
+  em?: boolean;
+  strike?: boolean;
+  settled?: boolean;
+  weight: number;
+  width: number;
+  roundness: number;
+}
+
 const Word = React.memo(
   function Word({
     children,
-    variant = 'w',
+    variant,
     strong,
     em,
-    code,
     strike,
     settled,
-  }: {
-    children: string;
-    variant?: 'w' | 'h';
-    strong?: boolean;
-    em?: boolean;
-    code?: boolean;
-    strike?: boolean;
-    settled?: boolean;
-  }) {
+    weight,
+    width,
+    roundness,
+  }: WordProps) {
     const settledAtMount = useRef(settled).current;
-    const base = `smd-${variant}${settledAtMount ? ' smd-settled' : ''}`;
-    if (code) {
-      return (
-        <code className={`${base} bg-white/10 px-1.5 py-0.5 rounded text-[13px] font-mono text-gray-100`}>
-          {children}
-        </code>
-      );
-    }
-    const cls =
-      base +
-      (strong ? ' font-bold text-[#e3e3e3]' : '') +
-      (em ? ' italic' : '') +
-      (strike ? ' line-through text-gray-400' : '');
+    const effectiveWeight = strong ? Math.max(540, weight) : weight;
+    const variation =
+      '"ROND" ' + roundness +
+      ', "slnt" ' + (em ? -10 : 0) +
+      ', "wdth" ' + width +
+      ', "wght" ' + effectiveWeight;
+
     return (
       <span
-        className={cls}
-        style={strong ? { fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' } : undefined}
+        className={'smd-' + variant + (settledAtMount ? ' smd-settled' : '')}
+        style={{
+          fontVariationSettings: variation,
+          fontWeight: effectiveWeight,
+          textDecoration: strike ? 'line-through' : undefined,
+        }}
       >
         {children}
       </span>
     );
   },
-  (a, b) =>
-    a.children === b.children &&
-    a.variant === b.variant &&
-    a.strong === b.strong &&
-    a.em === b.em &&
-    a.code === b.code &&
-    a.strike === b.strike
+  (previous, next) =>
+    previous.children === next.children &&
+    previous.variant === next.variant &&
+    previous.strong === next.strong &&
+    previous.em === next.em &&
+    previous.strike === next.strike &&
+    previous.weight === next.weight &&
+    previous.width === next.width &&
+    previous.roundness === next.roundness
 );
 
-// ── LaTeX-lite → React ──────────────────────────────────────────────────────
-// Not a full TeX engine — just enough to make chat math readable:
-//   • _x / _{xyz} → <sub>   • ^x / ^{xyz} → <sup>
-//   • common \commands → Unicode   • \text{}, \mathrm{} → plain
-//   • strips leftover braces/backslashes
-const TEX_SYMBOLS: Record<string, string> = {
-  times: '×', cdot: '·', pm: '±', mp: '∓', div: '÷',
-  to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐',
-  leftrightarrow: '↔', infty: '∞', approx: '≈', neq: '≠', leq: '≤', geq: '≥',
-  le: '≤', ge: '≥', equiv: '≡', propto: '∝', sim: '∼',
-  sum: '∑', prod: '∏', int: '∫', partial: '∂', nabla: '∇', sqrt: '√',
-  alpha: 'α', beta: 'β', gamma: 'γ', Gamma: 'Γ', delta: 'δ', Delta: 'Δ',
-  epsilon: 'ε', theta: 'θ', Theta: 'Θ', lambda: 'λ', Lambda: 'Λ', mu: 'μ',
-  nu: 'ν', pi: 'π', Pi: 'Π', rho: 'ρ', sigma: 'σ', Sigma: 'Σ', tau: 'τ',
-  phi: 'φ', Phi: 'Φ', psi: 'ψ', Psi: 'Ψ', omega: 'ω', Omega: 'Ω',
-  ' ': ' ', ',': ' ', quad: '  ', qquad: '    ',
-};
-
-function texToNodes(tex: string): React.ReactNode[] {
-  // 1. \frac{a}{b} → (a)/(b)
-  let s = tex.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)');
-  // 2. \text{..}, \mathrm{..}, \operatorname{..} → contents
-  s = s.replace(/\\(?:text|mathrm|mathbf|operatorname)\s*\{([^{}]*)\}/g, '$1');
-  // 3. \left / \right sizing hints → drop
-  s = s.replace(/\\left|\\right/g, '');
-  // 4. known \symbol
-  s = s.replace(/\\([a-zA-Z]+)/g, (_, name) => TEX_SYMBOLS[name] ?? name);
-  // 5. escaped braces/space
-  s = s.replace(/\\([{}\s\\,%])/g, '$1');
-
-  const out: React.ReactNode[] = [];
-  const re = /([_^])(\{[^{}]*\}|[^\s{}_^])/g;
-  let last = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  const clean = (t: string) => t.replace(/[{}]/g, '');
-  while ((m = re.exec(s))) {
-    if (m.index > last) out.push(clean(s.slice(last, m.index)));
-    const body = m[2].startsWith('{') ? m[2].slice(1, -1) : m[2];
-    out.push(
-      m[1] === '_'
-        ? <sub key={key++} className="text-[0.72em]">{clean(body)}</sub>
-        : <sup key={key++} className="text-[0.72em]">{clean(body)}</sup>
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < s.length) out.push(clean(s.slice(last)));
-  return out;
-}
-
-const MathSpan = React.memo(
-  function MathSpan({ tex, display, settled }: { tex: string; display?: boolean; settled?: boolean }) {
+const InlineCode = React.memo(
+  function InlineCode({
+    value,
+    settled,
+  }: {
+    value: string;
+    settled?: boolean;
+  }) {
     const settledAtMount = useRef(settled).current;
-    const anim = settledAtMount ? 'smd-settled' : 'smd-w';
-    if (display) {
-      return (
-        <div
-          className={`${anim} my-3 px-4 py-3 text-center text-[16.5px] text-gray-100 font-serif italic overflow-x-auto`}
-        >
-          {texToNodes(tex)}
-        </div>
-      );
-    }
     return (
-      <span className={`${anim} font-serif italic text-gray-100 px-0.5`}>
-        {texToNodes(tex)}
-      </span>
+      <code className={'smd-inline-code smd-w' + (settledAtMount ? ' smd-settled' : '')}>
+        {value}
+      </code>
     );
   },
-  (a, b) => a.tex === b.tex && a.display === b.display
+  (previous, next) => previous.value === next.value
 );
 
-// ────────────────────────────────────────────────────────────────────────────
-// Inline parser → React nodes.
-// Word identity = absolute char offset of the word's first character in the
-// FULL source stream. Append-only streams guarantee this never changes, so a
-// word can be tracked across any container remount / reclassification.
-// ────────────────────────────────────────────────────────────────────────────
-function renderInline(
-  src: string,
-  baseOffset: number,
-  settledBefore: number,
-  variant: 'w' | 'h' | 'image-grid' = 'w',
-  mediaItems?: any[]
-): React.ReactNode[] {
+const MathExpression = React.memo(
+  function MathExpression({
+    value,
+    display,
+    settled,
+  }: {
+    value: string;
+    display?: boolean;
+    settled?: boolean;
+  }) {
+    const settledAtMount = useRef(settled).current;
+    const rendered = useMemo(() => {
+      try {
+        return katex.renderToString(value, {
+          displayMode: Boolean(display),
+          output: 'htmlAndMathml',
+          strict: 'ignore',
+          throwOnError: false,
+          trust: false,
+        });
+      } catch {
+        return '';
+      }
+    }, [display, value]);
+
+    const className =
+      (display ? 'smd-math-display' : 'smd-math-inline smd-w') +
+      (settledAtMount ? ' smd-settled' : '');
+    const Tag = display ? 'div' : 'span';
+
+    if (!rendered) {
+      return <Tag className={className + ' smd-math-error'}>{value}</Tag>;
+    }
+
+    return <Tag className={className} dangerouslySetInnerHTML={{ __html: rendered }} />;
+  },
+  (previous, next) => previous.value === next.value && previous.display === next.display
+);
+
+function offsetOf(node: any, fallback = 0): number {
+  return node?.position?.start?.offset ?? fallback;
+}
+
+function endOffsetOf(node: any, fallback = 0): number {
+  return node?.position?.end?.offset ?? fallback;
+}
+
+function normalizeIdentifier(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function safeHref(value: string | undefined): string {
+  const href = String(value ?? '').trim();
+  if (!href) return '';
+  if (/^(https?:|mailto:|tel:|blob:|data:image\/|data:video\/|\/|#)/i.test(href)) return href;
+  return '';
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Use the compatibility fallback below.
+    }
+  }
+  if (typeof document === 'undefined') return;
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function downloadText(filename: string, value: string, type: string): void {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') return;
+  const blob = new Blob([value], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  csharp: 'csharp',
+  cs: 'csharp',
+  cxx: 'cpp',
+  htm: 'xml',
+  html: 'xml',
+  js: 'javascript',
+  jsx: 'javascript',
+  md: 'markdown',
+  py: 'python',
+  rb: 'ruby',
+  sh: 'bash',
+  shell: 'bash',
+  ts: 'typescript',
+  tsx: 'typescript',
+  yml: 'yaml',
+};
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: 'Shell',
+  c: 'C',
+  cpp: 'C++',
+  csharp: 'C#',
+  css: 'CSS',
+  go: 'Go',
+  html: 'HTML',
+  java: 'Java',
+  javascript: 'JavaScript',
+  js: 'JavaScript',
+  json: 'JSON',
+  jsx: 'JSX',
+  kotlin: 'Kotlin',
+  markdown: 'Markdown',
+  md: 'Markdown',
+  php: 'PHP',
+  plaintext: 'Code',
+  python: 'Python',
+  py: 'Python',
+  ruby: 'Ruby',
+  rust: 'Rust',
+  sql: 'SQL',
+  swift: 'Swift',
+  ts: 'TypeScript',
+  tsx: 'TSX',
+  typescript: 'TypeScript',
+  xml: 'XML',
+  yaml: 'YAML',
+};
+
+const LANGUAGE_EXTENSIONS: Record<string, string> = {
+  bash: 'sh',
+  c: 'c',
+  cpp: 'cpp',
+  csharp: 'cs',
+  css: 'css',
+  go: 'go',
+  html: 'html',
+  java: 'java',
+  javascript: 'js',
+  json: 'json',
+  jsx: 'jsx',
+  kotlin: 'kt',
+  markdown: 'md',
+  php: 'php',
+  python: 'py',
+  ruby: 'rb',
+  rust: 'rs',
+  sql: 'sql',
+  swift: 'swift',
+  tsx: 'tsx',
+  typescript: 'ts',
+  xml: 'xml',
+  yaml: 'yml',
+};
+
+function sourceLanguage(rawLanguage: string): string {
+  return rawLanguage.trim().split(/\s+/)[0].replace(/^language-/, '').toLowerCase();
+}
+
+function highlightLanguage(rawLanguage: string): string {
+  const source = sourceLanguage(rawLanguage);
+  return LANGUAGE_ALIASES[source] || source;
+}
+
+function displayLanguage(rawLanguage: string): string {
+  const source = sourceLanguage(rawLanguage);
+  return LANGUAGE_LABELS[source] || (source ? source.toUpperCase() : 'Code');
+}
+
+function highlightedCode(value: string, rawLanguage: string): string {
+  const language = highlightLanguage(rawLanguage);
+  if (!language || language === 'text' || language === 'txt' || language === 'plaintext') {
+    return escapeHtml(value);
+  }
+  try {
+    if (hljs.getLanguage(language)) {
+      return hljs.highlight(value, { language, ignoreIllegals: true }).value;
+    }
+  } catch {
+    // Fall through to safely escaped plain code.
+  }
+  return escapeHtml(value);
+}
+
+const CodeBlock = React.memo(
+  function CodeBlock({
+    value,
+    language,
+    settled,
+  }: {
+    value: string;
+    language: string;
+    settled?: boolean;
+  }) {
+    const [copied, setCopied] = useState(false);
+    const settledAtMount = useRef(settled).current;
+    const source = value.replace(/\n$/, '');
+    const html = useMemo(() => highlightedCode(source, language), [language, source]);
+    const normalized = highlightLanguage(language);
+    const extension = LANGUAGE_EXTENSIONS[normalized] || LANGUAGE_EXTENSIONS[sourceLanguage(language)] || 'txt';
+
+    const handleCopy = async () => {
+      await copyToClipboard(source);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    };
+
+    return (
+      <div className={'smd-code-block' + (settledAtMount ? ' smd-settled' : '')}>
+        <div className="smd-code-header">
+          <span
+            className="smd-code-language"
+            style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' }}
+          >
+            {displayLanguage(language)}
+          </span>
+          <div className="smd-code-buttons">
+            <button
+              type="button"
+              className="smd-icon-button"
+              aria-label="Download code"
+              title="Download code"
+              onClick={() => downloadText('code.' + extension, source, 'text/plain;charset=utf-8')}
+            >
+              <MaterialSymbol family="luminous" name="download" size={24} weight={300} roundness={100} />
+            </button>
+            <button
+              type="button"
+              className="smd-icon-button"
+              aria-label={copied ? 'Code copied' : 'Copy code'}
+              title={copied ? 'Copied' : 'Copy code'}
+              onClick={() => void handleCopy()}
+            >
+              <MaterialSymbol
+                family="luminous"
+                name={copied ? 'check' : 'content_copy'}
+                size={24}
+                weight={300}
+                roundness={100}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="smd-code-scroll smd-scroll">
+          <pre className="smd-code-pre">
+            <code
+              className={'hljs' + (normalized ? ' language-' + normalized : '')}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </pre>
+        </div>
+      </div>
+    );
+  },
+  (previous, next) => previous.value === next.value && previous.language === next.language
+);
+
+interface DefinitionRecord {
+  url: string;
+  title?: string;
+}
+
+interface RenderContext {
+  source: string;
+  settledBefore: number;
+  mediaItems?: any[];
+  definitions: Map<string, DefinitionRecord>;
+  footnoteNumbers: Map<string, number>;
+  variant: 'w' | 'h';
+  weight: number;
+  width: number;
+  roundness: number;
+  strong?: boolean;
+  em?: boolean;
+  strike?: boolean;
+}
+
+function renderAnimatedText(value: string, start: number, context: RenderContext): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
+  const expression = /\S+/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
 
-  const settledAt = (localStart: number) => baseOffset + localStart < settledBefore;
-
-  const emit = (
-    wordStart: number,
-    text: string,
-    opts: { strong?: boolean; em?: boolean; code?: boolean; strike?: boolean } = {}
-  ) => {
-    if (!text) return; // speculatively-closed empty marker → render nothing
-    const id = baseOffset + wordStart;
+  while ((match = expression.exec(value))) {
+    if (match.index > cursor) nodes.push(value.slice(cursor, match.index));
+    const absoluteOffset = start + match.index;
     nodes.push(
-      <Word key={id} variant={variant === 'image-grid' ? 'w' : variant} settled={id < settledBefore} {...opts}>
-        {text}
+      <Word
+        key={absoluteOffset}
+        variant={context.variant}
+        settled={absoluteOffset < context.settledBefore}
+        strong={context.strong}
+        em={context.em}
+        strike={context.strike}
+        weight={context.weight}
+        width={context.width}
+        roundness={context.roundness}
+      >
+        {match[0]}
       </Word>
     );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < value.length) nodes.push(value.slice(cursor));
+  return nodes;
+}
+
+function definitionFor(node: any, context: RenderContext): DefinitionRecord | undefined {
+  return context.definitions.get(normalizeIdentifier(node?.identifier || node?.label));
+}
+
+function resolveMediaItem(url: string, mediaItems?: any[]) {
+  const globalItems =
+    typeof window !== 'undefined' && Array.isArray((window as any).canvasMediaItems)
+      ? (window as any).canvasMediaItems
+      : [];
+  const allItems = [...(mediaItems || []), ...globalItems];
+  if (!url.startsWith('media-id:')) {
+    return { item: undefined, url, loading: false };
+  }
+  const id = url.slice('media-id:'.length);
+  const item = allItems.find((candidate: any) => String(candidate?.id) === id);
+  return {
+    item,
+    url: item?.url || '',
+    loading: !item || item.status === 'generating' || (!item.url && item.status !== 'failed'),
   };
-
-  // Markdown markers that escaped matching (mismatched `*`/`_`/`~` stuck to a
-  // word or its trailing punctuation) are stripped from word edges so things
-  // like `*?`, `puzzle**`, `~~done.` render clean. Pure-marker / `###` words
-  // are dropped entirely.
-  const isOrphanMarker = (w: string) => /^#{1,6}$/.test(w);
-  const stripEdgeMarkers = (w: string) => w.replace(/^[*_~]+|[*_~]+$/g, '');
-
-  const pushWords = (
-    text: string,
-    runStart: number,
-    opts: { strong?: boolean; em?: boolean; strike?: boolean } = {}
-  ) => {
-    const re = /\S+/g;
-    let m: RegExpExecArray | null;
-    let cursor = 0;
-    while ((m = re.exec(text))) {
-      if (m.index > cursor) nodes.push(text.slice(cursor, m.index)); // whitespace
-      const cleaned = stripEdgeMarkers(m[0]);
-      if (cleaned && !isOrphanMarker(cleaned)) {
-        emit(runStart + m.index, cleaned, opts);
-      }
-      cursor = m.index + m[0].length;
-    }
-    if (cursor < text.length) nodes.push(text.slice(cursor));
-  };
-
-  // Inline scanner — order matters (longest / most specific first).
-  //   $$math$$ · \[math\] · $math$ · \(math\) · ![alt](url) · [text](url) · `code`
-  //   · **bold** · ~~strike~~ · *italic*
-  const scan =
-    /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[^\s$][^$\n]*?\$|\\\([\s\S]*?\\\)|!\[[^\]\n]*\]\([^)\s]+\)|\[[^\]\n]+\]\([^)\s]+\)|`[^`\n]*`|\*\*[^*\n]*\*\*|~~[^~\n]+~~|\*[^*\n]*\*)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = scan.exec(src))) {
-    if (m.index > last) pushWords(src.slice(last, m.index), last);
-    const tok = m[0];
-    const at = m.index;
-
-    if (tok.startsWith('$$') || tok.startsWith('\\[')) {
-      const tex = tok.startsWith('$$') ? tok.slice(2, -2) : tok.slice(2, -2);
-      nodes.push(
-        <MathSpan key={baseOffset + at} tex={tex.trim()} settled={settledAt(at)} />
-      );
-    } else if (tok.startsWith('\\(')) {
-      nodes.push(
-        <MathSpan key={baseOffset + at} tex={tok.slice(2, -2).trim()} settled={settledAt(at)} />
-      );
-    } else if (tok.startsWith('$')) {
-      nodes.push(
-        <MathSpan key={baseOffset + at} tex={tok.slice(1, -1).trim()} settled={settledAt(at)} />
-      );
-    } else if (tok.startsWith('![')) {
-      const mm = tok.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-      if (mm) {
-        let imageUrl = mm[2];
-        let isGenerating = false;
-        let itemRef: any = null;
-        if (imageUrl.startsWith('media-id:')) {
-          const mediaId = imageUrl.replace('media-id:', '');
-          const found = mediaItems?.find((item: any) => item.id === mediaId) || (window as any).canvasMediaItems?.find((item: any) => item.id === mediaId);
-          if (found) {
-            itemRef = found;
-            if (found.status === 'generating') {
-              isGenerating = true;
-            } else if (found.url) {
-              imageUrl = found.url;
-            }
-          }
-        }
-
-        if (isGenerating) {
-          const ratio = itemRef?.ratio || '4:3';
-          const pbPercent = 
-            ratio === '16:9' ? '56.25%'
-            : ratio === '9:16' ? '177.78%'
-            : ratio === '1:1' ? '100%'
-            : ratio === '4:3' ? '75%'
-            : ratio === '3:4' ? '133.33%'
-            : '75%';
-
-          nodes.push(
-            <div
-              key={baseOffset + at}
-              data-grid-item={true}
-              onClick={() => {
-                if (itemRef && typeof (window as any).openCanvasItemInFullscreen === 'function') {
-                  (window as any).openCanvasItemInFullscreen(itemRef);
-                }
-              }}
-              className="relative overflow-hidden rounded-[14px] border-[0.5px] border-[#0e0e10] w-full h-0 cursor-pointer hover:border-white/20 transition-all animate-in fade-in duration-300 block"
-              style={{
-                paddingBottom: pbPercent
-              }}
-            >
-              <div className="sidebar-mesh-container-generating">
-                <style dangerouslySetInnerHTML={{ __html: `
-                  .sidebar-mesh-container-generating {
-                    position: absolute;
-                    inset: 0;
-                    border-radius: 14px;
-                    background-color: #1a1b1f;
-                    overflow: hidden;
-                  }
-                  .sidebar-mesh-container-generating::after {
-                    content: '';
-                    position: absolute;
-                    inset: 0;
-                    border-radius: 14px;
-                    pointer-events: none;
-                    z-index: 30;
-                  }
-                  .sidebar-mesh-blob {
-                    position: absolute;
-                    border-radius: 50%;
-                    filter: blur(15px); 
-                    opacity: 0.85;
-                    will-change: transform;
-                  }
-                  .sidebar-blob-1 {
-                    top: -20%; left: -20%; width: 80%; height: 80%;
-                    background-color: #a3a8b5;
-                    animation: sidebar-move1 8s infinite ease-in-out;
-                  }
-                  .sidebar-blob-2 {
-                    bottom: -20%; right: -20%; width: 70%; height: 70%;
-                    background-color: #757a87;
-                    animation: sidebar-move2 9s infinite ease-in-out;
-                  }
-                  .sidebar-blob-3 {
-                    top: -15%; left: -15%; width: 65%; height: 65%;
-                    background-color: #12141a;
-                    animation: sidebar-move3 13s infinite ease-in-out; 
-                  }
-                  .sidebar-blob-4 {
-                    bottom: 10%; left: 10%; width: 60%; height: 60%;
-                    background-color: #c2c6d1;
-                    animation: sidebar-move4 15s infinite ease-in-out;
-                    z-index: 2;
-                  }
-                  .sidebar-blob-5 {
-                    bottom: -15%; right: -15%; width: 70%; height: 70%;
-                    background-color: #0d0f14;
-                    animation: sidebar-move5 17s infinite ease-in-out; 
-                  }
-                  @keyframes sidebar-move1 {
-                    0% { transform: translate(0, 0) scale(1); }
-                    33% { transform: translate(25%, 15%) scale(1.05); }
-                    66% { transform: translate(-10%, 25%) scale(0.95); }
-                    100% { transform: translate(0, 0) scale(1); }
-                  }
-                  @keyframes sidebar-move2 {
-                    0% { transform: translate(0, 0) scale(1); }
-                    33% { transform: translate(-25%, -15%) scale(0.95); }
-                    66% { transform: translate(15%, -25%) scale(1.05); }
-                    100% { transform: translate(0, 0) scale(1); }
-                  }
-                  @keyframes sidebar-move3 {
-                    0% { transform: translate(0, 0) scale(1); }
-                    33% { transform: translate(70%, 20%) scale(1.15); }
-                    66% { transform: translate(20%, 70%) scale(0.85); }
-                    100% { transform: translate(0, 0) scale(1); }
-                  }
-                  @keyframes sidebar-move4 {
-                    0% { transform: translate(0, 0) scale(1); }
-                    33% { transform: translate(-20%, 20%) scale(1.1); }
-                    66% { transform: translate(30%, -15%) scale(0.9); }
-                    100% { transform: translate(0, 0) scale(1); }
-                  }
-                  @keyframes sidebar-move5 {
-                    0% { transform: translate(0, 0) scale(1); }
-                    33% { transform: translate(-80%, -30%) scale(1.1); }
-                    66% { transform: translate(-10%, -80%) scale(0.9); }
-                    100% { transform: translate(0, 0) scale(1); }
-                  }
-                  .sidebar-noise-layer {
-                    position: absolute;
-                    inset: 0;
-                    z-index: 10;
-                    opacity: 0.045;
-                    mix-blend-mode: overlay;
-                    pointer-events: none;
-                    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-                  }
-                `}} />
-                <div className="sidebar-mesh-blob sidebar-blob-1"></div>
-                <div className="sidebar-mesh-blob sidebar-blob-2"></div>
-                <div className="sidebar-mesh-blob sidebar-blob-3"></div>
-                <div className="sidebar-mesh-blob sidebar-blob-4"></div>
-                <div className="sidebar-mesh-blob sidebar-blob-5"></div>
-                <div className="sidebar-noise-layer"></div>
-              </div>
-            </div>
-          );
-        } else {
-          const ratio = itemRef?.ratio || '4:3';
-          const pbPercent = 
-            ratio === '16:9' ? '56.25%'
-            : ratio === '9:16' ? '177.78%'
-            : ratio === '1:1' ? '100%'
-            : ratio === '4:3' ? '75%'
-            : ratio === '3:4' ? '133.33%'
-            : '75%';
-
-          const isFailed = itemRef?.status === 'failed';
-
-          nodes.push(
-            <div
-              key={baseOffset + at}
-              data-grid-item={true}
-              onClick={() => {
-                if (itemRef && typeof (window as any).openCanvasItemInFullscreen === 'function') {
-                  (window as any).openCanvasItemInFullscreen(itemRef);
-                }
-              }}
-              className="relative overflow-hidden rounded-[14px] border-[0.5px] border-[#0e0e10] w-full h-0 cursor-pointer hover:border-white/20 transition-all animate-in fade-in duration-300 block"
-              style={{
-                paddingBottom: pbPercent
-              }}
-            >
-              {isFailed ? (
-                <div className="absolute inset-0 flex flex-col items-start p-2.5 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[14px] select-text">
-                  {/* Steep Sharp Warning Triangle */}
-                  <svg 
-                    viewBox="0 0 24 24" 
-                    width="9" 
-                    height="9" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="square" 
-                    strokeLinejoin="miter" 
-                    className="text-zinc-200 shrink-0"
-                  >
-                    <path d="M12 2 L22 21 H2 Z" />
-                    <line x1="12" y1="8" x2="12" y2="14" />
-                    <line x1="12" y1="17.5" x2="12" y2="18" strokeWidth="2.5" />
-                  </svg>
-
-                  <h3 className="text-[9.5px] font-semibold text-zinc-200 mt-1 leading-none">Failed</h3>
-                  <p className="text-[8.5px] font-normal text-zinc-300 mt-0.5 leading-snug max-w-full overflow-y-auto select-text pr-1 scrollbar-none">
-                    {itemRef?.error ? (
-                      itemRef.error.includes('policies') ? (
-                        <>
-                          {itemRef.error.split('policies')[0]}
-                          <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>
-                          {itemRef.error.split('policies')[1]}
-                        </>
-                      ) : (
-                        itemRef.error
-                      )
-                    ) : (
-                      <>
-                        This prompt might violate our{' '}
-                        <span className="underline cursor-pointer text-zinc-300 hover:text-white">policies</span>{' '}
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : itemRef?.kind === 'video' ? (
-                <video
-                  src={imageUrl}
-                  className="absolute inset-0 w-full h-full object-cover rounded-[14px]"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                />
-              ) : (
-                <img
-                  src={imageUrl}
-                  alt={mm[1]}
-                  className="absolute inset-0 w-full h-full object-cover rounded-[14px]"
-                />
-              )}
-            </div>
-          );
-        }
-      }
-    } else if (tok.startsWith('[')) {
-      const mm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/)!;
-      nodes.push(
-        <a
-          key={baseOffset + at}
-          href={mm[2]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`${settledAt(at) ? 'smd-settled' : 'smd-w'} text-[#7ab7ff] hover:text-[#a5ceff] underline decoration-[#7ab7ff]/40 hover:decoration-[#a5ceff] underline-offset-2 transition-colors`}
-        >
-          {mm[1]}
-        </a>
-      );
-    } else if (tok.startsWith('`')) {
-      emit(at, tok.slice(1, -1), { code: true });
-    } else if (tok.startsWith('**')) {
-      pushWords(tok.slice(2, -2), at + 2, { strong: true });
-    } else if (tok.startsWith('~~')) {
-      pushWords(tok.slice(2, -2), at + 2, { strike: true });
-    } else {
-      pushWords(tok.slice(1, -1), at + 1, { em: true });
-    }
-    last = at + tok.length;
-  }
-  if (last < src.length) pushWords(src.slice(last), last);
-
-  // Group consecutive images or generating containers into a 2-column grid
-  const processedNodes: React.ReactNode[] = [];
-  let tempGroup: React.ReactNode[] = [];
-
-  for (const node of nodes) {
-    if (React.isValidElement(node) && node.props?.['data-grid-item'] === true) {
-      tempGroup.push(node);
-    } else {
-      if (tempGroup.length > 0) {
-        if (tempGroup.length === 1) {
-          if (variant === 'image-grid') {
-            processedNodes.push(tempGroup[0]);
-          } else {
-            processedNodes.push(
-              <div key={`grid-group-${processedNodes.length}`} className="flex justify-center w-full my-4">
-                <div className="w-[75%] max-w-[350px]">
-                  {tempGroup[0]}
-                </div>
-              </div>
-            );
-          }
-        } else {
-          const leftCol: React.ReactNode[] = [];
-          const rightCol: React.ReactNode[] = [];
-          tempGroup.forEach((item: any, idx) => {
-            if (idx % 2 === 0) {
-              leftCol.push(item);
-            } else {
-              rightCol.push(item);
-            }
-          });
-          processedNodes.push(
-            <div key={`grid-group-${processedNodes.length}`} className="flex gap-3 my-4 w-full items-start">
-              <div className="flex flex-col gap-3 w-1/2 min-w-0">
-                {leftCol}
-              </div>
-              <div className="flex flex-col gap-3 w-1/2 min-w-0">
-                {rightCol}
-              </div>
-            </div>
-          );
-        }
-        tempGroup = [];
-      }
-      processedNodes.push(node);
-    }
-  }
-  if (tempGroup.length > 0) {
-    if (tempGroup.length === 1) {
-      if (variant === 'image-grid') {
-        processedNodes.push(tempGroup[0]);
-      } else {
-        processedNodes.push(
-          <div key={`grid-group-${processedNodes.length}`} className="flex justify-center w-full my-4">
-            <div className="w-[75%] max-w-[350px]">
-              {tempGroup[0]}
-            </div>
-          </div>
-        );
-      }
-    } else {
-      const leftCol: React.ReactNode[] = [];
-      const rightCol: React.ReactNode[] = [];
-      tempGroup.forEach((item: any, idx) => {
-        if (idx % 2 === 0) {
-          leftCol.push(item);
-        } else {
-          rightCol.push(item);
-        }
-      });
-      processedNodes.push(
-        <div key={`grid-group-${processedNodes.length}`} className="flex gap-3 my-4 w-full items-start">
-          <div className="flex flex-col gap-3 w-1/2 min-w-0">
-            {leftCol}
-          </div>
-          <div className="flex flex-col gap-3 w-1/2 min-w-0">
-            {rightCol}
-          </div>
-        </div>
-      );
-    }
-  }
-
-  return processedNodes;
 }
 
-// ── Speculative closer ──────────────────────────────────────────────────────
-// Inline markdown markers (`**`, `*`, `` ` ``) can't be recognised until the
-// closing marker arrives, so the raw `**`/`*`/`` ` `` would flash on screen
-// for a few frames. Since the stream is append-only, any unmatched marker is
-// guaranteed to be at the trailing edge; we append a phantom closer so the
-// parser formats it immediately. The phantom chars live past `shown.length`
-// and therefore never affect word offsets / settled-state.
-function closeDangling(src: string): string {
-  if (!src) return src;
-  // Leave open fenced code alone — literal markers inside code are intended.
-  const fences = (src.match(/```/g) || []).length;
-  if (fences % 2 === 1) return src;
-
-  const nl = src.lastIndexOf('\n');
-  const tail = src.slice(nl + 1);
-  let suffix = '';
-
-  // inline code
-  if (((tail.match(/`/g) || []).length) % 2 === 1) suffix += '`';
-
-  // bold (**) — strip backtick spans first so `**` inside code doesn't count
-  const noCode = tail.replace(/`[^`]*`/g, '');
-  if (((noCode.match(/\*\*/g) || []).length) % 2 === 1) suffix += '**';
-
-  // italic (*) — count single * that aren't part of **
-  if (((noCode.replace(/\*\*/g, '').match(/\*/g) || []).length) % 2 === 1) suffix += '*';
-
-  // strikethrough ~~
-  if (((noCode.match(/~~/g) || []).length) % 2 === 1) suffix += '~~';
-
-  // math $$ / $
-  if (((noCode.match(/\$\$/g) || []).length) % 2 === 1) suffix += '$$';
-  else if (((noCode.replace(/\$\$/g, '').match(/\$/g) || []).length) % 2 === 1) suffix += '$';
-
-  return suffix ? src + suffix : src;
+function ratioToCss(value: unknown): string {
+  const ratio = String(value || '4:3');
+  const match = ratio.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
+  if (!match) return '4 / 3';
+  return match[1] + ' / ' + match[2];
 }
 
-// Split helper that preserves the absolute start offset of each piece.
-interface Piece { text: string; start: number }
-function splitWithOffsets(src: string, baseOffset: number, sep: RegExp): Piece[] {
-  const out: Piece[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  const re = new RegExp(sep.source, sep.flags.includes('g') ? sep.flags : sep.flags + 'g');
-  while ((m = re.exec(src))) {
-    out.push({ text: src.slice(last, m.index), start: baseOffset + last });
-    last = m.index + m[0].length;
-  }
-  out.push({ text: src.slice(last), start: baseOffset + last });
-  return out;
+interface MediaDescriptor {
+  key: string;
+  start: number;
+  url: string;
+  alt: string;
+  title?: string;
+  href?: string;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Block model
-// ────────────────────────────────────────────────────────────────────────────
-type Block =
-  | { type: 'code'; lang: string; body: string; open: boolean; start: number }
-  | { type: 'h'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string; start: number; contentStart: number }
-  | { type: 'ul' | 'ol'; items: Piece[]; start: number }
-  | { type: 'p'; lines: Piece[]; start: number }
-  | { type: 'quote'; lines: Piece[]; start: number }
-  | { type: 'hr'; start: number }
-  | { type: 'math'; tex: string; start: number }
-  | { type: 'table'; header: Piece[]; rows: Piece[][]; start: number };
-
-// A line is a heading if it starts with 1–6 `#` followed by whitespace OR
-// end-of-line (so a bare "###" streams straight into heading state).
-const HEADING_LINE = /^(#{1,6})(?:\s+(.*))?$/;
-
-function parseBlocks(src: string): Block[] {
-  const blocks: Block[] = [];
-  const fence = /```/g;
-  const segs: { code: boolean; body: string; start: number; lang?: string; open?: boolean }[] = [];
-  let last = 0;
-  let inCode = false;
-  let lang = '';
-  let m: RegExpExecArray | null;
-  while ((m = fence.exec(src))) {
-    const chunk = src.slice(last, m.index);
-    if (inCode) {
-      segs.push({ code: true, body: chunk, start: last, lang, open: false });
-    } else if (chunk) {
-      segs.push({ code: false, body: chunk, start: last });
-    }
-    if (!inCode) {
-      // opening fence — capture optional language on the same line
-      const rest = src.slice(m.index + 3);
-      const nl = rest.indexOf('\n');
-      lang = (nl >= 0 ? rest.slice(0, nl) : rest).trim();
-      last = m.index + 3 + (nl >= 0 ? nl + 1 : rest.length);
-      fence.lastIndex = last;
-    } else {
-      last = m.index + 3;
-    }
-    inCode = !inCode;
-  }
-  const tail = src.slice(last);
-  if (inCode) {
-    segs.push({ code: true, body: tail, start: last, lang, open: true });
-  } else if (tail) {
-    segs.push({ code: false, body: tail, start: last });
-  }
-
-  for (const seg of segs) {
-    if (seg.code) {
-      blocks.push({ type: 'code', lang: seg.lang || '', body: seg.body, open: !!seg.open, start: seg.start });
-      continue;
-    }
-    const rawBlocks = splitWithOffsets(seg.body, seg.start, /\n{2,}/);
-    for (const raw of rawBlocks) {
-      // trim leading/trailing newlines but keep absolute offset of first real char
-      const leadM = raw.text.match(/^\n+/);
-      const lead = leadM ? leadM[0].length : 0;
-      const trimmed = raw.text.replace(/^\n+|\n+$/g, '');
-      if (!trimmed) continue;
-      const blockStart = raw.start + lead;
-
-      const lines = splitWithOffsets(trimmed, blockStart, /\n/);
-
-      // ── hr ──
-      if (lines.length === 1 && /^(?:-{3,}|_{3,}|\*{3,})\s*$/.test(trimmed)) {
-        blocks.push({ type: 'hr', start: blockStart });
-        continue;
-      }
-
-      // ── display math: block is exactly $$..$$ or \[..\] ──
-      const mBlock =
-        trimmed.match(/^\$\$([\s\S]+?)\$\$$/) || trimmed.match(/^\\\[([\s\S]+?)\\\]$/);
-      if (mBlock) {
-        blocks.push({ type: 'math', tex: mBlock[1].trim(), start: blockStart });
-        continue;
-      }
-
-      // ── blockquote ──
-      if (lines.every((l) => /^\s*>\s?/.test(l.text))) {
-        blocks.push({
-          type: 'quote',
-          start: blockStart,
-          lines: lines.map((l) => {
-            const mm = l.text.match(/^\s*>\s?/)!;
-            return { text: l.text.slice(mm[0].length), start: l.start + mm[0].length };
-          }),
-        });
-        continue;
-      }
-
-      // ── heading / table / list / paragraph ──
-      // Models frequently omit the blank line that GFM requires before a
-      // heading or a table. We therefore walk line-by-line and let a heading
-      // line or a contiguous run of `|..|` rows break the current paragraph,
-      // so `### Title\n| a | b |\n|---|---|\n| c | d |` renders as
-      // heading · table instead of one `<p>` full of pipes.
-      const isTableRow = (s: string) => /^\s*\|.*\|\s*$/.test(s);
-      const isTableSep = (s: string) => /^\s*\|[\s:|-]+\|\s*$/.test(s) && /-/.test(s);
-
-      const tableCells = (l: Piece): Piece[] => {
-        const inner = l.text.replace(/^\s*\|/, '').replace(/\|\s*$/, '');
-        const innerStart =
-          l.start + (l.text.length - l.text.replace(/^\s*\|/, '').length);
-        return splitWithOffsets(inner, innerStart, /\|/).map((c) => ({
-          text: c.text.trim(),
-          start: c.start + (c.text.length - c.text.trimStart().length),
-        }));
-      };
-
-      const classifyRun = (run: Piece[]) => {
-        if (run.length === 0) return;
-        const runStart = run[0].start;
-        if (run.every((l) => /^\s*[-*]\s+/.test(l.text))) {
-          blocks.push({
-            type: 'ul',
-            start: runStart,
-            items: run.map((l) => {
-              const mm = l.text.match(/^\s*[-*]\s+/)!;
-              return { text: l.text.slice(mm[0].length), start: l.start + mm[0].length };
-            }),
-          });
-        } else if (run.every((l) => /^\s*\d+\.\s+/.test(l.text))) {
-          blocks.push({
-            type: 'ol',
-            start: runStart,
-            items: run.map((l) => {
-              const mm = l.text.match(/^\s*\d+\.\s+/)!;
-              return { text: l.text.slice(mm[0].length), start: l.start + mm[0].length };
-            }),
-          });
-        } else {
-          blocks.push({ type: 'p', start: runStart, lines: run });
-        }
-      };
-
-      const emitTable = (rows: Piece[]) => {
-        if (rows.length >= 2 && isTableSep(rows[1].text)) {
-          blocks.push({
-            type: 'table',
-            start: rows[0].start,
-            header: tableCells(rows[0]),
-            rows: rows.slice(2).map(tableCells),
-          });
-        } else {
-          // Pipe-framed line(s) that don't form a valid table (no separator
-          // row yet / only one row streamed so far) — render as prose so the
-          // user at least sees the text; it will reclassify once row 2 lands.
-          classifyRun(rows);
-        }
-      };
-
-      let run: Piece[] = [];
-      let tableRun: Piece[] = [];
-      const flushRun = () => {
-        if (run.length) classifyRun(run);
-        run = [];
-      };
-      const flushTable = () => {
-        if (tableRun.length) emitTable(tableRun);
-        tableRun = [];
-      };
-
-      for (const ln of lines) {
-        const h = ln.text.match(HEADING_LINE);
-        if (h) {
-          flushRun();
-          flushTable();
-          const content = h[2] ?? '';
-          const prefixLen = ln.text.length - content.length;
-          blocks.push({
-            type: 'h',
-            level: h[1].length as 1 | 2 | 3 | 4 | 5 | 6,
-            text: content,
-            start: ln.start,
-            contentStart: ln.start + prefixLen,
-          });
-        } else if (isTableRow(ln.text)) {
-          flushRun();
-          tableRun.push(ln);
-        } else {
-          flushTable();
-          run.push(ln);
-        }
-      }
-      flushRun();
-      flushTable();
-    }
-  }
-  return blocks;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Main component
-// ────────────────────────────────────────────────────────────────────────────
-export interface StreamingMarkdownProps {
-  /** Full accumulated text so far. Must be append-only while `isStreaming`. */
-  text: string;
-  /** True while the upstream is still producing tokens. */
-  isStreaming: boolean;
-  /** When false, renders instantly with no word animation (history view). */
-  animate?: boolean;
-  className?: string;
-  mediaItems?: any[];
-}
-
-// Memoised: completed messages (stable `text`/`isStreaming`) skip re-render
-// entirely while a *different* message is streaming.
-export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
-  function StreamingMarkdown({
-  text,
-  isStreaming,
-  animate = true,
-  className = '',
+function MediaCard({
+  descriptor,
   mediaItems,
+}: {
+  descriptor: MediaDescriptor;
+  mediaItems?: any[];
 }) {
-  useInjectStyles();
+  const resolved = resolveMediaItem(descriptor.url, mediaItems);
+  const item = resolved.item;
+  const failed = item?.status === 'failed';
+  const ratio = ratioToCss(item?.ratio);
+  const destination = safeHref(descriptor.href || resolved.url);
 
-  // The transport already supplies append-only chunks. Rendering that source
-  // directly keeps the UI in lockstep with generation instead of waiting for
-  // a second, client-side character queue to drain.
-  const shown = text;
-  const shouldAnimateStream = animate && isStreaming;
-  const [keepTailAnimation, setKeepTailAnimation] = useState(shouldAnimateStream);
-
-  // Generation and its final text commit can land in the same React update.
-  // Keep the streaming class for one full fade after completion so that final
-  // append still receives Gemini's reveal instead of flashing in fully opaque.
-  useEffect(() => {
-    if (shouldAnimateStream) {
-      if (!keepTailAnimation) setKeepTailAnimation(true);
+  const open = () => {
+    if (item && typeof window !== 'undefined' && typeof (window as any).openCanvasItemInFullscreen === 'function') {
+      (window as any).openCanvasItemInFullscreen(item);
       return;
     }
-    if (!keepTailAnimation) return;
-    const timeoutId = window.setTimeout(() => {
-      setKeepTailAnimation(false);
-    }, STREAM_FADE_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [keepTailAnimation, shouldAnimateStream]);
-
-  const animationEnabled = shouldAnimateStream || keepTailAnimation;
-  const processedBlocks = useMemo(() => {
-    const blocks = parseBlocks(closeDangling(shown));
-    
-    const isImageLine = (lineText: string) => {
-      return /^!\[[^\]]*\]\([^)]+\)$/.test(lineText.trim());
-    };
-    const isImageBlock = (b: Block) => {
-      if (b.type !== 'p') return false;
-      return b.lines.length === 1 && isImageLine(b.lines[0].text);
-    };
-
-    const out: (Block | { type: 'image-grid'; start: number; items: Block[] })[] = [];
-    let tempImageGrid: Block[] = [];
-
-    blocks.forEach((blk) => {
-      if (isImageBlock(blk)) {
-        tempImageGrid.push(blk);
-      } else {
-        if (tempImageGrid.length > 0) {
-          out.push({
-            type: 'image-grid',
-            start: tempImageGrid[0].start,
-            items: tempImageGrid
-          });
-          tempImageGrid = [];
-        }
-        out.push(blk);
-      }
-    });
-    if (tempImageGrid.length > 0) {
-      out.push({
-        type: 'image-grid',
-        start: tempImageGrid[0].start,
-        items: tempImageGrid
-      });
+    if (destination && typeof window !== 'undefined') {
+      window.open(destination, '_blank', 'noopener,noreferrer');
     }
-    return out;
-  }, [shown]);
+  };
 
-  // A word / block is "settled" iff its first character already existed in the
-  // previously *committed* `shown` string. Purely derived from a post-commit
-  // ref — no render-time mutation — so it's StrictMode-safe and immune to
-  // container remounts / block-type reclassification mid-stream.
-  const committedLen = useRef(0);
-  useEffect(() => {
-    committedLen.current = shown.length;
-  }, [shown]);
-  const settledBefore = committedLen.current;
+  return (
+    <button
+      type="button"
+      className="smd-media-card"
+      aria-label={descriptor.alt || descriptor.title || 'Open media'}
+      onClick={open}
+    >
+      <span
+        className="smd-media-frame"
+        style={{ '--smd-media-ratio': ratio } as React.CSSProperties}
+      >
+        {failed ? (
+          <span className="smd-media-error">
+            <MaterialSymbol family="luminous" name="warning" size={20} weight={300} roundness={100} />
+            <span className="smd-media-error-title">Failed</span>
+            <span className="smd-media-error-detail">
+              {item?.error || 'This media could not be generated.'}
+            </span>
+          </span>
+        ) : resolved.loading ? (
+          <span className="smd-media-loading" aria-label="Generating media" />
+        ) : item?.kind === 'video' ? (
+          <video src={resolved.url} autoPlay loop muted playsInline />
+        ) : (
+          <img
+            src={safeHref(resolved.url)}
+            alt={descriptor.alt}
+            title={descriptor.title}
+            loading="lazy"
+            decoding="async"
+          />
+        )}
+      </span>
+    </button>
+  );
+}
 
-  const rendered: React.ReactNode[] = [];
+const MediaGallery = React.memo(
+  function MediaGallery({
+    items,
+    mediaItems,
+    settled,
+  }: {
+    items: MediaDescriptor[];
+    mediaItems?: any[];
+    settled?: boolean;
+  }) {
+    const settledAtMount = useRef(settled).current;
+    return (
+      <div
+        className={'smd-media-gallery' + (settledAtMount ? ' smd-settled' : '')}
+        data-count={String(items.length)}
+      >
+        {items.map((item) => (
+          <MediaCard key={item.key} descriptor={item} mediaItems={mediaItems} />
+        ))}
+      </div>
+    );
+  },
+  (previous, next) => previous.items === next.items && previous.mediaItems === next.mediaItems
+);
 
-  processedBlocks.forEach((blk) => {
-    if (blk.type === 'image-grid') {
-      const gridItems = blk.items.map((item: any) => {
-        return (
-          <div key={item.start} className="w-full">
-            {renderInline(item.lines[0].text, item.lines[0].start, settledBefore, 'image-grid', mediaItems)}
-          </div>
-        );
-      });
-      if (blk.items.length === 1) {
-        rendered.push(
-          <div key={blk.start} className="flex justify-center w-full my-4">
-            <div className="w-[75%] max-w-[350px]">
-              {gridItems[0]}
-            </div>
-          </div>
-        );
-      } else {
-        const leftCol: React.ReactNode[] = [];
-        const rightCol: React.ReactNode[] = [];
-        gridItems.forEach((item, idx) => {
-          if (idx % 2 === 0) {
-            leftCol.push(item);
-          } else {
-            rightCol.push(item);
-          }
-        });
-        rendered.push(
-          <div key={blk.start} className="flex gap-3 my-4 w-full items-start">
-            <div className="flex flex-col gap-3 w-1/2 min-w-0">
-              {leftCol}
-            </div>
-            <div className="flex flex-col gap-3 w-1/2 min-w-0">
-              {rightCol}
-            </div>
-          </div>
-        );
-      }
-      return;
-    }
-    if (blk.type === 'code') {
-      const settled = blk.start < settledBefore;
-      rendered.push(
-        <pre
-          key={blk.start}
-          className={`smd-code-block${settled ? ' smd-settled' : ''} bg-[#0f0f0f] border border-white/5 rounded-xl p-4 my-3 overflow-x-auto text-[13px] leading-relaxed font-mono text-gray-200`}
+function renderInlineImage(node: any, context: RenderContext): React.ReactNode {
+  const definition = node.type === 'imageReference' ? definitionFor(node, context) : undefined;
+  const rawUrl = node.url || definition?.url || '';
+  const resolved = resolveMediaItem(rawUrl, context.mediaItems);
+  if (resolved.loading) {
+    return <span className="smd-math-error">Generating image…</span>;
+  }
+  const src = safeHref(resolved.url);
+  if (!src) return renderAnimatedText(node.alt || '', offsetOf(node), context);
+  return (
+    <img
+      key={offsetOf(node)}
+      className="smd-inline-image"
+      src={src}
+      alt={node.alt || ''}
+      title={node.title || definition?.title}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
+
+function renderInlineNode(node: any, context: RenderContext, index: number): React.ReactNode {
+  const start = offsetOf(node, index);
+  const key = node.type + '-' + start + '-' + index;
+
+  switch (node.type) {
+    case 'text':
+      return renderAnimatedText(node.value || '', start, context);
+    case 'strong':
+      return (
+        <b
+          key={key}
+          className="smd-strong"
+          style={{
+            fontVariationSettings:
+              '"ROND" ' + context.roundness +
+              ', "slnt" ' + (context.em ? -10 : 0) +
+              ', "wdth" ' + context.width +
+              ', "wght" ' + Math.max(540, context.weight),
+          }}
         >
-          <code>{blk.body.replace(/\n$/, '')}</code>
-        </pre>
+          {renderInlineNodes(node.children || [], { ...context, strong: true })}
+        </b>
       );
-      return;
-    }
-
-    if (blk.type === 'h') {
-      const nodes = renderInline(blk.text, blk.contentStart, settledBefore, 'h', mediaItems);
-      const size =
-        blk.level === 1 ? 'text-[20px]'
-        : blk.level === 2 ? 'text-[17px]'
-        : blk.level === 3 ? 'text-[15.5px]'
-        : 'text-[14.5px] uppercase tracking-wide text-gray-300';
-      rendered.push(
-        <div key={blk.start} className={`${size} font-semibold text-gray-100 mt-4 mb-2`}>
-          {nodes}
-        </div>
+    case 'emphasis':
+      return (
+        <i
+          key={key}
+          className="smd-emphasis"
+          style={{
+            fontStyle: 'normal',
+            fontVariationSettings:
+              '"ROND" ' + context.roundness +
+              ', "slnt" -10' +
+              ', "wdth" ' + context.width +
+              ', "wght" ' + context.weight,
+          }}
+        >
+          {renderInlineNodes(node.children || [], { ...context, em: true })}
+        </i>
       );
-      return;
-    }
-
-    if (blk.type === 'hr') {
-      rendered.push(
-        <hr
-          key={blk.start}
-          className={`${blk.start < settledBefore ? 'smd-settled' : 'smd-w'} my-5 border-0 h-px bg-white/10`}
+    case 'delete':
+      return (
+        <React.Fragment key={key}>
+          {renderAnimatedText('~~', start, context)}
+          {renderInlineNodes(node.children || [], context)}
+          {renderAnimatedText(
+            '~~',
+            Math.max(start + 2, endOffsetOf(node, start + 4) - 2),
+            context
+          )}
+        </React.Fragment>
+      );
+    case 'inlineCode':
+      return (
+        <InlineCode
+          key={key}
+          value={node.value || ''}
+          settled={start < context.settledBefore}
         />
       );
-      return;
-    }
-
-    if (blk.type === 'math') {
-      rendered.push(
-        <MathSpan key={blk.start} tex={blk.tex} display settled={blk.start < settledBefore} />
+    case 'inlineMath':
+      return (
+        <MathExpression
+          key={key}
+          value={node.value || ''}
+          settled={start < context.settledBefore}
+        />
       );
-      return;
+    case 'link': {
+      const href = safeHref(node.url);
+      const children = renderInlineNodes(node.children || [], context);
+      return href ? (
+        <a
+          key={key}
+          className="smd-link"
+          href={href}
+          title={node.title}
+          target={href.startsWith('#') ? undefined : '_blank'}
+          rel={href.startsWith('#') ? undefined : 'noopener noreferrer'}
+        >
+          {children}
+        </a>
+      ) : (
+        <React.Fragment key={key}>{children}</React.Fragment>
+      );
     }
-
-    if (blk.type === 'quote') {
-      const qNodes: React.ReactNode[] = [];
-      blk.lines.forEach((ln, li) => {
-        qNodes.push(
-          <React.Fragment key={ln.start}>
-            {renderInline(ln.text, ln.start, settledBefore, 'w', mediaItems)}
+    case 'linkReference': {
+      const definition = definitionFor(node, context);
+      const href = safeHref(definition?.url);
+      const children = renderInlineNodes(node.children || [], context);
+      return href ? (
+        <a
+          key={key}
+          className="smd-link"
+          href={href}
+          title={definition?.title}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {children}
+        </a>
+      ) : (
+        <React.Fragment key={key}>{children}</React.Fragment>
+      );
+    }
+    case 'image':
+    case 'imageReference':
+      return renderInlineImage(node, context);
+    case 'break':
+      return <br key={key} />;
+    case 'html':
+      return (
+        <React.Fragment key={key}>
+          {renderAnimatedText(node.value || '', start, context)}
+        </React.Fragment>
+      );
+    case 'footnoteReference': {
+      const identifier = normalizeIdentifier(node.identifier);
+      const number = context.footnoteNumbers.get(identifier) || 1;
+      return (
+        <sup key={key} className="smd-footnote-ref">
+          <a className="smd-link" href={'#smd-footnote-' + identifier}>{number}</a>
+        </sup>
+      );
+    }
+    default:
+      if (Array.isArray(node.children)) {
+        return (
+          <React.Fragment key={key}>
+            {renderInlineNodes(node.children, context)}
           </React.Fragment>
         );
-        if (li < blk.lines.length - 1) qNodes.push(<br key={`br-${ln.start}`} />);
-      });
-      rendered.push(
-        <blockquote
-          key={blk.start}
-          className="my-3 border-l-[3px] border-white/15 pl-4 pr-2 py-1 text-gray-300/90 italic"
-        >
-          {qNodes}
-        </blockquote>
-      );
-      return;
-    }
+      }
+      if (typeof node.value === 'string') {
+        return (
+          <React.Fragment key={key}>
+            {renderAnimatedText(node.value, start, context)}
+          </React.Fragment>
+        );
+      }
+      return null;
+  }
+}
 
-    if (blk.type === 'table') {
-      rendered.push(
-        <div key={blk.start} className="my-3 overflow-x-auto rounded-xl border border-white/10">
-          <table className="w-full text-[14px] border-collapse">
-            <thead className="bg-white/[0.04]">
+function renderInlineNodes(nodes: any[], context: RenderContext): React.ReactNode[] {
+  return nodes.map((node, index) => renderInlineNode(node, context, index));
+}
+
+function nodeText(node: any): string {
+  if (!node) return '';
+  if (typeof node.value === 'string') return node.value;
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt || '';
+  if (!Array.isArray(node.children)) return '';
+  return node.children.map(nodeText).join('');
+}
+
+function csvCell(value: string): string {
+  const normalized = value.replace(/\r?\n/g, ' ');
+  return /[",\n]/.test(normalized) ? '"' + normalized.replace(/"/g, '""') + '"' : normalized;
+}
+
+function TableBlock({
+  node,
+  context,
+}: {
+  node: any;
+  context: RenderContext;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({
+    hasScrollbar: false,
+    atStart: true,
+    atEnd: true,
+  });
+  const settledAtMount = useRef(offsetOf(node) < context.settledBefore).current;
+  const rows = node.children || [];
+  const alignments = node.align || [];
+  const plainRows = rows.map((row: any) => (row.children || []).map((cell: any) => nodeText(cell)));
+  const tsv = plainRows.map((row: string[]) => row.join('\t')).join('\n');
+  const csv = plainRows.map((row: string[]) => row.map(csvCell).join(',')).join('\r\n');
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+
+    const update = () => {
+      const hasScrollbar = element.scrollWidth > element.clientWidth + 1;
+      const atStart = !hasScrollbar || element.scrollLeft <= 1;
+      const atEnd =
+        !hasScrollbar || element.scrollLeft >= element.scrollWidth - element.clientWidth - 1;
+      setScrollState((previous) =>
+        previous.hasScrollbar === hasScrollbar &&
+        previous.atStart === atStart &&
+        previous.atEnd === atEnd
+          ? previous
+          : { hasScrollbar, atStart, atEnd }
+      );
+    };
+
+    update();
+    element.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    observer?.observe(element);
+    if (element.firstElementChild) observer?.observe(element.firstElementChild);
+    window.addEventListener('resize', update);
+
+    return () => {
+      element.removeEventListener('scroll', update);
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [node]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menuOpen]);
+
+  const copy = async () => {
+    await copyToClipboard(tsv);
+    setCopied(true);
+    setMenuOpen(false);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <div
+      className={
+        'smd-table-block' +
+        (settledAtMount ? ' smd-settled' : '') +
+        (scrollState.hasScrollbar ? ' has-scrollbar' : '') +
+        (scrollState.atStart ? ' is-at-scroll-start' : '') +
+        (scrollState.atEnd ? ' is-at-scroll-end' : '')
+      }
+    >
+      <div ref={scrollRef} className="smd-table-content smd-scroll">
+        <table className="smd-table">
+          {rows.length > 0 && (
+            <thead>
               <tr>
-                {blk.header.map((c) => (
+                {(rows[0].children || []).map((cell: any, columnIndex: number) => (
                   <th
-                    key={c.start}
-                    className="px-3.5 py-2 text-left font-semibold text-gray-100 border-b border-white/10"
+                    key={offsetOf(cell, columnIndex)}
+                    style={{ textAlign: alignments[columnIndex] || 'left' }}
                   >
-                    {renderInline(c.text, c.start, settledBefore, 'w', mediaItems)}
+                    {renderInlineNodes(cell.children || [], context)}
                   </th>
                 ))}
               </tr>
             </thead>
+          )}
+          {rows.length > 1 && (
             <tbody>
-              {blk.rows.map((row, ri) => (
-                <tr key={row[0]?.start ?? ri} className="border-t border-white/5">
-                  {row.map((c) => (
-                    <td key={c.start} className="px-3.5 py-2 align-top text-gray-300">
-                      {renderInline(c.text, c.start, settledBefore, 'w', mediaItems)}
+              {rows.slice(1).map((row: any, rowIndex: number) => (
+                <tr key={offsetOf(row, rowIndex)}>
+                  {(row.children || []).map((cell: any, columnIndex: number) => (
+                    <td
+                      key={offsetOf(cell, columnIndex)}
+                      style={{ textAlign: alignments[columnIndex] || 'left' }}
+                    >
+                      {renderInlineNodes(cell.children || [], context)}
                     </td>
                   ))}
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
-      );
-      return;
-    }
-
-    if (blk.type === 'ul' || blk.type === 'ol') {
-      const Tag = blk.type === 'ul' ? 'ul' : 'ol';
-      const listCls =
-        blk.type === 'ul'
-          ? 'list-disc pl-5 space-y-1.5 my-2'
-          : 'list-decimal pl-5 space-y-1.5 my-2';
-      const items = blk.items.map((item) => (
-        <li key={item.start} className="text-gray-300">
-          {renderInline(item.text, item.start, settledBefore, 'w', mediaItems)}
-        </li>
-      ));
-      rendered.push(
-        <Tag key={blk.start} className={listCls}>
-          {items}
-        </Tag>
-      );
-      return;
-    }
-
-    // paragraph (may contain soft line breaks)
-    const pBlk = blk as Extract<Block, { type: 'p' }>;
-    const pNodes: React.ReactNode[] = [];
-    pBlk.lines.forEach((ln, li) => {
-      pNodes.push(
-        <React.Fragment key={ln.start}>
-          {renderInline(ln.text, ln.start, settledBefore, 'w', mediaItems)}
-        </React.Fragment>
-      );
-      if (li < pBlk.lines.length - 1) pNodes.push(<br key={`br-${ln.start}`} />);
-    });
-    rendered.push(
-      <p key={pBlk.start} className="my-2">
-        {pNodes}
-      </p>
-    );
-  });
-
-  return (
-    <div
-      className={`text-[#e3e3e3] text-[17px] leading-6 font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
-        animationEnabled ? 'smd-streaming' : 'smd-static'
-      } ${className}`}
-      data-streaming={animationEnabled ? 'true' : undefined}
-      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-    >
-      {rendered}
+          )}
+        </table>
+      </div>
+      <div className="smd-table-footer" ref={menuRef}>
+        <button
+          type="button"
+          className="smd-table-menu-trigger"
+          aria-label="More options"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <MaterialSymbol family="luminous" name="more_horiz" size={24} weight={300} roundness={100} />
+        </button>
+        {menuOpen && (
+          <div className="smd-table-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => void copy()}>
+              <MaterialSymbol
+                family="luminous"
+                name={copied ? 'check' : 'content_copy'}
+                size={20}
+                weight={300}
+                roundness={100}
+              />
+              {copied ? 'Copied' : 'Copy table'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                downloadText('table.csv', csv, 'text/csv;charset=utf-8');
+                setMenuOpen(false);
+              }}
+            >
+              <MaterialSymbol family="luminous" name="download" size={20} weight={300} roundness={100} />
+              Download CSV
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
-});
+}
+
+const HEADING_METRICS: Record<number, { weight: number; width: number; roundness: number }> = {
+  1: { weight: 350, width: 100, roundness: 20 },
+  2: { weight: 380, width: 100, roundness: 20 },
+  3: { weight: 470, width: 94, roundness: 20 },
+  4: { weight: 470, width: 94, roundness: 20 },
+  5: { weight: 470, width: 94, roundness: 20 },
+  6: { weight: 470, width: 94, roundness: 20 },
+};
+
+function isWhitespaceText(node: any): boolean {
+  return node?.type === 'text' && !/\S/.test(node.value || '');
+}
+
+function isDisplayDelimitedMath(node: any, context: RenderContext): boolean {
+  if (node?.type !== 'inlineMath') return false;
+  const raw = context.source
+    .slice(offsetOf(node), endOffsetOf(node, context.source.length))
+    .trim();
+  return (
+    (raw.startsWith('$$') && raw.endsWith('$$')) ||
+    (raw.startsWith('\\[') && raw.endsWith('\\]'))
+  );
+}
+
+function renderParagraphNode(node: any, context: RenderContext, key: string): React.ReactNode {
+  const children = node.children || [];
+  const blocks: React.ReactNode[] = [];
+  let inlineNodes: any[] = [];
+  let skipLeadingWhitespace = false;
+
+  const flushInline = () => {
+    while (inlineNodes.length && isWhitespaceText(inlineNodes[inlineNodes.length - 1])) {
+      inlineNodes.pop();
+    }
+    if (!inlineNodes.length) return;
+    const paragraphStart = offsetOf(inlineNodes[0], offsetOf(node));
+    blocks.push(
+      <p key={'paragraph-' + paragraphStart} className="smd-paragraph">
+        {renderInlineNodes(inlineNodes, context)}
+      </p>
+    );
+    inlineNodes = [];
+  };
+
+  children.forEach((child: any, childIndex: number) => {
+    if (isDisplayDelimitedMath(child, context)) {
+      flushInline();
+      const mathStart = offsetOf(child, offsetOf(node) + childIndex);
+      blocks.push(
+        <MathExpression
+          key={'display-math-' + mathStart}
+          value={child.value || ''}
+          display
+          settled={mathStart < context.settledBefore}
+        />
+      );
+      skipLeadingWhitespace = true;
+      return;
+    }
+
+    if (skipLeadingWhitespace && isWhitespaceText(child)) return;
+    skipLeadingWhitespace = false;
+    inlineNodes.push(child);
+  });
+
+  flushInline();
+  if (blocks.length === 1) return blocks[0];
+  return <React.Fragment key={key}>{blocks}</React.Fragment>;
+}
+
+function renderBlockNode(node: any, context: RenderContext, index: number): React.ReactNode {
+  const start = offsetOf(node, index);
+  const key = node.type + '-' + start + '-' + index;
+
+  switch (node.type) {
+    case 'paragraph': {
+      return renderParagraphNode(node, context, key);
+    }
+    case 'heading': {
+      const depth = Math.min(6, Math.max(1, node.depth || 1));
+      const Tag = ('h' + depth) as React.ElementType;
+      const metrics = HEADING_METRICS[depth];
+      const headingContext: RenderContext = {
+        ...context,
+        variant: 'h',
+        weight: metrics.weight,
+        width: metrics.width,
+        roundness: metrics.roundness,
+      };
+      return (
+        <Tag
+          key={key}
+          className={'smd-heading smd-heading-' + depth}
+          style={{
+            fontVariationSettings:
+              '"ROND" ' + metrics.roundness +
+              ', "slnt" 0, "wdth" ' + metrics.width +
+              ', "wght" ' + metrics.weight,
+          }}
+        >
+          {renderInlineNodes(node.children || [], headingContext)}
+        </Tag>
+      );
+    }
+    case 'list': {
+      const ordered = Boolean(node.ordered);
+      const Tag = ordered ? 'ol' : 'ul';
+      const startNumber = ordered ? Math.max(1, node.start || 1) : 1;
+      return (
+        <Tag
+          key={key}
+          className={'smd-list ' + (ordered ? 'smd-list-ordered' : 'smd-list-unordered')}
+          style={ordered ? { counterReset: 'smd-list-item ' + (startNumber - 1) } : undefined}
+        >
+          {(node.children || []).map((item: any, itemIndex: number) => {
+            const checked = typeof item.checked === 'boolean' ? item.checked : undefined;
+            const itemStart = offsetOf(item, itemIndex);
+            const firstChild = item.children?.[0];
+            const taskSource = checked === undefined
+              ? ''
+              : context.source.slice(itemStart, endOffsetOf(firstChild, itemStart + 8));
+            const taskMatch = checked === undefined ? null : /\[[ xX]\]/.exec(taskSource);
+            const taskMarker = checked === undefined
+              ? ''
+              : taskMatch?.[0] || (checked ? '[x]' : '[ ]');
+            const taskMarkerStart = itemStart + (taskMatch?.index || 0);
+            return (
+              <li key={itemStart}>
+                <div className="smd-list-content">
+                  {(item.children || []).map((child: any, childIndex: number) => {
+                    if (checked !== undefined && childIndex === 0 && child.type === 'paragraph') {
+                      return (
+                        <p key={'task-' + offsetOf(child)} className="smd-paragraph">
+                          {renderAnimatedText(taskMarker + ' ', taskMarkerStart, context)}
+                          {renderInlineNodes(child.children || [], context)}
+                        </p>
+                      );
+                    }
+                    return renderBlockNode(child, context, childIndex);
+                  })}
+                </div>
+              </li>
+            );
+          })}
+        </Tag>
+      );
+    }
+    case 'blockquote':
+      return (
+        <blockquote key={key} className="smd-blockquote">
+          {(node.children || []).map((child: any, childIndex: number) =>
+            renderBlockNode(child, context, childIndex)
+          )}
+        </blockquote>
+      );
+    case 'code':
+      return (
+        <CodeBlock
+          key={key}
+          value={node.value || ''}
+          language={node.lang || ''}
+          settled={start < context.settledBefore}
+        />
+      );
+    case 'math':
+      return (
+        <MathExpression
+          key={key}
+          value={node.value || ''}
+          display
+          settled={start < context.settledBefore}
+        />
+      );
+    case 'table':
+      return <TableBlock key={key} node={node} context={context} />;
+    case 'thematicBreak':
+      return null;
+    case 'html':
+      return <p key={key}>{renderAnimatedText(node.value || '', start, context)}</p>;
+    case 'definition':
+    case 'footnoteDefinition':
+      return null;
+    default:
+      if (Array.isArray(node.children)) {
+        return (
+          <div key={key}>
+            {node.children.map((child: any, childIndex: number) =>
+              renderBlockNode(child, context, childIndex)
+            )}
+          </div>
+        );
+      }
+      if (typeof node.value === 'string') {
+        return <p key={key}>{renderAnimatedText(node.value, start, context)}</p>;
+      }
+      return null;
+  }
+}
+
+function descriptorFromImage(
+  node: any,
+  context: RenderContext,
+  href?: string
+): MediaDescriptor | null {
+  const definition = node.type === 'imageReference' ? definitionFor(node, context) : undefined;
+  const url = node.url || definition?.url || '';
+  if (!url) return null;
+  const start = offsetOf(node);
+  return {
+    key: node.type + '-' + start,
+    start,
+    url,
+    alt: node.alt || '',
+    title: node.title || definition?.title,
+    href,
+  };
+}
+
+function standaloneMedia(node: any, context: RenderContext): MediaDescriptor[] | null {
+  if (node.type !== 'paragraph') return null;
+  const meaningful = (node.children || []).filter(
+    (child: any) => child.type !== 'text' || /\S/.test(child.value || '')
+  );
+  if (meaningful.length === 0) return null;
+  const media: MediaDescriptor[] = [];
+
+  for (const child of meaningful) {
+    if (child.type === 'image' || child.type === 'imageReference') {
+      const descriptor = descriptorFromImage(child, context);
+      if (!descriptor) return null;
+      media.push(descriptor);
+      continue;
+    }
+    if (child.type === 'link' || child.type === 'linkReference') {
+      const linkDefinition = child.type === 'linkReference' ? definitionFor(child, context) : undefined;
+      const href = safeHref(child.url || linkDefinition?.url);
+      const linkChildren = (child.children || []).filter(
+        (grandchild: any) => grandchild.type !== 'text' || /\S/.test(grandchild.value || '')
+      );
+      if (!href || linkChildren.length === 0) return null;
+      for (const grandchild of linkChildren) {
+        if (grandchild.type !== 'image' && grandchild.type !== 'imageReference') return null;
+        const descriptor = descriptorFromImage(grandchild, context, href);
+        if (!descriptor) return null;
+        media.push(descriptor);
+      }
+      continue;
+    }
+    return null;
+  }
+
+  return media.length ? media : null;
+}
+
+function collectDefinitions(tree: any): Map<string, DefinitionRecord> {
+  const definitions = new Map<string, DefinitionRecord>();
+  for (const child of tree.children || []) {
+    if (child.type !== 'definition') continue;
+    definitions.set(normalizeIdentifier(child.identifier || child.label), {
+      url: child.url || '',
+      title: child.title,
+    });
+  }
+  return definitions;
+}
+
+function collectFootnoteNumbers(node: any, numbers = new Map<string, number>()): Map<string, number> {
+  if (node?.type === 'footnoteReference') {
+    const identifier = normalizeIdentifier(node.identifier);
+    if (!numbers.has(identifier)) numbers.set(identifier, numbers.size + 1);
+  }
+  for (const child of node?.children || []) collectFootnoteNumbers(child, numbers);
+  return numbers;
+}
+
+function renderFootnotes(tree: any, context: RenderContext): React.ReactNode | null {
+  const definitions = (tree.children || []).filter((child: any) => child.type === 'footnoteDefinition');
+  if (!definitions.length) return null;
+  return (
+    <section className="smd-footnotes" aria-label="Footnotes">
+      <ol>
+        {definitions.map((definition: any, index: number) => {
+          const identifier = normalizeIdentifier(definition.identifier);
+          return (
+            <li key={identifier || index} id={'smd-footnote-' + identifier}>
+              {(definition.children || []).map((child: any, childIndex: number) =>
+                renderBlockNode(child, context, childIndex)
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function renderRoot(tree: any, context: RenderContext): React.ReactNode[] {
+  const rendered: React.ReactNode[] = [];
+  let pendingMedia: MediaDescriptor[] = [];
+
+  const flushMedia = () => {
+    if (!pendingMedia.length) return;
+    const items = pendingMedia;
+    pendingMedia = [];
+    rendered.push(
+      <MediaGallery
+        key={'media-' + items[0].start}
+        items={items}
+        mediaItems={context.mediaItems}
+        settled={items[0].start < context.settledBefore}
+      />
+    );
+  };
+
+  (tree.children || []).forEach((node: any, index: number) => {
+    if (node.type === 'definition' || node.type === 'footnoteDefinition') return;
+    const media = standaloneMedia(node, context);
+    if (media) {
+      pendingMedia.push(...media);
+      return;
+    }
+    flushMedia();
+    rendered.push(renderBlockNode(node, context, index));
+  });
+
+  flushMedia();
+  const footnotes = renderFootnotes(tree, context);
+  if (footnotes) rendered.push(footnotes);
+  return rendered;
+}
+
+const TICK = String.fromCharCode(96);
+const FENCE = TICK.repeat(3);
+
+function occurrences(value: string, token: string): number {
+  return value.split(token).length - 1;
+}
+
+function closeDangling(source: string): string {
+  if (!source) return source;
+  if (occurrences(source, FENCE) % 2 === 1) return source;
+
+  const tail = source.slice(source.lastIndexOf('\n') + 1);
+  let suffix = '';
+  if (occurrences(tail, TICK) % 2 === 1) suffix += TICK;
+
+  const withoutCode = tail.replace(new RegExp(TICK + '[^' + TICK + ']*' + TICK, 'g'), '');
+  if (occurrences(withoutCode, '**') % 2 === 1) suffix += '**';
+  if (occurrences(withoutCode, '__') % 2 === 1) suffix += '__';
+
+  const withoutStrong = withoutCode.replace(/\*\*/g, '').replace(/__/g, '');
+  if (occurrences(withoutStrong, '*') % 2 === 1) suffix += '*';
+  if (occurrences(withoutStrong, '_') % 2 === 1) suffix += '_';
+  if (occurrences(withoutCode, '~~') % 2 === 1) suffix += '~~';
+
+  if (occurrences(withoutCode, '$$') % 2 === 1) suffix += '$$';
+  else if (occurrences(withoutCode.replace(/\$\$/g, ''), '$') % 2 === 1) suffix += '$';
+
+  return suffix ? source + suffix : source;
+}
+
+interface NormalizedMathSource {
+  source: string;
+  boundaries: number[];
+}
+
+function normalizeLatexDelimiters(source: string): NormalizedMathSource {
+  let normalized = '';
+  const boundaries = [0];
+  let codeDelimiter = 0;
+
+  const append = (value: string, consumedFrom: number, consumedTo: number) => {
+    for (let index = 0; index < value.length; index += 1) {
+      normalized += value[index];
+      const progress = (index + 1) / value.length;
+      boundaries.push(Math.round(consumedFrom + (consumedTo - consumedFrom) * progress));
+    }
+  };
+
+  for (let index = 0; index < source.length;) {
+    if (source[index] === '`') {
+      let run = 1;
+      while (source[index + run] === '`') run += 1;
+      if (codeDelimiter === 0) codeDelimiter = run;
+      else if (codeDelimiter === run) codeDelimiter = 0;
+      append(source.slice(index, index + run), index, index + run);
+      index += run;
+      continue;
+    }
+
+    const escapedByBackslash = index > 0 && source[index - 1] === '\\';
+    if (
+      codeDelimiter === 0 &&
+      !escapedByBackslash &&
+      source[index] === '\\' &&
+      (source[index + 1] === '(' || source[index + 1] === ')')
+    ) {
+      append('$', index, index + 2);
+      index += 2;
+      continue;
+    }
+    if (
+      codeDelimiter === 0 &&
+      !escapedByBackslash &&
+      source[index] === '\\' &&
+      (source[index + 1] === '[' || source[index + 1] === ']')
+    ) {
+      append('$$', index, index + 2);
+      index += 2;
+      continue;
+    }
+
+    append(source[index], index, index + 1);
+    index += 1;
+  }
+
+  return { source: normalized, boundaries };
+}
+
+function remapTreeOffsets(node: any, boundaries: number[], sourceLength: number): void {
+  const mapOffset = (offset: unknown) => {
+    if (typeof offset !== 'number') return offset;
+    const bounded = Math.max(0, Math.min(boundaries.length - 1, offset));
+    return Math.min(sourceLength, boundaries[bounded] ?? sourceLength);
+  };
+
+  if (node?.position?.start) node.position.start.offset = mapOffset(node.position.start.offset);
+  if (node?.position?.end) node.position.end.offset = mapOffset(node.position.end.offset);
+  for (const child of node?.children || []) remapTreeOffsets(child, boundaries, sourceLength);
+}
+
+const MARKDOWN_PROCESSOR = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkMath)
+  .freeze();
+
+export interface StreamingMarkdownProps {
+  text: string;
+  isStreaming: boolean;
+  animate?: boolean;
+  className?: string;
+  mediaItems?: any[];
+}
+
+export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
+  function StreamingMarkdown({
+    text,
+    isStreaming,
+    animate = true,
+    className = '',
+    mediaItems,
+  }) {
+    useInjectStyles();
+
+    const shown = text;
+    const shouldAnimateStream = animate && isStreaming;
+    const [keepTailAnimation, setKeepTailAnimation] = useState(shouldAnimateStream);
+
+    useEffect(() => {
+      if (shouldAnimateStream) {
+        if (!keepTailAnimation) setKeepTailAnimation(true);
+        return;
+      }
+      if (!keepTailAnimation) return;
+      const timeoutId = window.setTimeout(() => setKeepTailAnimation(false), STREAM_FADE_MS);
+      return () => window.clearTimeout(timeoutId);
+    }, [keepTailAnimation, shouldAnimateStream]);
+
+    const animationEnabled = shouldAnimateStream || keepTailAnimation;
+    const tree = useMemo(() => {
+      try {
+        const closed = closeDangling(shown);
+        const normalized = normalizeLatexDelimiters(closed);
+        const parsed = MARKDOWN_PROCESSOR.parse(normalized.source) as any;
+        remapTreeOffsets(parsed, normalized.boundaries, shown.length);
+        return parsed;
+      } catch {
+        return {
+          type: 'root',
+          children: [{
+            type: 'paragraph',
+            children: [{ type: 'text', value: shown, position: { start: { offset: 0 } } }],
+            position: { start: { offset: 0 } },
+          }],
+        };
+      }
+    }, [shown]);
+
+    const committedLength = useRef(0);
+    useEffect(() => {
+      committedLength.current = shown.length;
+    }, [shown]);
+    const settledBefore = committedLength.current;
+
+    const definitions = useMemo(() => collectDefinitions(tree), [tree]);
+    const footnoteNumbers = useMemo(() => collectFootnoteNumbers(tree), [tree]);
+    const context: RenderContext = {
+      source: shown,
+      settledBefore,
+      mediaItems,
+      definitions,
+      footnoteNumbers,
+      variant: 'w',
+      weight: 400,
+      width: 92,
+      roundness: 0,
+    };
+    const rendered = renderRoot(tree, context);
+
+    return (
+      <div
+        className={
+          'smd-root ' +
+          (animationEnabled ? 'smd-streaming ' : 'smd-static ') +
+          className
+        }
+        data-streaming={animationEnabled ? 'true' : undefined}
+        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+      >
+        {rendered}
+      </div>
+    );
+  }
+);
 
 export default StreamingMarkdown;
