@@ -8,6 +8,7 @@ import {
   type ChatMessage as AiChatMessage,
   type StreamPhase,
 } from '../../lib/ai';
+import { getThinkingEffortLabel } from '../../lib/model-efforts';
 import {
   deleteSparkAttachmentPayloads,
   resolveSparkTaskAttachments,
@@ -123,7 +124,10 @@ const getExecutionModelLabel = (
     .trim();
   const rawBase = configuredName || (provider === 'gemini' ? fallbackName : `${provider} ${fallbackName}`);
   const base = provider === 'gemini' ? rawBase.replace(/^Gemini\s+/i, '') : rawBase;
-  return thinkingLevel > 0 && !/extended$/i.test(base) ? `${base} Extended` : base;
+  const effort = thinkingLevel > 0
+    ? getThinkingEffortLabel(selected || { provider, modelId: model, thinkingLevel, name: base })
+    : '';
+  return effort ? `${base} ${effort}` : base;
 };
 
 const formatScheduledDate = (value: string): string => {
@@ -374,7 +378,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       ...execution,
       thinkingLevel,
       modelLabel: getExecutionModelLabel(
-        { name: execution.modelLabel.replace(/ Extended$/i, '') },
+        null,
         execution.provider,
         execution.model,
         thinkingLevel,

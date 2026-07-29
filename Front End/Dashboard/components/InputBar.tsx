@@ -375,7 +375,7 @@ const ModelsMenu: React.FC<{
                   </span>
                   <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
                     <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                      {model.name}
+                      {model.name.replace(/\s+Extended$/gi, '')}
                     </span>
                     <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                       {getModelDescription(model)}
@@ -875,7 +875,7 @@ export const InputBar: React.FC<{
         }
       }
 
-      const apiKey = apiKeys?.gemini?.[0] || getGeminiApiKey(modelConfig);
+      const apiKey = apiKeys?.gemini?.[0] || modelConfig?.gemini?.apiKey || '';
       if (apiKey) {
         const session = new GeminiLiveSession({
           apiKey,
@@ -975,7 +975,8 @@ export const InputBar: React.FC<{
     if (!name) return "Model";
     if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
     return name
-      .replace(/Gemini\s+/g, '')
+      .replace(/Gemini\s+/gi, '')
+      .replace(/\s+Extended$/gi, '')
       .trim();
   };
 
