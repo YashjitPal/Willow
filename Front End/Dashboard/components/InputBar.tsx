@@ -240,6 +240,15 @@ export const ModelsMenu: React.FC<{
   onAuthRequired?: () => void;
   geminiStyle?: boolean;
 }> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false }) => {
+  const isMediaModel = (m: any) => {
+    const id = (m.modelId || m.id || '').toLowerCase();
+    const name = (m.name || '').toLowerCase();
+    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return true;
+    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria')) return true;
+    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return true;
+    return false;
+  };
+
   // Combine all saved models from all providers and deduplicate by modelId
   const rawModels = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
@@ -248,7 +257,7 @@ export const ModelsMenu: React.FC<{
     ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
     ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
     ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
+  ].filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
 
   const [isEffortHovered, setIsEffortHovered] = useState(false);
   const effortMenuRef = useRef<HTMLDivElement>(null);
@@ -274,7 +283,7 @@ export const ModelsMenu: React.FC<{
     if (seenModelKeys.has(key)) return false;
     seenModelKeys.add(key);
     return true;
-  }); // Filter out Nano Banana Pro
+  });
 
   const [localSearchQuery, setLocalSearchQuery] = useState("");
   const [side, setSide] = useState<"top" | "bottom">(geminiStyle ? "bottom" : "top");
@@ -1021,7 +1030,14 @@ export const InputBar: React.FC<{
       ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
       ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
       ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter(m => m.name !== "Nano Banana Pro");
+  ].filter((m: any) => {
+    const id = (m.modelId || m.id || '').toLowerCase();
+    const name = (m.name || '').toLowerCase();
+    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return false;
+    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria')) return false;
+    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return false;
+    return true;
+  });
 
   // Sync selection with available models
   useEffect(() => {

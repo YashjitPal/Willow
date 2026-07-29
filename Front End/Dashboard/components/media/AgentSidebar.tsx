@@ -215,14 +215,14 @@ interface AgentSidebarProps {
   setImageRatio: React.Dispatch<React.SetStateAction<string>>;
   imageBatch: string;
   setImageBatch: React.Dispatch<React.SetStateAction<string>>;
-  imageModel: 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image';
-  setImageModel: React.Dispatch<React.SetStateAction<'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-lite-image'>>;
+  imageModel: string;
+  setImageModel: React.Dispatch<React.SetStateAction<string>>;
   videoRatio: string;
   setVideoRatio: React.Dispatch<React.SetStateAction<string>>;
   videoBatch: string;
   setVideoBatch: React.Dispatch<React.SetStateAction<string>>;
-  videoModel: 'veo-3.1-fast' | 'veo-3.1' | 'veo-3.1-lite' | 'omni-flash';
-  setVideoModel: React.Dispatch<React.SetStateAction<'veo-3.1-fast' | 'veo-3.1' | 'veo-3.1-lite' | 'omni-flash'>>;
+  videoModel: string;
+  setVideoModel: React.Dispatch<React.SetStateAction<string>>;
   onPlusClick?: (
     ref: React.RefObject<any>,
     source: 'sidebar' | 'instruction-reference',
@@ -1096,7 +1096,8 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                     >
                       <span className="flex items-center gap-2">
                         {imageModel === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' :
-                         imageModel === 'gemini-3.1-flash-lite-image' ? 'Nano Banana Lite' : 'Nano Banana 2'}
+                         imageModel === 'gemini-3.1-flash-lite-image' ? 'Nano Banana Lite' :
+                         imageModel === 'grok-imagine' ? 'Grok Imagine' : 'Nano Banana 2'}
                       </span>
                       <ChevronDown size={16} className={`text-[#a0a0a0] transition-transform duration-200 ${isImgDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
@@ -1105,7 +1106,8 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                         {[
                           { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
                           { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
-                          { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' }
+                          { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' },
+                          { id: 'grok-imagine', name: 'Grok Imagine' }
                         ].map((modelOpt) => (
                           <button 
                             key={modelOpt.id}

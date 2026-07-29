@@ -19,7 +19,9 @@ import {
   Pencil,
   BookOpen,
   Trash2,
+  Github,
 } from 'lucide-react';
+import { DiscordIcon } from './sidebar/SidebarIcons';
 import logo from '../src/assets/logo.png';
 import './Sidebar.css';
 import { useAuth } from '../context/AuthContext';
@@ -62,9 +64,10 @@ type GeminiSettingsItem = {
   id: string;
   label: string;
   icon: string;
-  iconFamily?: 'luminous' | 'google-symbols' | 'avatar' | 'spark-settings';
+  iconFamily?: 'luminous' | 'google-symbols' | 'avatar' | 'spark-settings' | 'custom';
   trailingArrow?: boolean;
   action?: 'settings';
+  url?: string;
 };
 
 const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
@@ -79,11 +82,11 @@ const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'links', label: 'Your public links', icon: 'link', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'theme', label: 'Theme', icon: 'routine', iconFamily: 'google-symbols', trailingArrow: true },
   { id: 'spark-settings', label: 'Willow Spark settings', icon: 'agent_mode_spark', iconFamily: 'spark-settings', action: 'settings' },
-  { id: 'subscription', label: 'Manage subscription', icon: 'counter_1', iconFamily: 'google-symbols', action: 'settings' },
-  { id: 'upgrade', label: 'Upgrade to Willow Ultra', icon: 'spark', iconFamily: 'luminous', action: 'settings' },
+  { id: 'agents-settings', label: 'Agents Settings', icon: 'agent', iconFamily: 'custom', action: 'settings' },
+  { id: 'models', label: 'Models', icon: 'spark', iconFamily: 'luminous', action: 'settings' },
   { id: 'notebook', label: 'Willow Notebook', icon: 'notebook_lm', iconFamily: 'luminous', action: 'settings' },
-  { id: 'feedback', label: 'Send feedback', icon: 'chat_info', iconFamily: 'google-symbols' },
-  { id: 'help', label: 'Help', icon: 'quiz', iconFamily: 'luminous', trailingArrow: true },
+  { id: 'github', label: 'Github Repository', icon: 'github', iconFamily: 'custom', trailingArrow: true, url: 'https://github.com/YashjitPal/Willow-Code' },
+  { id: 'discord', label: 'Discord', icon: 'discord', iconFamily: 'custom', trailingArrow: true },
 ];
 
 const GeminiAvatarSettingsIcon: React.FC = () => (
@@ -112,11 +115,16 @@ const GeminiSparkSettingsIcon: React.FC = () => (
 const GeminiSettingsItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }) => {
   if (item.iconFamily === 'avatar') return <GeminiAvatarSettingsIcon />;
   if (item.iconFamily === 'spark-settings') return <GeminiSparkSettingsIcon />;
+  if (item.iconFamily === 'custom') {
+    if (item.icon === 'agent') return <AgentIcon size={19} className="ml-[2px] mr-[2px] shrink-0" />;
+    if (item.icon === 'github') return <Github size={20} strokeWidth={2.2} className="ml-[2px] mr-[2px]" />;
+    if (item.icon === 'discord') return <DiscordIcon size={21} strokeWidth={1.8} className="ml-[1px] mr-[2px]" />;
+  }
 
   return (
     <MaterialSymbol
       name={item.icon}
-      family={item.iconFamily ?? 'luminous'}
+      family={(item.iconFamily ?? 'luminous') as any}
       size={24}
       weight={300}
       roundness={100}
@@ -170,6 +178,11 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   if (!isOpen) return null;
 
   const handleItemClick = (item: GeminiSettingsItem) => {
+    if (item.url) {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      onClose();
+      return;
+    }
     if (item.action === 'settings') {
       onClose();
       onSettingsClick?.();
@@ -194,7 +207,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           role="menuitem"
           aria-label={item.label}
           onClick={() => handleItemClick(item)}
-          className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[14px] font-medium text-[#e3e3e3] transition-colors hover:bg-white/[0.08]"
+          className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal text-[#e3e3e3] transition-colors hover:bg-white/[0.08]"
         >
           <GeminiSettingsItemIcon item={item} />
           <span className="ml-2 min-w-0 flex-1 truncate">{item.label}</span>

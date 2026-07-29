@@ -16,6 +16,7 @@ interface MusicViewProps {
   onModelChange: (id: any) => void;
   onSongGenerated?: (item: any) => void;
   initialItem?: any;
+  availableModels?: Array<{ id: string; name: string }>;
 }
 
 const sampleMusic = [
@@ -50,7 +51,8 @@ export const MusicView: React.FC<MusicViewProps> = ({
   activeModelId,
   onModelChange,
   onSongGenerated,
-  initialItem
+  initialItem,
+  availableModels
 }) => {
   const { userProfile, user } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -281,14 +283,15 @@ export const MusicView: React.FC<MusicViewProps> = ({
     }
   };
 
-  const models = [
-    { id: 'lyria-3-pro', name: 'Lyria 3 Pro' },
-    { id: 'lyria-3', name: 'Lyria 3' },
-    { id: 'lyria-realtime', name: 'Lyria RealTime' }
-  ];
+  const models = availableModels && availableModels.length > 0 && availableModels[0].id !== 'none'
+    ? availableModels
+    : [
+        { id: 'lyria-3-pro', name: 'Lyria 3 Pro' },
+        { id: 'grok-voice', name: 'Grok Voice' }
+      ];
 
   const getActiveModelName = () => {
-    return models.find(m => m.id === activeModelId)?.name || 'Lyria 3 Pro';
+    return models.find(m => m.id === activeModelId)?.name || (models[0]?.name || 'Lyria 3 Pro');
   };
 
   React.useEffect(() => {
