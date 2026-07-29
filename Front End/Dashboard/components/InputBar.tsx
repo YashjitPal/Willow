@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { GeminiLiveSession, primeLiveChimes, playLiveChime } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
@@ -231,7 +231,7 @@ const DictationWaveform = () => {
   );
 };
 
-const ModelsMenu: React.FC<{
+export const ModelsMenu: React.FC<{
   onClose: () => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   modelConfig: any;
@@ -240,15 +240,41 @@ const ModelsMenu: React.FC<{
   onAuthRequired?: () => void;
   geminiStyle?: boolean;
 }> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false }) => {
-  // Combine all saved models from all providers
-  const ALL_MODELS = [
+  // Combine all saved models from all providers and deduplicate by modelId
+  const rawModels = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-      ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-      ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
-      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter(m => m.name !== "Nano Banana Pro"); // Filter out Nano Banana Pro
+    ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
+    ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
+    ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
+    ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
+    ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
+  ].filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
+
+  const [isEffortHovered, setIsEffortHovered] = useState(false);
+  const effortMenuRef = useRef<HTMLDivElement>(null);
+  const [effortOffset, setEffortOffset] = useState(0);
+
+  useLayoutEffect(() => {
+    if (isEffortHovered && effortMenuRef.current) {
+      const rect = effortMenuRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      if (rect.bottom > viewportHeight - 16) {
+        setEffortOffset(viewportHeight - 16 - rect.bottom);
+      } else {
+        setEffortOffset(0);
+      }
+    } else {
+      setEffortOffset(0);
+    }
+  }, [isEffortHovered]);
+
+  const seenModelKeys = new Set<string>();
+  const ALL_MODELS = rawModels.filter((m: any) => {
+    const key = m.modelId || m.id;
+    if (seenModelKeys.has(key)) return false;
+    seenModelKeys.add(key);
+    return true;
+  }); // Filter out Nano Banana Pro
 
   const [localSearchQuery, setLocalSearchQuery] = useState("");
   const [side, setSide] = useState<"top" | "bottom">(geminiStyle ? "bottom" : "top");
@@ -327,11 +353,41 @@ const ModelsMenu: React.FC<{
     variants: sortModelEfforts(group.variants),
   }));
 
+  const getEffortsForGroup = (group: { key: string; variants: PickerModel[] } | undefined): PickerModel[] => {
+    if (!group || group.variants.length === 0) return [];
+    if (group.variants.length > 1) return sortModelEfforts(group.variants);
+
+    const base = group.variants[0];
+    const provider = String(base.provider || '').toLowerCase();
+    const modelId = String(base.modelId || base.id || base.name || '').toLowerCase();
+
+    let maxLevel = 3;
+    if (provider.includes('openai') || modelId.includes('gpt')) {
+      maxLevel = 6; // Low (1), Medium (2), High (3), Extra High (4), Max (5), Pro (6)
+    } else if (modelId.includes('kimi-k3')) {
+      maxLevel = 4; // Low (1), Medium (2), High (3), Max (4)
+    }
+
+    const result: PickerModel[] = [];
+    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+      const effortLabel = getThinkingEffortLabel({ ...base, thinkingLevel: lvl, provider, modelId, thinkingLabel: undefined, effortLabel: undefined });
+      result.push({
+        ...base,
+        id: `${base.id}::effort-${lvl}`,
+        thinkingLevel: lvl,
+        thinkingLabel: effortLabel,
+        effortLabel: effortLabel
+      });
+    }
+    return result;
+  };
+
   const selectedGroup = groupedModels.find((group) =>
-    group.variants.some((model) => model.id === selectedId)
-  );
-  const selectedEfforts = selectedGroup?.variants || [];
-  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId) || selectedEfforts[0];
+    group.variants.some((model) => model.id === selectedId || selectedId.startsWith(`${model.id}::effort-`))
+  ) || groupedModels[0];
+
+  const selectedEfforts = getEffortsForGroup(selectedGroup);
+  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId) || selectedEfforts.find((m) => m.thinkingLevel === 3) || selectedEfforts[0];
 
   const getModelDescription = (model: any) => {
     const name = String(model.name || '').toLowerCase();
@@ -390,7 +446,11 @@ const ModelsMenu: React.FC<{
         {selectedEffort && (
           <>
             <div className="h-px bg-[#444746] my-2" role="separator" />
-            <div className="group/effort relative">
+            <div 
+              className="relative"
+              onMouseEnter={() => setIsEffortHovered(true)}
+              onMouseLeave={() => setIsEffortHovered(false)}
+            >
               <button
                 type="button"
                 role="menuitem"
@@ -407,12 +467,17 @@ const ModelsMenu: React.FC<{
                 <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
               </button>
 
-              <div className="pointer-events-auto absolute left-full -ml-2 top-0 hidden pl-4 group-hover/effort:block group-focus-within/effort:block">
-                <div
-                  role="menu"
-                  aria-label="Thinking Effort"
-                  className="pointer-events-auto max-h-[calc(100vh-16px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
+              {isEffortHovered && (
+                <div 
+                  className={`pointer-events-auto absolute left-full -ml-2 pl-4 ${side === "top" ? "bottom-0" : "top-0"}`}
+                  style={{ transform: `translateY(${effortOffset}px)` }}
                 >
+                  <div
+                    ref={effortMenuRef}
+                    role="menu"
+                    aria-label="Thinking Effort"
+                    className="pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
+                  >
                   {selectedEfforts.map((model) => {
                     const isSelected = selectedId === model.id;
                     return (
@@ -438,6 +503,7 @@ const ModelsMenu: React.FC<{
                   })}
                 </div>
               </div>
+              )}
             </div>
           </>
         )}

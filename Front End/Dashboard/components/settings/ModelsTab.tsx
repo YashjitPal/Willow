@@ -8,38 +8,6 @@ const MOONSHOT_MODELS = [
     maxLevels: 4,
     hasNone: true,
     levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Max' }
-  },
-  {
-    id: 'kimi-k2.6',
-    name: 'Kimi K2.6',
-    maxLevels: 2,
-    hasNone: true,
-    levelLabels: { 1: 'Standard', 2: 'High' }
-  },
-  {
-    id: 'kimi-k2.7-code',
-    name: 'Kimi K2.7 Code',
-    maxLevels: 2,
-    hasNone: true,
-    levelLabels: { 1: 'Fast', 2: 'Deep' }
-  },
-  {
-    id: 'moonshot-v1-8k',
-    name: 'Moonshot v1 8k',
-    maxLevels: 0,
-    hasNone: true
-  },
-  {
-    id: 'moonshot-v1-32k',
-    name: 'Moonshot v1 32k',
-    maxLevels: 0,
-    hasNone: true
-  },
-  {
-    id: 'moonshot-v1-128k',
-    name: 'Moonshot v1 128k',
-    maxLevels: 0,
-    hasNone: true
   }
 ];
 
@@ -53,22 +21,15 @@ const SPACEXAI_MODELS: Array<GeminiModel & { defaultThinkingLevel: number }> = [
     levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
   },
   {
-    id: 'grok-2-1212',
-    name: 'Grok 2',
+    id: 'grok-voice',
+    name: 'Grok Voice',
     maxLevels: 0,
     hasNone: true,
     defaultThinkingLevel: 0
   },
   {
-    id: 'grok-2-vision-1212',
-    name: 'Grok 2 Vision',
-    maxLevels: 0,
-    hasNone: true,
-    defaultThinkingLevel: 0
-  },
-  {
-    id: 'grok-beta',
-    name: 'Grok Beta',
+    id: 'grok-imagine',
+    name: 'Grok Imagine',
     maxLevels: 0,
     hasNone: true,
     defaultThinkingLevel: 0
@@ -95,6 +56,59 @@ const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean
             strokeWidth={2} 
         />
     );
+};
+
+export const getModelPricing = (modelId: string, provider: string): string => {
+  const prices: Record<string, string> = {
+    // Gemini
+    'gemini-3.6-flash': '$0.15/$0.60',
+    'gemini-3.5-flash': '$0.15/$0.60',
+    'gemini-3.5-flash-lite': '$0.075/$0.30',
+    'gemini-3-pro-image-preview': '$1.25/$5.00',
+    'gemini-3.1-pro-preview': '$2.50/$10.00',
+    'gemini-3.1-flash-lite': '$0.075/$0.30',
+    'gemini-3.1-flash-lite-preview': '$0.075/$0.30',
+    'gemini-2.5-flash-lite': '$0.075/$0.30',
+    // OpenAI
+    'gpt-5.2-thinking': '$5.00/$25.00',
+    'gpt-5.2-pro': '$5.00/$25.00',
+    'gpt-5.1-codex-high-max': '$3.00/$15.00',
+    'gpt-5.2-codex': '$3.00/$15.00',
+    // Anthropic
+    'claude-opus-5': '$15.00/$75.00',
+    'claude-sonnet-5': '$3.00/$15.00',
+    'claude-fable-5': '$0.25/$1.25',
+    'claude-3-5-sonnet-20241022': '$3.00/$15.00',
+    'claude-sonnet-4.5': '$3.00/$15.00',
+    // Moonshot
+    'kimi-k3': '$1.00/$3.00',
+    'kimi-k2.6': '$0.80/$2.40',
+    'kimi-k2.7-code': '$1.00/$3.00',
+    'moonshot-v1-8k': '$0.50/$1.50',
+    'moonshot-v1-32k': '$0.80/$2.40',
+    'moonshot-v1-128k': '$1.50/$4.50',
+    // SpaceXAI / xAI
+    'grok-4.5': '$3.00/$15.00',
+    'grok-voice': '$2.00/$8.00',
+    'grok-imagine': '$2.00/$8.00',
+    // Zhipu
+    'glm-5.2': '$1.00/$3.00',
+    'glm-4-plus': '$1.00/$3.00',
+    'glm-4-flash': '$0.10/$0.30',
+    'glm-4': '$0.50/$1.50',
+  };
+
+  if (prices[modelId]) return prices[modelId];
+
+  switch (provider) {
+    case 'gemini': return '$0.15/$0.60';
+    case 'openai': return '$2.50/$10.00';
+    case 'anthropic': return '$3.00/$15.00';
+    case 'moonshot': return '$1.00/$3.00';
+    case 'spacexai': return '$3.00/$15.00';
+    case 'zhipuai': return '$1.00/$3.00';
+    default: return '$1.00/$4.00';
+  }
 };
 
 interface GeminiModel {
@@ -365,62 +379,13 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   </div>
                 </div>
 
-                {/* Thinking Level */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                    <span className="text-[11px] font-medium text-zinc-400">
-                      {modelConfig.gemini.thinkingLevel === 0 
-                        ? 'Off' 
-                        : GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.levelLabels?.[modelConfig.gemini.thinkingLevel as 1|2|3] || `Level ${modelConfig.gemini.thinkingLevel}`}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                    {/* None Option */}
-                    {GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.hasNone && (
-                      <button
-                        onClick={() => setModelConfig(prev => ({ ...prev, gemini: { ...prev.gemini, thinkingLevel: 0 } }))}
-                        className={`
-                          flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all
-                          ${modelConfig.gemini.thinkingLevel === 0 
-                            ? 'bg-white/10 text-white' 
-                            : 'text-zinc-500 hover:text-zinc-300'
-                          }
-                        `}
-                      >
-                        None
-                      </button>
-                    )}
-                    {Array.from({ length: GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.maxLevels || 0 }).map((_, i) => {
-                      const level = i + 1;
-                      const isActive = modelConfig.gemini.thinkingLevel === level;
-                      const levelLabel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model)?.levelLabels?.[level as 1|2|3];
-                      return (
-                        <button
-                          key={level}
-                          onClick={() => setModelConfig(prev => ({ ...prev, gemini: { ...prev.gemini, thinkingLevel: level } }))}
-                          className={`
-                            flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all
-                            ${isActive 
-                              ? 'bg-white/10 text-white' 
-                              : 'text-zinc-500 hover:text-zinc-300'
-                            }
-                          `}
-                        >
-                          {levelLabel || `${level}`}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 {/* Add Button */}
                 <button 
                   onClick={() => {
                     const selectedModel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model);
                     if (selectedModel) {
                       const isDuplicate = modelConfig.gemini.savedModels.some(
-                        m => m.modelId === selectedModel.id && m.thinkingLevel === modelConfig.gemini.thinkingLevel
+                        m => m.modelId === selectedModel.id
                       );
                       if (isDuplicate) return;
                       
@@ -434,12 +399,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                               id: Math.random().toString(36).substr(2, 9),
                               modelId: selectedModel.id,
                               name: selectedModel.name,
-                              thinkingLevel: prev.gemini.thinkingLevel,
-                              thinkingLabel: getConfiguredThinkingLabel(
-                                prev.gemini.thinkingLevel,
-                                selectedModel.levelLabels,
-                                selectedModel.noneLabel
-                              )
+                              thinkingLevel: 3,
+                              thinkingLabel: 'High'
                             }
                           ]
                         }
@@ -450,12 +411,12 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     const selectedModel = GEMINI_MODELS.find(m => m.id === modelConfig.gemini.model);
                     if (!selectedModel) return true;
                     return modelConfig.gemini.savedModels.some(
-                      m => m.modelId === selectedModel.id && m.thinkingLevel === modelConfig.gemini.thinkingLevel
+                      m => m.modelId === selectedModel.id
                     );
                   })()}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {modelConfig.gemini.savedModels.some(m => m.modelId === modelConfig.gemini.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -477,87 +438,66 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                            }}
                            className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
                        >
-                           <span>{
-                               {
-                                   'gpt-5.2-thinking': 'GPT 5.2 Thinking',
-                                   'gpt-5.2-pro': 'GPT 5.2 Pro',
-                                   'gpt-5.1-codex-high-max': 'GPT 5.1 Codex High Max',
-                                   'gpt-5.2-codex': 'GPT 5.2 CODEX'
-                               }[modelConfig.openai.model] || 'Select model'
-                           }</span>
-                           <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
-                       </button>
-                       
-                       {openaiDropdownOpen && (
-                           <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
-                               <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
-                               <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
-                               <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
-                               <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
-                               {[
-                                   { id: 'gpt-5.2-thinking', name: 'GPT 5.2 Thinking' },
-                                   { id: 'gpt-5.2-pro', name: 'GPT 5.2 Pro' },
-                                   { id: 'gpt-5.1-codex-high-max', name: 'GPT 5.1 Codex High Max' },
-                                   { id: 'gpt-5.2-codex', name: 'GPT 5.2 CODEX' }
-                               ].map((model, index, arr) => (
-                                   <button
-                                       key={model.id}
-                                       onClick={() => {
-                                           setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, model: model.id } }));
-                                           closeOpenaiDropdown();
-                                       }}
-                                       className={`
-                                           relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
-                                           ${modelConfig.openai.model === model.id 
-                                               ? 'bg-white/10 text-white' 
-                                               : 'text-zinc-400 hover:bg-white/5 hover:text-white'
-                                           }
-                                           ${index === 0 ? 'rounded-t-lg' : ''}
-                                           ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
-                                       `}
-                                   >
-                                       <span className="font-medium">{model.name}</span>
-                                       {modelConfig.openai.model === model.id && (
-                                           <Check size={16} className="text-white" />
-                                       )}
-                                   </button>
-                               ))}
-                           </div>
-                       )}
-                  </div>
-                </div>
-
-                {/* Thinking Level */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                    <span className="text-[11px] font-medium text-zinc-400">
-                      {modelConfig.openai.thinkingLevel === 0 ? 'Off' : ['Low', 'Medium', 'High'][modelConfig.openai.thinkingLevel - 1]}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                    <button
-                      onClick={() => setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, thinkingLevel: 0 } }))}
-                      className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.openai.thinkingLevel === 0 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                      None
-                    </button>
-                    {['Low', 'Medium', 'High'].map((label, i) => (
-                      <button
-                        key={i + 1}
-                        onClick={() => setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, thinkingLevel: i + 1 } }))}
-                        className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.openai.thinkingLevel === i + 1 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                            <span>{
+                                {
+                                    'gpt-5.6-sol': 'GPT 5.6 Sol',
+                                    'gpt-5.6-terra': 'GPT 5.6 Terra',
+                                    'gpt-5.6-luna': 'GPT 5.6 Luna'
+                                }[modelConfig.openai.model] || 'Select model'
+                            }</span>
+                            <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${openaiDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        {openaiDropdownOpen && (
+                            <div className={`absolute ${openaiDirection === 'up' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden ${openaiDropdownClosing ? (openaiDirection === 'up' ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (openaiDirection === 'up' ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}>
+                                <div className="absolute -top-px -left-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.4), transparent)' }} />
+                                <div className="absolute -top-px -left-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), transparent)' }} />
+                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
+                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
+                                {[
+                                    { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' },
+                                    { id: 'gpt-5.6-terra', name: 'GPT 5.6 Terra' },
+                                    { id: 'gpt-5.6-luna', name: 'GPT 5.6 Luna' }
+                                ].map((model, index, arr) => (
+                                    <button
+                                        key={model.id}
+                                        onClick={() => {
+                                            setModelConfig(prev => ({ ...prev, openai: { ...prev.openai, model: model.id } }));
+                                            closeOpenaiDropdown();
+                                        }}
+                                        className={`
+                                            relative w-full px-4 py-3 text-left text-[14px] transition-all flex items-center justify-between group
+                                            ${modelConfig.openai.model === model.id 
+                                                ? 'bg-white/10 text-white' 
+                                                : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                                            }
+                                            ${index === 0 ? 'rounded-t-lg' : ''}
+                                            ${index === arr.length - 1 ? 'rounded-b-lg' : ''}
+                                        `}
+                                    >
+                                        <span className="font-medium">{model.name}</span>
+                                        {modelConfig.openai.model === model.id && (
+                                            <Check size={16} className="text-white" />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                   </div>
+                 </div>
 
                 <button 
                   onClick={() => {
-                    const modelName = modelConfig.openai.model.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                    setModelConfig(prev => ({
+                    const modelNames: Record<string, string> = {
+                      'gpt-5.6-sol': 'GPT 5.6 Sol',
+                      'gpt-5.6-terra': 'GPT 5.6 Terra',
+                      'gpt-5.6-luna': 'GPT 5.6 Luna'
+                    };
+                    const modelName = modelNames[modelConfig.openai.model] || modelConfig.openai.model.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+                    if (modelConfig.openai.savedModels.some((m: any) => m.modelId === modelConfig.openai.model)) return;
+
+                    setModelConfig((prev: any) => ({
                       ...prev,
                       openai: {
                         ...prev.openai,
@@ -567,16 +507,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.openai.model,
                             name: modelName,
-                            thinkingLevel: prev.openai.thinkingLevel,
-                            thinkingLabel: getConfiguredThinkingLabel(prev.openai.thinkingLevel)
+                            thinkingLevel: 3,
+                            thinkingLabel: 'High'
                           }
                         ]
                       }
                     }));
                   }}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
+                  disabled={modelConfig.openai.savedModels.some((m: any) => m.modelId === modelConfig.openai.model)}
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {modelConfig.openai.savedModels.some((m: any) => m.modelId === modelConfig.openai.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -600,9 +541,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                        >
                            <span>{
                                {
-                                   'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet (New)',
-                                   'claude-3-opus-20240229': 'Claude 3 Opus',
-                                   'claude-3-haiku-20240307': 'Claude 3 Haiku'
+                                   'claude-opus-5': 'Claude Opus 5',
+                                   'claude-sonnet-5': 'Claude Sonnet 5',
+                                   'claude-fable-5': 'Claude Fable 5'
                                }[modelConfig.anthropic.model] || 'Select model'
                            }</span>
                            <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${anthropicDropdownOpen ? 'rotate-180' : ''}`} />
@@ -615,9 +556,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                <div className="absolute -bottom-px -right-px w-16 h-[1px] pointer-events-none" style={{ background: 'linear-gradient(to left, rgba(255,255,255,0.4), transparent)' }} />
                                <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
                                {[
-                                   { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (New)' },
-                                   { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-                                   { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
+                                   { id: 'claude-opus-5', name: 'Claude Opus 5' },
+                                   { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+                                   { id: 'claude-fable-5', name: 'Claude Fable 5' }
                                ].map((model, index, arr) => (
                                    <button
                                        key={model.id}
@@ -646,37 +587,18 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   </div>
                 </div>
 
-                {/* Thinking Level */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                    <span className="text-[11px] font-medium text-zinc-400">
-                      {modelConfig.anthropic.thinkingLevel === 0 ? 'Off' : ['Low', 'Medium', 'High'][modelConfig.anthropic.thinkingLevel - 1]}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                    <button
-                      onClick={() => setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, thinkingLevel: 0 } }))}
-                      className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.anthropic.thinkingLevel === 0 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                      None
-                    </button>
-                    {['Low', 'Medium', 'High'].map((label, i) => (
-                      <button
-                        key={i + 1}
-                        onClick={() => setModelConfig(prev => ({ ...prev, anthropic: { ...prev.anthropic, thinkingLevel: i + 1 } }))}
-                        className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.anthropic.thinkingLevel === i + 1 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <button 
                   onClick={() => {
-                    const modelName = modelConfig.anthropic.model.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                    setModelConfig(prev => ({
+                    const modelNames: Record<string, string> = {
+                      'claude-opus-5': 'Claude Opus 5',
+                      'claude-sonnet-5': 'Claude Sonnet 5',
+                      'claude-fable-5': 'Claude Fable 5'
+                    };
+                    const modelName = modelNames[modelConfig.anthropic.model] || modelConfig.anthropic.model.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+                    if (modelConfig.anthropic.savedModels.some((m: any) => m.modelId === modelConfig.anthropic.model)) return;
+
+                    setModelConfig((prev: any) => ({
                       ...prev,
                       anthropic: {
                         ...prev.anthropic,
@@ -686,16 +608,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.anthropic.model,
                             name: modelName,
-                            thinkingLevel: prev.anthropic.thinkingLevel,
-                            thinkingLabel: getConfiguredThinkingLabel(prev.anthropic.thinkingLevel)
+                            thinkingLevel: 3,
+                            thinkingLabel: 'High'
                           }
                         ]
                       }
                     }));
                   }}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
+                  disabled={modelConfig.anthropic.savedModels.some((m: any) => m.modelId === modelConfig.anthropic.model)}
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {modelConfig.anthropic.savedModels.some((m: any) => m.modelId === modelConfig.anthropic.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -746,53 +669,12 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   </div>
                 </div>
 
-                {/* Thinking/Effort Level */}
-                {(() => {
-                  const selectedModel = MOONSHOT_MODELS.find(m => m.id === modelConfig.moonshot.model);
-                  if (!selectedModel || selectedModel.maxLevels === 0) return null;
-                  
-                  return (
-                    <div className="space-y-3 animate-[fadeIn_150ms_ease-out]">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Thinking</label>
-                        <span className="text-[11px] font-medium text-zinc-400">
-                          {modelConfig.moonshot.thinkingLevel === 0 
-                            ? 'Off' 
-                            : selectedModel.levelLabels?.[modelConfig.moonshot.thinkingLevel as 1|2|3] || `Level ${modelConfig.moonshot.thinkingLevel}`}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                        {selectedModel.hasNone && (
-                          <button
-                            onClick={() => setModelConfig((prev: any) => ({ ...prev, moonshot: { ...prev.moonshot, thinkingLevel: 0 } }))}
-                            className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${modelConfig.moonshot.thinkingLevel === 0 ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                          >
-                            None
-                          </button>
-                        )}
-                        {Array.from({ length: selectedModel.maxLevels }).map((_, i) => {
-                          const level = i + 1;
-                          const isActive = modelConfig.moonshot.thinkingLevel === level;
-                          const label = selectedModel.levelLabels?.[level as 1|2|3] || `${level}`;
-                          return (
-                            <button
-                              key={level}
-                              onClick={() => setModelConfig((prev: any) => ({ ...prev, moonshot: { ...prev.moonshot, thinkingLevel: level } }))}
-                              className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${isActive ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-
                 <button 
                   onClick={() => {
                     const selectedModel = MOONSHOT_MODELS.find(m => m.id === modelConfig.moonshot.model);
                     const modelName = selectedModel?.name || modelConfig.moonshot.model;
+                    if ((modelConfig.moonshot?.savedModels || []).some((m: any) => m.modelId === modelConfig.moonshot.model)) return;
+
                     setModelConfig((prev: any) => ({
                       ...prev,
                       moonshot: {
@@ -803,19 +685,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.moonshot.model,
                             name: modelName,
-                            thinkingLevel: prev.moonshot.thinkingLevel,
-                            thinkingLabel: getConfiguredThinkingLabel(
-                              prev.moonshot.thinkingLevel,
-                              selectedModel?.levelLabels
-                            )
+                            thinkingLevel: 3,
+                            thinkingLabel: 'High'
                           }
                         ]
                       }
                     }));
                   }}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
+                  disabled={(modelConfig.moonshot?.savedModels || []).some((m: any) => m.modelId === modelConfig.moonshot.model)}
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {(modelConfig.moonshot?.savedModels || []).some((m: any) => m.modelId === modelConfig.moonshot.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -866,43 +746,12 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   </div>
                 </div>
 
-                {/* Grok 4.5 reasoning effort. xAI supports low, medium, and high only. */}
-                {(() => {
-                  const selectedModel = SPACEXAI_MODELS.find(m => m.id === modelConfig.spacexai.model);
-                  if (!selectedModel || selectedModel.maxLevels === 0) return null;
-
-                  return (
-                    <div className="space-y-3 animate-[fadeIn_150ms_ease-out]">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[12px] font-medium text-zinc-500 uppercase tracking-wider">Reasoning effort</label>
-                        <span className="text-[11px] font-medium text-zinc-400">
-                          {selectedModel.levelLabels?.[modelConfig.spacexai.thinkingLevel] || 'High'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 p-1 bg-white/[0.02] rounded-xl border border-white/5">
-                        {Array.from({ length: selectedModel.maxLevels }).map((_, i) => {
-                          const level = i + 1;
-                          const isActive = modelConfig.spacexai.thinkingLevel === level;
-                          const label = selectedModel.levelLabels?.[level] || `${level}`;
-                          return (
-                            <button
-                              key={level}
-                              onClick={() => setModelConfig((prev: any) => ({ ...prev, spacexai: { ...prev.spacexai, thinkingLevel: level } }))}
-                              className={`flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all ${isActive ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-
                 <button
                   onClick={() => {
                     const selectedModel = SPACEXAI_MODELS.find(m => m.id === modelConfig.spacexai.model);
                     const modelName = selectedModel?.name || modelConfig.spacexai.model;
+                    if ((modelConfig.spacexai?.savedModels || []).some((m: any) => m.modelId === modelConfig.spacexai.model)) return;
+
                     setModelConfig((prev: any) => ({
                       ...prev,
                       spacexai: {
@@ -913,19 +762,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.spacexai.model,
                             name: modelName,
-                            thinkingLevel: prev.spacexai.thinkingLevel,
-                            thinkingLabel: getConfiguredThinkingLabel(
-                              prev.spacexai.thinkingLevel,
-                              selectedModel?.levelLabels
-                            )
+                            thinkingLevel: 3,
+                            thinkingLabel: 'High'
                           }
                         ]
                       }
                     }));
                   }}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
+                  disabled={(modelConfig.spacexai?.savedModels || []).some((m: any) => m.modelId === modelConfig.spacexai.model)}
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {(modelConfig.spacexai?.savedModels || []).some((m: any) => m.modelId === modelConfig.spacexai.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -940,24 +787,14 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                            onClick={() => setZhipuaiDropdownOpen(!zhipuaiDropdownOpen)}
                            className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
                        >
-                           <span>{
-                               {
-                                   'glm-5.2': 'GLM 5.2',
-                                   'glm-4-plus': 'GLM 4 Plus',
-                                   'glm-4-flash': 'GLM 4 Flash',
-                                   'glm-4': 'GLM 4'
-                               }[modelConfig.zhipuai.model] || 'Select model'
-                           }</span>
+                           <span>{'GLM 5.2'}</span>
                            <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${zhipuaiDropdownOpen ? 'rotate-180' : ''}`} />
                        </button>
                        
                        {zhipuaiDropdownOpen && (
                            <div className="absolute top-full mt-2 left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden">
                                {[
-                                   { id: 'glm-5.2', name: 'GLM 5.2' },
-                                   { id: 'glm-4-plus', name: 'GLM 4 Plus' },
-                                   { id: 'glm-4-flash', name: 'GLM 4 Flash' },
-                                   { id: 'glm-4', name: 'GLM 4' }
+                                   { id: 'glm-5.2', name: 'GLM 5.2' }
                                ].map((model, index, arr) => (
                                    <button
                                        key={model.id}
@@ -988,12 +825,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
 
                 <button 
                   onClick={() => {
-                     const modelName = {
-                        'glm-5.2': 'GLM 5.2',
-                         'glm-4-plus': 'GLM 4 Plus',
-                         'glm-4-flash': 'GLM 4 Flash',
-                         'glm-4': 'GLM 4'
-                    }[modelConfig.zhipuai.model] || modelConfig.zhipuai.model;
+                    const modelName = 'GLM 5.2';
+
+                    if ((modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === 'glm-5.2')) return;
+
                     setModelConfig((prev: any) => ({
                       ...prev,
                       zhipuai: {
@@ -1004,16 +839,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             id: Math.random().toString(36).substr(2, 9),
                             modelId: prev.zhipuai.model,
                             name: modelName,
-                            thinkingLevel: 0,
-                            thinkingLabel: getConfiguredThinkingLabel(0)
+                            thinkingLevel: 3,
+                            thinkingLabel: 'High'
                           }
                         ]
                       }
                     }));
                   }}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99]"
+                  disabled={(modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === modelConfig.zhipuai.model)}
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Add to Models
+                  {(modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === modelConfig.zhipuai.model) ? 'Already Added' : 'Add to Models'}
                 </button>
               </div>
             )}
@@ -1068,7 +904,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           </svg>
                         )}
                         {saved.provider === 'openai' && (
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.0462 6.0462 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729Z"/></svg>
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
                         )}
                         {saved.provider === 'anthropic' && (
                           <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
@@ -1076,19 +912,18 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           </svg>
                         )}
                         {saved.provider === 'moonshot' && (
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-[#ff6a00]">
-                            <path d="M12 3a9 9 0 1 0 9 9 9.75 9.75 0 0 1-9-9Z" />
+                          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6 text-white">
+                            <path d="M1.052 16.916l9.539 2.552a21.007 21.007 0 00.06 2.033l5.956 1.593a11.997 11.997 0 01-5.586.865l-.18-.016-.044-.004-.084-.009-.094-.01a11.605 11.605 0 01-.157-.02l-.107-.014-.11-.016a11.962 11.962 0 01-.32-.051l-.042-.008-.075-.013-.107-.02-.07-.015-.093-.019-.075-.016-.095-.02-.097-.023-.094-.022-.068-.017-.088-.022-.09-.024-.095-.025-.082-.023-.109-.03-.062-.02-.084-.025-.093-.028-.105-.034-.058-.019-.08-.026-.09-.031-.066-.024a6.293 6.293 0 01-.044-.015l-.068-.025-.101-.037-.057-.022-.08-.03-.087-.035-.088-.035-.079-.032-.095-.04-.063-.028-.063-.027a5.655 5.655 0 01-.041-.018l-.066-.03-.103-.047-.052-.024-.096-.046-.062-.03-.084-.04-.086-.044-.093-.047-.052-.027-.103-.055-.057-.03-.058-.032a6.49 6.49 0 01-.046-.026l-.094-.053-.06-.034-.051-.03-.072-.041-.082-.05-.093-.056-.052-.032-.084-.053-.061-.039-.079-.05-.07-.047-.053-.035a7.785 7.785 0 01-.054-.036l-.044-.03-.044-.03a6.066 6.066 0 01-.04-.028l-.057-.04-.076-.054-.069-.05-.074-.054-.056-.042-.076-.057-.076-.059-.086-.067-.045-.035-.064-.052-.074-.06-.089-.073-.046-.039-.046-.039a7.516 7.516 0 01-.043-.037l-.045-.04-.061-.053-.07-.062-.068-.06-.062-.058-.067-.062-.053-.05-.088-.084a13.28 13.28 0 01-.099-.097l-.029-.028-.041-.042-.069-.07-.05-.051-.05-.053a6.457 6.457 0 01-.168-.179l-.08-.088-.062-.07-.071-.08-.042-.049-.053-.062-.058-.068-.046-.056a7.175 7.175 0 01-.027-.033l-.045-.055-.066-.082-.041-.052-.05-.064-.02-.025a11.99 11.99 0 01-1.44-2.402zm-1.02-5.794l11.353 3.037a20.468 20.468 0 00-.469 2.011l10.817 2.894a12.076 12.076 0 01-1.845 2.005L.657 15.923l-.016-.046-.035-.104a11.965 11.965 0 01-.05-.153l-.007-.023a11.896 11.896 0 01-.207-.741l-.03-.126-.018-.08-.021-.097-.018-.081-.018-.09-.017-.084-.018-.094c-.026-.141-.05-.283-.071-.426l-.017-.118-.011-.083-.013-.102a12.01 12.01 0 01-.019-.161l-.005-.047a12.12 12.12 0 01-.034-2.145zm1.593-5.15l11.948 3.196c-.368.605-.705 1.231-1.01 1.875l11.295 3.022c-.142.82-.368 1.612-.668 2.365l-11.55-3.09L.124 10.26l.015-.1.008-.049.01-.067.015-.087.018-.098c.026-.148.056-.295.088-.442l.028-.124.02-.085.024-.097c.022-.09.045-.18.07-.268l.028-.102.023-.083.03-.1.025-.082.03-.096.026-.082.031-.095a11.896 11.896 0 011.01-2.232zm4.442-4.4L17.352 4.59a20.77 20.77 0 00-1.688 1.721l7.823 2.093c.267.852.442 1.744.513 2.665L2.106 5.213l.045-.065.027-.04.04-.055.046-.065.055-.076.054-.072.064-.086.05-.065.057-.073.055-.07.06-.074.055-.069.065-.077.054-.066.066-.077.053-.06.072-.082.053-.06.067-.074.054-.058.073-.078.058-.06.063-.067.168-.17.1-.098.059-.056.076-.071a12.084 12.084 0 012.272-1.677zM12.017 0h.097l.082.001.069.001.054.002.068.002.046.001.076.003.047.002.06.003.054.002.087.005.105.007.144.011.088.007.044.004.077.008.082.008.047.005.102.012.05.006.108.014.081.01.042.006.065.01.207.032.07.012.065.011.14.026.092.018.11.022.046.01.075.016.041.01L14.7.3l.042.01.065.015.049.012.071.017.096.024.112.03.113.03.113.032.05.015.07.02.078.024.073.023.05.016.05.016.076.025.099.033.102.036.048.017.064.023.093.034.11.041.116.045.1.04.047.02.06.024.041.018.063.026.04.018.057.025.11.048.1.046.074.035.075.036.06.028.092.046.091.045.102.052.053.028.049.026.046.024.06.033.041.022.052.029.088.05.106.06.087.051.057.034.053.032.096.059.088.055.098.062.036.024.064.041.084.056.04.027.062.042.062.043.023.017c.054.037.108.075.161.114l.083.06.065.048.056.043.086.065.082.064.04.03.05.041.086.069.079.065.085.071c.712.6 1.353 1.283 1.909 2.031L7.222.994l.062-.027.065-.028.081-.034.086-.035c.113-.045.227-.09.341-.131l.096-.035.093-.033.084-.03.096-.031c.087-.03.176-.058.264-.085l.091-.027.086-.025.102-.03.085-.023.1-.026L9.04.37l.09-.023.091-.022.095-.022.09-.02.098-.021.091-.02.095-.018.092-.018.1-.018.091-.016.098-.017.092-.014.097-.015.092-.013.102-.013.091-.012.105-.012.09-.01.105-.01c.093-.01.186-.018.28-.024l.106-.008.09-.005.11-.006.093-.004.1-.004.097-.002.099-.002.197-.002z" />
                           </svg>
                         )}
                         {saved.provider === 'spacexai' && (
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-white">
-                            <path d="M18.9 3h-2.5l-4.4 7.2L7.6 3H5.1l5.6 9.1L5 21h2.5l4.9-8.1 4.9 8.1h2.5l-6.1-10L18.9 3z" />
+                          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6 text-white">
+                            <path d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z" />
                           </svg>
                         )}
                         {saved.provider === 'zhipuai' && (
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-[#58a1ff]">
-                            <path d="M12 2L2 22h20L12 2zm0 4l6.5 13H5.5L12 6z" />
-                            <circle cx="12" cy="11" r="2" fill="currentColor" />
+                          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6 text-white">
+                            <path d="M11.991 23.503a.24.24 0 00-.244.248.24.24 0 00.244.249.24.24 0 00.245-.249.24.24 0 00-.22-.247l-.025-.001zM9.671 5.365a1.697 1.697 0 011.099 2.132l-.071.172-.016.04-.018.054c-.07.16-.104.32-.104.498-.035.71.47 1.279 1.186 1.314h.366c1.309.053 2.338 1.173 2.286 2.523-.052 1.332-1.152 2.38-2.478 2.327h-.174c-.715.018-1.274.64-1.239 1.368 0 .124.018.23.053.337.209.373.54.658.96.8.75.23 1.517-.125 1.9-.782l.018-.035c.402-.64 1.17-.96 1.92-.711.854.284 1.378 1.226 1.099 2.167a1.661 1.661 0 01-2.077 1.102 1.711 1.711 0 01-.907-.711l-.017-.035c-.2-.323-.463-.58-.851-.711l-.056-.018a1.646 1.646 0 00-1.954.746 1.66 1.66 0 01-1.065.764 1.677 1.677 0 01-1.989-1.279c-.209-.906.332-1.83 1.257-2.043a1.51 1.51 0 01.296-.035h.018c.68-.071 1.151-.622 1.116-1.333a1.307 1.307 0 00-.227-.693 2.515 2.515 0 01-.366-1.403 2.39 2.39 0 01.366-1.208c.14-.195.21-.444.227-.693.018-.71-.506-1.261-1.186-1.332l-.07-.018a1.43 1.43 0 01-.299-.07l-.05-.019a1.7 1.7 0 01-1.047-2.114 1.68 1.68 0 012.094-1.101zm-5.575 10.11c.26-.264.639-.367.994-.27.355.096.633.379.728.74.095.362-.007.748-.267 1.013-.402.41-1.053.41-1.455 0a1.062 1.062 0 010-1.482zm14.845-.294c.359-.09.738.024.992.297.254.274.344.665.237 1.025-.107.36-.396.634-.756.718-.551.128-1.1-.22-1.23-.781a1.05 1.05 0 01.757-1.26zm-.064-4.39c.314.32.49.753.49 1.206 0 .452-.176.886-.49 1.206-.315.32-.74.5-1.185.5-.444 0-.87-.18-1.184-.5a1.727 1.727 0 010-2.412 1.654 1.654 0 012.369 0zm-11.243.163c.364.484.447 1.128.218 1.691a1.665 1.665 0 01-2.188.923c-.855-.36-1.26-1.358-.907-2.228a1.68 1.68 0 011.33-1.038c.593-.08 1.183.169 1.547.652zm11.545-4.221c.368 0 .708.2.892.524.184.324.184.724 0 1.048a1.026 1.026 0 01-.892.524c-.568 0-1.03-.47-1.03-1.048 0-.579.462-1.048 1.03-1.048zm-14.358 0c.368 0 .707.2.891.524.184.324.184.724 0 1.048a1.026 1.026 0 01-.891.524c-.569 0-1.03-.47-1.03-1.048 0-.579.461-1.048 1.03-1.048zm10.031-1.475c.925 0 1.675.764 1.675 1.706s-.75 1.705-1.675 1.705-1.674-.763-1.674-1.705c0-.942.75-1.706 1.674-1.706zm-2.626-.684c.362-.082.653-.356.761-.718a1.062 1.062 0 00-.238-1.028 1.017 1.017 0 00-.996-.294c-.547.14-.881.7-.752 1.257.13.558.675.907 1.225.783zm0 16.876c.359-.087.644-.36.75-.72a1.062 1.062 0 00-.237-1.019 1.018 1.018 0 00-.985-.301 1.037 1.037 0 00-.762.717c-.108.361-.017.754.239 1.028.245.263.606.377.953.305l.043-.01zM17.19 3.5a.631.631 0 00.628-.64c0-.355-.279-.64-.628-.64a.631.631 0 00-.628.64c0 .355.28.64.628.64zm-10.38 0a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64a.631.631 0 00-.628.64c0 .355.279.64.628.64zm-5.182 7.852a.631.631 0 00-.628.64c0 .354.28.639.628.639a.63.63 0 00.627-.606l.001-.034a.62.62 0 00-.628-.64zm5.182 9.13a.631.631 0 00-.628.64c0 .355.279.64.628.64a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64zm10.38.018a.631.631 0 00-.628.64c0 .355.28.64.628.64a.631.631 0 00.628-.64c0-.355-.279-.64-.628-.64zm5.182-9.148a.631.631 0 00-.628.64c0 .354.279.639.628.639a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64zm-.384-4.992a.24.24 0 00.244-.249.24.24 0 00-.244-.249.24.24 0 00-.244.249c0 .142.122.249.244.249zM11.991.497a.24.24 0 00.245-.248A.24.24 0 0011.99 0a.24.24 0 00-.244.249c0 .133.108.236.223.247l.021.001zM2.011 6.36a.24.24 0 00.245-.249.24.24 0 00-.244-.249.24.24 0 00-.244.249.24.24 0 00.244.249zm0 11.263a.24.24 0 00-.243.248.24.24 0 00.244.249.24.24 0 00.244-.249.252.252 0 00-.244-.248zm19.995-.018a.24.24 0 00-.245.248.24.24 0 00.245.25.24.24 0 00.244-.25.252.252 0 00-.244-.248z" />
                           </svg>
                         )}
                       </div>
@@ -1101,42 +936,24 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     </div>
                     
                     <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-2">
-                        {[1, 2, 3, 4].map((level) => {
-                          if (saved.provider === 'gemini') {
-                            const geminiModel = GEMINI_MODELS.find(m => m.id === saved.modelId);
-                            if (geminiModel && level > geminiModel.maxLevels) return null;
-                          }
-                          if (saved.provider === 'moonshot') {
-                            const moonshotModel = MOONSHOT_MODELS.find(m => m.id === saved.modelId);
-                            if (moonshotModel && level > moonshotModel.maxLevels) return null;
-                          }
-                          if (saved.provider !== 'gemini' && saved.provider !== 'moonshot' && level > 3) return null;
-                          return (
-                            <ReasoningBulb 
-                              key={level}
-                              isActive={level <= saved.thinkingLevel}
-                              className={level <= saved.thinkingLevel ? "text-[#fbbf24] w-[20px] h-[20px]" : "text-zinc-600 w-[20px] h-[20px]"} 
-                              strokeWidth={level <= saved.thinkingLevel ? 0 : 2}
-                            />
-                          );
-                        })}
+                      <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[13px] font-mono font-medium text-zinc-300">
+                        {getModelPricing(saved.modelId, saved.provider)}
                       </div>
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
-                          setModelConfig(prev => {
+                          setModelConfig((prev: any) => {
                             const provider = saved.provider;
                             return {
                               ...prev,
                               [provider]: {
                                 ...prev[provider],
-                                savedModels: prev[provider].savedModels.filter(m => m.id !== saved.id)
+                                savedModels: prev[provider].savedModels.filter((m: any) => m.id !== saved.id)
                               }
                             };
                           });
                         }}
-                        className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-full hover:bg-white/5"
+                        className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-full hover:bg-white/5 cursor-pointer"
                       >
                         <X size={18} />
                       </button>
@@ -1202,7 +1019,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 >
                   <div className="flex items-start justify-between mb-8">
                     <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white border border-white/10 shadow-lg">
-                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073z"/></svg>
+                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
                     </div>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setManagingProvider('openai'); }}
@@ -1267,9 +1084,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   onClick={() => setManagingProvider('moonshot')}
                 >
                   <div className="flex items-start justify-between mb-8">
-                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-[#ff6a00] shadow-lg">
-                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                        <path d="M12 3a9 9 0 1 0 9 9 9.75 9.75 0 0 1-9-9Z" />
+                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
+                      <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6">
+                        <path d="M1.052 16.916l9.539 2.552a21.007 21.007 0 00.06 2.033l5.956 1.593a11.997 11.997 0 01-5.586.865l-.18-.016-.044-.004-.084-.009-.094-.01a11.605 11.605 0 01-.157-.02l-.107-.014-.11-.016a11.962 11.962 0 01-.32-.051l-.042-.008-.075-.013-.107-.02-.07-.015-.093-.019-.075-.016-.095-.02-.097-.023-.094-.022-.068-.017-.088-.022-.09-.024-.095-.025-.082-.023-.109-.03-.062-.02-.084-.025-.093-.028-.105-.034-.058-.019-.08-.026-.09-.031-.066-.024a6.293 6.293 0 01-.044-.015l-.068-.025-.101-.037-.057-.022-.08-.03-.087-.035-.088-.035-.079-.032-.095-.04-.063-.028-.063-.027a5.655 5.655 0 01-.041-.018l-.066-.03-.103-.047-.052-.024-.096-.046-.062-.03-.084-.04-.086-.044-.093-.047-.052-.027-.103-.055-.057-.03-.058-.032a6.49 6.49 0 01-.046-.026l-.094-.053-.06-.034-.051-.03-.072-.041-.082-.05-.093-.056-.052-.032-.084-.053-.061-.039-.079-.05-.07-.047-.053-.035a7.785 7.785 0 01-.054-.036l-.044-.03-.044-.03a6.066 6.066 0 01-.04-.028l-.057-.04-.076-.054-.069-.05-.074-.054-.056-.042-.076-.057-.076-.059-.086-.067-.045-.035-.064-.052-.074-.06-.089-.073-.046-.039-.046-.039a7.516 7.516 0 01-.043-.037l-.045-.04-.061-.053-.07-.062-.068-.06-.062-.058-.067-.062-.053-.05-.088-.084a13.28 13.28 0 01-.099-.097l-.029-.028-.041-.042-.069-.07-.05-.051-.05-.053a6.457 6.457 0 01-.168-.179l-.08-.088-.062-.07-.071-.08-.042-.049-.053-.062-.058-.068-.046-.056a7.175 7.175 0 01-.027-.033l-.045-.055-.066-.082-.041-.052-.05-.064-.02-.025a11.99 11.99 0 01-1.44-2.402zm-1.02-5.794l11.353 3.037a20.468 20.468 0 00-.469 2.011l10.817 2.894a12.076 12.076 0 01-1.845 2.005L.657 15.923l-.016-.046-.035-.104a11.965 11.965 0 01-.05-.153l-.007-.023a11.896 11.896 0 01-.207-.741l-.03-.126-.018-.08-.021-.097-.018-.081-.018-.09-.017-.084-.018-.094c-.026-.141-.05-.283-.071-.426l-.017-.118-.011-.083-.013-.102a12.01 12.01 0 01-.019-.161l-.005-.047a12.12 12.12 0 01-.034-2.145zm1.593-5.15l11.948 3.196c-.368.605-.705 1.231-1.01 1.875l11.295 3.022c-.142.82-.368 1.612-.668 2.365l-11.55-3.09L.124 10.26l.015-.1.008-.049.01-.067.015-.087.018-.098c.026-.148.056-.295.088-.442l.028-.124.02-.085.024-.097c.022-.09.045-.18.07-.268l.028-.102.023-.083.03-.1.025-.082.03-.096.026-.082.031-.095a11.896 11.896 0 011.01-2.232zm4.442-4.4L17.352 4.59a20.77 20.77 0 00-1.688 1.721l7.823 2.093c.267.852.442 1.744.513 2.665L2.106 5.213l.045-.065.027-.04.04-.055.046-.065.055-.076.054-.072.064-.086.05-.065.057-.073.055-.07.06-.074.055-.069.065-.077.054-.066.066-.077.053-.06.072-.082.053-.06.067-.074.054-.058.073-.078.058-.06.063-.067.168-.17.1-.098.059-.056.076-.071a12.084 12.084 0 012.272-1.677zM12.017 0h.097l.082.001.069.001.054.002.068.002.046.001.076.003.047.002.06.003.054.002.087.005.105.007.144.011.088.007.044.004.077.008.082.008.047.005.102.012.05.006.108.014.081.01.042.006.065.01.207.032.07.012.065.011.14.026.092.018.11.022.046.01.075.016.041.01L14.7.3l.042.01.065.015.049.012.071.017.096.024.112.03.113.03.113.032.05.015.07.02.078.024.073.023.05.016.05.016.076.025.099.033.102.036.048.017.064.023.093.034.11.041.116.045.1.04.047.02.06.024.041.018.063.026.04.018.057.025.11.048.1.046.074.035.075.036.06.028.092.046.091.045.102.052.053.028.049.026.046.024.06.033.041.022.052.029.088.05.106.06.087.051.057.034.053.032.096.059.088.055.098.062.036.024.064.041.084.056.04.027.062.042.062.043.023.017c.054.037.108.075.161.114l.083.06.065.048.056.043.086.065.082.064.04.03.05.041.086.069.079.065.085.071c.712.6 1.353 1.283 1.909 2.031L7.222.994l.062-.027.065-.028.081-.034.086-.035c.113-.045.227-.09.341-.131l.096-.035.093-.033.084-.03.096-.031c.087-.03.176-.058.264-.085l.091-.027.086-.025.102-.03.085-.023.1-.026L9.04.37l.09-.023.091-.022.095-.022.09-.02.098-.021.091-.02.095-.018.092-.018.1-.018.091-.016.098-.017.092-.014.097-.015.092-.013.102-.013.091-.012.105-.012.09-.01.105-.01c.093-.01.186-.018.28-.024l.106-.008.09-.005.11-.006.093-.004.1-.004.097-.002.099-.002.197-.002z" />
                       </svg>
                     </div>
                     <button 
@@ -1301,8 +1118,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 >
                   <div className="flex items-start justify-between mb-8">
                     <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
-                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                        <path d="M18.9 3h-2.5l-4.4 7.2L7.6 3H5.1l5.6 9.1L5 21h2.5l4.9-8.1 4.9 8.1h2.5l-6.1-10L18.9 3z" />
+                      <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6">
+                        <path d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z" />
                       </svg>
                     </div>
                     <button 
@@ -1333,10 +1150,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                   onClick={() => setManagingProvider('zhipuai')}
                 >
                   <div className="flex items-start justify-between mb-8">
-                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-[#58a1ff] shadow-lg">
-                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                        <path d="M12 2L2 22h20L12 2zm0 4l6.5 13H5.5L12 6z" />
-                        <circle cx="12" cy="11" r="2" fill="currentColor" />
+                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-white shadow-lg">
+                      <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" className="w-6 h-6">
+                        <path d="M11.991 23.503a.24.24 0 00-.244.248.24.24 0 00.244.249.24.24 0 00.245-.249.24.24 0 00-.22-.247l-.025-.001zM9.671 5.365a1.697 1.697 0 011.099 2.132l-.071.172-.016.04-.018.054c-.07.16-.104.32-.104.498-.035.71.47 1.279 1.186 1.314h.366c1.309.053 2.338 1.173 2.286 2.523-.052 1.332-1.152 2.38-2.478 2.327h-.174c-.715.018-1.274.64-1.239 1.368 0 .124.018.23.053.337.209.373.54.658.96.8.75.23 1.517-.125 1.9-.782l.018-.035c.402-.64 1.17-.96 1.92-.711.854.284 1.378 1.226 1.099 2.167a1.661 1.661 0 01-2.077 1.102 1.711 1.711 0 01-.907-.711l-.017-.035c-.2-.323-.463-.58-.851-.711l-.056-.018a1.646 1.646 0 00-1.954.746 1.66 1.66 0 01-1.065.764 1.677 1.677 0 01-1.989-1.279c-.209-.906.332-1.83 1.257-2.043a1.51 1.51 0 01.296-.035h.018c.68-.071 1.151-.622 1.116-1.333a1.307 1.307 0 00-.227-.693 2.515 2.515 0 01-.366-1.403 2.39 2.39 0 01.366-1.208c.14-.195.21-.444.227-.693.018-.71-.506-1.261-1.186-1.332l-.07-.018a1.43 1.43 0 01-.299-.07l-.05-.019a1.7 1.7 0 01-1.047-2.114 1.68 1.68 0 012.094-1.101zm-5.575 10.11c.26-.264.639-.367.994-.27.355.096.633.379.728.74.095.362-.007.748-.267 1.013-.402.41-1.053.41-1.455 0a1.062 1.062 0 010-1.482zm14.845-.294c.359-.09.738.024.992.297.254.274.344.665.237 1.025-.107.36-.396.634-.756.718-.551.128-1.1-.22-1.23-.781a1.05 1.05 0 01.757-1.26zm-.064-4.39c.314.32.49.753.49 1.206 0 .452-.176.886-.49 1.206-.315.32-.74.5-1.185.5-.444 0-.87-.18-1.184-.5a1.727 1.727 0 010-2.412 1.654 1.654 0 012.369 0zm-11.243.163c.364.484.447 1.128.218 1.691a1.665 1.665 0 01-2.188.923c-.855-.36-1.26-1.358-.907-2.228a1.68 1.68 0 011.33-1.038c.593-.08 1.183.169 1.547.652zm11.545-4.221c.368 0 .708.2.892.524.184.324.184.724 0 1.048a1.026 1.026 0 01-.892.524c-.568 0-1.03-.47-1.03-1.048 0-.579.462-1.048 1.03-1.048zm-14.358 0c.368 0 .707.2.891.524.184.324.184.724 0 1.048a1.026 1.026 0 01-.891.524c-.569 0-1.03-.47-1.03-1.048 0-.579.461-1.048 1.03-1.048zm10.031-1.475c.925 0 1.675.764 1.675 1.706s-.75 1.705-1.675 1.705-1.674-.763-1.674-1.706zm-2.626-.684c.362-.082.653-.356.761-.718a1.062 1.062 0 00-.238-1.028 1.017 1.017 0 00-.996-.294c-.547.14-.881.7-.752 1.257.13.558.675.907 1.225.783zm0 16.876c.359-.087.644-.36.75-.72a1.062 1.062 0 00-.237-1.019 1.018 1.018 0 00-.985-.301 1.037 1.037 0 00-.762.717c-.108.361-.017.754.239 1.028.245.263.606.377.953.305l.043-.01zM17.19 3.5a.631.631 0 00.628-.64c0-.355-.279-.64-.628-.64a.631.631 0 00-.628.64c0 .355.28.64.628.64zm-10.38 0a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64a.631.631 0 00-.628.64c0 .355.279.64.628.64zm-5.182 7.852a.631.631 0 00-.628.64c0 .354.28.639.628.639a.63.63 0 00.627-.606l.001-.034a.62.62 0 00-.628-.64zm5.182 9.13a.631.631 0 00-.628.64c0 .355.279.64.628.64a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64zm10.38.018a.631.631 0 00-.628.64c0 .355.28.64.628.64a.631.631 0 00.628-.64c0-.355-.279-.64-.628-.64zm5.182-9.148a.631.631 0 00-.628.64c0 .354.279.639.628.639a.631.631 0 00.628-.64c0-.355-.28-.64-.628-.64zm-.384-4.992a.24.24 0 00.244-.249.24.24 0 00-.244-.249.24.24 0 00-.244.249c0 .142.122.249.244.249zM11.991.497a.24.24 0 00.245-.248A.24.24 0 0011.99 0a.24.24 0 00-.244.249c0 .133.108.236.223.247l.021.001zM2.011 6.36a.24.24 0 00.245-.249.24.24 0 00-.244-.249.24.24 0 00-.244.249.24.24 0 00.244.249zm0 11.263a.24.24 0 00-.243.248.24.24 0 00.244.249.24.24 0 00.244-.249.252.252 0 00-.244-.248zm19.995-.018a.24.24 0 00-.245.248.24.24 0 00.245.25.24.24 0 00.244-.25.252.252 0 00-.244-.248z" />
                       </svg>
                     </div>
                     <button 

@@ -20,13 +20,12 @@ const GENERIC_EFFORT_LABELS: Record<number, string> = {
   1: 'Low',
   2: 'Medium',
   3: 'High',
-  4: 'Max',
+  4: 'Extra High',
+  5: 'Max',
+  6: 'Pro',
 };
 
 export const getThinkingEffortLabel = (model: ModelEffortRecord) => {
-  const configuredLabel = String(model.effortLabel || model.thinkingLabel || '').trim();
-  if (configuredLabel && !/^extended/i.test(configuredLabel)) return configuredLabel;
-
   const level = Number(model.thinkingLevel || 0);
   const provider = String(model.provider || '').toLowerCase();
   const modelId = String(model.modelId || model.name || '').toLowerCase();
@@ -36,15 +35,15 @@ export const getThinkingEffortLabel = (model: ModelEffortRecord) => {
     return ({ 0: 'None', 1: '8k Tokens', 2: '16k Tokens', 3: '24k Tokens' } as Record<number, string>)[level]
       || `Level ${level}`;
   }
-  if (modelId.includes('kimi-k2.6')) {
-    return ({ 0: 'None', 1: 'Standard', 2: 'High' } as Record<number, string>)[level]
-      || `Level ${level}`;
-  }
   if (modelId.includes('kimi-k2.7-code')) {
     return ({ 0: 'None', 1: 'Fast', 2: 'Deep' } as Record<number, string>)[level]
       || `Level ${level}`;
   }
-  if (provider.includes('openai') && level === 4) return 'XHigh';
+  if (provider.includes('openai') || modelId.includes('gpt')) {
+    if (level === 4) return 'Extra High';
+    if (level === 5) return 'Max';
+    if (level === 6) return 'Pro';
+  }
 
   return GENERIC_EFFORT_LABELS[level] || `Level ${level}`;
 };
