@@ -74,7 +74,7 @@ try {
     loader: {
       '.cur': 'file', '.gif': 'file', '.jpeg': 'file', '.jpg': 'file', '.mp3': 'file',
       '.mp4': 'file', '.png': 'file', '.svg': 'file', '.wasm': 'file', '.webm': 'file',
-      '.webp': 'file', '.woff': 'file', '.woff2': 'file',
+      '.webp': 'file', '.woff': 'file', '.woff2': 'file', '.ttf': 'file',
     },
     define: {
       'process.env.NODE_ENV': '"production"',
