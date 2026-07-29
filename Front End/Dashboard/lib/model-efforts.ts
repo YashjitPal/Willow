@@ -25,7 +25,7 @@ const GENERIC_EFFORT_LABELS: Record<number, string> = {
 
 export const getThinkingEffortLabel = (model: ModelEffortRecord) => {
   const configuredLabel = String(model.effortLabel || model.thinkingLabel || '').trim();
-  if (configuredLabel) return configuredLabel;
+  if (configuredLabel && !/^extended/i.test(configuredLabel)) return configuredLabel;
 
   const level = Number(model.thinkingLevel || 0);
   const provider = String(model.provider || '').toLowerCase();

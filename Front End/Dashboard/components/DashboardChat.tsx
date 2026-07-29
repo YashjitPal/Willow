@@ -183,7 +183,7 @@ const CHAT_SYSTEM_PROMPT =
 const getShortModelName = (name: string) => {
   if (!name) return 'Model';
   if (name.includes('2.5 Flash Lite')) return '2.5 Lite';
-  return name.replace(/Gemini\s+/gi, '').trim();
+  return name.replace(/Gemini\s+/gi, '').replace(/\s+Extended$/gi, '').trim();
 };
 
 const waitForBrowserPaint = () => new Promise<void>((resolve) => {

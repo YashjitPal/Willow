@@ -529,7 +529,7 @@ const SparkThinkingStepsPanel: React.FC<{
               />
             </span>
             <div className="spark-task-detail__thinking-step">
-              <strong>Used {target.modelLabel || 'Gemini Extended'}</strong>
+              <strong>Used {target.modelLabel || 'Gemini'}</strong>
             </div>
           </li>
         </ol>
