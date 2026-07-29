@@ -47,6 +47,7 @@ const STYLE_CSS = [
   '.smd-streaming .smd-w,',
   '.smd-streaming .smd-h,',
   '.smd-streaming .smd-code-block,',
+  '.smd-streaming .smd-svg-preview-block,',
   '.smd-streaming .smd-table-block,',
   '.smd-streaming .smd-media-gallery,',
   '.smd-streaming .smd-math-display {',
@@ -255,7 +256,53 @@ const STYLE_CSS = [
   '.smd-code-block .hljs-name, .smd-code-block .hljs-selector-tag { color: rgb(79, 160, 255); }',
   '.smd-code-block .hljs-meta, .smd-code-block .hljs-built_in, .smd-code-block .hljs-builtin-name, .smd-code-block .hljs-deletion { color: rgb(255, 90, 89); }',
   '.smd-code-block .hljs-meta .hljs-keyword { color: rgb(255, 90, 89); font-weight: 700; }',
-  '.smd-table-block { position: relative; width: calc(100% - 16px); min-width: 0; }',
+  '.smd-svg-preview-block {',
+  '  width: 100%;',
+  '  min-width: 0;',
+  '  overflow: hidden;',
+  '  box-sizing: border-box;',
+  '  border: 0.8px solid rgb(68, 71, 70);',
+  '  border-radius: 12px;',
+  '  background: transparent;',
+  '  color: rgb(196, 199, 197);',
+  '}',
+  '.smd-svg-preview-toolbar {',
+  '  display: flex;',
+  '  width: 100%;',
+  '  height: 56px;',
+  '  box-sizing: border-box;',
+  '  align-items: center;',
+  '  justify-content: space-between;',
+  '  background: rgb(30, 31, 32);',
+  '  padding: 8px 8px 8px 16px;',
+  '}',
+  '.smd-svg-preview-label {',
+  '  color: rgb(196, 199, 197);',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 14px;',
+  '  font-weight: 500;',
+  '  line-height: 24px;',
+  '}',
+  '.smd-svg-preview-actions { display: flex; height: 40px; gap: 4px; }',
+  '.smd-svg-preview-button {',
+  '  display: inline-flex;',
+  '  width: 40px;',
+  '  height: 40px;',
+  '  flex: 0 0 40px;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  border: 0;',
+  '  border-radius: 9999px;',
+  '  background: transparent;',
+  '  color: rgb(196, 199, 197);',
+  '  cursor: pointer;',
+  '  padding: 8px;',
+  '}',
+  '.smd-svg-preview-button:hover { background: rgba(255, 255, 255, 0.08); }',
+  '.smd-svg-preview-button:focus-visible { outline: 2px solid rgba(138, 180, 248, 0.9); outline-offset: 1px; }',
+  '.smd-svg-preview-canvas { width: 100%; height: 400px; background: rgb(19, 19, 20); }',
+  '.smd-svg-preview-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }',
+  '.smd-table-block { position: relative; width: 100%; min-width: 0; }',
   '.smd-table-content { overflow: auto; padding: 8px 0; }',
   '.smd-table-block.has-scrollbar .smd-table-content {',
   '  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000 48px, #000 calc(100% - 48px), rgba(0, 0, 0, 0.2));',
@@ -308,7 +355,6 @@ const STYLE_CSS = [
   '  justify-content: flex-start;',
   '  margin-top: 10px;',
   '}',
-  '.smd-table-block.has-scrollbar .smd-table-footer { margin-top: 0; }',
   '.smd-table-menu-trigger {',
   '  display: inline-flex;',
   '  width: 32px;',
@@ -328,28 +374,31 @@ const STYLE_CSS = [
   '  top: 28px;',
   '  left: 0;',
   '  z-index: 20;',
-  '  width: 174px;',
+  '  width: 188px;',
+  '  height: 96px;',
+  '  box-sizing: border-box;',
   '  overflow: hidden;',
-  '  border: 1px solid rgba(255, 255, 255, 0.08);',
-  '  border-radius: 16px;',
+  '  border: 0;',
+  '  border-radius: 20px;',
   '  background: rgb(31, 31, 31);',
-  '  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);',
-  '  padding: 6px;',
+  '  box-shadow: none;',
+  '  padding: 8px;',
   '}',
   '.smd-table-menu button {',
   '  display: flex;',
   '  width: 100%;',
   '  height: 40px;',
   '  align-items: center;',
-  '  gap: 12px;',
+  '  gap: 8px;',
   '  border: 0;',
-  '  border-radius: 10px;',
+  '  border-radius: 12px;',
   '  background: transparent;',
   '  color: rgb(230, 230, 230);',
   '  cursor: pointer;',
   '  font: inherit;',
-  '  font-size: 14px;',
-  '  padding: 0 10px;',
+  '  font-size: 13px;',
+  '  line-height: 17px;',
+  '  padding: 0 8px;',
   '  text-align: left;',
   '}',
   '.smd-table-menu button:hover { background: rgba(255, 255, 255, 0.08); }',
@@ -656,6 +705,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   rb: 'ruby',
   sh: 'bash',
   shell: 'bash',
+  svg: 'xml',
   ts: 'typescript',
   tsx: 'typescript',
   yml: 'yaml',
@@ -684,6 +734,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   ruby: 'Ruby',
   rust: 'Rust',
   sql: 'SQL',
+  svg: 'SVG',
   swift: 'Swift',
   ts: 'TypeScript',
   tsx: 'TSX',
@@ -711,6 +762,7 @@ const LANGUAGE_EXTENSIONS: Record<string, string> = {
   ruby: 'rb',
   rust: 'rs',
   sql: 'sql',
+  svg: 'svg',
   swift: 'swift',
   tsx: 'tsx',
   typescript: 'ts',
@@ -747,6 +799,90 @@ function highlightedCode(value: string, rawLanguage: string): string {
   return escapeHtml(value);
 }
 
+function svgPreviewDocument(source: string): string {
+  const svg = source
+    .replace(/^\s*<\?xml[\s\S]*?\?>\s*/i, '')
+    .replace(/^\s*<!doctype\s+svg[\s\S]*?>\s*/i, '');
+
+  return [
+    '<!doctype html>',
+    '<html><head><meta charset="utf-8">',
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data: blob:; media-src data: blob:; font-src data:; style-src \'unsafe-inline\';">',
+    '<style>',
+    'html,body{width:100%;min-height:100%;margin:0;background:#131314;}',
+    'html{overflow:auto;scrollbar-color:#747775 transparent;scrollbar-width:thin;}',
+    'body{overflow:visible;}',
+    'svg{display:block;width:100% !important;height:auto !important;max-width:none !important;max-height:none !important;}',
+    '::-webkit-scrollbar{width:10px;height:10px;background:transparent;}',
+    '::-webkit-scrollbar-track{background:transparent;}',
+    '::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:9999px;background:#747775;background-clip:content-box;}',
+    '::-webkit-scrollbar-corner{background:transparent;}',
+    '</style></head><body>',
+    svg,
+    '</body></html>',
+  ].join('');
+}
+
+const SvgPreview = React.memo(function SvgPreview({
+  source,
+  settled,
+}: {
+  source: string;
+  settled?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const documentSource = useMemo(() => svgPreviewDocument(source), [source]);
+
+  const handleCopy = async () => {
+    await copyToClipboard(source);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <div className={'smd-svg-preview-block' + (settled ? ' smd-settled' : '')}>
+      <div className="smd-svg-preview-toolbar">
+        <span className="smd-svg-preview-label">SVG</span>
+        <div className="smd-svg-preview-actions">
+          <button
+            type="button"
+            className="smd-svg-preview-button"
+            aria-label={copied ? 'SVG copied' : 'Copy SVG'}
+            title={copied ? 'Copied' : 'Copy SVG'}
+            onClick={() => void handleCopy()}
+          >
+            <MaterialSymbol
+              family="google-symbols"
+              name={copied ? 'check' : 'content_copy'}
+              size={16}
+              weight={400}
+              roundness={0}
+            />
+          </button>
+          <button
+            type="button"
+            className="smd-svg-preview-button"
+            aria-label="Download SVG"
+            title="Download SVG"
+            onClick={() => downloadText('image.svg', source, 'image/svg+xml;charset=utf-8')}
+          >
+            <MaterialSymbol family="google-symbols" name="download" size={16} weight={400} roundness={0} />
+          </button>
+        </div>
+      </div>
+      <div className="smd-svg-preview-canvas">
+        <iframe
+          className="smd-svg-preview-frame"
+          title="SVG preview"
+          sandbox=""
+          referrerPolicy="no-referrer"
+          srcDoc={documentSource}
+        />
+      </div>
+    </div>
+  );
+});
+
 const CodeBlock = React.memo(
   function CodeBlock({
     value,
@@ -762,13 +898,19 @@ const CodeBlock = React.memo(
     const source = value.replace(/\n$/, '');
     const html = useMemo(() => highlightedCode(source, language), [language, source]);
     const normalized = highlightLanguage(language);
-    const extension = LANGUAGE_EXTENSIONS[normalized] || LANGUAGE_EXTENSIONS[sourceLanguage(language)] || 'txt';
+    const extension = LANGUAGE_EXTENSIONS[sourceLanguage(language)] || LANGUAGE_EXTENSIONS[normalized] || 'txt';
+    const isSvg = sourceLanguage(language) === 'svg' || /^\s*<svg(?:\s|>)/i.test(source);
+    const hasCompleteSvg = isSvg && /<\/svg>\s*$/i.test(source);
 
     const handleCopy = async () => {
       await copyToClipboard(source);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     };
+
+    if (isSvg) {
+      return hasCompleteSvg ? <SvgPreview source={source} settled={settledAtMount} /> : null;
+    }
 
     return (
       <div className={'smd-code-block' + (settledAtMount ? ' smd-settled' : '')}>
@@ -787,7 +929,7 @@ const CodeBlock = React.memo(
               title="Download code"
               onClick={() => downloadText('code.' + extension, source, 'text/plain;charset=utf-8')}
             >
-              <MaterialSymbol family="luminous" name="download" size={24} weight={300} roundness={100} />
+              <MaterialSymbol family="luminous" name="arrow_circle_down" size={24} weight={300} roundness={100} />
             </button>
             <button
               type="button"
@@ -1172,11 +1314,6 @@ function nodeText(node: any): string {
   return node.children.map(nodeText).join('');
 }
 
-function csvCell(value: string): string {
-  const normalized = value.replace(/\r?\n/g, ' ');
-  return /[",\n]/.test(normalized) ? '"' + normalized.replace(/"/g, '""') + '"' : normalized;
-}
-
 function TableBlock({
   node,
   context,
@@ -1198,7 +1335,6 @@ function TableBlock({
   const alignments = node.align || [];
   const plainRows = rows.map((row: any) => (row.children || []).map((cell: any) => nodeText(cell)));
   const tsv = plainRows.map((row: string[]) => row.join('\t')).join('\n');
-  const csv = plainRows.map((row: string[]) => row.map(csvCell).join(',')).join('\r\n');
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -1246,6 +1382,15 @@ function TableBlock({
     setCopied(true);
     setMenuOpen(false);
     window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const exportToSheets = () => {
+    // A browser-only client cannot create a populated Google Sheet without a
+    // signed-in Sheets API grant. Match Gemini's entry point while placing the
+    // tab-separated table on the clipboard so it can be pasted immediately.
+    void copyToClipboard(tsv);
+    window.open('https://sheets.new', '_blank', 'noopener,noreferrer');
+    setMenuOpen(false);
   };
 
   return (
@@ -1304,26 +1449,13 @@ function TableBlock({
         </button>
         {menuOpen && (
           <div className="smd-table-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => void copy()}>
-              <MaterialSymbol
-                family="luminous"
-                name={copied ? 'check' : 'content_copy'}
-                size={20}
-                weight={300}
-                roundness={100}
-              />
-              {copied ? 'Copied' : 'Copy table'}
+            <button type="button" role="menuitem" onClick={exportToSheets}>
+              <MaterialSymbol family="luminous" name="share_1" size={20} weight={300} roundness={100} />
+              Export to Sheets
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                downloadText('table.csv', csv, 'text/csv;charset=utf-8');
-                setMenuOpen(false);
-              }}
-            >
-              <MaterialSymbol family="luminous" name="download" size={20} weight={300} roundness={100} />
-              Download CSV
+            <button type="button" role="menuitem" onClick={() => void copy()}>
+              <MaterialSymbol family="luminous" name={copied ? 'check' : 'copy'} size={20} weight={300} roundness={100} />
+              {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
         )}
@@ -1670,6 +1802,95 @@ function occurrences(value: string, token: string): number {
   return value.split(token).length - 1;
 }
 
+function isEscapedAt(source: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+const CURRENCY_AMOUNT = /^[+-]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d+)?(?:[kKmMbB])?/;
+const CURRENCY_RATE_UNIT = /^\/(?:seconds?|minutes?|hours?|days?|weeks?|months?|quarters?|years?|secs?|mins?|hrs?|wks?|mos?|qtrs?|yrs?)\b/i;
+
+function isCurrencyDollar(source: string, index: number): boolean {
+  if (source[index] !== '$' || isEscapedAt(source, index) || source[index + 1] === '$') return false;
+
+  // A currency marker starts at a textual boundary. This prevents a closing
+  // math delimiter such as the second "$" in "$x$" from being reclassified.
+  const previous = source[index - 1] || '';
+  if (previous && /[A-Za-z0-9_$)\]}]/.test(previous)) return false;
+
+  const amount = source.slice(index + 1).match(CURRENCY_AMOUNT)?.[0];
+  if (!amount) return false;
+
+  const amountEnd = index + 1 + amount.length;
+  const immediate = source[amountEnd] || '';
+  if (immediate === '$') return false;
+
+  const rate = source.slice(amountEnd).match(CURRENCY_RATE_UNIT)?.[0];
+  if (rate) return source[amountEnd + rate.length] !== '$';
+
+  if (!immediate || /[,.;:!?)\]}]/.test(immediate)) return true;
+  if (source.startsWith('**', amountEnd) || source.startsWith('__', amountEnd) || source.startsWith('~~', amountEnd)) {
+    return true;
+  }
+
+  if (/\s/.test(immediate)) {
+    let cursor = amountEnd;
+    while (/\s/.test(source[cursor] || '')) cursor += 1;
+    const next = source[cursor] || '';
+    if (!next) return true;
+
+    const spacedRate = source.slice(cursor).match(CURRENCY_RATE_UNIT)?.[0];
+    if (spacedRate) return source[cursor + spacedRate.length] !== '$';
+
+    // Operators and TeX commands identify numeric math such as "$3 + 4$".
+    if (/[+\-=*^_]/.test(next) || next === '\\' || next === '$') return false;
+    if (next === '/' && !spacedRate) return false;
+    return true;
+  }
+
+  // A directly adjacent variable is math (for example "$2x$"). Currency
+  // suffixes were consumed by CURRENCY_AMOUNT above.
+  return false;
+}
+
+function mathDollarDelimiterCounts(source: string): { display: number; inline: number } {
+  let display = 0;
+  let inline = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '$' || isEscapedAt(source, index) || isCurrencyDollar(source, index)) continue;
+    if (source[index + 1] === '$' && !isEscapedAt(source, index + 1)) {
+      display += 1;
+      index += 1;
+    } else {
+      inline += 1;
+    }
+  }
+
+  return { display, inline };
+}
+
+function hasDanglingAsterisk(source: string): boolean {
+  let open = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '*' || isEscapedAt(source, index)) continue;
+
+    const previous = source[index - 1] || '';
+    const next = source[index + 1] || '';
+    const canOpen = !!next && !/\s/.test(next);
+    const canClose = !!previous && !/\s/.test(previous);
+
+    if (open && canClose) open = false;
+    else if (canOpen) open = true;
+  }
+
+  return open;
+}
+
 function closeDangling(source: string): string {
   if (!source) return source;
   if (occurrences(source, FENCE) % 2 === 1) return source;
@@ -1683,12 +1904,13 @@ function closeDangling(source: string): string {
   if (occurrences(withoutCode, '__') % 2 === 1) suffix += '__';
 
   const withoutStrong = withoutCode.replace(/\*\*/g, '').replace(/__/g, '');
-  if (occurrences(withoutStrong, '*') % 2 === 1) suffix += '*';
+  if (hasDanglingAsterisk(withoutStrong)) suffix += '*';
   if (occurrences(withoutStrong, '_') % 2 === 1) suffix += '_';
   if (occurrences(withoutCode, '~~') % 2 === 1) suffix += '~~';
 
-  if (occurrences(withoutCode, '$$') % 2 === 1) suffix += '$$';
-  else if (occurrences(withoutCode.replace(/\$\$/g, ''), '$') % 2 === 1) suffix += '$';
+  const dollarDelimiters = mathDollarDelimiterCounts(withoutCode);
+  if (dollarDelimiters.display % 2 === 1) suffix += '$$';
+  else if (dollarDelimiters.inline % 2 === 1) suffix += '$';
 
   return suffix ? source + suffix : source;
 }
@@ -1722,7 +1944,13 @@ function normalizeLatexDelimiters(source: string): NormalizedMathSource {
       continue;
     }
 
-    const escapedByBackslash = index > 0 && source[index - 1] === '\\';
+    const escapedByBackslash = isEscapedAt(source, index);
+    if (codeDelimiter === 0 && source[index] === '$' && isCurrencyDollar(source, index)) {
+      append('\\', index, index);
+      append('$', index, index + 1);
+      index += 1;
+      continue;
+    }
     if (
       codeDelimiter === 0 &&
       !escapedByBackslash &&
@@ -1804,7 +2032,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     const animationEnabled = shouldAnimateStream || keepTailAnimation;
     const tree = useMemo(() => {
       try {
-        const closed = closeDangling(shown);
+        const closed = isStreaming ? closeDangling(shown) : shown;
         const normalized = normalizeLatexDelimiters(closed);
         const parsed = MARKDOWN_PROCESSOR.parse(normalized.source) as any;
         remapTreeOffsets(parsed, normalized.boundaries, shown.length);
@@ -1819,7 +2047,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
           }],
         };
       }
-    }, [shown]);
+    }, [isStreaming, shown]);
 
     const committedLength = useRef(0);
     useEffect(() => {
