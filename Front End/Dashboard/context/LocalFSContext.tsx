@@ -15,7 +15,20 @@ import { useUserDataContext } from './UserDataContext';
 import { designNodesStore } from '../lib/stores/design-store';
 import { compareMediaItemsNewestFirst, loadProjectMedia, saveProjectMedia, deleteProjectData, saveProjectCover, loadProjectCover, migrateProjectKinds, setMediaStorageScope } from '../lib/mediaStorage';
 import { extractVideoFrame } from '../lib/coverUtils';
-import { saveChatBody, loadChatBody, deleteChatBody, renameChatBody, renameCodeSessions, deleteCodeSessions, setCodeSessionStorageScope, type ChatStorageScope } from '../lib/willowDB';
+import {
+  saveChatBody,
+  loadChatBody,
+  deleteChatBody,
+  renameChatBody,
+  renameCodeSessions,
+  deleteCodeSessions,
+  setCodeSessionStorageScope,
+  saveChatAttachment,
+  loadChatAttachment,
+  type ChatStorageScope,
+  type StoredChatAttachment,
+} from '../lib/willowDB';
+import type { ChatAttachment } from '../lib/chatAttachments';
 import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '../lib/projectStorage';
 
 interface FileContent {
@@ -162,6 +175,8 @@ interface LocalFSContextType {
   saveLocalFSProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
   loadLocalFSProject: (projectName: string) => Promise<FileContent[] | null>;
   saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
+  saveLocalFSChatAttachment: (attachment: ChatAttachment, blob: Blob) => Promise<boolean>;
+  loadLocalFSChatAttachment: (attachmentId: string) => Promise<StoredChatAttachment | null>;
   saveLocalFSProjectChat: (projectName: string, chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
   saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob) => Promise<string | null>;
   deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<boolean>;
@@ -2174,6 +2189,31 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     });
   }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata]);
 
+  /** Heavy attachment bytes live in IndexedDB next to chat bodies, never in localStorage. */
+  const saveLocalFSChatAttachment = useCallback(async (
+    attachment: ChatAttachment,
+    blob: Blob,
+  ): Promise<boolean> => {
+    try {
+      await saveChatAttachment(attachment, blob, chatStorageScopeRef.current);
+      return true;
+    } catch (error) {
+      console.error('Unable to save local chat attachment', error);
+      return false;
+    }
+  }, []);
+
+  const loadLocalFSChatAttachment = useCallback(async (
+    attachmentId: string,
+  ): Promise<StoredChatAttachment | null> => {
+    try {
+      return await loadChatAttachment(attachmentId, chatStorageScopeRef.current);
+    } catch (error) {
+      console.error('Unable to load local chat attachment', error);
+      return null;
+    }
+  }, []);
+
   /**
    * Scan Chats folder and refresh lists
    */
@@ -2694,6 +2734,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         saveLocalFSProject,
         loadLocalFSProject,
         saveLocalFSChat,
+        saveLocalFSChatAttachment,
+        loadLocalFSChatAttachment,
         saveLocalFSProjectChat,
         saveLocalFSMedia,
         deleteLocalFSMediaFile,

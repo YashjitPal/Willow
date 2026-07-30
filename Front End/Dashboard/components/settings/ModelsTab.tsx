@@ -221,6 +221,40 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   const [moonshotDropdownOpen, setMoonshotDropdownOpen] = React.useState(false);
   const [spacexaiDropdownOpen, setSpacexaiDropdownOpen] = React.useState(false);
   const [zhipuaiDropdownOpen, setZhipuaiDropdownOpen] = React.useState(false);
+  const [transcriptionDropdownOpen, setTranscriptionDropdownOpen] = React.useState(false);
+  const [transcriptionDirection, setTranscriptionDirection] = React.useState<'down' | 'up'>('down');
+  const transcriptionRef = React.useRef<HTMLDivElement>(null);
+
+  const allSystemDefaultModels = React.useMemo(() => {
+    const models = [
+      ...(modelConfig.gemini?.savedModels || []).map((model: any) => ({ ...model, provider: 'gemini' })),
+      ...(modelConfig.openai?.savedModels || []).map((model: any) => ({ ...model, provider: 'openai' })),
+      ...(modelConfig.anthropic?.savedModels || []).map((model: any) => ({ ...model, provider: 'anthropic' })),
+      ...(modelConfig.moonshot?.savedModels || []).map((model: any) => ({ ...model, provider: 'moonshot' })),
+      ...(modelConfig.spacexai?.savedModels || []).map((model: any) => ({ ...model, provider: 'spacexai' })),
+      ...(modelConfig.zhipuai?.savedModels || []).map((model: any) => ({ ...model, provider: 'zhipuai' })),
+    ];
+    const seen = new Set<string>();
+    return models.filter((model: any) => {
+      const key = model.modelId || model.id;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [modelConfig]);
+
+  const configuredSystemDefaultModels = React.useMemo(
+    () => allSystemDefaultModels.filter(
+      (model: any) => Boolean(providerState?.[model.provider]?.apiKey),
+    ),
+    [allSystemDefaultModels, providerState],
+  );
+
+  const selectedTranscriptionModelName = allSystemDefaultModels.find(
+    (model: any) => model.modelId === modelConfig.systemDefaults?.transcription,
+  )?.name || (modelConfig.systemDefaults?.transcription === 'gemini-3.5-flash-lite'
+    ? 'Gemini 3.5 Flash Lite'
+    : modelConfig.systemDefaults?.transcription) || 'Select model';
 
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -228,6 +262,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
       if (!target.closest('[data-dropdown="moonshot"]')) setMoonshotDropdownOpen(false);
       if (!target.closest('[data-dropdown="spacexai"]')) setSpacexaiDropdownOpen(false);
       if (!target.closest('[data-dropdown="zhipuai"]')) setZhipuaiDropdownOpen(false);
+      if (!target.closest('[data-dropdown="transcription-model"]')) setTranscriptionDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -1443,6 +1478,71 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           </button>
                         ))
                       )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Voice Transcription Model */}
+            <div className="flex items-center justify-between py-2">
+              <div className="flex flex-col">
+                <span className="text-[14px] font-semibold text-white">Model for transcription</span>
+                <span className="text-[12px] text-zinc-500">Model used to transcribe recorded voice input.</span>
+              </div>
+              <div
+                className="relative w-64"
+                ref={transcriptionRef}
+                data-dropdown="transcription-model"
+              >
+                <button
+                  onClick={() => {
+                    if (transcriptionDropdownOpen) {
+                      setTranscriptionDropdownOpen(false);
+                    } else {
+                      setTranscriptionDirection(determineDirection(transcriptionRef));
+                      setTranscriptionDropdownOpen(true);
+                    }
+                  }}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                >
+                  <span>{selectedTranscriptionModelName}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-200 ${transcriptionDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {transcriptionDropdownOpen && (
+                  <div className={`absolute ${transcriptionDirection === 'up' ? 'bottom-full mb-2 origin-bottom animate-dropdownOpenUp' : 'top-full mt-2 origin-top animate-dropdownOpen'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden`}>
+                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                      {configuredSystemDefaultModels.length === 0 ? (
+                        <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
+                          No models saved or no API keys configured. Manage a provider above.
+                        </div>
+                      ) : configuredSystemDefaultModels.map((model: any) => (
+                        <button
+                          key={`${model.provider}-${model.id || model.modelId}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setModelConfig((previous: any) => ({
+                              ...previous,
+                              systemDefaults: {
+                                ...previous.systemDefaults,
+                                transcription: model.modelId,
+                              },
+                            }));
+                            setTranscriptionDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${modelConfig.systemDefaults?.transcription === model.modelId ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          <span className="font-medium">{model.name}</span>
+                          {modelConfig.systemDefaults?.transcription === model.modelId && (
+                            <Check size={14} className="text-white" />
+                          )}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}

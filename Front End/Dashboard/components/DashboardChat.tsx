@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import lottie from 'lottie-web';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { Glasses } from 'lucide-react';
-import { InputBar } from './InputBar';
+import { InputBar, type Attachment as ComposerAttachment } from './InputBar';
 import { HeroSection } from './HeroSection';
 import { BottomPanel } from './BottomPanel';
 import { TextShimmer } from './ui/text-shimmer';
 import { MaterialSymbol } from './ui/MaterialSymbol';
 import { StreamingMarkdown } from './ui/StreamingMarkdown';
+import { GeminiAttachmentCard } from './ui/GeminiAttachmentCard';
+import { RichResource, RichResourcePanel } from './ui/RichResourcePreview';
 import { ResponseActions, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { streamChat, ChatMessage as AiChatMessage, StreamPhase } from '../lib/ai';
 import {
@@ -21,6 +23,13 @@ import {
 import { useUserDataContext } from '../context/UserDataContext';
 import { useLocalFS, isTempChatId } from '../context/LocalFSContext';
 import { getThinkingEffortLabel } from '../lib/model-efforts';
+import {
+  ChatAttachment,
+  blobToBase64,
+  detectAttachmentKind,
+  isTextLikeAttachment,
+  toPersistedChatAttachment,
+} from '../lib/chatAttachments';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -48,10 +57,63 @@ interface ChatMsg {
   wasInterrupted?: boolean;
   /** Whether this message was newly sent in the current session (should animate in). */
   isNew?: boolean;
+  /** Locally owned file metadata; bytes live in WillowDB's attachment store. */
+  attachments?: ChatAttachment[];
 }
+
+const hasSavedMessageContent = (message: Pick<ChatMsg, 'content' | 'attachments'>): boolean =>
+  message.content.trim().length > 0 || !!message.attachments?.length;
+
+const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew'> => {
+  const {
+    isGenerating: _isGenerating,
+    isTranscribing: _isTranscribing,
+    isLive: _isLive,
+    isNew: _isNew,
+    attachments,
+    ...persisted
+  } = message;
+  return {
+    ...persisted,
+    ...(attachments?.length
+      ? { attachments: attachments.map(toPersistedChatAttachment) }
+      : {}),
+  };
+};
+
+const sanitizeSavedAttachment = (value: any): ChatAttachment | null => {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string') return null;
+  const name = typeof value.name === 'string' && value.name.trim() ? value.name : 'Attachment';
+  const mimeType = typeof value.mimeType === 'string' && value.mimeType.trim()
+    ? value.mimeType
+    : 'application/octet-stream';
+  const extension = typeof value.extension === 'string'
+    ? value.extension.replace(/^\./, '').toLowerCase()
+    : (name.includes('.') ? name.split('.').pop()!.toLowerCase() : '');
+  return {
+    id: value.id,
+    name,
+    mimeType,
+    extension,
+    size: Number.isFinite(value.size) ? Math.max(0, Number(value.size)) : 0,
+    kind: typeof value.kind === 'string'
+      ? value.kind
+      : detectAttachmentKind(name, mimeType),
+    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : undefined,
+    sourceOwner: typeof value.sourceOwner === 'string' ? value.sourceOwner : undefined,
+    sourceRepository: typeof value.sourceRepository === 'string' ? value.sourceRepository : undefined,
+    sourceRef: typeof value.sourceRef === 'string' ? value.sourceRef : undefined,
+    sourceCommit: typeof value.sourceCommit === 'string' ? value.sourceCommit : undefined,
+    sourceDescription: typeof value.sourceDescription === 'string' ? value.sourceDescription : undefined,
+    sourceFileCount: Number.isFinite(value.sourceFileCount)
+      ? Math.max(0, Number(value.sourceFileCount))
+      : undefined,
+  } as ChatAttachment;
+};
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
 const USER_MESSAGE_EXPANDED_CONTROL_RESERVE = 24;
+const CHAT_COMPOSER_LAYOUT_ID = 'willow-dashboard-chat-composer';
 
 const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & {
   onToggleStart?: (willExpand: boolean) => void;
@@ -167,6 +229,8 @@ interface DashboardChatProps {
   onOpenDriveSettings?: () => void;
   isIncognito?: boolean;
   onChatStartedChange?: (started: boolean) => void;
+  isSidebarCollapsed?: boolean;
+  onCollapseSidebar?: () => void;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -235,9 +299,20 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   onOpenDriveSettings,
   isIncognito = false,
   onChatStartedChange,
+  isSidebarCollapsed = true,
+  onCollapseSidebar,
 }) => {
   const { apiKeys } = useUserDataContext();
-  const { isLocalFolderConnected, saveLocalFSChat, generateChatTitle, activeChatId, loadLocalFSChat, localChats } = useLocalFS();
+  const {
+    isLocalFolderConnected,
+    saveLocalFSChat,
+    saveLocalFSChatAttachment,
+    loadLocalFSChatAttachment,
+    generateChatTitle,
+    activeChatId,
+    loadLocalFSChat,
+    localChats,
+  } = useLocalFS();
 
   // Unique session ID for auto-saving chats locally
   const [chatSessionId, setChatSessionId] = useState(() => {
@@ -250,9 +325,43 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const attachmentObjectUrlsRef = useRef<Set<string>>(new Set());
+  const attachmentBlobsRef = useRef<Map<string, Blob>>(new Map());
   const [externalReloadVersion, setExternalReloadVersion] = useState(0);
   const forceExternalReloadRef = useRef(false);
   const pendingExternalReloadRef = useRef<string | null>(null);
+
+  const createAttachmentObjectUrl = useCallback((blob: Blob): string => {
+    const url = URL.createObjectURL(blob);
+    attachmentObjectUrlsRef.current.add(url);
+    return url;
+  }, []);
+
+  const revokeAllAttachmentObjectUrls = useCallback(() => {
+    for (const url of attachmentObjectUrlsRef.current) URL.revokeObjectURL(url);
+    attachmentObjectUrlsRef.current.clear();
+    attachmentBlobsRef.current.clear();
+  }, []);
+
+  const hydrateSavedAttachments = useCallback(async (
+    values: unknown,
+  ): Promise<ChatAttachment[] | undefined> => {
+    if (!Array.isArray(values) || values.length === 0) return undefined;
+    const metadata = values
+      .map(sanitizeSavedAttachment)
+      .filter((attachment): attachment is ChatAttachment => !!attachment);
+    const hydrated = await Promise.all(metadata.map(async (attachment) => {
+      const stored = await loadLocalFSChatAttachment(attachment.id);
+      if (!stored?.blob) return attachment;
+      attachmentBlobsRef.current.set(attachment.id, stored.blob);
+      return { ...attachment, url: createAttachmentObjectUrl(stored.blob) };
+    }));
+    return hydrated.length > 0 ? hydrated : undefined;
+  }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
+
+  useEffect(() => () => {
+    revokeAllAttachmentObjectUrls();
+  }, [revokeAllAttachmentObjectUrls]);
 
   useEffect(() => {
     const handleBodyUpdate = (event: Event) => {
@@ -284,14 +393,16 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         try {
           const msgs = await loadLocalFSChat(activeChatId);
           if (msgs && msgs.length > 0) {
+            revokeAllAttachmentObjectUrls();
             // Strip runtime-only flags that should never be persisted.
             // If a save happened mid-generation, the assistant placeholder
             // will have isGenerating:true and empty content — drop those.
-            const sanitized: ChatMsg[] = msgs
-              .map((m: any) => ({
+            const sanitized: ChatMsg[] = (await Promise.all(msgs
+              .map(async (m: any) => ({
                 id: m.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
                 role: m.role,
                 content: m.content || '',
+                attachments: await hydrateSavedAttachments(m.attachments),
                 thinkingTime: m.thinkingTime,
                 thinkingText: typeof m.thinkingText === 'string' ? m.thinkingText : undefined,
                 modelSnapshot: m.modelSnapshot,
@@ -301,8 +412,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                 isTranscribing: false,
                 isLive: false,
                 wasInterrupted: m.wasInterrupted,
-              }))
-              .filter((m: ChatMsg) => m.content.trim().length > 0);
+              })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             if (sanitized.length > 0) {
               setMessages(sanitized);
@@ -321,6 +431,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           // with an empty thread instead (and release the load guard so the
           // first real message saves normally).
           setMessages([]);
+          revokeAllAttachmentObjectUrls();
           setChatTitle(isTempChatId(activeChatId) ? null : activeChatId);
           setChatSessionId(activeChatId);
           lastSavedMessagesRef.current = [];
@@ -329,7 +440,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       };
       void loadChat();
     }
-  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion]);
+  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion, hydrateSavedAttachments, revokeAllAttachmentObjectUrls]);
 
   // Handle the case where the currently active chat is deselected/deleted.
   // We must ONLY clear when an EXISTING active chat goes away (a non-null ->
@@ -355,6 +466,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         // isGenerating rapidly and can briefly read null), and never if the chat
         // became active again in the meantime.
         if (activeChatIdRef.current !== null || isLiveRef.current || isGeneratingRef.current) return;
+        revokeAllAttachmentObjectUrls();
         setMessages([]);
         setChatTitle(null);
         const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
@@ -362,7 +474,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       }, 500);
       return () => clearTimeout(t);
     }
-  }, [activeChatId, messages.length]);
+  }, [activeChatId, messages.length, revokeAllAttachmentObjectUrls]);
 
   // Generate the chat title only after the first assistant reply has finished.
   // Starting this from the empty assistant placeholder races the temp-id rename
@@ -393,7 +505,9 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       && !titleGenInFlightRef.current
     ) {
       titleGenInFlightRef.current = true;
-      const userMsg = firstUser.content;
+      const userMsg = firstUser.content.trim()
+        || firstUser.attachments?.map((attachment) => attachment.name).join(', ')
+        || 'Attached file';
       const assistantMsg = firstAssistant.content;
       
       const fetchTitle = async () => {
@@ -444,8 +558,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           // still-streaming placeholder (empty content) exactly like the
           // load path does.
           const latest = messagesRef.current
-            .map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }: any) => rest)
-            .filter((m: any) => typeof m.content === 'string' && m.content.trim().length > 0);
+            .map(serializeChatMessage)
+            .filter((message) => hasSavedMessageContent(message));
           if (latest.length > 0) {
             const saved = await saveLocalFSChat(uniqueTitle, latest, chatSessionId);
             if (saved) {
@@ -480,6 +594,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
+  const [openResource, setOpenResource] = useState<RichResource | null>(null);
+  const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -512,6 +628,22 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     stopListening();
   }, [activeChatId, stopListening]);
 
+  useEffect(() => {
+    setOpenThinkingMessageId(null);
+    setOpenResource(null);
+  }, [activeChatId]);
+
+  const handleOpenResource = useCallback((resource: RichResource) => {
+    if (!isSidebarCollapsed) onCollapseSidebar?.();
+    setOpenThinkingMessageId(null);
+    setOpenResource(resource);
+  }, [isSidebarCollapsed, onCollapseSidebar]);
+
+  const handleOpenThinking = useCallback((messageId: string) => {
+    setOpenResource(null);
+    setOpenThinkingMessageId(messageId);
+  }, []);
+
   // Auto-save chat history locally in real-time when messages change.
   // Skip saving while generating — partial messages have empty content that
   // would corrupt the stored file. The final save fires once isGenerating
@@ -537,7 +669,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     if (isLocalFolderConnected && messages.length > 0 && !isGenerating && !initialLoadRef.current) {
       const activeId = chatTitle || chatSessionId;
       // Strip runtime flags before persisting
-      const toSave = messages.map(({ isGenerating: _ig, isTranscribing: _it, isLive: _il, isNew: _in, ...rest }) => rest);
+      const toSave = messages.map(serializeChatMessage).filter(hasSavedMessageContent);
       void saveLocalFSChat(activeId, toSave, chatTitle ? chatSessionId : null);
       lastSavedMessagesRef.current = messages;
     }
@@ -581,7 +713,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // the remaining visible viewport, so you can't scroll into empty space before
   // the reply fills it. The gap below the 👍👎Copy row and the top of the input
   // box matches Staging's gap to its suggestions row (both = the 32px gradient).
-  const TARGET_VISUAL_OFFSET = 80; // = pt-20 on the thread column
+  const TARGET_VISUAL_OFFSET = 72; // Gemini's settled first-query top edge
   const MESSAGE_GAP = 52;          // Gemini bubble edge to the following response
   const THREAD_GAP = 32;           // All other completed-turn adjacencies
 
@@ -594,6 +726,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   const lastAssistantContentRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledUserId = useRef<string | null>(null);
   const isFirstScrollRef = useRef(false);
+  const skipNextNativeScrollRef = useRef(false);
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
   const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
@@ -722,12 +855,22 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       }
       isFirstScrollRef.current = false;
 
-      msgEl.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-        inline: 'nearest',
-      });
-    });
+       // The first query already has one movement authority: the 500ms thread
+       // entrance below. Starting native smooth scrolling while that transform
+       // is shrinking the scrollable overflow makes scrollTop rise and then
+       // ease back to zero, which is the visible first-send jerk. Later turns
+       // do not remount the thread, so they continue to use native scrolling.
+       if (skipNextNativeScrollRef.current) {
+         skipNextNativeScrollRef.current = false;
+         c.scrollTop = 0;
+       } else {
+         msgEl.scrollIntoView({
+           behavior: 'smooth',
+           block: 'start',
+           inline: 'nearest',
+         });
+       }
+     });
   }, [messages]);
 
   // ── Recalculate reserved height when the viewport OR footer height changes.
@@ -862,10 +1005,66 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   };
 
   // ── Send ───────────────────────────────────────────────────────────────────
+  const buildAiHistory = useCallback(async (sourceMessages: ChatMsg[]): Promise<AiChatMessage[]> => {
+    return await Promise.all(sourceMessages.map(async (message) => {
+      let content = message.content;
+      if (!message.attachments?.length) return { role: message.role, content };
+
+      const aiAttachments: NonNullable<AiChatMessage['attachments']> = [];
+      for (const attachment of message.attachments) {
+        let blob = attachmentBlobsRef.current.get(attachment.id);
+        if (!blob) {
+          const stored = await loadLocalFSChatAttachment(attachment.id);
+          blob = stored?.blob;
+          if (blob) attachmentBlobsRef.current.set(attachment.id, blob);
+        }
+
+        if (!blob) {
+          if (attachment.kind === 'github' && attachment.sourceUrl) {
+            content += `\n\n[GitHub repository source: ${attachment.name} (${attachment.sourceUrl})]`;
+          } else {
+            content += `\n\n[Attachment unavailable on this device: ${attachment.name}]`;
+          }
+          continue;
+        }
+
+        if (attachment.kind === 'github') {
+          aiAttachments.push({
+            type: 'text',
+            mimeType: 'text/plain',
+            data: await blob.text(),
+            name: `GitHub repository ${attachment.name}${attachment.sourceRef ? ` at ${attachment.sourceRef}` : ''}`,
+            size: attachment.size,
+          });
+          continue;
+        }
+
+        const textLike = isTextLikeAttachment(attachment);
+        aiAttachments.push({
+          type: attachment.kind === 'image' ? 'image' : textLike ? 'text' : 'file',
+          mimeType: attachment.mimeType,
+          data: textLike ? await blob.text() : await blobToBase64(blob),
+          name: attachment.name,
+          size: attachment.size,
+        });
+      }
+
+      return {
+        role: message.role,
+        content,
+        ...(aiAttachments.length ? { attachments: aiAttachments } : {}),
+      };
+    }));
+  }, [loadLocalFSChatAttachment]);
+
   const handleSend = useCallback(
-    async (text: string, historyOverride?: ChatMsg[]) => {
+    async (
+      text: string,
+      historyOverride?: ChatMsg[],
+      attachmentSources: Array<ComposerAttachment | ChatAttachment> = [],
+    ) => {
       const trimmed = text.trim();
-      if (!trimmed || isGenerating || sendInFlightRef.current) return;
+      if ((!trimmed && attachmentSources.length === 0) || isGenerating || sendInFlightRef.current) return;
       if (!isAuthenticated) { onAuthRequired?.(); return; }
 
       const { provider, model, thinkingLevel, apiKey, modelLabel } = resolveModel();
@@ -874,9 +1073,42 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         cancelAnimationFrame(streamingClearRafRef.current);
         streamingClearRafRef.current = null;
       }
-      const isBrandNewConversation = historyOverride === undefined && messages.length === 0;
+       const isBrandNewConversation = historyOverride === undefined && messages.length === 0;
 
-      const userMsg: ChatMsg = { id: newId(), role: 'user', content: trimmed, isNew: true };
+       if (isBrandNewConversation) {
+         // Keep the first query/composer choreography independent from the
+         // normal per-turn smooth-scroll path. The thinking row is revealed
+         // only after this entrance completes, matching Gemini's sequencing.
+         skipNextNativeScrollRef.current = true;
+         setIsFirstTurnEntranceActive(true);
+       }
+
+      const attachmentSavePromises: Promise<boolean>[] = [];
+      const preparedAttachments = attachmentSources.map((source): ChatAttachment => {
+        if ('file' in source && source.file instanceof Blob) {
+          const metadata = toPersistedChatAttachment(source);
+          attachmentBlobsRef.current.set(metadata.id, source.file);
+          const sentAttachment = {
+            ...metadata,
+            url: createAttachmentObjectUrl(source.file),
+          };
+          if (!isIncognito && isLocalFolderConnected) {
+            attachmentSavePromises.push(saveLocalFSChatAttachment(metadata, source.file));
+          }
+          return sentAttachment;
+        }
+        return source;
+      });
+
+      const attachmentPersistence = Promise.all(attachmentSavePromises);
+
+      const userMsg: ChatMsg = {
+        id: newId(),
+        role: 'user',
+        content: trimmed,
+        isNew: true,
+        ...(preparedAttachments.length ? { attachments: preparedAttachments } : {}),
+      };
       const assistantId = newId();
       const assistantPlaceholder: ChatMsg = {
         id: assistantId,
@@ -896,7 +1128,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
       if (!isIncognito && isLocalFolderConnected && isBrandNewConversation) {
         // Initialize the local chat with the temporary ID so it shows up as a skeleton loader in the sidebar immediately!
-        void saveLocalFSChat(chatSessionId, [userMsg], null);
+        void saveLocalFSChat(chatSessionId, [serializeChatMessage(userMsg)], null);
       }
 
       setIsGenerating(true);
@@ -927,14 +1159,11 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         return;
       }
 
-      const history: AiChatMessage[] = [...prevMessages, userMsg].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
       let acc = '';
       let thoughtAcc = '';
       try {
+        await attachmentPersistence;
+        const history = await buildAiHistory([...prevMessages, userMsg]);
         await streamChat(
           history,
           // Chat mode: search grounding + native code execution both offered.
@@ -1003,7 +1232,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         setIsGenerating(false);
       }
     },
-    [messages, isGenerating, isAuthenticated, onAuthRequired, resolveModel, stopThinking, isIncognito, isLocalFolderConnected, saveLocalFSChat, chatSessionId, modelConfig]
+    [messages, isGenerating, isAuthenticated, onAuthRequired, resolveModel, stopThinking, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, modelConfig, buildAiHistory, createAttachmentObjectUrl]
   );
 
   // ── Live mode ──────────────────────────────────────────────────────────────
@@ -1252,6 +1481,49 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // Tear down the socket + mic if the component unmounts mid-session.
   useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
 
+  const handleOpenAttachment = useCallback(async (attachment: ChatAttachment) => {
+    if (attachment.kind === 'github' && attachment.sourceUrl) {
+      const sourceLink = document.createElement('a');
+      sourceLink.href = attachment.sourceUrl;
+      sourceLink.target = '_blank';
+      sourceLink.rel = 'noopener noreferrer';
+      sourceLink.click();
+      return;
+    }
+
+    let url = attachment.url;
+    if (!url) {
+      let blob = attachmentBlobsRef.current.get(attachment.id);
+      if (!blob) {
+        const stored = await loadLocalFSChatAttachment(attachment.id);
+        blob = stored?.blob;
+      }
+      if (!blob) return;
+      attachmentBlobsRef.current.set(attachment.id, blob);
+      url = createAttachmentObjectUrl(blob);
+      const hydratedUrl = url;
+      setMessages((current) => current.map((message) => ({
+        ...message,
+        attachments: message.attachments?.map((item) => (
+          item.id === attachment.id ? { ...item, url: hydratedUrl } : item
+        )),
+      })));
+    }
+
+    const opensInline = attachment.kind === 'image'
+      || attachment.kind === 'pdf'
+      || attachment.kind === 'audio'
+      || attachment.kind === 'video'
+      || attachment.kind === 'text'
+      || attachment.kind === 'code';
+    const link = document.createElement('a');
+    link.href = url;
+    link.rel = 'noopener noreferrer';
+    if (opensInline) link.target = '_blank';
+    else link.download = attachment.name;
+    link.click();
+  }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
+
   const handleCopy = (msg: ChatMsg) => {
     navigator.clipboard.writeText(msg.content);
     setCopiedId(msg.id);
@@ -1283,7 +1555,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     const userMessage = messages[userIndex];
     stopListening();
     setOpenThinkingMessageId(null);
-    void handleSend(userMessage.content, messages.slice(0, userIndex));
+    void handleSend(userMessage.content, messages.slice(0, userIndex), userMessage.attachments ?? []);
   };
 
   const startEditing = (msg: ChatMsg) => {
@@ -1345,7 +1617,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     setEditingUserId(null);
     setEditDraft('');
     setOpenThinkingMessageId(null);
-    void handleSend(trimmed, messages.slice(0, userIndex));
+    void handleSend(trimmed, messages.slice(0, userIndex), messages[userIndex].attachments ?? []);
   };
 
   useEffect(() => () => {
@@ -1359,24 +1631,27 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // an in-dashboard chat instead of navigating to Staging.
   if (!hasStarted) {
     return (
-      <div className="flex flex-col min-h-full">
-        <HeroSection
-          initialMode="chat"
-          onPromptSubmit={(prompt) => handleSend(prompt)}
-          onStartLive={handleStartLive}
-          modelConfig={modelConfig}
-          selectedModelId={selectedModelId}
-          setSelectedModelId={setSelectedModelId}
-          onAuthRequired={onAuthRequired}
-          isAuthenticated={isAuthenticated}
-          isIncognito={isIncognito}
-        />
-        {isAuthenticated && (
-          <div className="pb-20">
-            <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
-          </div>
-        )}
-      </div>
+      <LayoutGroup id="willow-dashboard-chat-layout">
+        <div className="flex flex-col min-h-full">
+          <HeroSection
+            initialMode="chat"
+            onPromptSubmit={(prompt, _mode, attachments) => handleSend(prompt, undefined, attachments)}
+            onStartLive={handleStartLive}
+            modelConfig={modelConfig}
+            selectedModelId={selectedModelId}
+            setSelectedModelId={setSelectedModelId}
+            onAuthRequired={onAuthRequired}
+            isAuthenticated={isAuthenticated}
+            isIncognito={isIncognito}
+            composerLayoutId={CHAT_COMPOSER_LAYOUT_ID}
+          />
+          {isAuthenticated && (
+            <div className="pb-20">
+              <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
+            </div>
+          )}
+        </div>
+      </LayoutGroup>
     );
   }
 
@@ -1394,9 +1669,23 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     messages[0].isNew === true;
 
   return (
-    <div className="relative flex h-full min-h-0 w-full overflow-hidden">
+    <LayoutGroup id="willow-dashboard-chat-layout">
+    <div
+      className={`relative grid h-full min-h-0 w-full overflow-hidden grid-cols-[minmax(0,1fr)] ${
+        openResource
+          ? 'min-[960px]:grid-cols-[minmax(0,1.03fr)_minmax(0,1.97fr)] min-[960px]:gap-x-6'
+          : 'min-[960px]:grid-cols-[minmax(0,1fr)_0fr] min-[960px]:gap-x-0'
+      }`}
+      style={{
+        transitionProperty: 'grid-template-columns, column-gap',
+        transitionDuration: '500ms',
+        transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)',
+      }}
+    >
       <div
-        className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col transition-[margin-right] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+        className={`relative flex h-full min-h-0 min-w-0 w-full ${
+          thinkingMessage ? 'min-[1024px]:w-[calc(100%_-_428px)]' : ''
+        } flex-col transition-[margin-right,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
           thinkingMessage ? 'min-[1024px]:mr-[428px]' : 'mr-0'
         }`}
       >
@@ -1409,12 +1698,15 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         style={{ scrollbarGutter: 'stable' }}
       >
         <motion.div
-          initial={shouldAnimateFirstPromptEntrance ? { opacity: 0, y: 200 } : false}
-          animate={{ opacity: 1, y: 0 }}
+          initial={shouldAnimateFirstPromptEntrance ? { y: 200 } : false}
+          animate={{ y: 0 }}
           transition={shouldAnimateFirstPromptEntrance
             ? { duration: 0.5, ease: [0.2, 0, 0, 1] }
             : undefined}
-          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-20 transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+          onAnimationComplete={() => {
+            if (isFirstTurnEntranceActive) setIsFirstTurnEntranceActive(false);
+          }}
+          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-[72px] transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
             thinkingMessage ? 'min-[1024px]:pl-9' : ''
           }`}
           style={{
@@ -1453,6 +1745,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                         submitEdit(msg.id);
                       }}
                     >
+                      {!!msg.attachments?.length && (
+                        <div className="mb-2 flex w-full max-w-[516px] flex-nowrap justify-end gap-2 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {msg.attachments.map((attachment) => (
+                            <GeminiAttachmentCard
+                              key={attachment.id}
+                              attachment={attachment}
+                              variant="message"
+                              onOpen={() => { void handleOpenAttachment(attachment); }}
+                            />
+                          ))}
+                        </div>
+                      )}
                       <div className="relative ml-4 mr-2 rounded-[40px] px-7 py-5">
                         <div
                           aria-hidden="true"
@@ -1489,14 +1793,28 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                       </div>
                     </form>
                   ) : (
-                    <>
-                      <UserMessageBubble
-                        content={msg.content}
-                        isTranscribing={msg.isTranscribing}
-                        onToggleStart={handleUserBubbleToggleStart}
-                        onToggleEnd={handleUserBubbleToggleEnd}
-                      />
-                      {!msg.isTranscribing && (
+                    <div className="flex min-w-0 max-w-[516px] flex-col items-end">
+                      {!!msg.attachments?.length && (
+                        <div className={`flex w-full max-w-[516px] flex-nowrap justify-end gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${msg.content || msg.isTranscribing ? 'mb-2' : ''}`}>
+                          {msg.attachments.map((attachment) => (
+                            <GeminiAttachmentCard
+                              key={attachment.id}
+                              attachment={attachment}
+                              variant="message"
+                              onOpen={() => { void handleOpenAttachment(attachment); }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {(msg.content || msg.isTranscribing) && (
+                        <UserMessageBubble
+                          content={msg.content}
+                          isTranscribing={msg.isTranscribing}
+                          onToggleStart={handleUserBubbleToggleStart}
+                          onToggleEnd={handleUserBubbleToggleEnd}
+                        />
+                      )}
+                      {!msg.isTranscribing && !!msg.content && (
                         <>
                           <div
                             aria-hidden="true"
@@ -1521,7 +1839,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                                 className="relative z-10"
                               />
                             </button>
-                            {isLastUser && (
+                            {isLastUser && !!msg.content && (
                               <button
                                 type="button"
                                 onClick={() => startEditing(msg)}
@@ -1535,7 +1853,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                           </div>
                         </>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
               );
@@ -1584,9 +1902,9 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     minHeight/paddingBottom. Measured for the overflow check. */}
                 <div
                   ref={isLastAssistant ? lastAssistantContentRef : undefined}
-                  className="space-y-3"
+                  className={`w-full space-y-3 ${openResource ? 'ml-auto max-w-[476px]' : ''}`}
                 >
-                {showThinkingRow && (() => {
+                {showThinkingRow && !isFirstTurnEntranceActive && (() => {
                   const active = generating && isThinking;
                   const phaseSymbol =
                     active && thinkingPhase === 'searching' ? 'search'
@@ -1597,7 +1915,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     : thinkingPhase === 'executing' ? 'Running code'
                     : 'Thinking';
                   return (
-                    <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
+                      className="flex items-center gap-2.5"
+                      style={{ color: '#81888f' }}
+                    >
                       {thinkingPhase === 'thinking' ? (
                         <GeminiThinkingVisualizer />
                       ) : (
@@ -1610,7 +1934,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                       ) : (
                         <span className="text-[15.15px] font-medium">{phaseLabel}</span>
                       )}
-                    </div>
+                    </motion.div>
                   );
                 })()}
 
@@ -1619,6 +1943,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     text={bodyText}
                     isStreaming={generating}
                     animate={generating && !msg.isError}
+                    onOpenResource={handleOpenResource}
                   />
                 )}
 
@@ -1654,7 +1979,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                     onRedo={() => handleRegenerate(msg.id)}
                     onCopy={() => handleCopy(msg)}
                     onListen={() => handleListen(msg)}
-                    onShowThinking={() => setOpenThinkingMessageId(msg.id)}
+                    onShowThinking={() => handleOpenThinking(msg.id)}
                   />
                 </motion.div>
                 </div>
@@ -1666,11 +1991,8 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
 
       {/* Bottom-docked input (footer). h-8 gradient matches Staging so the gap
           action-row → input-top here == action-row → suggestions-top there. */}
-      <motion.div
+      <div
         ref={footerRef}
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', duration: 0.55, bounce: 0.15 }}
         className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center pointer-events-none"
       >
         <div
@@ -1682,30 +2004,41 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           }}
         />
         <div
-          className="w-full flex justify-center px-4 pb-[53px] pointer-events-auto bg-[var(--dashboard-surface)]"
+          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[var(--dashboard-surface)]"
         >
-          <InputBar
-            chatVariant
-            showDisclaimer
-            currentMode="chat"
-            onModeChange={() => {}}
-            onSubmit={(prompt) => {
-              // Typing + Enter while live implicitly ends the voice session and
-              // falls back to the regular typed path.
-              if (isLive) handleStopLive();
-              handleSend(prompt);
+          <motion.div
+            layoutId={CHAT_COMPOSER_LAYOUT_ID}
+            transition={{
+              layout: {
+                duration: 0.25,
+                ease: [0.2, 0, 0, 1] as const,
+              },
             }}
-            liveActive={isLive}
-            onStartLive={handleStartLive}
-            onStopLive={handleStopLive}
-            modelConfig={modelConfig}
-            selectedModelId={selectedModelId}
-            setSelectedModelId={setSelectedModelId}
-            onAuthRequired={onAuthRequired}
-            isAuthenticated={isAuthenticated}
-          />
+            className="w-full max-w-[660px]"
+          >
+            <InputBar
+              chatVariant
+              showDisclaimer
+              currentMode="chat"
+              onModeChange={() => {}}
+              onSubmit={(prompt, _mode, attachments) => {
+                // Typing + Enter while live implicitly ends the voice session and
+                // falls back to the regular typed path.
+                if (isLive) handleStopLive();
+                handleSend(prompt, undefined, attachments);
+              }}
+              liveActive={isLive}
+              onStartLive={handleStartLive}
+              onStopLive={handleStopLive}
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              onAuthRequired={onAuthRequired}
+              isAuthenticated={isAuthenticated}
+            />
+          </motion.div>
         </div>
-      </motion.div>
+      </div>
       </div>
 
       <AnimatePresence>
@@ -1718,7 +2051,18 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {openResource && (
+          <RichResourcePanel
+            key="willow-rich-resource-panel"
+            resource={openResource}
+            onClose={() => setOpenResource(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+    </LayoutGroup>
   );
 };
 

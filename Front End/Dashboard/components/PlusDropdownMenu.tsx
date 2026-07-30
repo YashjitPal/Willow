@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { 
   Paperclip, Image as ImageIcon, Lightbulb, Telescope, MoreHorizontal, 
-  ChevronRight, Globe, BookOpen, SquarePen, Github, Copy, ImagePlus
+  ChevronRight, Globe, BookOpen, SquarePen, Copy, ImagePlus
 } from 'lucide-react';
 import { MaterialSymbol } from './ui/MaterialSymbol';
 
@@ -18,7 +18,6 @@ const GEMINI_TOOL_SYMBOLS: Record<string, string> = {
   'Web search': 'language',
   'Study and learn': 'school',
   Canvas: 'draw',
-  GitHub: 'code',
   Quizzes: 'quiz',
 };
 
@@ -26,19 +25,23 @@ export const PlusDropdownMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onFileSelect: () => void;
+  onImportCode?: () => void;
   buttonRef: React.RefObject<HTMLButtonElement>;
   onToolSelect: (toolId: string) => void;
   geminiStyle?: boolean;
-}> = ({ isOpen, onClose, onFileSelect, buttonRef, onToolSelect, geminiStyle = false }) => {
+}> = ({ isOpen, onClose, onFileSelect, onImportCode, buttonRef, onToolSelect, geminiStyle = false }) => {
   const [isMoreHovered, setIsMoreHovered] = useState(false);
+  const [isMoreUploadsHovered, setIsMoreUploadsHovered] = useState(false);
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const menuRef = useRef<HTMLDivElement>(null);
   const moreMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const moreUploadsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Reset submenu state when the main menu closes
   useEffect(() => {
     if (!isOpen) {
       setIsMoreHovered(false);
+      setIsMoreUploadsHovered(false);
     }
   }, [isOpen]);
 
@@ -91,7 +94,10 @@ export const PlusDropdownMenu: React.FC<{
         }
       }}
       onMouseEnter={() => {
-        if (closeSubmenu) setIsMoreHovered(false);
+        if (closeSubmenu) {
+          setIsMoreHovered(false);
+          setIsMoreUploadsHovered(false);
+        }
       }}
       className={geminiStyle
         ? "w-full h-9 flex items-center gap-2 px-2 rounded-xl hover:bg-[#333537] cursor-pointer text-left transition-colors"
@@ -110,7 +116,20 @@ export const PlusDropdownMenu: React.FC<{
 
   const handleMoreEnter = () => {
     if (moreMenuTimeoutRef.current) clearTimeout(moreMenuTimeoutRef.current);
+    setIsMoreUploadsHovered(false);
     setIsMoreHovered(true);
+  };
+
+  const handleMoreUploadsEnter = () => {
+    if (moreUploadsTimeoutRef.current) clearTimeout(moreUploadsTimeoutRef.current);
+    setIsMoreHovered(false);
+    setIsMoreUploadsHovered(true);
+  };
+
+  const handleMoreUploadsLeave = () => {
+    moreUploadsTimeoutRef.current = setTimeout(() => {
+      setIsMoreUploadsHovered(false);
+    }, 150);
   };
 
   const handleMoreLeave = () => {
@@ -130,7 +149,10 @@ export const PlusDropdownMenu: React.FC<{
     >
       <button
         onClick={() => { onFileSelect(); onClose(); }}
-        onMouseEnter={() => setIsMoreHovered(false)}
+        onMouseEnter={() => {
+          setIsMoreHovered(false);
+          setIsMoreUploadsHovered(false);
+        }}
         className={geminiStyle
           ? "w-full h-9 flex items-center gap-2 px-2 rounded-xl hover:bg-[#333537] cursor-pointer text-left transition-colors"
           : "w-[calc(100%-12px)] flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer text-left"}
@@ -142,6 +164,61 @@ export const PlusDropdownMenu: React.FC<{
           {geminiStyle ? 'Upload files' : 'Add photos & files'}
         </span>
       </button>
+
+      {onImportCode && <div
+        className="relative"
+        onMouseEnter={handleMoreUploadsEnter}
+        onMouseLeave={handleMoreUploadsLeave}
+      >
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={isMoreUploadsHovered}
+          onClick={() => setIsMoreUploadsHovered(true)}
+          className={`${geminiStyle ? 'h-9 w-full px-2 rounded-xl' : 'w-[calc(100%-12px)] px-3 py-2 mx-1.5 rounded-lg'} flex items-center justify-between cursor-pointer transition-colors ${isMoreUploadsHovered ? (geminiStyle ? 'bg-[#333537]' : 'bg-white/10') : (geminiStyle ? 'hover:bg-[#333537]' : 'hover:bg-white/10')}`}
+        >
+          <div className={`flex items-center ${geminiStyle ? 'gap-2' : 'gap-3'}`}>
+            {geminiStyle
+              ? <MaterialSymbol name="more_horiz" className="text-[#e6e6e6]" />
+              : <MoreHorizontal size={20} className="text-[#e6e6e6]" strokeWidth={1.6} />}
+            <span className={`${geminiStyle ? "text-[13px] leading-[17px] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]" : 'text-[14.5px]'} text-[#e6e6e6] font-normal`}>
+              More uploads
+            </span>
+          </div>
+          {geminiStyle
+            ? <MaterialSymbol name="chevron_right" className="text-[#c4c7c5]" />
+            : <ChevronRight size={16} className="text-[#c4c7c5]" strokeWidth={2} />}
+        </button>
+
+        {isMoreUploadsHovered && (
+          <div
+            className={`absolute ${
+              side === 'top' ? 'bottom-[-8px]' : 'top-[-8px]'
+            } left-[calc(100%+4px)] z-[110] ${geminiStyle ? 'w-[233px] bg-[#1f1f1f] rounded-[20px] shadow-[0_0_20px_rgba(0,0,0,0.28)] p-2 max-sm:left-0 max-sm:top-auto max-sm:bottom-[calc(100%+4px)]' : 'w-[200px] bg-[#2f2f2f] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] py-2 border border-white/5'}`}
+            role="menu"
+            aria-label="More upload options"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onImportCode();
+                onClose();
+              }}
+              className={geminiStyle
+                ? "w-full h-9 flex items-center gap-2 px-2 rounded-xl hover:bg-[#333537] cursor-pointer text-left transition-colors"
+                : "w-[calc(100%-12px)] flex items-center gap-3 px-3 py-2 mx-1.5 rounded-lg hover:bg-white/10 cursor-pointer text-left"}
+            >
+              {geminiStyle
+                ? <MaterialSymbol name="code" className="text-[#e6e6e6]" />
+                : <MaterialSymbol name="code" size={20} className="text-[#e6e6e6]" />}
+              <span className={`${geminiStyle ? "text-[13px] leading-[17px] font-['Google_Sans_Flex','Google_Sans','Inter',sans-serif]" : 'text-[14.5px]'} text-[#e6e6e6] font-normal`}>
+                Import code
+              </span>
+            </button>
+          </div>
+        )}
+      </div>}
       
       <div className={`${geminiStyle ? 'h-px bg-[#444746] mx-2 my-2' : 'h-[1px] bg-white/10 mx-3 my-1.5'}`} role="separator" />
       
@@ -185,7 +262,6 @@ export const PlusDropdownMenu: React.FC<{
             <MenuItem icon={Globe} label="Web search" toolId="web" />
             <MenuItem icon={BookOpen} label="Study and learn" toolId="learn" />
             <MenuItem icon={SquarePen} label="Canvas" toolId="canvas" />
-            <MenuItem icon={Github} label="GitHub" toolId="github" />
             <MenuItem icon={Copy} label="Quizzes" toolId="quizzes" />
             <MenuItem icon={SpotifyIcon} label="Spotify" toolId="spotify" />
           </div>

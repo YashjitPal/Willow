@@ -7,6 +7,7 @@ export interface Attachment {
   mimeType: string;
   data: string; // base64 for image, text content for text
   name?: string;
+  size?: number;
 }
 
 export interface ChatMessage {
@@ -194,16 +195,45 @@ async function uploadToGeminiFiles(
   }
 
   const result = await uploadResponse.json();
-  const fileUri = result.file?.uri;
+  let uploadedFile = result.file;
+  const fileUri = uploadedFile?.uri;
   if (!fileUri) {
     throw new Error('No file URI in Gemini Files API response');
+  }
+
+  // Audio/video and larger documents can remain PROCESSING briefly after the
+  // upload request finishes. Gemini rejects them until the file becomes ACTIVE.
+  const startedAt = Date.now();
+  while (uploadedFile?.state === 'PROCESSING') {
+    if (Date.now() - startedAt > 2 * 60 * 1000) {
+      throw new Error(`Gemini file processing timed out for ${displayName}`);
+    }
+    await waitWithAbort(800, signal);
+    const resourceName = uploadedFile.name;
+    if (!resourceName) break;
+    const statusResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${resourceName}?key=${apiKey}`,
+      { signal },
+    );
+    if (!statusResponse.ok) {
+      throw new Error(`Gemini file status failed: ${statusResponse.status}`);
+    }
+    uploadedFile = await statusResponse.json();
+  }
+  if (uploadedFile?.state === 'FAILED') {
+    throw new Error(`Gemini could not process ${displayName}`);
   }
 
   return fileUri;
 }
 
-async function resolveGeminiImagePart(apiKey: string, att: Attachment, signal?: AbortSignal): Promise<any> {
+async function resolveGeminiFilePart(apiKey: string, att: Attachment, signal?: AbortSignal): Promise<any> {
   throwIfAborted(signal);
+  if (att.type === 'text') {
+    const label = att.name || att.mimeType || 'text attachment';
+    return { text: `\n\n[Contents of ${label}]\n${att.data}` };
+  }
+  if (!att.data) throw new Error(`Attachment data is unavailable for ${att.name || att.mimeType}`);
   const fingerprint = getAttachmentFingerprint(att);
   const cachedUri = geminiFileCache.get(fingerprint);
 
@@ -212,12 +242,14 @@ async function resolveGeminiImagePart(apiKey: string, att: Attachment, signal?: 
   }
 
   try {
-    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'image', signal);
+    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'attachment', signal);
     geminiFileCache.set(fingerprint, fileUri);
     console.log(`[AI] Uploaded to Gemini Files: ${att.name} -> ${fileUri}`);
     return { fileData: { fileUri, mimeType: att.mimeType } };
   } catch (err) {
-    console.warn('[AI] Gemini Files upload failed, using inline:', err);
+    const approximateBytes = Math.floor(att.data.length * 0.75);
+    if (approximateBytes > 20 * 1024 * 1024) throw err;
+    console.warn('[AI] Gemini Files upload failed, using inline data:', err);
     return { inlineData: { mimeType: att.mimeType, data: att.data } };
   }
 }
@@ -830,11 +862,8 @@ Adhere to the following rules and guidelines:
               if (att.id || att.name) {
                 partsList.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
               }
-              partsList.push(await resolveGeminiImagePart(apiKey, att as any, signal));
-            } else {
-               const label = att.name || att.mimeType;
-               partsList[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
             }
+            partsList.push(await resolveGeminiFilePart(apiKey, att as any, signal));
           }
         }
         historyContents.push({
@@ -856,11 +885,8 @@ Adhere to the following rules and guidelines:
             if (att.id || att.name) {
               initialParts.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
             }
-            initialParts.push(await resolveGeminiImagePart(apiKey, att, signal));
-          } else {
-             const label = att.name || att.mimeType;
-             initialParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
           }
+          initialParts.push(await resolveGeminiFilePart(apiKey, att, signal));
         }
       }
     }
@@ -1078,9 +1104,12 @@ Adhere to the following rules and guidelines:
                         url: `data:${att.mimeType};base64,${att.data}`
                     }
                 });
+            } else if (att.type === 'text') {
+                const label = att.name || att.mimeType;
+                contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
             } else {
                 const label = att.name || att.mimeType;
-                contentParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+                contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType})]`;
             }
         });
         return { role: m.role, content: contentParts };
@@ -1091,28 +1120,40 @@ Adhere to the following rules and guidelines:
         if (m.role === 'assistant' || (m.role as any) === 'model') {
             text = text.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
         }
-        const imageParts: any[] = [];
+        const attachmentParts: any[] = [];
 
         m.attachments?.forEach(att => {
             if (att.type === 'image') {
-                imageParts.push({
+                attachmentParts.push({
                     type: "input_image",
                     image_url: `data:${att.mimeType};base64,${att.data}`,
                     detail: "auto",
                 });
+            } else if (att.type === 'text') {
+                const label = att.name || att.mimeType;
+                text += `\n\n[Contents of ${label}]\n${att.data}`;
+            } else if (
+                att.mimeType === 'application/pdf'
+                || /word|document|spreadsheet|excel|presentation|powerpoint|csv|rtf|epub/i.test(att.mimeType)
+            ) {
+                attachmentParts.push({
+                    type: "input_file",
+                    filename: att.name || 'attachment',
+                    file_data: `data:${att.mimeType};base64,${att.data}`,
+                });
             } else {
                 const label = att.name || att.mimeType;
-                text += `\n\n[Attachment: ${label}]\n${att.data}`;
+                text += `\n\n[Attached file: ${label} (${att.mimeType}). This model endpoint cannot directly inspect this media format.]`;
             }
         });
 
-        if (imageParts.length === 0) {
+        if (attachmentParts.length === 0) {
             return { role: m.role, content: text };
         }
 
         return {
             role: m.role,
-            content: [{ type: "input_text", text }, ...imageParts],
+            content: [{ type: "input_text", text }, ...attachmentParts],
         };
     });
 
@@ -1125,13 +1166,21 @@ Adhere to the following rules and guidelines:
       reasoning_effort: reasoningEffort,
     } as any;
 
-    if (model === "gpt-5.5-pro") {
+    const hasOpenAIFileInput = messages.some((message) => message.attachments?.some((attachment) => (
+      attachment.type === 'file'
+      && (
+        attachment.mimeType === 'application/pdf'
+        || /word|document|spreadsheet|excel|presentation|powerpoint|csv|rtf|epub/i.test(attachment.mimeType)
+      )
+    )));
+
+    if (model === "gpt-5.5-pro" || hasOpenAIFileInput) {
       let response = await openai.responses.create({
         model,
         input: responseInput,
         ...(systemPrompt ? { instructions: systemPrompt } : {}),
         reasoning: { effort: reasoningEffort },
-        background: true,
+        ...(model === "gpt-5.5-pro" ? { background: true } : {}),
       } as any, signal ? { signal } : undefined);
 
       const startedAt = Date.now();
@@ -1139,7 +1188,7 @@ Adhere to the following rules and guidelines:
       while (response.status === "queued" || response.status === "in_progress") {
         throwIfAborted(signal);
         if (Date.now() - startedAt > maxWaitMs) {
-          throw new Error("GPT 5.5 Pro background response timed out.");
+          throw new Error(`${model} file response timed out.`);
         }
 
         await waitWithAbort(2000, signal);
@@ -1148,7 +1197,7 @@ Adhere to the following rules and guidelines:
 
       if (response.status !== "completed") {
         const message = response.error?.message || response.incomplete_details?.reason || response.status;
-        throw new Error(`GPT 5.5 Pro response did not complete: ${message}`);
+        throw new Error(`${model} response did not complete: ${message}`);
       }
 
       const content = response.output_text || "";
@@ -1204,8 +1253,21 @@ Adhere to the following rules and guidelines:
                         data: att.data
                     }
                 });
+            } else if (att.type === 'text') {
+                 const label = att.name || att.mimeType;
+                 contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
+            } else if (att.mimeType === 'application/pdf') {
+                 contentParts.push({
+                   type: "document",
+                   source: {
+                     type: "base64",
+                     media_type: "application/pdf",
+                     data: att.data,
+                   },
+                 });
             } else {
-                 contentParts[0].text += `\n\n[Attachment: ${att.mimeType}]\n${att.data}`;
+                 const label = att.name || att.mimeType;
+                 contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType}). This Anthropic endpoint cannot directly inspect this media format.]`;
             }
         });
         return { role: m.role, content: contentParts };
@@ -1281,9 +1343,12 @@ Adhere to the following rules and guidelines:
                         url: `data:${att.mimeType};base64,${att.data}`
                     }
                 });
+            } else if (att.type === 'text') {
+                const label = att.name || att.mimeType;
+                contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
             } else {
                 const label = att.name || att.mimeType;
-                contentParts[0].text += `\n\n[Attachment: ${label}]\n${att.data}`;
+                contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType}). This compatible chat endpoint cannot directly inspect the binary contents.]`;
             }
         });
         return { role: m.role, content: contentParts };

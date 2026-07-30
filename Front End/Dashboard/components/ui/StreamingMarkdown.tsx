@@ -8,6 +8,11 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import 'katex/dist/katex.min.css';
 import { MaterialSymbol } from './MaterialSymbol';
+import {
+  RichResource,
+  RichResourceGroup,
+  resourceFromUrl,
+} from './RichResourcePreview';
 
 const STYLE_ID = 'streaming-markdown-styles';
 const STREAM_FADE_MS = 400;
@@ -50,6 +55,7 @@ const STYLE_CSS = [
   '.smd-streaming .smd-svg-preview-block,',
   '.smd-streaming .smd-table-block,',
   '.smd-streaming .smd-media-gallery,',
+  '.smd-streaming .smd-rich-resource-group,',
   '.smd-streaming .smd-math-display {',
   '  animation-duration: var(--animation-duration);',
   '  animation-fill-mode: forwards;',
@@ -80,6 +86,7 @@ const STYLE_CSS = [
   '  text-underline-offset: 3.91px;',
   '}',
   '.smd-link:hover { color: #ffffff; text-decoration-color: #ffffff; }',
+  '.smd-rich-resource-group { margin: 32px 0; white-space: normal; }',
   '.smd-inline-code {',
   '  display: inline;',
   '  border-radius: 9999px;',
@@ -971,6 +978,7 @@ interface RenderContext {
   source: string;
   settledBefore: number;
   mediaItems?: any[];
+  onOpenResource?: (resource: RichResource) => void;
   definitions: Map<string, DefinitionRecord>;
   footnoteNumbers: Map<string, number>;
   variant: 'w' | 'h';
@@ -1229,6 +1237,7 @@ function renderInlineNode(node: any, context: RenderContext, index: number): Rea
     case 'link': {
       const href = safeHref(node.url);
       const children = renderInlineNodes(node.children || [], context);
+      const resource = href ? resourceFromUrl(href, nodeText(node)) : null;
       return href ? (
         <a
           key={key}
@@ -1237,6 +1246,10 @@ function renderInlineNode(node: any, context: RenderContext, index: number): Rea
           title={node.title}
           target={href.startsWith('#') ? undefined : '_blank'}
           rel={href.startsWith('#') ? undefined : 'noopener noreferrer'}
+          onClick={resource && context.onOpenResource ? (event) => {
+            event.preventDefault();
+            context.onOpenResource?.(resource);
+          } : undefined}
         >
           {children}
         </a>
@@ -1248,6 +1261,7 @@ function renderInlineNode(node: any, context: RenderContext, index: number): Rea
       const definition = definitionFor(node, context);
       const href = safeHref(definition?.url);
       const children = renderInlineNodes(node.children || [], context);
+      const resource = href ? resourceFromUrl(href, nodeText(node)) : null;
       return href ? (
         <a
           key={key}
@@ -1256,6 +1270,10 @@ function renderInlineNode(node: any, context: RenderContext, index: number): Rea
           title={definition?.title}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={resource && context.onOpenResource ? (event) => {
+            event.preventDefault();
+            context.onOpenResource?.(resource);
+          } : undefined}
         >
           {children}
         </a>
@@ -1312,6 +1330,29 @@ function nodeText(node: any): string {
   if (node.type === 'image' || node.type === 'imageReference') return node.alt || '';
   if (!Array.isArray(node.children)) return '';
   return node.children.map(nodeText).join('');
+}
+
+function richResourcesInNode(node: any, context: RenderContext): RichResource[] {
+  if (!context.onOpenResource) return [];
+  const resources: RichResource[] = [];
+  const seen = new Set<string>();
+
+  const visit = (candidate: any) => {
+    if (!candidate) return;
+    if (candidate.type === 'link' || candidate.type === 'linkReference') {
+      const definition = candidate.type === 'linkReference' ? definitionFor(candidate, context) : undefined;
+      const href = safeHref(candidate.url || definition?.url);
+      const resource = href ? resourceFromUrl(href, nodeText(candidate)) : null;
+      if (resource && !seen.has(resource.url)) {
+        seen.add(resource.url);
+        resources.push(resource);
+      }
+    }
+    for (const child of candidate.children || []) visit(child);
+  };
+
+  visit(node);
+  return resources;
 }
 
 function TableBlock({
@@ -1491,6 +1532,7 @@ function isDisplayDelimitedMath(node: any, context: RenderContext): boolean {
 function renderParagraphNode(node: any, context: RenderContext, key: string): React.ReactNode {
   const children = node.children || [];
   const blocks: React.ReactNode[] = [];
+  const richResources = richResourcesInNode(node, context);
   let inlineNodes: any[] = [];
   let skipLeadingWhitespace = false;
 
@@ -1530,8 +1572,21 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
   });
 
   flushInline();
-  if (blocks.length === 1) return blocks[0];
-  return <React.Fragment key={key}>{blocks}</React.Fragment>;
+  const paragraph = blocks.length === 1
+    ? blocks[0]
+    : <React.Fragment key={key}>{blocks}</React.Fragment>;
+  if (!richResources.length || !context.onOpenResource) return paragraph;
+  const firstStart = offsetOf(node);
+  return (
+    <React.Fragment key={key}>
+      {paragraph}
+      <RichResourceGroup
+        resources={richResources}
+        onOpen={context.onOpenResource}
+        settled={firstStart < context.settledBefore}
+      />
+    </React.Fragment>
+  );
 }
 
 function renderBlockNode(node: any, context: RenderContext, index: number): React.ReactNode {
@@ -2003,6 +2058,7 @@ export interface StreamingMarkdownProps {
   animate?: boolean;
   className?: string;
   mediaItems?: any[];
+  onOpenResource?: (resource: RichResource) => void;
 }
 
 export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
@@ -2012,6 +2068,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     animate = true,
     className = '',
     mediaItems,
+    onOpenResource,
   }) {
     useInjectStyles();
 
@@ -2061,6 +2118,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       source: shown,
       settledBefore,
       mediaItems,
+      onOpenResource,
       definitions,
       footnoteNumbers,
       variant: 'w',

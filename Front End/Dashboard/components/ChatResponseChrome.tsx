@@ -347,7 +347,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               >
                 {block.title && (
                   <h3
-                    className="text-[15px] font-bold leading-5 text-[#e6e6e6]"
+                    className="text-[15px] font-normal leading-5 text-[#e6e6e6]"
                     style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' }}
                   >
                     {block.title}
