@@ -472,6 +472,7 @@ const App: React.FC = () => {
     systemDefaults: {
       chatRenaming: 'gemini-3.1-flash-lite',
       computerUse: 'claude-sonnet-4.5',
+      transcription: 'gemini-3.5-flash-lite',
     }
   };
 
@@ -826,6 +827,8 @@ const App: React.FC = () => {
                     onOpenDriveSettings={openDriveSettings}
                     isIncognito={isIncognito}
                     onChatStartedChange={setHasActiveChat}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    onCollapseSidebar={() => setIsSidebarCollapsed(true)}
                   />
                 ) : dashboardMode === 'media' ? (
                   <div className="flex flex-col min-h-full" key="media">

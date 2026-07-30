@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { PlusDropdownMenu } from './PlusDropdownMenu';
-import { GeminiLiveSession, primeLiveChimes, playLiveChime } from '../lib/live';
 import { useUserDataContext } from '../context/UserDataContext';
 import { MaterialSymbol } from './ui/MaterialSymbol';
+import { GeminiAttachmentCard } from './ui/GeminiAttachmentCard';
+import { GithubImportDialog } from './GithubImportDialog';
 import './InputBar.css';
+import { transcribeRecordedAudio } from '../lib/transcription';
+import { ComposerAttachment, createComposerAttachment } from '../lib/chatAttachments';
 import {
   getModelGroupKey,
   getThinkingEffortLabel,
@@ -31,7 +34,6 @@ import {
   Telescope,
   BookOpen,
   SquarePen,
-  Github,
   Copy,
   Check,
 } from "lucide-react";
@@ -42,7 +44,7 @@ const SpotifyIcon = ({ size = 20, className = "" }: { size?: number, className?:
   </svg>
 );
 
-type ToolId = 'thinking' | 'images' | 'research' | 'web' | 'learn' | 'canvas' | 'github' | 'quizzes' | 'spotify';
+type ToolId = 'thinking' | 'images' | 'research' | 'web' | 'learn' | 'canvas' | 'quizzes' | 'spotify';
 
 interface ToolMetadata {
   id: ToolId;
@@ -58,7 +60,6 @@ const TOOLS: Record<ToolId, ToolMetadata> = {
   web: { id: 'web', label: 'Web search', chipLabel: 'Search', icon: Globe },
   learn: { id: 'learn', label: 'Study and learn', chipLabel: 'Learn', icon: BookOpen },
   canvas: { id: 'canvas', label: 'Canvas', chipLabel: 'Canvas', icon: SquarePen },
-  github: { id: 'github', label: 'GitHub', chipLabel: 'GitHub', icon: Github },
   quizzes: { id: 'quizzes', label: 'Quizzes', chipLabel: 'Quizzes', icon: Copy },
   spotify: { id: 'spotify', label: 'Spotify', chipLabel: 'Spotify', icon: SpotifyIcon as any },
 };
@@ -70,18 +71,10 @@ const TOOL_SYMBOLS: Partial<Record<ToolId, string>> = {
   web: 'language',
   learn: 'school',
   canvas: 'draw',
-  github: 'code',
   quizzes: 'quiz',
 };
 
-export interface Attachment {
-  id: string;
-  type: 'image' | 'file';
-  url: string;
-  name: string;
-  extension: string;
-  file: File;
-}
+export type Attachment = ComposerAttachment;
 import { useBackground } from "../context/BackgroundContext";
 
 const ModelIcon = ({ size = 18, ...props }: any) => (
@@ -145,88 +138,227 @@ const MODES: ModeOption[] = [
 
 type PickerModel = ModelEffortRecord;
 
-const DICTATION_WAVE_BARS = Array.from({ length: 72 }, (_, index) => {
-  const distance = Math.abs(index - 35.5) / 35.5;
-  return {
-    scale: 1.1 + (1 - distance) * 3.2 + ((index * 17) % 7) * 0.18,
-    delay: -((index * 37) % 760),
-    duration: 720 + ((index * 53) % 360),
-  };
-});
+const DICTATION_WAVE_MIN_HEIGHT = 4;
+const DICTATION_WAVE_BAR_PITCH = 7;
 
-const DictationWaveform = () => {
-  const [audioLevel, setAudioLevel] = React.useState(0.2);
-  const animFrameRef = React.useRef<number | null>(null);
+const getDictationWaveHeight = (canvasHeight: number, normalizedLevel: number) => {
+  const threeQuarterHeight = canvasHeight * 0.75;
 
-  React.useEffect(() => {
+  if (normalizedLevel <= 0.1) return DICTATION_WAVE_MIN_HEIGHT;
+  if (normalizedLevel < 0.75) {
+    return DICTATION_WAVE_MIN_HEIGHT
+      + ((normalizedLevel - 0.1) / 0.65)
+      * (threeQuarterHeight - DICTATION_WAVE_MIN_HEIGHT);
+  }
+
+  return threeQuarterHeight
+    + ((normalizedLevel - 0.75) / 0.25)
+    * (canvasHeight - threeQuarterHeight);
+};
+
+const drawDictationWaveBar = (
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  height: number,
+  color: string,
+) => {
+  context.fillStyle = color;
+
+  const x = centerX - 0.5;
+  const y = centerY - height / 2;
+  const width = 1;
+  const radius = Math.min(0.5, height / 2);
+
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
+  context.fill();
+};
+
+const DictationWaveform = ({ stream }: { stream: MediaStream | null }) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!container || !canvas || !context) return;
+
+    let disposed = false;
+    let animationFrame = 0;
+    let sampleTimer = 0;
     let audioCtx: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
-    let stream: MediaStream | null = null;
+    let audioSamples: Float32Array | null = null;
+
+    let barsPerSide = 0;
+    let targetHistory: number[] = [];
+    let renderedHeights: number[] = [];
+    let queuedLevels: number[] = [];
+    let lastLevel = 0;
+    let missedLevelUpdates = 0;
+    let lastHistoryUpdate = 0;
+    let audioMeterReady = false;
+    const visualizerStartedAt = performance.now();
+
+    const resizeCanvas = (width: number, height: number) => {
+      const sideInset = window.matchMedia('(max-width: 767px)').matches ? 24 : 48;
+      const nextWidth = Math.max(3, Math.floor(width - sideInset * 2));
+      const nextHeight = Math.max(1, Math.floor(height || 24));
+      const nextBarsPerSide = Math.floor(nextWidth / 2 / DICTATION_WAVE_BAR_PITCH);
+      const dimensionsChanged = canvas.width !== nextWidth || canvas.height !== nextHeight;
+      const waveBuffersMissing = targetHistory.length !== nextBarsPerSide + 1
+        || renderedHeights.length !== nextBarsPerSide * 2 + 1;
+
+      if (!dimensionsChanged && !waveBuffersMissing) return;
+
+      if (dimensionsChanged) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+      }
+      barsPerSide = nextBarsPerSide;
+      targetHistory = Array(barsPerSide + 1).fill(DICTATION_WAVE_MIN_HEIGHT);
+      renderedHeights = Array(barsPerSide * 2 + 1).fill(DICTATION_WAVE_MIN_HEIGHT);
+    };
+
+    const initialRect = container.getBoundingClientRect();
+    resizeCanvas(initialRect.width || 200, initialRect.height || 24);
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            resizeCanvas(entry.contentRect.width, entry.contentRect.height);
+          }
+        })
+      : null;
+    resizeObserver?.observe(container);
+
+    const sampleAudio = () => {
+      if (!analyser || !audioSamples) return;
+
+      analyser.getFloatTimeDomainData(audioSamples);
+      let sumOfSquares = 0;
+      for (let index = 0; index < audioSamples.length; index += 1) {
+        const sample = audioSamples[index];
+        sumOfSquares += sample * sample;
+      }
+
+      queuedLevels.push(Math.sqrt(sumOfSquares / audioSamples.length));
+    };
+
+    const updateWaveHistory = (now: number) => {
+      let level: number;
+
+      if (queuedLevels.length > 0) {
+        level = queuedLevels.shift() ?? 0;
+        lastLevel = level;
+        missedLevelUpdates = 0;
+      } else if (!audioMeterReady) {
+        // The browser can take a moment to initialize its analyser after the
+        // microphone stream is acquired. Gemini still renders
+        // its butterfly immediately, so keep a quiet living waveform on screen
+        // during that warm-up rather than showing an apparently blank state.
+        const elapsed = (now - visualizerStartedAt) / 1000;
+        level = 0.022
+          + Math.max(0, Math.sin(elapsed * 3.1)) * 0.012
+          + Math.max(0, Math.sin(elapsed * 5.7 + 1.2)) * 0.006;
+      } else {
+        missedLevelUpdates += 1;
+        level = missedLevelUpdates <= 3 ? lastLevel : 0;
+      }
+
+      const centerHeight = level > 0
+        ? getDictationWaveHeight(
+            canvas.height,
+            Math.min(1, Math.max(0, level * 15)),
+          )
+        : DICTATION_WAVE_MIN_HEIGHT;
+
+      targetHistory = [centerHeight, ...targetHistory];
+      if (targetHistory.length > barsPerSide + 1) targetHistory.pop();
+    };
+
+    const render = (now: number) => {
+      if (disposed) return;
+
+      if (now - lastHistoryUpdate >= 30) {
+        updateWaveHistory(now);
+        lastHistoryUpdate = now;
+      }
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+
+      const centerY = canvas.height / 2;
+      const barCount = barsPerSide * 2 + 1;
+      const occupiedWidth = barCount + (barCount - 1) * 6;
+      const startX = (canvas.width - occupiedWidth) / 2 + 0.5;
+      const color = getComputedStyle(canvas)
+        .getPropertyValue('--willow-dictation-wave-color')
+        .trim() || '#e0e0e0';
+
+      for (let index = 0; index < barCount; index += 1) {
+        const distanceFromCenter = Math.abs(index - barsPerSide);
+        const targetHeight = Math.max(
+          DICTATION_WAVE_MIN_HEIGHT,
+          (targetHistory[distanceFromCenter] || DICTATION_WAVE_MIN_HEIGHT)
+            * (1 - distanceFromCenter / (barsPerSide + 1)),
+        );
+
+        renderedHeights[index] += (targetHeight - renderedHeights[index]) * 0.25;
+        drawDictationWaveBar(
+          context,
+          startX + index * DICTATION_WAVE_BAR_PITCH,
+          centerY,
+          renderedHeights[index],
+          color,
+        );
+      }
+
+      animationFrame = requestAnimationFrame(render);
+    };
 
     async function initAudio() {
+      if (!stream) return;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64;
-        analyser.smoothingTimeConstant = 0.4;
+        analyser.fftSize = 1024;
         const source = audioCtx.createMediaStreamSource(stream);
         source.connect(analyser);
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        const update = () => {
-          if (!analyser) return;
-          analyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
-          }
-          const avg = sum / dataArray.length;
-          const norm = Math.min(1, Math.max(0.02, avg / 60));
-          setAudioLevel((prev) => prev * 0.4 + norm * 0.6);
-          animFrameRef.current = requestAnimationFrame(update);
-        };
-        update();
+        audioSamples = new Float32Array(analyser.fftSize);
+        await audioCtx.resume().catch(() => undefined);
+        audioMeterReady = true;
       } catch {
-        let phase = 0;
-        const fallbackLoop = () => {
-          phase += 0.12;
-          setAudioLevel(0.25 + Math.sin(phase) * 0.2 + Math.cos(phase * 1.7) * 0.15);
-          animFrameRef.current = requestAnimationFrame(fallbackLoop);
-        };
-        fallbackLoop();
+        // Keep the immediate low-amplitude butterfly when metering is unavailable.
       }
     }
 
+    sampleTimer = window.setInterval(sampleAudio, 50);
+    animationFrame = requestAnimationFrame(render);
     initAudio();
 
     return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-      if (audioCtx) audioCtx.close();
+      disposed = true;
+      cancelAnimationFrame(animationFrame);
+      window.clearInterval(sampleTimer);
+      resizeObserver?.disconnect();
+      if (audioCtx) void audioCtx.close();
     };
-  }, []);
+  }, [stream]);
 
   return (
-    <div className="h-6 w-full flex items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
-      {DICTATION_WAVE_BARS.map((_, index) => {
-        const total = DICTATION_WAVE_BARS.length;
-        const distFromCenter = Math.abs(index - total / 2) / (total / 2);
-        const envelope = Math.pow(Math.cos(distFromCenter * (Math.PI / 2)), 0.7);
-        const voiceExpansion = 0.12 + envelope * (0.2 + audioLevel * 1.5);
-
-        return (
-          <span
-            key={index}
-            className="block h-[18px] w-[2px] shrink-0 rounded-full bg-[#c4c7c5] transition-transform duration-75 origin-center"
-            style={{
-              transform: `scaleY(${Math.max(0.1, voiceExpansion).toFixed(3)})`,
-              opacity: Math.min(1, 0.45 + voiceExpansion * 0.55),
-            }}
-          />
-        );
-      })}
+    <div
+      ref={containerRef}
+      className="willow-butterfly-wave-view entering-dictation"
+      aria-hidden="true"
+    >
+      <canvas ref={canvasRef} className="willow-butterfly-wave-canvas" />
     </div>
   );
 };
@@ -871,144 +1003,298 @@ export const InputBar: React.FC<{
   const [canMaximizeComposer, setCanMaximizeComposer] = useState(false);
   const [collapsedChatPaddingRight, setCollapsedChatPaddingRight] = useState(204);
   const { apiKeys } = useUserDataContext();
-  const [isDictating, setIsDictating] = useState(false);
+  const [dictationPhase, setDictationPhaseState] = useState<'idle' | 'recording' | 'processing' | 'revealing'>('idle');
+  const [dictationStream, setDictationStream] = useState<MediaStream | null>(null);
+  const [dictationPlaceholder, setDictationPlaceholder] = useState<string | null>(null);
   const [isMicRippling, setIsMicRippling] = useState(false);
-  const [isExitingDictation, setIsExitingDictation] = useState(false);
-  const dictationSessionRef = useRef<GeminiLiveSession | null>(null);
   const dictationPrevPromptRef = useRef<string>("");
+  const dictationSelectionRef = useRef({ start: 0, end: 0 });
+  const dictationPhaseRef = useRef(dictationPhase);
+  const dictationRequestIdRef = useRef(0);
+  const dictationRecorderRef = useRef<MediaRecorder | null>(null);
+  const dictationStreamRef = useRef<MediaStream | null>(null);
+  const dictationAbortRef = useRef<AbortController | null>(null);
+  const dictationRevealTimerRef = useRef<number | null>(null);
+  const dictationPlaceholderTimerRef = useRef<number | null>(null);
   const promptTextRef = useRef(promptText);
+  const isDictating = dictationPhase === 'recording';
+  const isTranscribingDictation = dictationPhase === 'processing';
+  const isDictationActive = isDictating || isTranscribingDictation;
+  const isExitingDictation = dictationPhase === 'revealing';
+
+  const setDictationPhase = useCallback((phase: typeof dictationPhase) => {
+    dictationPhaseRef.current = phase;
+    setDictationPhaseState(phase);
+  }, []);
 
   useEffect(() => {
     promptTextRef.current = promptText;
   }, [promptText]);
 
-  useEffect(() => {
-    return () => {
-      dictationSessionRef.current?.stop();
-    };
+  const releaseDictationStream = useCallback((stream?: MediaStream | null) => {
+    const targetStream = stream || dictationStreamRef.current;
+    targetStream?.getTracks().forEach((track) => track.stop());
+    if (!stream || dictationStreamRef.current === stream) {
+      dictationStreamRef.current = null;
+    }
+    setDictationStream((current) => current === targetStream ? null : current);
   }, []);
 
-  const speechRecognitionRef = useRef<any>(null);
+  const surfaceDictationError = useCallback((message: string) => {
+    console.warn('[Dictation]', message);
+    setDictationPlaceholder(message);
+    if (dictationPlaceholderTimerRef.current) {
+      window.clearTimeout(dictationPlaceholderTimerRef.current);
+    }
+    dictationPlaceholderTimerRef.current = window.setTimeout(() => {
+      setDictationPlaceholder(null);
+      dictationPlaceholderTimerRef.current = null;
+    }, 3200);
+  }, []);
 
-  const handleToggleDictation = () => {
-    setIsMicRippling(true);
-    setTimeout(() => setIsMicRippling(false), 400);
+  const revealDictationResult = useCallback((
+    requestId: number,
+    rawTranscript: string,
+    errorMessage?: string,
+  ) => {
+    if (dictationRequestIdRef.current !== requestId) return;
 
-    if (!isDictating && isComposerMaximized) {
-      setIsComposerMaximized(false);
+    dictationAbortRef.current = null;
+    const transcript = rawTranscript.trim();
+    const basePrompt = dictationPrevPromptRef.current;
+    const selectionStart = Math.max(0, Math.min(dictationSelectionRef.current.start, basePrompt.length));
+    const selectionEnd = Math.max(selectionStart, Math.min(dictationSelectionRef.current.end, basePrompt.length));
+    let nextPrompt = basePrompt;
+    let nextCaret = selectionStart;
+
+    if (transcript) {
+      const before = basePrompt.slice(0, selectionStart);
+      const after = basePrompt.slice(selectionEnd);
+      const leadingSpace = before && !/\s$/.test(before) ? ' ' : '';
+      const trailingSpace = after && !/^\s/.test(after) ? ' ' : '';
+      nextPrompt = `${before}${leadingSpace}${transcript}${trailingSpace}${after}`;
+      nextCaret = before.length + leadingSpace.length + transcript.length;
+      promptTextRef.current = nextPrompt;
+      setPromptText(nextPrompt);
+      setDictationPlaceholder(null);
+    } else if (errorMessage) {
+      surfaceDictationError(errorMessage);
     }
 
-    if (isDictating) {
-      setIsExitingDictation(true);
-      setTimeout(() => setIsExitingDictation(false), 350);
+    setDictationPhase('revealing');
+    if (dictationRevealTimerRef.current) {
+      window.clearTimeout(dictationRevealTimerRef.current);
+    }
+    dictationRevealTimerRef.current = window.setTimeout(() => {
+      if (dictationRequestIdRef.current !== requestId) return;
+      setDictationPhase('idle');
+      dictationRevealTimerRef.current = null;
+    }, 350);
 
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch {}
-        speechRecognitionRef.current = null;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(nextCaret, nextCaret);
+      });
+    });
+  }, [setDictationPhase, surfaceDictationError]);
+
+  const stopDictationRecording = useCallback(() => {
+    if (dictationPhaseRef.current !== 'recording') return;
+    setDictationPhase('processing');
+
+    const recorder = dictationRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop();
+        return;
+      } catch {
+        // Fall through to the empty-result recovery below.
       }
-      dictationSessionRef.current?.stop();
-      dictationSessionRef.current = null;
-      setIsDictating(false);
-    } else {
-      setIsModelsOpen(false);
-      setIsPlusMenuOpen(false);
-      setIsDictating(true);
-      dictationPrevPromptRef.current = promptText;
+    }
 
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    releaseDictationStream();
+    revealDictationResult(
+      dictationRequestIdRef.current,
+      '',
+      "Didn't catch that. Try speaking again.",
+    );
+  }, [releaseDictationStream, revealDictationResult, setDictationPhase]);
 
-      if (SpeechRecognition) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
+  const startDictationRecording = useCallback(async () => {
+    const requestId = ++dictationRequestIdRef.current;
+    if (dictationRevealTimerRef.current) {
+      window.clearTimeout(dictationRevealTimerRef.current);
+      dictationRevealTimerRef.current = null;
+    }
+    dictationAbortRef.current?.abort();
+    dictationAbortRef.current = null;
+    releaseDictationStream();
+    setDictationPlaceholder(null);
+    setIsModelsOpen(false);
+    setIsPlusMenuOpen(false);
+    if (isComposerMaximized) setIsComposerMaximized(false);
 
-          recognition.onresult = (event: any) => {
-            let transcript = '';
-            for (let i = 0; i < event.results.length; i++) {
-              transcript += event.results[i][0].transcript;
-            }
-            const separator = dictationPrevPromptRef.current.trim() ? " " : "";
-            setPromptText(dictationPrevPromptRef.current + separator + transcript);
-          };
+    const textarea = textareaRef.current;
+    const basePrompt = promptTextRef.current;
+    dictationPrevPromptRef.current = basePrompt;
+    dictationSelectionRef.current = {
+      start: textarea?.selectionStart ?? basePrompt.length,
+      end: textarea?.selectionEnd ?? basePrompt.length,
+    };
+    setDictationPhase('recording');
 
-          recognition.onerror = () => {
-            // Handled silently
-          };
-
-          recognition.onend = () => {
-            setIsDictating(false);
-            speechRecognitionRef.current = null;
-          };
-
-          speechRecognitionRef.current = recognition;
-          recognition.start();
-          return;
-        } catch {
-          // Fallback to GeminiLiveSession
-        }
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error('Voice recording is not supported in this browser.');
       }
 
-      const apiKey = apiKeys?.gemini?.[0] || modelConfig?.gemini?.apiKey || '';
-      if (apiKey) {
-        const session = new GeminiLiveSession({
-          apiKey,
-          model: 'gemini-2.0-flash-exp',
-          transcribeOnly: true,
-          onUserTranscript: (full) => {
-            const separator = dictationPrevPromptRef.current.trim() ? " " : "";
-            setPromptText(dictationPrevPromptRef.current + separator + full);
-          },
-          onTurnComplete: () => {
-            dictationPrevPromptRef.current = promptTextRef.current;
-          },
-          onError: () => {
-            setIsDictating(false);
-            dictationSessionRef.current = null;
-          },
-          onClose: () => {
-            setIsDictating(false);
-            dictationSessionRef.current = null;
-          }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      if (
+        dictationRequestIdRef.current !== requestId
+        || dictationPhaseRef.current !== 'recording'
+      ) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      dictationStreamRef.current = stream;
+      setDictationStream(stream);
+      const preferredMimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+      ].find((mimeType) => MediaRecorder.isTypeSupported?.(mimeType));
+      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
+      const recordedChunks: Blob[] = [];
+      dictationRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunks.push(event.data);
+      };
+
+      recorder.onerror = () => {
+        if (dictationRequestIdRef.current !== requestId) return;
+        dictationRecorderRef.current = null;
+        releaseDictationStream(stream);
+        revealDictationResult(requestId, '', 'Voice recording stopped unexpectedly. Try again.');
+      };
+
+      recorder.onstop = async () => {
+        if (dictationRecorderRef.current === recorder) dictationRecorderRef.current = null;
+        const audio = new Blob(recordedChunks, {
+          type: recorder.mimeType || preferredMimeType || 'audio/webm',
         });
+        releaseDictationStream(stream);
 
-        dictationSessionRef.current = session;
-        void session.start();
-      }
+        if (dictationRequestIdRef.current !== requestId) return;
+        if (dictationPhaseRef.current === 'revealing' || dictationPhaseRef.current === 'idle') return;
+        if (dictationPhaseRef.current === 'recording') setDictationPhase('processing');
+        if (!audio.size) {
+          revealDictationResult(requestId, '', "Didn't catch that. Try speaking again.");
+          return;
+        }
+
+        const controller = new AbortController();
+        dictationAbortRef.current = controller;
+        try {
+          const transcript = await transcribeRecordedAudio({
+            audio,
+            apiKeys,
+            modelConfig,
+            signal: controller.signal,
+          });
+          revealDictationResult(
+            requestId,
+            transcript,
+            transcript ? undefined : "Didn't catch that. Try speaking again.",
+          );
+        } catch (error) {
+          if (controller.signal.aborted || dictationRequestIdRef.current !== requestId) return;
+          revealDictationResult(
+            requestId,
+            '',
+            error instanceof Error ? error.message : 'Voice transcription failed. Try again.',
+          );
+        }
+      };
+
+      recorder.start();
+    } catch (error) {
+      releaseDictationStream();
+      revealDictationResult(
+        requestId,
+        '',
+        error instanceof Error ? error.message : 'Voice recording could not be started.',
+      );
+    }
+  }, [apiKeys, isComposerMaximized, modelConfig, releaseDictationStream, revealDictationResult, setDictationPhase]);
+
+  useEffect(() => () => {
+    dictationRequestIdRef.current += 1;
+    dictationAbortRef.current?.abort();
+    if (dictationRevealTimerRef.current) window.clearTimeout(dictationRevealTimerRef.current);
+    if (dictationPlaceholderTimerRef.current) window.clearTimeout(dictationPlaceholderTimerRef.current);
+    const recorder = dictationRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop(); } catch {}
+    }
+    releaseDictationStream();
+  }, [releaseDictationStream]);
+
+  const handleToggleDictation = () => {
+    if (isTranscribingDictation) return;
+    setIsMicRippling(true);
+    window.setTimeout(() => setIsMicRippling(false), 400);
+
+    if (isDictating) {
+      stopDictationRecording();
+    } else {
+      void startDictationRecording();
     }
   };
   const [isSolidExpanded, setIsSolidExpanded] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [isGithubImportOpen, setIsGithubImportOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
   const solidPlusRef = useRef<HTMLButtonElement>(null);
   const normalPlusRef = useRef<HTMLButtonElement>(null);
   
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const attachmentsRef = useRef<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   const hasActiveAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
 
+  const addFilesAsAttachments = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    const newAttachments = files.map(createComposerAttachment);
+    setAttachments(prev => [...prev, ...newAttachments]);
+  }, []);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    
-    const newAttachments: Attachment[] = Array.from(e.target.files).map(file => ({
-      id: Math.random().toString(36).substring(7),
-      type: file.type.startsWith('image/') ? 'image' : 'file',
-      url: URL.createObjectURL(file),
-      name: file.name,
-      extension: file.name.split('.').pop() || 'file',
-      file
-    }));
-    
-    setAttachments(prev => [...prev, ...newAttachments]);
+    addFilesAsAttachments(Array.from(e.target.files));
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const removeAttachment = (id: string) => {
     setRemovingIds(prev => new Set(prev).add(id));
     setTimeout(() => {
-      setAttachments(prev => prev.filter(att => att.id !== id));
+      setAttachments(prev => {
+        const removed = prev.find(att => att.id === id);
+        if (removed?.url) URL.revokeObjectURL(removed.url);
+        return prev.filter(att => att.id !== id);
+      });
       setRemovingIds(prev => {
         const next = new Set(prev);
         next.delete(id);
@@ -1016,6 +1302,16 @@ export const InputBar: React.FC<{
       });
     }, 200);
   };
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => () => {
+    for (const attachment of attachmentsRef.current) {
+      if (attachment.url) URL.revokeObjectURL(attachment.url);
+    }
+  }, []);
   
   // Get background type for conditional styling
   const { background } = useBackground();
@@ -1124,9 +1420,16 @@ export const InputBar: React.FC<{
   // Submit prompt internally
   const handleSubmit = () => {
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
-      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, attachments);
+      const submittedAttachments = attachments;
+      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments);
       setPromptText("");
       setAttachments([]);
+      attachmentsRef.current = [];
+      window.setTimeout(() => {
+        for (const attachment of submittedAttachments) {
+          if (attachment.url) URL.revokeObjectURL(attachment.url);
+        }
+      }, 0);
       setSelectedTool(null);
       setIsComposerMaximized(false);
       setCanMaximizeComposer(false);
@@ -1195,6 +1498,17 @@ export const InputBar: React.FC<{
       // Throttle resize to once per frame
       textareaResizeRafRef.current = requestAnimationFrame(() => {
         if (textareaRef.current) {
+          if (isDictationActive) {
+            textareaRef.current.style.transition = 'none';
+            textareaRef.current.style.height = '24px';
+            textareaRef.current.style.overflowY = 'hidden';
+            textareaRef.current.style.scrollbarGutter = 'stable';
+            setIsSolidExpanded(false);
+            setCanMaximizeComposer(false);
+            textareaResizeRafRef.current = null;
+            return;
+          }
+
           const isSolid = chatVariant || effectiveBackground === 'solid';
           const baseHeight = isSolid ? 24 : 48;
           
@@ -1289,7 +1603,7 @@ export const InputBar: React.FC<{
         cancelAnimationFrame(textareaResizeRafRef.current);
       }
     };
-  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight]);
+  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
   const promptBoxBg = effectiveBackground === 'lines' 
@@ -1304,14 +1618,31 @@ export const InputBar: React.FC<{
   // Container pb + textarea padding intentionally stay on isSolidExpanded so the
   // RAF sets them next frame and the collapsed→multiline padding transition
   // still plays without disturbing the attachment-row expansion.
-  const solidExpanded = isSolidExpanded || !!selectedTool || (chatVariant && isComposerMaximized);
-  const showComposerMaximizeToggle = chatVariant && (canMaximizeComposer || isComposerMaximized);
+  const solidExpanded = isDictationActive
+    ? false
+    : isSolidExpanded || !!selectedTool || (chatVariant && isComposerMaximized);
+  const composerPaddingExpanded = isDictationActive ? false : isSolidExpanded;
+  const showComposerMaximizeToggle = chatVariant
+    && !isDictationActive
+    && (canMaximizeComposer || isComposerMaximized);
+
+  const githubImportDialog = (
+    <GithubImportDialog
+      open={isGithubImportOpen}
+      onClose={() => setIsGithubImportOpen(false)}
+      onImported={(attachment) => {
+        setAttachments((current) => [...current, attachment]);
+        setSelectedTool(null);
+      }}
+      onFolderSelected={addFilesAsAttachments}
+    />
+  );
 
   // The single-line editor must end before the model pill, regardless of how
   // long the selected model/effort label becomes. Measure the rendered control
   // group instead of relying on the previous fixed 204px reservation.
   useLayoutEffect(() => {
-    if (!chatVariant || solidExpanded || isDictating) return;
+    if (!chatVariant || solidExpanded || isDictationActive) return;
 
     const controls = rightControlsRef.current;
     const modelButton = modelButtonRef.current;
@@ -1346,7 +1677,7 @@ export const InputBar: React.FC<{
       cancelled = true;
       observer.disconnect();
     };
-  }, [chatVariant, solidExpanded, isDictating, activeModelAndEffortLabel]);
+  }, [chatVariant, solidExpanded, isDictationActive, activeModelAndEffortLabel]);
 
   // The empty-state composer intentionally sits slightly above the viewport's
   // vertical center while collapsed. Once fullscreen is opened, Gemini centers
@@ -1389,44 +1720,20 @@ export const InputBar: React.FC<{
           '--chat-collapsed-right-padding': `${collapsedChatPaddingRight}px`,
         } as React.CSSProperties}
       >
+        {githubImportDialog}
         <div className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : 'justify-center'}` : 'transition-all duration-200 justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
           
           {/* Attachments Area */}
           <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="overflow-hidden">
-              <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-1 pt-4 px-1`}>
+              <div className="flex max-h-[168px] gap-2 overflow-x-auto px-3 pb-2 pt-3 pr-[54px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {attachments.map((att) => (
                   <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                    {att.type === 'image' ? (
-                      <div className="relative">
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
-                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                           <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                        <button 
-                          onClick={() => removeAttachment(att.id)}
-                          className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
-                        >
-                            <X size={12} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="h-16 min-w-[180px] bg-[#1c1c1c] rounded-2xl flex items-center px-4 gap-3.5 relative border border-white/5 hover:border-white/10 transition-colors">
-                         <div className="text-gray-400">
-                            <Globe size={24} strokeWidth={1.5} />
-                         </div>
-                         <div className="flex flex-col min-w-0">
-                            <span className="text-[13px] font-semibold text-gray-200 truncate max-w-[120px] leading-tight">{att.name}</span>
-                            <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">{att.extension}</span>
-                         </div>
-                         <button 
-                           onClick={() => removeAttachment(att.id)}
-                           className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
-                         >
-                            <X size={12} />
-                         </button>
-                      </div>
-                    )}
+                    <GeminiAttachmentCard
+                      attachment={att}
+                      variant="composer"
+                      onRemove={() => removeAttachment(att.id)}
+                    />
                   </div>
                 ))}
               </div>
@@ -1434,8 +1741,8 @@ export const InputBar: React.FC<{
           </div>
 
           {/* Main Input Row */}
-          <div className={`textarea-wrapper ${isExitingDictation ? 'exiting-dictation' : ''} flex flex-col w-full relative ${chatVariant ? 'transition-[padding] duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : isSolidExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
-            {chatVariant && !isDictating && (
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? 'transition-[padding] duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+            {chatVariant && !isDictationActive && (
               <button
                 type="button"
                 onClick={toggleComposerMaximized}
@@ -1458,8 +1765,9 @@ export const InputBar: React.FC<{
             <textarea 
               ref={textareaRef}
               value={promptText}
-              aria-hidden={chatVariant && isDictating ? true : undefined}
-              tabIndex={chatVariant && isDictating ? -1 : undefined}
+              aria-hidden={chatVariant && isDictationActive ? true : undefined}
+              aria-busy={chatVariant && isTranscribingDictation ? true : undefined}
+              tabIndex={chatVariant && isDictationActive ? -1 : undefined}
               onChange={(e) => setPromptText(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={(e) => {
@@ -1474,30 +1782,23 @@ export const InputBar: React.FC<{
                 }
                 if (imageFiles.length > 0) {
                   e.preventDefault();
-                  const newAttachments: Attachment[] = imageFiles.map(file => ({
-                    id: Math.random().toString(36).substring(7),
-                    type: 'image' as const,
-                    url: URL.createObjectURL(file),
-                    name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                    extension: file.name?.split('.').pop() || file.type.split('/')[1] || 'png',
-                    file
-                  }));
+                  const newAttachments = imageFiles.map(createComposerAttachment);
                   setAttachments(prev => [...prev, ...newAttachments]);
                 }
               }}
-              placeholder={chatVariant ? "Ask Willow" : "Ask anything"}
+              placeholder={dictationPlaceholder || (chatVariant ? "Ask Willow" : "Ask anything")}
               style={{
                 height: '24px',
                 minHeight: '24px',
                 scrollbarGutter: solidExpanded ? 'auto' : 'stable',
                 fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
               }}
-              className={`w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictating ? 'invisible pointer-events-none' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : isSolidExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
             />
 
-            {chatVariant && isDictating && (
+            {chatVariant && isDictationActive && (
               <div className="absolute left-[46px] right-[86px] top-1/2 -translate-y-1/2">
-                <DictationWaveform />
+                <DictationWaveform stream={dictationStream} />
               </div>
             )}
 
@@ -1525,6 +1826,7 @@ export const InputBar: React.FC<{
                   isOpen={isPlusMenuOpen} 
                   onClose={() => setIsPlusMenuOpen(false)} 
                   onFileSelect={() => fileInputRef.current?.click()} 
+                  onImportCode={() => setIsGithubImportOpen(true)}
                   buttonRef={solidPlusRef} 
                   onToolSelect={(id) => setSelectedTool(id as ToolId)}
                   geminiStyle={chatVariant}
@@ -1538,7 +1840,7 @@ export const InputBar: React.FC<{
             </div>
             
             <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 transition-all duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'gap-3 transition-all duration-200'} ${chatVariant ? `bottom-[12px] ${solidExpanded ? 'right-[1px]' : 'right-[0px]'}` : 'bottom-[10px] right-[0px]'}`}>
-              {chatVariant && !isDictating && (
+              {chatVariant && !isDictationActive && (
                 <div className="relative flex items-center shrink-0">
                   <button
                     ref={modelButtonRef}
@@ -1580,18 +1882,19 @@ export const InputBar: React.FC<{
               <button 
                 ref={micButtonRef}
                 onClick={handleToggleDictation}
-                aria-label={isDictating ? "Stop listening" : "Microphone"}
-                title={isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer ${
-                  isDictating && chatVariant
+                disabled={isTranscribingDictation}
+                aria-label={isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
+                title={isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
+                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full ${isTranscribingDictation ? 'cursor-default' : 'cursor-pointer'} ${
+                  isDictationActive && chatVariant
                     ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
-                    : isDictating
+                    : isDictationActive
                     ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse' 
                     : chatVariant ? 'text-[#e6e6e6] hover:bg-white/[0.08]' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
                 {isMicRippling && <span className="gemini-mic-ripple-effect" />}
-                {isDictating && chatVariant ? (
+                {isDictationActive && chatVariant ? (
                   <span className="w-2.5 h-2.5 rounded-[1.5px] bg-[#e3e3e3]" aria-hidden="true" />
                 ) : chatVariant ? (
                   <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
@@ -1601,6 +1904,7 @@ export const InputBar: React.FC<{
               </button>
               <button
                 onClick={() => {
+                  if (isDictationActive) return;
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
                   if (isComposerMaximized) setIsComposerMaximized(false);
@@ -1609,25 +1913,34 @@ export const InputBar: React.FC<{
                   // and the Chat spacing math stays valid.
                   liveActive ? onStopLive?.() : onStartLive?.();
                 }}
+                disabled={isDictationActive}
                 title={
-                  hasContent
+                  isTranscribingDictation
+                    ? 'Transcribing voice'
+                    : hasContent
                     ? undefined
                     : chatVariant
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
-                aria-label={hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
-                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer ${
+                aria-label={isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
+                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isDictationActive ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
-                    ? !hasContent && liveActive
+                    ? isTranscribingDictation
+                      ? 'bg-[#4a7c59]'
+                      : !hasContent && liveActive
                       ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
                       : 'bg-[#4a7c59] hover:bg-[#3f694a]'
-                    : !hasContent && liveActive
+                    : isTranscribingDictation
+                      ? 'bg-white'
+                      : !hasContent && liveActive
                       ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
                       : 'bg-white hover:bg-zinc-200'
                 }`}
               >
-                {hasContent ? (
+                {isTranscribingDictation ? (
+                  <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? 'text-white' : 'text-black'} />
+                ) : hasContent ? (
                   chatVariant
                     ? <MaterialSymbol name="arrow_upward" size={24} weight={400} className="text-white" />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
@@ -1667,43 +1980,19 @@ export const InputBar: React.FC<{
 
   return (
     <div className="w-full max-w-2xl mx-auto relative z-20">
+      {githubImportDialog}
       <div className={`${promptBoxBg} backdrop-blur-2xl border border-white/5 rounded-[1.75rem] p-2 shadow-2xl flex flex-col gap-1 ring-1 ring-white/5`}>
         {/* Attachments Area */}
         <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
-            <div className={`flex gap-3 overflow-x-auto no-scrollbar pb-3 px-3 pt-2`}>
+            <div className="flex max-h-[168px] gap-2 overflow-x-auto px-3 pb-2 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {attachments.map((att) => (
                 <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                  {att.type === 'image' ? (
-                    <div className="relative">
-                      <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
-                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                         <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <button 
-                        onClick={() => removeAttachment(att.id)}
-                        className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
-                      >
-                          <X size={12} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="h-16 min-w-[180px] bg-[#1c1c1c] rounded-2xl flex items-center px-4 gap-3.5 relative border border-white/5 hover:border-white/10 transition-colors">
-                       <div className="text-gray-400">
-                          <Globe size={24} strokeWidth={1.5} />
-                       </div>
-                       <div className="flex flex-col min-w-0">
-                          <span className="text-[13px] font-semibold text-gray-200 truncate max-w-[120px] leading-tight">{att.name}</span>
-                          <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">{att.extension}</span>
-                       </div>
-                       <button 
-                         onClick={() => removeAttachment(att.id)}
-                         className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-xl z-10"
-                       >
-                          <X size={12} />
-                       </button>
-                    </div>
-                  )}
+                  <GeminiAttachmentCard
+                    attachment={att}
+                    variant="composer"
+                    onRemove={() => removeAttachment(att.id)}
+                  />
                 </div>
               ))}
             </div>
@@ -1732,14 +2021,7 @@ export const InputBar: React.FC<{
 
             if (imageFiles.length > 0) {
               e.preventDefault();
-              const newAttachments: Attachment[] = imageFiles.map(file => ({
-                id: Math.random().toString(36).substring(7),
-                type: 'image' as const,
-                url: URL.createObjectURL(file),
-                name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                extension: file.name?.split('.').pop() || file.type.split('/')[1] || 'png',
-                file
-              }));
+              const newAttachments = imageFiles.map(createComposerAttachment);
               setAttachments(prev => [...prev, ...newAttachments]);
             }
           }}
@@ -1769,6 +2051,7 @@ export const InputBar: React.FC<{
                 isOpen={isPlusMenuOpen} 
                 onClose={() => setIsPlusMenuOpen(false)} 
                 onFileSelect={() => fileInputRef.current?.click()} 
+                onImportCode={() => setIsGithubImportOpen(true)}
                 buttonRef={normalPlusRef} 
                 onToolSelect={(id) => setSelectedTool(id as ToolId)}
               />

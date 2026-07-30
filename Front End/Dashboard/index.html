@@ -444,6 +444,31 @@
         animation: geminiMicRipple 0.35s cubic-bezier(0.2, 0, 0, 1) forwards;
       }
 
+      /* Gemini-style speech dictation butterfly waveform */
+      .willow-butterfly-wave-view {
+        --willow-dictation-wave-color: #e0e0e0;
+        display: flex;
+        width: 100%;
+        height: 24px;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+      }
+
+      .willow-butterfly-wave-view.entering-dictation {
+        transition: opacity 0.25s linear 0.1s;
+      }
+
+      @starting-style {
+        .willow-butterfly-wave-view.entering-dictation {
+          opacity: 0;
+        }
+      }
+
+      .willow-butterfly-wave-canvas {
+        display: block;
+      }
+
       /* Gemini Post-Dictation Text Placement Transition */
       .textarea-wrapper.exiting-dictation {
         transition: opacity 0.25s linear 0.1s;

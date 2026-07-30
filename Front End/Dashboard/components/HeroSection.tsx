@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { InputBar } from './InputBar';
+import { motion } from 'framer-motion';
+import { InputBar, type Attachment } from './InputBar';
 import { useAuth } from '../context/AuthContext';
 import { useBackground } from '../context/BackgroundContext';
 import { loadAllProjectCovers, deleteProjectData, getMediaIndex, PROJECT_COVERS_UPDATED_EVENT } from '../lib/mediaStorage';
@@ -41,7 +42,7 @@ const isCoverVideo = (url: string): boolean => {
 };
 
 export const HeroSection: React.FC<{
-  onPromptSubmit?: (prompt: string, mode: string) => void;
+  onPromptSubmit?: (prompt: string, mode: string, attachments?: Attachment[]) => void;
   onProjectSelect?: (projectId: string, tempName?: string) => void;
   modelConfig: any;
   selectedModelId: string;
@@ -54,7 +55,10 @@ export const HeroSection: React.FC<{
   dashboardMode?: 'develop' | 'media';
   isIncognito?: boolean;
   isSidebarCollapsed?: boolean;
-}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false }) => {
+  /** Shared-layout id used by DashboardChat to carry the zero-state composer
+   *  into its bottom-docked position as one continuous surface. */
+  composerLayoutId?: string;
+}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false, composerLayoutId }) => {
   const { userProfile } = useAuth();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -841,18 +845,44 @@ export const HeroSection: React.FC<{
             </div>
 
           {/* Input Component */}
-          <InputBar
-            currentMode={mode}
-            onModeChange={setMode}
-            onSubmit={onPromptSubmit}
-            modelConfig={modelConfig}
-            selectedModelId={selectedModelId}
-            setSelectedModelId={setSelectedModelId}
-            onAuthRequired={onAuthRequired}
-            isAuthenticated={isAuthenticated}
-            chatVariant={initialMode === 'chat'}
-            onStartLive={onStartLive}
-          />
+          {composerLayoutId ? (
+            <motion.div
+              layoutId={composerLayoutId}
+              transition={{
+                layout: {
+                  duration: 0.25,
+                  ease: [0.2, 0, 0, 1] as const,
+                },
+              }}
+              className="w-full max-w-[660px]"
+            >
+              <InputBar
+                currentMode={mode}
+                onModeChange={setMode}
+                onSubmit={onPromptSubmit}
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                onAuthRequired={onAuthRequired}
+                isAuthenticated={isAuthenticated}
+                chatVariant={initialMode === 'chat'}
+                onStartLive={onStartLive}
+              />
+            </motion.div>
+          ) : (
+            <InputBar
+              currentMode={mode}
+              onModeChange={setMode}
+              onSubmit={onPromptSubmit}
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              onAuthRequired={onAuthRequired}
+              isAuthenticated={isAuthenticated}
+              chatVariant={initialMode === 'chat'}
+              onStartLive={onStartLive}
+            />
+          )}
         </>
       )}
     </div>
