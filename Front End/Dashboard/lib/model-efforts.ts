@@ -25,7 +25,7 @@ const GENERIC_EFFORT_LABELS: Record<number, string> = {
   6: 'Pro',
 };
 
-export const getThinkingEffortLabel = (model: ModelEffortRecord) => {
+export const getThinkingEffortLabel = (model: ModelEffortRecord, shorten = false) => {
   const level = Number(model.thinkingLevel || 0);
   const provider = String(model.provider || '').toLowerCase();
   const modelId = String(model.modelId || model.name || '').toLowerCase();
@@ -40,10 +40,18 @@ export const getThinkingEffortLabel = (model: ModelEffortRecord) => {
       || `Level ${level}`;
   }
   if (provider.includes('openai') || modelId.includes('gpt')) {
-    if (level === 4) return 'Extra High';
+    if (level === 4) return shorten ? 'xHigh' : 'Extra High';
     if (level === 5) return 'Max';
     if (level === 6) return 'Pro';
   }
+  if (provider.includes('anthropic') || modelId.includes('claude')) {
+    if (level === 4) return shorten ? 'xHigh' : 'Extra High';
+    if (level === 5) return 'Max';
+  }
 
-  return GENERIC_EFFORT_LABELS[level] || `Level ${level}`;
+  const defaultLabel = GENERIC_EFFORT_LABELS[level] || `Level ${level}`;
+  if (defaultLabel === 'Extra High' && shorten) {
+    return 'xHigh';
+  }
+  return defaultLabel;
 };

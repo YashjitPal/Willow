@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { isOfficialEndpoint, resolveEndpointTransport } from "./provider-endpoints";
 
 export interface Attachment {
   type: 'image' | 'text' | 'file';
@@ -95,6 +96,16 @@ const clientCache: {
   anthropic: null,
 };
 
+// The Gemini SDK takes its endpoint per-request rather than at construction,
+// so callers merge this into the `requestOptions` argument of
+// `getGenerativeModel`. Returns `{}` for the official endpoint so the SDK keeps
+// its own default.
+export const getGeminiRequestOptions = (baseUrl?: string): Record<string, unknown> => {
+  if (isOfficialEndpoint('gemini', baseUrl)) return {};
+  const { url, headers } = resolveEndpointTransport('gemini', baseUrl, 'origin');
+  return { baseUrl: url, ...(headers ? { customHeaders: headers } : {}) };
+};
+
 export const getGeminiClient = (apiKey: string): any => {
   if (clientCache.gemini?.key === apiKey) {
     return clientCache.gemini.client;
@@ -104,21 +115,36 @@ export const getGeminiClient = (apiKey: string): any => {
   return client;
 };
 
-const getOpenAIClient = (apiKey: string): OpenAI => {
-  if (clientCache.openai?.key === apiKey) {
+const getOpenAIClient = (apiKey: string, baseUrl?: string): OpenAI => {
+  const cacheKey = `${apiKey}::${baseUrl || ''}`;
+  if (clientCache.openai?.key === cacheKey) {
     return clientCache.openai.client;
   }
-  const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-  clientCache.openai = { key: apiKey, client };
+  const { url, headers } = resolveEndpointTransport('openai', baseUrl, 'v1');
+  const client = new OpenAI({
+    apiKey,
+    baseURL: url,
+    dangerouslyAllowBrowser: true,
+    ...(headers ? { defaultHeaders: headers } : {})
+  });
+  clientCache.openai = { key: cacheKey, client };
   return client;
 };
 
-const getAnthropicClient = (apiKey: string): Anthropic => {
-  if (clientCache.anthropic?.key === apiKey) {
+const getAnthropicClient = (apiKey: string, baseUrl?: string): Anthropic => {
+  const cacheKey = `${apiKey}::${baseUrl || ''}`;
+  if (clientCache.anthropic?.key === cacheKey) {
     return clientCache.anthropic.client;
   }
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-  clientCache.anthropic = { key: apiKey, client };
+  // The SDK appends `/v1/messages` itself, so hand it a bare origin.
+  const { url, headers } = resolveEndpointTransport('anthropic', baseUrl, 'origin');
+  const client = new Anthropic({
+    apiKey,
+    baseURL: url,
+    dangerouslyAllowBrowser: true,
+    ...(headers ? { defaultHeaders: headers } : {})
+  });
+  clientCache.anthropic = { key: cacheKey, client };
   return client;
 };
 
@@ -824,7 +850,7 @@ Adhere to the following rules and guidelines:
           includeThoughts: options.includeThoughts === true,
         }
       }
-    } as any);
+    } as any, getGeminiRequestOptions(options.baseUrl) as any);
 
     // Reconstruct the full conversation history as a list of raw Content objects manually (bypasses SDK history-stripping bugs)
     let historyContents: any[] = [];
@@ -1071,7 +1097,7 @@ Adhere to the following rules and guidelines:
     }
     return historyContents;
   } else if (provider === 'openai') {
-    const openai = getOpenAIClient(apiKey);
+    const openai = getOpenAIClient(apiKey, options.baseUrl);
 
     // Map UI thinking levels to OpenAI reasoning_effort values.
     const reasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "xhigh" | "max"> = {
@@ -1235,7 +1261,9 @@ Adhere to the following rules and guidelines:
       }
     }
   } else if (provider === 'anthropic') {
-    const anthropic = getAnthropicClient(apiKey);
+    // Both native Anthropic and custom gateways speak the Messages API; the
+    // client resolves whether to call upstream directly or via the dev proxy.
+    const anthropic = getAnthropicClient(apiKey, options.baseUrl);
 
     const formattedMessages = messages.map(m => {
         if (!m.attachments || m.attachments.length === 0) {
@@ -1284,31 +1312,29 @@ Adhere to the following rules and guidelines:
 
     for await (const messageStreamEvent of stream) {
       throwIfAborted(signal);
-      if (messageStreamEvent.type === 'content_block_delta' && messageStreamEvent.delta.type === 'text_delta') {
-        onToken(messageStreamEvent.delta.text);
+      if (messageStreamEvent.type === 'content_block_delta') {
+        if (messageStreamEvent.delta.type === 'text_delta') {
+          onToken(messageStreamEvent.delta.text);
+        } else if ((messageStreamEvent.delta as any).type === 'thinking_delta') {
+          onThought?.((messageStreamEvent.delta as any).thinking);
+        }
       }
     }
   } else if (provider === 'moonshot' || provider === 'spacexai' || provider === 'zhipuai') {
     // OpenAI-compatible providers (Moonshot/Kimi, SpaceXAI/Grok, Zhipu AI/GLM)
-    const baseUrl = options.baseUrl || (
-      provider === 'moonshot' ? 'https://api.moonshot.cn/v1' :
-      provider === 'spacexai' ? 'https://api.x.ai/v1' :
-      'https://open.bigmodel.cn/api/paas/v4'
-    );
-    const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '3000');
-    const proxyRoute = isDev ? '/llm-proxy' : '';
-    const proxyBaseUrl = isDev ? `${window.location.origin}${proxyRoute}` : baseUrl;
-    
+    const { url: compatibleBaseUrl, headers: compatibleHeaders } =
+      resolveEndpointTransport(provider, options.baseUrl, 'v1');
+
     const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);
-    const client = new OpenAI({ 
+    const client = new OpenAI({
         apiKey: compatibleApiKey,
-        baseURL: proxyBaseUrl, 
+        baseURL: compatibleBaseUrl,
         // Reasoning models can spend more than the SDK's default request window
         // thinking before they emit their final answer. Keep long code-generation
         // streams alive instead of surfacing a misleading generic network error.
         timeout: 60 * 60 * 1000,
         dangerouslyAllowBrowser: true,
-        defaultHeaders: isDev ? { 'x-proxy-target': baseUrl } : undefined
+        ...(compatibleHeaders ? { defaultHeaders: compatibleHeaders } : {})
     });
 
     const compatibleReasoningEffortMap: Record<number, 'none' | 'low' | 'medium' | 'high' | 'max'> = {
