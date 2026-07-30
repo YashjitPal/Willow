@@ -435,6 +435,7 @@ const App: React.FC = () => {
     gemini: {
         model: 'gemini-3.6-flash',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
+        baseUrl: 'https://generativelanguage.googleapis.com',
         savedModels: [
           { id: 'default-flash-36', name: 'Gemini 3.6 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.6-flash' },
           { id: 'default-flash-35-lite', name: 'Gemini 3.5 Flash Lite', thinkingLevel: 1, thinkingLabel: 'Low', modelId: 'gemini-3.5-flash-lite' },
@@ -444,11 +445,13 @@ const App: React.FC = () => {
     openai: {
         model: 'gpt-5.6-sol',
         thinkingLevel: 2,
+        baseUrl: 'https://api.openai.com/v1',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     anthropic: {
         model: 'claude-sonnet-5',
         thinkingLevel: 2,
+        baseUrl: 'https://api.anthropic.com',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     moonshot: {

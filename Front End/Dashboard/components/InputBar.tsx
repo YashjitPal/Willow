@@ -505,6 +505,8 @@ export const ModelsMenu: React.FC<{
     let maxLevel = 3;
     if (provider.includes('openai') || modelId.includes('gpt')) {
       maxLevel = 6; // Low (1), Medium (2), High (3), Extra High (4), Max (5), Pro (6)
+    } else if (provider.includes('anthropic') || modelId.includes('claude')) {
+      maxLevel = 5; // Low (1), Medium (2), High (3), xHigh (4), Max (5)
     } else if (modelId.includes('kimi-k3')) {
       maxLevel = 4; // Low (1), Medium (2), High (3), Max (4)
     }
@@ -1338,7 +1340,8 @@ export const InputBar: React.FC<{
   // Sync selection with available models
   useEffect(() => {
     if (ALL_MODELS.length > 0) {
-      if (!selectedModelId || !ALL_MODELS.find(m => m.id === selectedModelId)) {
+      const baseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+      if (!selectedModelId || !ALL_MODELS.find(m => m.id === selectedModelId || m.id === baseId)) {
         setSelectedModelId(ALL_MODELS[0].id);
       }
     } else {
@@ -1346,7 +1349,7 @@ export const InputBar: React.FC<{
     }
   }, [ALL_MODELS, selectedModelId]);
 
-  const activeModel = ALL_MODELS.find(m => m.id === selectedModelId);
+  const activeModel = ALL_MODELS.find(m => m.id === selectedModelId) || ALL_MODELS.find(m => m.id === (selectedModelId ? selectedModelId.split('::effort-')[0] : ''));
 
   // Helper to shorten names: "Gemini 3 Pro" -> "3 Pro", "Gemini 2.5 Flash Lite" -> "2.5 Lite"
   const getShortName = (name: string) => {
@@ -1354,13 +1357,20 @@ export const InputBar: React.FC<{
     if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
     return name
       .replace(/Gemini\s+/gi, '')
+      .replace(/Claude\s+/gi, '')
+      .replace(/GPT\s+/gi, '')
       .replace(/\s+Extended$/gi, '')
       .trim();
   };
 
+  let currentThinkingLevel = activeModel?.thinkingLevel ?? 0;
+  if (selectedModelId?.includes('::effort-')) {
+    currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
+  }
+
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
-    ? getThinkingEffortLabel(activeModel)
+  const activeEffortDisplayLabel = activeModel && currentThinkingLevel > 0
+    ? getThinkingEffortLabel({ ...activeModel, thinkingLevel: currentThinkingLevel }, true)
     : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)

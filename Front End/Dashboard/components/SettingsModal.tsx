@@ -4,6 +4,7 @@ import './SettingsModal.css'; // Assuming we can import a CSS file or add a styl
 import { useAuth } from '../context/AuthContext';
 import { useLocalFS } from '../context/LocalFSContext';
 import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab } from './settings';
+import { DEFAULT_BASE_URLS, resolveBaseUrl, type ProviderId } from '../lib/provider-endpoints';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -16,7 +17,6 @@ interface SettingsModalProps {
 
 type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'governance' | 'account' | 'labs' | 'connectors' | 'github';
 
-type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
 type ProviderConfig = { apiKey: string; baseUrl: string };
 type ProviderParams = {
   gemini: ProviderConfig;
@@ -28,13 +28,15 @@ type ProviderParams = {
   activeProvider: ProviderId;
 };
 
+const PROVIDER_IDS: ProviderId[] = ['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'];
+
 const DEFAULT_PROVIDER_STATE: ProviderParams = {
-  gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com' },
-  openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1' },
-  anthropic: { apiKey: '', baseUrl: 'https://api.anthropic.com' },
-  moonshot: { apiKey: '', baseUrl: 'https://api.moonshot.cn/v1' },
-  spacexai: { apiKey: '', baseUrl: 'https://api.x.ai/v1' },
-  zhipuai: { apiKey: '', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  gemini: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.gemini },
+  openai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.openai },
+  anthropic: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.anthropic },
+  moonshot: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.moonshot },
+  spacexai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.spacexai },
+  zhipuai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.zhipuai },
   activeProvider: 'gemini'
 };
 
@@ -615,13 +617,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       providerStateRef.current = loadedState;
       setProviderState(loadedState);
       cacheProviderState(uid, loadedState);
-      // Sync base URLs into modelConfig for streaming callers
-      setModelConfig((prev: any) => ({
-        ...prev,
-        moonshot: { ...prev.moonshot, baseUrl: loadedState.moonshot?.baseUrl || prev.moonshot?.baseUrl },
-        spacexai: { ...prev.spacexai, baseUrl: loadedState.spacexai?.baseUrl || prev.spacexai?.baseUrl },
-        zhipuai: { ...prev.zhipuai, baseUrl: loadedState.zhipuai?.baseUrl || prev.zhipuai?.baseUrl },
-      }));
+      // Sync base URLs into modelConfig for streaming callers. Every provider
+      // is included: the streaming layer reads its endpoint from here, so a
+      // provider omitted from this merge silently falls back to its official API.
+      setModelConfig((prev: any) => {
+        const next = { ...prev };
+        (Object.keys(DEFAULT_BASE_URLS) as ProviderId[]).forEach((provider) => {
+          next[provider] = {
+            ...prev[provider],
+            baseUrl: resolveBaseUrl(provider, loadedState[provider]?.baseUrl)
+          };
+        });
+        return next;
+      });
     };
 
     const loadKeys = async () => {
@@ -670,12 +678,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
             const activeProvider = ps.activeProvider?.stringValue;
             
             applyLoadedState({
-              gemini: extractNewConfig(ps.gemini, ps.geminiKeys, 'https://generativelanguage.googleapis.com'),
-              openai: extractNewConfig(ps.openai, ps.openaiKeys, 'https://api.openai.com/v1'),
-              anthropic: extractNewConfig(ps.anthropic, ps.anthropicKeys, 'https://api.anthropic.com'),
-              moonshot: extractNewConfig(ps.moonshot, null, 'https://api.moonshot.cn/v1'),
-              spacexai: extractNewConfig(ps.spacexai, null, 'https://api.x.ai/v1'),
-              zhipuai: extractNewConfig(ps.zhipuai, null, 'https://open.bigmodel.cn/api/paas/v4'),
+              gemini: extractNewConfig(ps.gemini, ps.geminiKeys, DEFAULT_BASE_URLS.gemini),
+              openai: extractNewConfig(ps.openai, ps.openaiKeys, DEFAULT_BASE_URLS.openai),
+              anthropic: extractNewConfig(ps.anthropic, ps.anthropicKeys, DEFAULT_BASE_URLS.anthropic),
+              moonshot: extractNewConfig(ps.moonshot, null, DEFAULT_BASE_URLS.moonshot),
+              spacexai: extractNewConfig(ps.spacexai, null, DEFAULT_BASE_URLS.spacexai),
+              zhipuai: extractNewConfig(ps.zhipuai, null, DEFAULT_BASE_URLS.zhipuai),
               activeProvider: ['openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].includes(activeProvider || '') ? (activeProvider as ProviderId) : 'gemini'
             });
           } else {
@@ -715,13 +723,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     providerStateRef.current = newState;
     setProviderState(newState);
     cacheProviderState(user.uid, newState);
-    // Sync baseUrl into modelConfig so streaming callers can access it
-    if (config.baseUrl && ['moonshot', 'spacexai', 'zhipuai'].includes(provider)) {
-      setModelConfig((prev: any) => ({
-        ...prev,
-        [provider]: { ...prev[provider], baseUrl: config.baseUrl }
-      }));
-    }
+    // Sync baseUrl into modelConfig so streaming callers can access it. This
+    // runs unconditionally: when the field is cleared we must overwrite the
+    // previous custom URL with the official default, otherwise the stale
+    // gateway stays live even though the input looks empty.
+    setModelConfig((prev: any) => ({
+      ...prev,
+      [provider]: { ...prev[provider], baseUrl: resolveBaseUrl(provider, config.baseUrl) }
+    }));
     window.dispatchEvent(new Event('apikeys-updated'));
     scheduleProviderSave({
       uid: user.uid,

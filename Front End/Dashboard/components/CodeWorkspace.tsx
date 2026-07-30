@@ -382,20 +382,27 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
   ].filter((m: any) => m.name !== "Nano Banana Pro");
 
-  const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
+  const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId) || ALL_MODELS.find((m: any) => m.id === (selectedModelId ? selectedModelId.split('::effort-')[0] : ''));
 
   const getShortName = (name: string) => {
     if (!name) return "Model";
     if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
     return name
       .replace(/Gemini\s+/gi, '')
+      .replace(/Claude\s+/gi, '')
+      .replace(/GPT\s+/gi, '')
       .replace(/\s+Extended$/gi, '')
       .trim();
   };
 
+  let currentThinkingLevel = activeModel?.thinkingLevel ?? 0;
+  if (selectedModelId?.includes('::effort-')) {
+    currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
+  }
+
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
-    ? getThinkingEffortLabel(activeModel)
+  const activeEffortDisplayLabel = activeModel && currentThinkingLevel > 0
+    ? getThinkingEffortLabel({ ...activeModel, thinkingLevel: currentThinkingLevel }, true)
     : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
