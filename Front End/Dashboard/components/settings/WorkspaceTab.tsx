@@ -7,7 +7,7 @@ interface WorkspaceTabProps {
   localWorkspaceDescription: string;
   setLocalWorkspaceDescription: (v: string) => void;
   localWorkspaceColor: string;
-  setLocalWorkspaceColor: (v: "green" | "pink" | "yellow" | "orange") => void;
+  setLocalWorkspaceColor: (v: "green" | "pink" | "yellow" | "orange" | "blue") => void;
   workspaceSettingsChanged: boolean;
   setWorkspaceSettingsChanged: (v: boolean) => void;
   showWorkspaceColorPicker: boolean;
@@ -77,6 +77,7 @@ export const WorkspaceTab: React.FC<WorkspaceTabProps> = ({
               <div className={`absolute left-12 top-0 bg-[#1a1a1a] border border-white/10 rounded-xl p-2 flex gap-2 shadow-xl z-50 ${colorPickerClosing ? 'animate-slide-out-left' : 'animate-slide-in-right'}`}>
                 {[
                   { id: 'green', color: 'bg-[#4a7c59]', label: 'Willow Green' },
+                  { id: 'blue', color: 'bg-[#3b82f6]', label: 'Blue' },
                   { id: 'pink', color: 'bg-[#ec4899]', label: 'Pink' },
                   { id: 'yellow', color: 'bg-[#eab308]', label: 'Yellow' },
                   { id: 'orange', color: 'bg-[#f97316]', label: 'Orange' },
@@ -84,7 +85,7 @@ export const WorkspaceTab: React.FC<WorkspaceTabProps> = ({
                   <button
                     key={option.id}
                     onClick={() => {
-                      setLocalWorkspaceColor(option.id as "green" | "pink" | "yellow" | "orange");
+                      setLocalWorkspaceColor(option.id as "green" | "pink" | "yellow" | "orange" | "blue");
                       setWorkspaceSettingsChanged(true);
                       closeColorPicker();
                     }}

@@ -272,7 +272,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const handleWorkspaceUpdate = async () => {
     await updateUserProfile({
       workspaceName: localWorkspaceName,
-      workspaceColor: localWorkspaceColor as 'green' | 'pink' | 'yellow' | 'orange',
+      workspaceColor: localWorkspaceColor as 'green' | 'pink' | 'yellow' | 'orange' | 'blue',
       workspaceDescription: localWorkspaceDescription,
     });
     setWorkspaceSettingsChanged(false);
@@ -352,6 +352,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   // Workspace color class helper (uses local state for live preview)
   const getWorkspaceColorClass = () => {
     switch (localWorkspaceColor) {
+      case 'blue': return 'bg-[#3b82f6]';
       case 'pink': return 'bg-[#ec4899]';
       case 'yellow': return 'bg-[#eab308]';
       case 'orange': return 'bg-[#f97316]';

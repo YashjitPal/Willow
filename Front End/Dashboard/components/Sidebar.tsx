@@ -568,6 +568,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Dynamic logo color filter based on workspace color
   const getLogoFilter = (color: string | null | undefined) => {
     switch (color) {
+      case 'blue': return 'hue-rotate(160deg)';
       case 'pink': return 'hue-rotate(220deg)';
       case 'yellow': return 'hue-rotate(-64deg)';
       case 'orange': return 'hue-rotate(-84deg)';
@@ -593,7 +594,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (!ctx) return;
 
         let filterStr = 'hue-rotate(30deg)';
-        if (color === 'pink') filterStr = 'hue-rotate(220deg)';
+        if (color === 'blue') filterStr = 'hue-rotate(160deg)';
+        else if (color === 'pink') filterStr = 'hue-rotate(220deg)';
         else if (color === 'yellow') filterStr = 'hue-rotate(-64deg)';
         else if (color === 'orange') filterStr = 'hue-rotate(-84deg)';
 

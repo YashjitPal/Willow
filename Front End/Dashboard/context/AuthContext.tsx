@@ -18,7 +18,7 @@ interface UserProfile {
   onboardingComplete: boolean;
   workspaceName: string | null;
   username: string | null;
-  workspaceColor: 'green' | 'pink' | 'yellow' | 'orange';
+  workspaceColor: 'green' | 'pink' | 'yellow' | 'orange' | 'blue';
   workspaceDescription: string | null;
   location: string | null;
   background: 'solid' | 'waves' | 'lines';
