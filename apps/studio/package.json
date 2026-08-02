@@ -1,0 +1,17 @@
+{
+  "name": "@willow/studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Willow Studio — the host shell that mounts every feature (Code, Chat, Media, Design, Agents).",
+  "//": "Declares no dependencies on purpose. Studio, features/ and platform/ are one npm project sharing the root package.json and the single node_modules at the repo root; this manifest exists for the app's own scripts. Run any of them from the repo root too, e.g. `npm run dev`.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:no-env": "node scripts/build-production.mjs",
+    "preview": "vite preview",
+    "test": "node --test test/agent-builder-overlays.smoke.test.mjs",
+    "qa:agent-builder:build": "node scripts/agent-builder-qa.mjs",
+    "qa:agent-builder": "node scripts/agent-builder-qa.mjs --serve"
+  }
+}

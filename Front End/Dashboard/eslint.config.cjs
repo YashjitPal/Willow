@@ -1,1 +1,0 @@
-const reactHooks = require('eslint-plugin-react-hooks'); const tsParser = require('@typescript-eslint/parser'); module.exports = [{ plugins: { 'react-hooks': reactHooks }, languageOptions: { parser: tsParser, parserOptions: { ecmaFeatures: { jsx: true } } }, rules: { 'react-hooks/rules-of-hooks': 'error' } }];

@@ -1,0 +1,20 @@
+{
+  "//": "Typechecks the whole browser side in one pass: `npm run typecheck`. Backends under services/ have their own tsconfig because they target Node, not the DOM.",
+  "//features/figma": "Excluded on purpose. figma is an unfinished prototype: ~20 of its modules (canvas/render, editor/panels/*, home/FigmaHome, lib/export, ...) were never written, so it cannot compile, and nothing imports it. Excluding it keeps `npm run typecheck` a real gate. See features/figma/README.md; remove the exclude once the feature is finished.",
+  "extends": "./tsconfig.base.json",
+  "include": ["apps", "features", "platform", "tools/scripts"],
+  "exclude": [
+    "node_modules",
+    "**/node_modules",
+    "**/dist",
+    "**/build",
+    "**/out",
+    "**/.next",
+    "features/figma",
+    "tools/prototypes",
+    "tools/ui-research",
+    "tools/scratch",
+    ".claude",
+    ".codex"
+  ]
+}

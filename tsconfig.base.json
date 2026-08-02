@@ -1,0 +1,47 @@
+{
+  "//": "Shared compiler settings and the @willow/* path map. Every tsconfig in the repo extends this, so an alias is declared exactly once. Vite's resolve.alias in apps/studio/vite.config.ts mirrors this map — keep the two in sync.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node", "vite/client"],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@willow/core/*": ["platform/core/src/*"],
+      "@willow/ai/*": ["platform/ai/src/*"],
+      "@willow/storage/*": ["platform/storage/src/*"],
+      "@willow/auth/*": ["platform/auth/src/*"],
+      "@willow/ui/*": ["platform/ui/src/*"],
+      "@willow/projects/*": ["platform/projects/src/*"],
+
+      "@willow/chat/*": ["features/chat/src/*"],
+      "@willow/code/*": ["features/code/src/*"],
+      "@willow/media/*": ["features/media/src/*"],
+      "@willow/agent-builder/*": ["features/agent-builder/src/*"],
+      "@willow/spark/*": ["features/spark/src/*"],
+      "@willow/design/*": ["features/design/src/*"],
+      "@willow/figma/*": ["features/figma/src/*"],
+      "@willow/onboarding/*": ["features/onboarding/src/*"],
+      "@willow/account/*": ["features/auth/src/*"],
+      "@willow/project-browser/*": ["features/projects/src/*"],
+
+      "@willow/studio/*": ["apps/studio/src/*"],
+      "@willow/assets/*": ["assets/*"],
+
+      "@models": ["platform/ai/src/models/defaults.ts"],
+      "@agentbuilder": ["services/agent-builder/client/index.ts"],
+      "path": ["node_modules/path-browserify"]
+    }
+  }
+}
