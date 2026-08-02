@@ -1,0 +1,33 @@
+{
+  "name": "@willow/agent-builder",
+  "version": "0.1.0",
+  "description": "Willow Agent Builder backend — visual agent workflow engine (AgentKit-style): workflows, runs, guardrails, MCP, RAG, chat sessions.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node src/index.ts",
+    "build:studio": "npm --prefix ../../apps/studio run build:no-env",
+    "start:studio": "npm run build:studio && node src/index.ts --static-dir ../../apps/studio/dist",
+    "dev": "node --watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "demo": "node scripts/demo.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@openai/agents": "^0.13.4",
+    "@types/node": "^22.14.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.2",
+    "zod": "^4.4.3"
+  }
+}
