@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import lottie from 'lottie-web';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { Glasses } from 'lucide-react';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
@@ -12,6 +11,8 @@ import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
 import { ResponseActions, ThinkingStepsSidebar } from './ChatResponseChrome';
+import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
+import { UserMessageBubble } from './UserMessageBubble';
 import { streamChat, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
 import {
   GeminiLiveSession,
@@ -22,203 +23,13 @@ import {
 } from '@willow/ai/live';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
-import {
-  ChatAttachment,
-  blobToBase64,
-  detectAttachmentKind,
-  isTextLikeAttachment,
-  toPersistedChatAttachment,
-} from '@willow/core/attachments';
+import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
+import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, serializeChatMessage } from './chat-message';
+import { buildAiHistory as buildChatAiHistory } from './chat-history';
+import { CHAT_SYSTEM_PROMPT, resolveChatModel } from './chat-model';
+import { waitForBrowserPaint } from './chat-timing';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Types
-// ──────────────────────────────────────────────────────────────────────────────
-interface ChatMsg {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  thinkingTime?: number;
-  /** Displayable thought summary returned by the model, never hidden chain-of-thought data. */
-  thinkingText?: string;
-  modelSnapshot?: {
-    provider: string;
-    modelId: string;
-    label: string;
-    thinkingLevel: number;
-  };
-  isError?: boolean;
-  isGenerating?: boolean;
-  /** User bubble is a live-voice utterance whose transcript hasn't arrived yet. */
-  isTranscribing?: boolean;
-  /** Assistant turn driven by the Live API (no Thinking row). */
-  isLive?: boolean;
-  /** Live reply cut short by user barge-in — rendered without the action row. */
-  wasInterrupted?: boolean;
-  /** Whether this message was newly sent in the current session (should animate in). */
-  isNew?: boolean;
-  /** Locally owned file metadata; bytes live in WillowDB's attachment store. */
-  attachments?: ChatAttachment[];
-}
-
-const hasSavedMessageContent = (message: Pick<ChatMsg, 'content' | 'attachments'>): boolean =>
-  message.content.trim().length > 0 || !!message.attachments?.length;
-
-const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew'> => {
-  const {
-    isGenerating: _isGenerating,
-    isTranscribing: _isTranscribing,
-    isLive: _isLive,
-    isNew: _isNew,
-    attachments,
-    ...persisted
-  } = message;
-  return {
-    ...persisted,
-    ...(attachments?.length
-      ? { attachments: attachments.map(toPersistedChatAttachment) }
-      : {}),
-  };
-};
-
-const sanitizeSavedAttachment = (value: any): ChatAttachment | null => {
-  if (!value || typeof value !== 'object' || typeof value.id !== 'string') return null;
-  const name = typeof value.name === 'string' && value.name.trim() ? value.name : 'Attachment';
-  const mimeType = typeof value.mimeType === 'string' && value.mimeType.trim()
-    ? value.mimeType
-    : 'application/octet-stream';
-  const extension = typeof value.extension === 'string'
-    ? value.extension.replace(/^\./, '').toLowerCase()
-    : (name.includes('.') ? name.split('.').pop()!.toLowerCase() : '');
-  return {
-    id: value.id,
-    name,
-    mimeType,
-    extension,
-    size: Number.isFinite(value.size) ? Math.max(0, Number(value.size)) : 0,
-    kind: typeof value.kind === 'string'
-      ? value.kind
-      : detectAttachmentKind(name, mimeType),
-    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : undefined,
-    sourceOwner: typeof value.sourceOwner === 'string' ? value.sourceOwner : undefined,
-    sourceRepository: typeof value.sourceRepository === 'string' ? value.sourceRepository : undefined,
-    sourceRef: typeof value.sourceRef === 'string' ? value.sourceRef : undefined,
-    sourceCommit: typeof value.sourceCommit === 'string' ? value.sourceCommit : undefined,
-    sourceDescription: typeof value.sourceDescription === 'string' ? value.sourceDescription : undefined,
-    sourceFileCount: Number.isFinite(value.sourceFileCount)
-      ? Math.max(0, Number(value.sourceFileCount))
-      : undefined,
-  } as ChatAttachment;
-};
-
-const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
-const USER_MESSAGE_EXPANDED_CONTROL_RESERVE = 24;
 const CHAT_COMPOSER_LAYOUT_ID = 'willow-dashboard-chat-composer';
-
-const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribing'> & {
-  onToggleStart?: (willExpand: boolean) => void;
-  onToggleEnd?: () => void;
-}> = ({
-  content,
-  isTranscribing,
-  onToggleStart,
-  onToggleEnd,
-}) => {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [naturalHeight, setNaturalHeight] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  useLayoutEffect(() => {
-    const element = contentRef.current;
-    if (!element) return;
-
-    const measure = () => {
-      const nextHeight = Math.ceil(element.getBoundingClientRect().height);
-      setNaturalHeight((currentHeight) => (
-        currentHeight === nextHeight ? currentHeight : nextHeight
-      ));
-      if (nextHeight <= USER_MESSAGE_COLLAPSED_HEIGHT) {
-        setIsExpanded(false);
-      }
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [content]);
-
-  const canToggle = !isTranscribing && naturalHeight > USER_MESSAGE_COLLAPSED_HEIGHT;
-  const expandedControlReserve = canToggle && isExpanded
-    ? USER_MESSAGE_EXPANDED_CONTROL_RESERVE
-    : 0;
-  const visibleHeight = canToggle
-    ? (isExpanded
-      ? naturalHeight + USER_MESSAGE_EXPANDED_CONTROL_RESERVE
-      : USER_MESSAGE_COLLAPSED_HEIGHT)
-    : (naturalHeight || undefined);
-  const toggleLabel = isExpanded ? 'Collapse text' : 'Expand text';
-
-  return (
-    <div
-      className="relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-    >
-      <div
-        className="overflow-hidden"
-        style={{
-          maxHeight: visibleHeight,
-          paddingBottom: expandedControlReserve,
-          transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1), padding-bottom 300ms cubic-bezier(0.2, 0, 0, 1)',
-        }}
-        onTransitionEnd={(event) => {
-          if (event.propertyName === 'max-height') onToggleEnd?.();
-        }}
-      >
-        <div ref={contentRef}>
-          {isTranscribing && !content ? (
-            <span className="select-none italic text-gray-500">Transcribing…</span>
-          ) : (
-            content
-          )}
-        </div>
-      </div>
-
-      {canToggle && (
-        <div className="pointer-events-none absolute bottom-5 right-5 h-6 w-10">
-          {!isExpanded && (
-            <div
-              aria-hidden="true"
-              className="absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 bg-[linear-gradient(to_right,transparent,#141414_56px,#141414_100%)]"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              onToggleStart?.(!isExpanded);
-              setIsExpanded((expanded) => !expanded);
-            }}
-            className="pointer-events-auto absolute right-0 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-transparent p-2 text-[#c4c7c5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-            aria-label={isExpanded ? 'Collapse' : 'Expand'}
-            aria-expanded={isExpanded}
-            title={toggleLabel}
-          >
-            <span className="flex h-[22px] w-8 shrink-0 items-center justify-center rounded-[22px] bg-[#1e1f20]">
-              <MaterialSymbol
-                family="luminous"
-                name={isExpanded ? 'expand_less' : 'expand_more'}
-                size={20}
-                weight={320}
-                roundness={100}
-                opticalSize={20}
-              />
-            </span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
 
 interface DashboardChatProps {
   modelConfig: any;
@@ -232,60 +43,6 @@ interface DashboardChatProps {
   isSidebarCollapsed?: boolean;
   onCollapseSidebar?: () => void;
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Pure conversational system prompt (no code-gen artifacts)
-// ──────────────────────────────────────────────────────────────────────────────
-const CHAT_SYSTEM_PROMPT =
-  'You are Willow, a friendly and highly capable AI assistant. ' +
-  'Respond conversationally and helpfully. Use markdown for formatting ' +
-  '(bold, bullet lists, fenced code blocks, tables) when it improves clarity. ' +
-  'For simple math or chemistry, prefer plain Unicode (e.g. CO₂, x², →, π) over LaTeX. ' +
-  'Only use $$...$$ for genuinely complex equations. ' +
-  'Do not wrap responses in boltArtifact or any XML tags.';
-
-const getShortModelName = (name: string) => {
-  if (!name) return 'Model';
-  if (name.includes('2.5 Flash Lite')) return '2.5 Lite';
-  return name.replace(/Gemini\s+/gi, '').replace(/\s+Extended$/gi, '').trim();
-};
-
-const waitForBrowserPaint = () => new Promise<void>((resolve) => {
-  let settled = false;
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    resolve();
-  };
-  const fallback = window.setTimeout(finish, 50);
-  requestAnimationFrame(() => {
-    window.clearTimeout(fallback);
-    finish();
-  });
-});
-
-// The exact Lottie animation data from Gemini's "Thinking" indicator
-// Source: https://gemini.gstatic.com/_/boq-bard-web/_/r/XytT4kFAhW4.json
-// Fill color set to exact Gemini dark theme color: rgb(224, 224, 224) -> [0.878, 0.878, 0.878, 1]
-const GEMINI_THINKING_DOTS_DATA = {"v":"5.12.1","fr":60.0914611816406,"ip":0,"op":693.005318581434,"w":28,"h":28,"nm":"01 - Icons Three Dots - A 28x28","ddd":0,"assets":[],"layers":[{"ddd":0,"ind":1,"ty":3,"nm":"Center","sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":1,"k":[{"i":{"x":[0.566],"y":[1]},"o":{"x":[0.435],"y":[0]},"t":192.001,"s":[0]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":235.002,"s":[-120]},{"i":{"x":[0.226],"y":[1]},"o":{"x":[0.274],"y":[0]},"t":481.004,"s":[-120]},{"t":536.004113650287,"s":[-360]}],"ix":10},"p":{"a":0,"k":[14,14,0],"ix":2,"l":2},"a":{"a":0,"k":[50,50,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"ip":0,"op":693.005318581434,"st":0,"bm":0},{"ddd":0,"ind":2,"ty":4,"nm":"LEFT","parent":1,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.559,"y":1},"o":{"x":0.243,"y":0.609},"t":0,"s":[43.4,53.744,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":12,"s":[43.4,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":48,"s":[43.4,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":84.001,"s":[43.4,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":120.001,"s":[43.4,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.516,"y":0.008},"t":156.001,"s":[43.4,55,0],"to":[0,0,0],"ti":[-0.04,3.987,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":192.001,"s":[43.4,45,0],"to":[-0.212,14.619,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":235.002,"s":[53.212,59.625,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":268.002,"s":[43.4,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":301.002,"s":[53.212,59.625,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":337.003,"s":[43.4,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":373.003,"s":[53.212,59.625,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":409.003,"s":[43.4,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":445.003,"s":[53.212,59.625,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.333,"y":0},"t":481.004,"s":[43.4,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"t":524.004,"s":[43.4,45,0],"h":1},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.005},"t":536.004,"s":[43.4,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":560.004,"s":[43.4,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":596.005,"s":[43.4,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.34,"y":1},"o":{"x":0.516,"y":0.008},"t":632.005,"s":[43.4,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.576,"y":0.694},"o":{"x":0.601,"y":0.007},"t":668.005,"s":[43.4,45,0],"to":[0,0,0],"ti":[0,0,0]},{"t":692.005310906713,"s":[43.4,53.744,0]}],"ix":2,"l":2},"a":{"a":0,"k":[0,0,0],"ix":1,"l":2},"s":{"a":0,"k":[50,50,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ty":"rc","d":1,"s":{"a":0,"k":[8,8],"ix":2},"p":{"a":0,"k":[0,0],"ix":3},"r":{"a":0,"k":10,"ix":4},"nm":"Rectangle Path 1","mn":"ADBE Vector Shape - Rect","hd":false},{"ty":"fl","c":{"a":0,"k":[0.878,0.878,0.878,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Rectangle 1","np":3,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":693.005318581434,"st":-31.0002379163412,"ct":1,"bm":0},{"ddd":0,"ind":3,"ty":4,"nm":"CENTER","parent":1,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.468,"y":1},"o":{"x":0.313,"y":0.367},"t":0,"s":[50,47.037,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":24,"s":[50,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":60,"s":[50,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":96.001,"s":[50,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":132.001,"s":[50,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.833,"y":0.833},"o":{"x":0.5,"y":0},"t":168.001,"s":[50,55,0],"to":[0,0,0],"ti":[3.375,2.938,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.167,"y":0.167},"t":204.002,"s":[50,45,0],"to":[-4.316,-3.756,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":235.002,"s":[40.688,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":268.002,"s":[59.562,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":301.002,"s":[40.688,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":337.003,"s":[59.562,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":373.003,"s":[40.688,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":409.003,"s":[59.562,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":445.003,"s":[40.688,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.333,"y":0},"t":481.004,"s":[59.562,47.75,0],"to":[0,0,0],"ti":[0,0,0]},{"t":522.004,"s":[50,45,0],"h":1},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":536.004,"s":[50,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":572.004,"s":[50,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":608.005,"s":[50,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":644.005,"s":[50,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.744,"y":0.413},"o":{"x":0.435,"y":0},"t":680.005,"s":[50,45,0],"to":[0,0,0],"ti":[0,0,0]},{"t":692.005310906713,"s":[50,47.037,0]}],"ix":2,"l":2},"a":{"a":0,"k":[0,0,0],"ix":1,"l":2},"s":{"a":0,"k":[50,50,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ty":"rc","d":1,"s":{"a":0,"k":[8,8],"ix":2},"p":{"a":0,"k":[0,0],"ix":3},"r":{"a":0,"k":10,"ix":4},"nm":"Rectangle Path 1","mn":"ADBE Vector Shape - Rect","hd":false},{"ty":"fl","c":{"a":0,"k":[0.878,0.878,0.878,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Rectangle 1","np":3,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":693.005318581434,"st":-12.0000920966482,"ct":1,"bm":0},{"ddd":0,"ind":4,"ty":4,"nm":"RIGHT","parent":1,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":0,"s":[56.6,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":36,"s":[56.6,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":72.001,"s":[56.6,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":108.001,"s":[56.6,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":144.001,"s":[56.6,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":180.001,"s":[56.6,55,0],"to":[0,0,0],"ti":[-0.133,3.463,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.5,"y":0},"t":235.002,"s":[56.6,43.1,0],"to":[-6.076,10.768,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":268.002,"s":[47.225,59.438,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":301.002,"s":[56.6,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":337.003,"s":[47.225,59.438,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":373.003,"s":[56.6,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":409.003,"s":[47.225,59.438,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":445.003,"s":[56.6,43.1,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.333,"y":0},"t":481.004,"s":[47.225,59.438,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":536.004,"s":[56.6,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":584.004,"s":[56.6,55,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":620.005,"s":[56.6,45,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.5,"y":1},"o":{"x":0.5,"y":0},"t":656.005,"s":[56.6,55,0],"to":[0,0,0],"ti":[0,0,0]},{"t":692.005310906713,"s":[56.6,45,0]}],"ix":2,"l":2},"a":{"a":0,"k":[0,0,0],"ix":1,"l":2},"s":{"a":0,"k":[50,50,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ty":"rc","d":1,"s":{"a":0,"k":[8,8],"ix":2},"p":{"a":0,"k":[0,0],"ix":3},"r":{"a":0,"k":10,"ix":4},"nm":"Rectangle Path 1","mn":"ADBE Vector Shape - Rect","hd":false},{"ty":"fl","c":{"a":0,"k":[0.878,0.878,0.878,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Rectangle 1","np":3,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":693.005318581434,"st":0,"ct":1,"bm":0}],"markers":[],"props":{}};
-
-const GeminiThinkingVisualizer = () => {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const anim = lottie.loadAnimation({
-      container: containerRef.current,
-      renderer: 'svg',
-      loop: true,
-      autoplay: true,
-      animationData: GEMINI_THINKING_DOTS_DATA,
-    });
-    return () => anim.destroy();
-  }, []);
-
-  return <div ref={containerRef} style={{ width: 24, height: 24 }} />;
-};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Component
@@ -949,43 +706,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     setIsThinking(false);
   }, []);
 
-  const resolveModel = useCallback(() => {
-    const all = [
-      ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
-      ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
-      ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
-      ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
-      ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
-      ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
-    ];
-    let sel = all.find((m) => m.id === selectedModelId);
-    let explicitThinkingLevel: number | undefined;
-
-    if (!sel && selectedModelId?.includes('::effort-')) {
-      const parts = selectedModelId.split('::effort-');
-      const baseId = parts[0];
-      explicitThinkingLevel = Number(parts[1]);
-      sel = all.find((m) => m.id === baseId || m.modelId === baseId);
-    }
-
-    const provider = (sel?.provider ?? 'gemini') as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
-    const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
-    const thinkingLevel: number = explicitThinkingLevel ?? sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
-
-    let model = rawModel;
-    if (provider === 'openai' && (thinkingLevel === 6 || rawModel.endsWith('-pro'))) {
-      if (!rawModel.endsWith('-pro')) {
-        model = `${rawModel}-pro`;
-      }
-    }
-
-    const apiKey: string | undefined = apiKeys?.[provider]?.[0];
-    const dummyObj = { ...sel, thinkingLevel, provider };
-    const effortLabel = sel && thinkingLevel > 0 ? getThinkingEffortLabel(dummyObj) : '';
-    const baseLabel = getShortModelName(sel?.name || model);
-    const modelLabel = `${baseLabel}${effortLabel ? ` ${effortLabel}` : ''}`;
-    return { provider, model, thinkingLevel, apiKey, modelLabel };
-  }, [modelConfig, selectedModelId, apiKeys]);
+  const resolveModel = useCallback(
+    () => resolveChatModel({ modelConfig, selectedModelId, apiKeys }),
+    [modelConfig, selectedModelId, apiKeys],
+  );
 
   const newId = () => crypto.randomUUID?.() || Math.random().toString(36).slice(2);
 
@@ -1005,57 +729,14 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   };
 
   // ── Send ───────────────────────────────────────────────────────────────────
-  const buildAiHistory = useCallback(async (sourceMessages: ChatMsg[]): Promise<AiChatMessage[]> => {
-    return await Promise.all(sourceMessages.map(async (message) => {
-      let content = message.content;
-      if (!message.attachments?.length) return { role: message.role, content };
-
-      const aiAttachments: NonNullable<AiChatMessage['attachments']> = [];
-      for (const attachment of message.attachments) {
-        let blob = attachmentBlobsRef.current.get(attachment.id);
-        if (!blob) {
-          const stored = await loadLocalFSChatAttachment(attachment.id);
-          blob = stored?.blob;
-          if (blob) attachmentBlobsRef.current.set(attachment.id, blob);
-        }
-
-        if (!blob) {
-          if (attachment.kind === 'github' && attachment.sourceUrl) {
-            content += `\n\n[GitHub repository source: ${attachment.name} (${attachment.sourceUrl})]`;
-          } else {
-            content += `\n\n[Attachment unavailable on this device: ${attachment.name}]`;
-          }
-          continue;
-        }
-
-        if (attachment.kind === 'github') {
-          aiAttachments.push({
-            type: 'text',
-            mimeType: 'text/plain',
-            data: await blob.text(),
-            name: `GitHub repository ${attachment.name}${attachment.sourceRef ? ` at ${attachment.sourceRef}` : ''}`,
-            size: attachment.size,
-          });
-          continue;
-        }
-
-        const textLike = isTextLikeAttachment(attachment);
-        aiAttachments.push({
-          type: attachment.kind === 'image' ? 'image' : textLike ? 'text' : 'file',
-          mimeType: attachment.mimeType,
-          data: textLike ? await blob.text() : await blobToBase64(blob),
-          name: attachment.name,
-          size: attachment.size,
-        });
-      }
-
-      return {
-        role: message.role,
-        content,
-        ...(aiAttachments.length ? { attachments: aiAttachments } : {}),
-      };
-    }));
-  }, [loadLocalFSChatAttachment]);
+  const buildAiHistory = useCallback(
+    (sourceMessages: ChatMsg[]) => buildChatAiHistory({
+      sourceMessages,
+      attachmentBlobs: attachmentBlobsRef.current,
+      loadAttachment: loadLocalFSChatAttachment,
+    }),
+    [loadLocalFSChatAttachment],
+  );
 
   const handleSend = useCallback(
     async (
