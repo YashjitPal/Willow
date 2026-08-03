@@ -8,7 +8,6 @@ import {
   Clock,
   PanelLeftClose,
   Lightbulb,
-  FileCode2,
   Plus,
   ThumbsUp,
   ThumbsDown,
@@ -31,7 +30,6 @@ import {
   Scan,
   Type,
   CornerLeftUp,
-  AlertTriangle,
   Library,
   Layout,
   Component,
@@ -84,275 +82,16 @@ import { useDrive } from '@willow/storage/adapters/use-drive';
 import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 
 
-// Collapsible Test Indicator Component - Matches CollapsibleFileIndicator exactly
-// Shows: "Performing <action>" with shimmer animation while active, dropdown for action history
-const CollapsibleTestIndicator: React.FC<{ 
-  actions: string[];  // List of actions performed (e.g., ["Analysis", "Click", "Type"])
-  currentAction: string;
-  isGenerating?: boolean;
-  isStreaming?: boolean;
-}> = ({ actions, currentAction, isGenerating = false, isStreaming = false }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [displayedAction, setDisplayedAction] = useState(currentAction);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  
-  // Animate action name changes during streaming
-  useEffect(() => {
-    if (currentAction !== displayedAction) {
-      if (isStreaming) {
-        setIsTransitioning(true);
-        const timer = setTimeout(() => {
-          setDisplayedAction(currentAction);
-          setIsTransitioning(false);
-        }, 150);
-        return () => clearTimeout(timer);
-      } else {
-        setDisplayedAction(currentAction);
-      }
-    }
-  }, [currentAction, displayedAction, isStreaming]);
-  
-  // Status text: "Performing" while active, "Performed" when done
-  const statusText = isGenerating ? 'Performing' : 'Performed';
-  
-  // Shimmer only when actively streaming AND generating
-  const shouldShimmer = isStreaming && isGenerating;
-  
-  // Render status text with shimmer (exactly like CollapsibleFileIndicator)
-  const renderStatusText = () => {
-    const shimmerClass = shouldShimmer ? "animate-shimmer bg-clip-text text-transparent bg-[length:200%_100%]" : "";
-    const shimmerStyle = shouldShimmer ? { backgroundImage: 'linear-gradient(90deg, #81888f 0%, #ffffff 50%, #81888f 100%)', animationDuration: '1.5s' } : {};
-    
-    return (
-      <span className="text-[15.15px] inline-flex items-center gap-1">
-        <span className={shimmerClass} style={shimmerStyle}>
-          {statusText}
-        </span>
-        <span className="relative inline-block">
-          <span 
-            className="font-mono bg-white/5 px-1.5 py-0.5 rounded inline-block transition-opacity duration-300 ease-out"
-            style={{ opacity: isTransitioning ? 0 : 1 }}
-          >
-            <span 
-              className={shouldShimmer ? shimmerClass : ""}
-              style={shouldShimmer ? shimmerStyle : { color: '#81888f' }}
-            >
-              {displayedAction}
-            </span>
-          </span>
-        </span>
-      </span>
-    );
-  };
-  
-  // Single action - show directly (no dropdown)
-  if (actions.length <= 1) {
-    return (
-      <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
-        <FlaskConical size={18} />
-        {renderStatusText()}
-      </div>
-    );
-  }
-  
-  // Multiple actions - show with dropdown
-  return (
-    <div className="space-y-0">
-      {/* Header row with chevron pushed to far right */}
-      <div className="flex items-center justify-between" style={{ color: '#81888f' }}>
-        <div className="flex items-center gap-2.5">
-          <FlaskConical size={18} />
-          {renderStatusText()}
-        </div>
-        <button 
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1.5 hover:bg-white/10 rounded transition-colors"
-        >
-          <ChevronDown 
-            size={16} 
-            className={`transition-transform duration-300 ease-out ${isExpanded ? 'rotate-180' : ''}`} 
-          />
-        </button>
-      </div>
-      
-      {/* Expanded actions list with smooth animation */}
-      <div 
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
-        }`}
-      >
-        <div className="pt-4 space-y-4">
-          {actions.slice(0, -1).map((action, i) => (
-            <div 
-              key={i} 
-              className="flex items-center gap-2.5 transition-all duration-200"
-              style={{ 
-                color: '#81888f',
-                opacity: isExpanded ? 1 : 0,
-                transform: isExpanded ? 'translateY(0)' : 'translateY(-8px)',
-                transitionDelay: `${i * 30}ms`
-              }}
-            >
-              <FlaskConical size={18} />
-              <span className="text-[15.15px]">Performed <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded" style={{ color: '#81888f' }}>{action}</span></span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 import { GeminiLogo, AnnotateIcon, VisualEditsIcon } from './sidebar-icons';
-
-// Collapsible File Indicator Component
-const CollapsibleFileIndicator: React.FC<{ 
-  files: any[], 
-  lastFileName: string, 
-  isGenerating?: boolean, 
-  isStreaming?: boolean,
-  isExpanded?: boolean,
-  setIsExpanded?: (expanded: boolean) => void 
-}> = ({ files, lastFileName, isGenerating = false, isStreaming = false, isExpanded: externalExpanded, setIsExpanded: externalSetExpanded }) => {
-  const [internalExpanded, setInternalExpanded] = useState(false);
-  const [displayedFileName, setDisplayedFileName] = useState(lastFileName);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  
-  // Use external state if provided, otherwise use internal
-  const isExpanded = externalExpanded !== undefined ? externalExpanded : internalExpanded;
-  const setIsExpanded = externalSetExpanded || setInternalExpanded;
-  
-  // Only animate file name changes during streaming
-  useEffect(() => {
-    if (lastFileName !== displayedFileName) {
-      if (isStreaming) {
-        // Start fade out
-        setIsTransitioning(true);
-        // After fade out, update displayed name and fade in
-        const timer = setTimeout(() => {
-          setDisplayedFileName(lastFileName);
-          setIsTransitioning(false);
-        }, 150); // Half of the transition duration
-        return () => clearTimeout(timer);
-      } else {
-        // Not streaming, just update immediately
-        setDisplayedFileName(lastFileName);
-      }
-    }
-  }, [lastFileName, displayedFileName, isStreaming]);
-  
-  // Determine the status text for the current (top) file
-  const statusText = isGenerating ? 'Editing' : 'Edited';
-  
-  // Animation class - only during streaming
-  const animClass = isStreaming ? ' animate-textFadeIn' : '';
-  
-  // Shimmer only when actively streaming AND generating (prevents glow in saved messages)
-  const shouldShimmer = isStreaming && isGenerating;
-  
-  // Render the status text with or without shimmer animation
-  const renderStatusText = () => {
-    const shimmerClass = shouldShimmer ? "animate-shimmer bg-clip-text text-transparent bg-[length:200%_100%]" : "";
-    const shimmerStyle = shouldShimmer ? { backgroundImage: 'linear-gradient(90deg, #81888f 0%, #ffffff 50%, #81888f 100%)', animationDuration: '1.5s' } : {};
-    
-    return (
-      <span className="text-[15.15px] inline-flex items-center gap-1">
-        <span className={shimmerClass} style={shimmerStyle}>
-          {statusText}
-        </span>
-        <span className="relative inline-block">
-          {/* Background box - always visible */}
-          <span 
-            className="font-mono bg-white/5 px-1.5 py-0.5 rounded inline-block transition-opacity duration-300 ease-out"
-            style={{ opacity: isTransitioning ? 0 : 1 }}
-          >
-            {/* Text with optional shimmer */}
-            <span 
-              className={shouldShimmer ? shimmerClass : ""}
-              style={shouldShimmer ? shimmerStyle : { color: '#81888f' }}
-            >
-              {displayedFileName}
-            </span>
-          </span>
-        </span>
-      </span>
-    );
-  };
-  
-  if (files.length === 1) {
-    // Single file - just show it directly
-    return (
-      <div className={`flex items-center gap-2.5${animClass}`} style={{ color: '#81888f' }}>
-        <FileCode2 size={18} />
-        {renderStatusText()}
-      </div>
-    );
-  }
-  
-  return (
-    <div className={`space-y-0${animClass}`}>
-      {/* Header row with chevron pushed to far right */}
-      <div className="flex items-center justify-between" style={{ color: '#81888f' }}>
-        <div className="flex items-center gap-2.5">
-          <FileCode2 size={18} />
-          {renderStatusText()}
-        </div>
-        <button 
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1.5 hover:bg-white/10 rounded transition-colors"
-        >
-          <ChevronDown 
-            size={16} 
-            className={`transition-transform duration-300 ease-out ${isExpanded ? 'rotate-180' : ''}`} 
-          />
-        </button>
-      </div>
-      
-      {/* Expanded files list with smooth animation */}
-      <div 
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
-        }`}
-      >
-        <div className="pt-4 space-y-4">
-          {files.slice(0, -1).map((file, i) => {
-            const fileName = file.filePath?.split('/').pop() || file.content;
-            return (
-              <div 
-                key={i} 
-                className="flex items-center gap-2.5 transition-all duration-200"
-                style={{ 
-                  color: '#81888f',
-                  opacity: isExpanded ? 1 : 0,
-                  transform: isExpanded ? 'translateY(0)' : 'translateY(-8px)',
-                  transitionDelay: `${i * 30}ms`
-                }}
-              >
-                <FileCode2 size={18} />
-                <span className="text-[15.15px]">Edited <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded" style={{ color: '#81888f' }}>{fileName}</span></span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Helper to strip code blocks and bolt artifact tags for clean text copying
-const stripCodeAndIndicators = (content: string): string => {
-  let text = content;
-  // Remove boltArtifact and boltAction tags and their contents
-  text = text.replace(/<boltArtifact[^>]*>[\s\S]*?<\/boltArtifact>/gi, '');
-  text = text.replace(/<boltAction[^>]*>[\s\S]*?<\/boltAction>/gi, '');
-  // Remove markdown code blocks
-  text = text.replace(/```[\s\S]*?```/g, '');
-  // Remove inline code
-  text = text.replace(/`[^`]+`/g, '');
-  // Clean up extra whitespace
-  text = text.replace(/\n{3,}/g, '\n\n').trim();
-  return text;
-};
+import { CollapsibleFileIndicator, CollapsibleTestIndicator } from './collapsible-indicators';
+import { stripCodeAndIndicators } from './message-text';
+import { processBold } from './inline-formatting';
+import { DESIGN_SYSTEM_PROMPT, extractDesignCode, generateDesignFileName } from './design-generation';
+import { injectCharRevealStyles } from './char-reveal-styles';
+import { buildFollowUpSuggestionsPrompt, buildSessionTitlePrompt } from './sidebar-prompts';
+import { GlobalErrorToasts } from './GlobalErrorToasts';
+import { MAX_IMAGE_SIZE_BYTES, fileToBase64, getUniqueImagePath, readFileText } from './attachment-files';
+import { collectSavedModels, getShortName } from './model-labels';
 
 interface SidebarProps {
   width: number;
@@ -1161,10 +900,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           const apiKey = apiKeys?.[targetProvider]?.[0];
           if (!apiKey) throw new Error('No API key for configured chat naming provider');
 
-          const promptText = `You are an AI assistant. Analyze this initial user prompt for a coding session and summarize it into a very short, creative title of 2 to 4 words. The title should describe what the user wants to build or achieve (e.g., "Create Button Component", "Fix Table Alignment", "Add Search Filter"). Do NOT use any quotes, punctuation, markdown, numbers, or bullet points. Return ONLY the title text.
-
-User Prompt:
-"${userPrompt}"`;
+          const promptText = buildSessionTitlePrompt(userPrompt);
 
           let summaryTitle = '';
 
@@ -1414,7 +1150,7 @@ User Prompt:
         `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.substring(0, 200)}`
       ).join('\n');
 
-      const promptText = `Based on this conversation about building an app, suggest 5 short follow-up prompts (2-4 words each) the user might want to ask next. Return ONLY the suggestions, one per line. No numbers, no bullets, no question marks.\n\nConversation:\n${recentMessages}`;
+      const promptText = buildFollowUpSuggestionsPrompt(recentMessages);
 
       let text = '';
 
@@ -1535,82 +1271,9 @@ User Prompt:
 
   // Inject animation CSS once on mount to prevent animation restarts on re-render
   useEffect(() => {
-    const styleId = 'char-reveal-animation-styles';
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = `
-        @keyframes reveal {
-          0% { opacity: 0; transform: translateY(10px) scale(0.95); filter: blur(10px); }
-          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-        }
-        .char-reveal {
-          display: inline-block;
-          animation: reveal 0.4s cubic-bezier(0.2, 0.65, 0.3, 0.9) forwards;
-          opacity: 0;
-        }
-      `;
-      document.head.appendChild(style);
-    }
+    injectCharRevealStyles();
   }, []);
 
-  // Helper to process bold text
-  // Process inline formatting: bold (**text**) and inline code (`code`)
-  const processInlineFormatting = (text: string): React.ReactNode[] => {
-    // 1. Extract code blocks and replace with unique placeholders
-    const codeBlocks: string[] = [];
-    const placeholderPrefix = '___CODE_BLOCK_';
-    const placeholderSuffix = '___';
-    
-    const textWithPlaceholders = text.replace(/(`[^`]+`)/g, (match) => {
-      const index = codeBlocks.length;
-      codeBlocks.push(match);
-      return `${placeholderPrefix}${index}${placeholderSuffix}`;
-    });
-
-    // 2. Split by bold markers
-    const parts = textWithPlaceholders.split(/(\*\*.*?\*\*)/g);
-
-    // 3. Render parts and restore code blocks
-    return parts.map((part, partIdx) => {
-      const restoreCode = (content: string) => {
-        // Split by placeholders to find where code codes go
-        const subParts = content.split(new RegExp(`(${placeholderPrefix}\\d+${placeholderSuffix})`, 'g'));
-        
-        return subParts.map((subPart, subIdx) => {
-          if (subPart.startsWith(placeholderPrefix) && subPart.endsWith(placeholderSuffix)) {
-            const indexStr = subPart.substring(placeholderPrefix.length, subPart.length - placeholderSuffix.length);
-            const index = parseInt(indexStr, 10);
-            if (!isNaN(index) && codeBlocks[index]) {
-              // Render the code block
-              return (
-                <code key={`code-${partIdx}-${subIdx}`} className="font-mono bg-white/10 px-1.5 py-0.5 rounded text-[13px] text-gray-200">
-                  {codeBlocks[index].slice(1, -1)}
-                </code>
-              );
-            }
-          }
-          // Return plain text
-          return subPart;
-        });
-      };
-
-      // Check if this part is a bold block
-      if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-        return (
-          <strong key={`bold-${partIdx}`} className="text-white font-semibold">
-            {restoreCode(part.slice(2, -2))}
-          </strong>
-        );
-      }
-      
-      // Normal text
-      return <React.Fragment key={`text-${partIdx}`}>{restoreCode(part)}</React.Fragment>;
-    });
-  };
-
-  // Keep processBold as alias for backward compatibility
-  const processBold = processInlineFormatting;
 
   // Track which content has been animated and their assigned delays
   const animatedContentRef = useRef<Map<string, string>>(new Map());
@@ -2195,67 +1858,6 @@ User Prompt:
     }
   }, [prompt, messages]);
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          // Remove data:image/png;base64, prefix
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('Failed to read file'));
-        }
-      };
-      reader.onerror = error => reject(error);
-    });
-  };
-
-  const readFileText = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          resolve(reader.result);
-        } else {
-          reject(new Error('Failed to read file'));
-        }
-      };
-      reader.onerror = error => reject(error);
-    });
-  };
-
-  const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
-
-  const sanitizeFileName = (name: string): string => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-  };
-
-  const getUniqueImagePath = (name: string, existingFiles: Record<string, any>): string => {
-    const sanitized = sanitizeFileName(name);
-    const basePath = `/public/uploads/${sanitized}`;
-    if (!existingFiles[basePath]) return basePath;
-
-    const dotIndex = sanitized.lastIndexOf('.');
-    const stem = dotIndex > 0 ? sanitized.substring(0, dotIndex) : sanitized;
-    const ext = dotIndex > 0 ? sanitized.substring(dotIndex) : '';
-
-    let counter = 1;
-    let candidate: string;
-    do {
-      candidate = `/public/uploads/${stem}-${counter}${ext}`;
-      counter++;
-    } while (existingFiles[candidate]);
-
-    return candidate;
-  };
-
   const handleSendMessage = async (text: string) => {
     if (hasUnsaved) return; // Block sending when unsaved changes exist
     if (!text.trim() && attachments.length === 0) return;
@@ -2651,26 +2253,6 @@ User Prompt:
     }
   };
 
-  // === DESIGN GENERATION (canvas-screens mode) ===
-
-  const extractDesignCode = (content: string): string | null => {
-    const match = content.match(/```(?:jsx|tsx|react|javascript|typescript)?\n([\s\S]*?)```/i);
-    return match ? match[1].trim() : null;
-  };
-
-  const generateDesignFileName = (prompt: string): string => {
-    // Extract max 4 meaningful words from prompt to generate PascalCase filename
-    const words = prompt
-      .replace(/[^a-zA-Z0-9\s]/g, '')
-      .split(/\s+/)
-      .filter(w => w.length > 2 && !['design', 'create', 'make', 'build'].includes(w.toLowerCase()))
-      .slice(0, 4);
-    
-    if (words.length === 0) return `Design${Math.floor(Math.random() * 1000)}`;
-    
-    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('') + 'Design';
-  };
-
   const startDesignGeneration = async (text: string) => {
     generationAbortControllerRef.current?.abort();
     const abortController = new AbortController();
@@ -2782,30 +2364,7 @@ User Prompt:
           // Don't update designStreamingResponse — we show the response only once complete
         },
         () => { /* onStart */ },
-        `You are a world-class UI/UX designer who writes production-quality React code. You ALWAYS generate REAL, COMPLETE, WORKING code — never pseudocode, never descriptions, never placeholders.
-
-CRITICAL INSTRUCTION:
-DO NOT output ANY introductory text, thoughts, or explanations before the code.
-Your response MUST START IMMEDIATELY with the \`\`\`tsx code block.
-
-RESPONSE FORMAT MUST BE EXACTLY THIS STRUCTURE:
-\`\`\`tsx
-import React from 'react';
-// ... complete actual working React component code here ...
-// Must use Tailwind CSS and Lucide React
-export default function Design() { ... }
-\`\`\`
-I've designed... [1-2 short conversational sentences]
-- **Feature**: Detail
-- **Feature**: Detail
-
-CODING RULES:
-- Write a single, self-contained React component that uses Tailwind CSS for ALL styling and Lucide React for icons.
-- Export the component as default export.
-- The component must be COMPLETE — include all state, handlers, styling, layout, and visual details inline. No lazy "add more here" comments.
-- Make the design stunning — use gradients, shadows, rounded corners, hover effects, smooth transitions, and a cohesive dark color palette.
-- NEVER describe what you would build. ALWAYS write the actual code.
-- NEVER output multiple code blocks. ONE code block only.`
+        DESIGN_SYSTEM_PROMPT
       );
 
       if (!isCurrentRun()) return;
@@ -3309,25 +2868,9 @@ CODING RULES:
   const [isClosingModelsMenu, setIsClosingModelsMenu] = useState(false);
   const modelsMenuRef = useRef<HTMLDivElement>(null);
 
-  const ALL_MODELS = [
-    ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'Google' })),
-    ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'OpenAI' })),
-    ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'Anthropic' })),
-    ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-    ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-    ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter((m: any) => m.name !== "Nano Banana Pro");
+  const ALL_MODELS = collectSavedModels(modelConfig);
 
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
-
-  const getShortName = (name: string) => {
-    if (!name) return "Model";
-    if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
-    return name
-      .replace(/Gemini\s+/gi, '')
-      .replace(/\s+Extended$/gi, '')
-      .trim();
-  };
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
@@ -4767,100 +4310,11 @@ CODING RULES:
     </div>
 
       {/* Global Error Popups - rendered via portal to escape sidebar stacking context */}
-      {globalErrors.length > 0 && createPortal(
-        <>
-          <style>{`
-            @keyframes errorSlideDown {
-              from { opacity: 0; transform: translateY(-12px); }
-              to { opacity: 1; transform: translateY(0); }
-            }
-            @keyframes errorFadeOut {
-              from { opacity: 1; }
-              to { opacity: 0; }
-            }
-          `}</style>
-          <div className="fixed top-20 bottom-4 right-6 z-50 flex flex-col overflow-y-auto no-scrollbar">
-            {globalErrors.map((err) => {
-              const isLastOne = globalErrors.length === 1;
-              return isLastOne && err.isClosing ? (
-                <div
-                  key={err.id}
-                  className="flex items-center gap-4 px-4 py-5 bg-[#18181b]/80 backdrop-blur-md border border-white/10 rounded-xl"
-                  style={{ animation: 'errorFadeOut 0.2s ease-out forwards' }}
-                >
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className="text-red-400" size={20} />
-                  </div>
-                  <div className="flex-1 min-w-[200px] max-w-[400px]">
-                    <p className="text-sm font-medium text-gray-200 leading-snug">
-                      {err.message}
-                    </p>
-                  </div>
-                  {err.action === 'set-api-key' ? (
-                    <button 
-                      className="flex-shrink-0 text-red-400 text-sm font-medium"
-                    >
-                      Set
-                    </button>
-                  ) : (
-                    <button 
-                      className="flex-shrink-0 text-red-400 text-sm font-medium"
-                    >
-                      Dismiss
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div
-                  key={err.id}
-                  className="grid transition-[grid-template-rows] duration-[250ms] ease-in-out"
-                  style={{ gridTemplateRows: err.isClosing ? '0fr' : '1fr' }}
-                >
-                  <div className="overflow-hidden">
-                    <div className="pb-3">
-                      <div 
-                        className="flex items-center gap-4 px-4 py-5 bg-[#18181b]/80 backdrop-blur-md border border-white/10 rounded-xl transition-opacity duration-[250ms] ease-out"
-                        style={{
-                          animation: !err.isClosing ? 'errorSlideDown 0.25s ease-out forwards' : undefined,
-                          opacity: err.isClosing ? 0 : undefined
-                        }}
-                      >
-                        <div className="flex-shrink-0">
-                          <AlertTriangle className="text-red-400" size={20} />
-                        </div>
-                        <div className="flex-1 min-w-[200px] max-w-[400px]">
-                          <p className="text-sm font-medium text-gray-200 leading-snug">
-                            {err.message}
-                          </p>
-                        </div>
-                        {err.action === 'set-api-key' ? (
-                          <button 
-                            onClick={() => {
-                              dismissGlobalError(err.id);
-                              onSettingsClick?.('models');
-                            }}
-                            className="flex-shrink-0 text-red-400 hover:text-red-300 text-sm font-medium transition-colors cursor-pointer"
-                          >
-                            Set
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => dismissGlobalError(err.id)}
-                            className="flex-shrink-0 text-red-400 hover:text-red-300 text-sm font-medium transition-colors cursor-pointer"
-                          >
-                            Dismiss
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>,
-        document.body
-      )}
+      <GlobalErrorToasts
+        globalErrors={globalErrors}
+        dismissGlobalError={dismissGlobalError}
+        onSettingsClick={onSettingsClick}
+      />
     </>
   );
 };
