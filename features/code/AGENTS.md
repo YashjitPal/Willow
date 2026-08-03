@@ -20,9 +20,18 @@ largest feature in the repo.
 | `src/CodeHome.tsx` | Landing grid (1490 lines). `preloadIdleImages()` warms card art before the tab shows. |
 | `src/CodeHomeSkeleton.tsx` | Placeholder shown while the Code chunk loads. |
 | `src/WorkbenchView.tsx` | Workbench shell. Owns project load/save and the LLM loop. |
-| `src/workbench/WorkbenchSidebar.tsx` | Chat + file tree (4867 lines — see below). |
+| `src/workbench/WorkbenchSidebar.tsx` | Chat + file tree (4322 lines — see below). |
 | `src/workbench/visual-edit-menu.tsx` | The visual-edit inspector panel (1138 lines), split out of the sidebar. |
 | `src/workbench/sidebar-icons.tsx` | The sidebar's 13 inline SVG icons (149 lines). |
+| `src/workbench/collapsible-indicators.tsx` | The expand/collapse test and file indicators in the transcript (265 lines). |
+| `src/workbench/GlobalErrorToasts.tsx` | Error toast stack, portalled out of the sidebar's stacking context (135 lines). |
+| `src/workbench/attachment-files.ts` | Reads dropped files, slugifies and de-duplicates their upload paths. |
+| `src/workbench/inline-formatting.tsx` | Bold/inline-code rendering for transcript text. |
+| `src/workbench/message-text.ts` | Strips code blocks and indicator markers out of a message. |
+| `src/workbench/design-generation.ts` | The design system prompt plus its response parser. |
+| `src/workbench/sidebar-prompts.ts` | Session-title and follow-up-suggestion prompts. |
+| `src/workbench/model-labels.ts` | Flattens saved model config; shortens names for the composer button. |
+| `src/workbench/char-reveal-styles.ts` | Keyframes for the transcript's word-by-word reveal. |
 | `src/workbench/WorkbenchPreview.tsx` | The live preview iframe + its toolbar (1489 lines). |
 | `src/workbench/WorkbenchTopBar.tsx` | Run/preview/code toggles. |
 | `src/workbench/CodePanel.tsx` | The code editor pane. |
@@ -63,11 +72,38 @@ barrel — it is the intended entry point for this subsystem.
 
 ## Workbench sidebar split
 
-`workbench/WorkbenchSidebar.tsx` was 6084 lines; the visual-edit inspector panel
+`workbench/WorkbenchSidebar.tsx` was 6084 lines. The visual-edit inspector panel
 moved out to `workbench/visual-edit-menu.tsx` (1138 lines) and the 13 inline SVG
-icons to `workbench/sidebar-icons.tsx` (149 lines). The sidebar is now 4867 lines
-and holds the chat thread, the file tree, the diff viewer, and the LLM request
-loop. Everything in it is live — verify before you move anything.
+icons to `workbench/sidebar-icons.tsx` (149 lines), taking it to 4867. Eight more
+extractions took it to **4322**: the nine `workbench/` modules listed in the table
+above. Each one was a leaf — it closed over nothing in the component — so every
+move was a relocation, not a rewrite.
+
+What is left is deliberately left. The sidebar still holds the chat thread, the
+file tree, the diff viewer, and the LLM request loop, and the big blocks inside it
+(`persistSessions` ~297 lines, `startAiGeneration` ~266, `startTestGeneration`
+~251, `renderTextContent`, `renderFormattedContent`, `handleSendMessage`) are not
+leaves: they read and write hook state and refs declared above them. Extracting
+one means designing a props or hook contract for it, which is its own change with
+its own review — not a side effect of something else.
+
+Two rules, learned the hard way, that `tsc` cannot check for you:
+
+- **Never move a `motion.div` that is a direct child of `AnimatePresence`.** The
+  presence boundary tracks its immediate children; putting a component boundary
+  there silently kills the exit animation. Moving an entire `AnimatePresence` tree
+  as one unit is fine, as is relocating a component whose render site is already a
+  component boundary.
+- **This directory is CRLF.** Write new files with `\r\n` or the whole file shows
+  up as changed.
+
+When you move a string payload — a prompt, a `<style>` block — compare the
+**runtime string**, not the source text. Leading whitespace inside a template
+literal is part of the value, so re-indenting a moved block changes what ships.
+`GlobalErrorToasts.tsx` carries its own keyframes for the same reason: it renders
+through a portal, outside any stylesheet the sidebar controls.
+
+Everything here is live. Verify before you move anything.
 
 ## Naming
 
