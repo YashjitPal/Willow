@@ -184,6 +184,7 @@ it('keeps Agent Builder reachable from app navigation and a direct route', () =>
   const backendHookSource = fs.readFileSync(SOURCE.feature('use-agent-builder-backend.ts'), 'utf8');
   const publishModalSource = fs.readFileSync(SOURCE.feature('PublishWorkflowModal.tsx'), 'utf8');
   const codeExportModalSource = fs.readFileSync(SOURCE.feature('CodeExportModal.tsx'), 'utf8');
+  const guardrailPanelSource = fs.readFileSync(SOURCE.feature('GuardrailConfigPanel.tsx'), 'utf8');
   assert.match(sidebarSource, /currentView === 'agents'/);
   assert.match(sidebarSource, /onViewChange\('agents'\)/);
   assert.match(appSource, /path="\/agents"/);
@@ -302,9 +303,9 @@ it('keeps Agent Builder reachable from app navigation and a direct route', () =>
   assert.match(agentBuilderSource, /if \(selectedEdgeIds\.length > 0\) takeSnapshot\(\);[\s\S]*snapshot: selectedEdgeIds\.length === 0/);
   assert.match(agentBuilderSource, /graphClipboard\.current = null;[\s\S]*\[wfInfo\?\.id\]/);
   assert.match(agentBuilderSource, /w-\[min\(240px,60%\)\]/);
-  assert.match(agentBuilderSource, /w-\[min\(220px,60%\)\]/);
-  assert.match(agentBuilderSource, /Number\.isFinite\(settings\.confidenceThreshold\)/);
-  assert.match(agentBuilderSource, /confidenceThreshold\.toFixed\(2\)/);
+  assert.match(guardrailPanelSource, /w-\[min\(220px,60%\)\]/);
+  assert.match(guardrailPanelSource, /Number\.isFinite\(settings\.confidenceThreshold\)/);
+  assert.match(guardrailPanelSource, /confidenceThreshold\.toFixed\(2\)/);
   assert.match(agentBuilderSource, /setCodeInterpreterTimeoutMs\(Number\.isFinite\(value\) \? Math\.max\(100, Math\.min\(120000, Math\.round\(value\)\)\) : 5000\)/);
   assert.match(agentBuilderSource, /\^\[A-Za-z_\]\[A-Za-z0-9_-\]\{0,63\}\$/);
   assert.match(agentBuilderSource, /Function parameters must be an object JSON schema/);

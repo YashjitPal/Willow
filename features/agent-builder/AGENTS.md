@@ -10,8 +10,14 @@ it in real time, and publishes it. Powered by the backend at
 | Path | Role |
 | --- | --- |
 | `src/AgentsWorkspace.tsx` | Entry. Agents/Drafts/Templates tablist, the React-Flow canvas, and the open/save UX. |
-| `src/AgentBuilder.tsx` | The canvas, config panels, and toolbar (6357 lines — see below). |
+| `src/AgentBuilder.tsx` | The canvas, the Agent config panel, and the toolbar (5548 lines — see below). |
 | `src/canvas-nodes.tsx` | All React-Flow node renderers + the `nodeTypes`/`edgeTypes` registries and the custom connection line. Presentational; the only outside state it reads is `evaluationGraderCounts` (for the grader badge on agent nodes). |
+| `src/workflow-graph.ts` | The starter graph (`initialNodes`/`initialEdges`) plus the pure naming helpers that keep node namespaces and duplicated ids unique. Closure-free. |
+| `src/agent-node-schema.ts` | Model metadata (`APIModel`, `formatModelName`), the Agent node's error policy, and the builder that turns the Simple/Advanced schema editor into a validated JSON Schema. Closure-free. |
+| `src/StartConfigPanel.tsx` | Config editor for the Start node: the workflow's input and state variable declarations. |
+| `src/GuardrailConfigPanel.tsx` | Config editor for the Guardrail node: the four checks (PII, moderation, jailbreak, hallucination) and their per-check settings. |
+| `src/InstructionsModal.tsx` | Full-screen editor for an Agent node's instructions. Portalled to `document.body` so the canvas transform cannot clip it. |
+| `src/TemplatePicker.tsx` | Template catalog overlay for starting a workflow from a preset. |
 | `src/agent-builder-store.ts` | Nanostore. Draft state, workflow name, model/output-format/instructions. Also holds draft flush logic. |
 | `src/agent-builder.ts` | Client shim. `getAgentBuilderClient(apiKeys)` forwards user keys via `x-provider-keys`. |
 | `src/use-agent-builder-backend.ts` | Integration hook (1248 lines). Autosave → load, run + SSE streaming, publish, code export, approvals. The bridge between the canvas (React-Flow JSON) and the server (pipeline DAG). |
@@ -38,18 +44,37 @@ backend instead. Backend down → the UI shows "Backend offline".
 
 ## The big one
 
-`AgentBuilder.tsx` is still 6357 lines (was 6916; the node renderers moved to
-`canvas-nodes.tsx`). What remains: the React-Flow setup, the toolbar, validation,
-the docking panels, and two very large config panels — `AgentConfigPanel`
-(~3450 lines, lines 437–3883) and `StartConfigPanel` (~225 lines). Those two are
-the next extraction candidates, but they are not leaves: they close over the
-node-update callbacks and backend hook state, so pulling them out means defining
-a props contract rather than moving a block of text.
+`AgentBuilder.tsx` is 5548 lines (was 6916: the node renderers moved to
+`canvas-nodes.tsx`, then the graph helpers, schema types, and four self-contained
+panels moved to the modules listed above). What remains: the React-Flow setup,
+the toolbar, validation, the docking panels, and one very large config panel —
+`AgentConfigPanel` (~3450 lines, lines 147–3617).
+
+`AgentConfigPanel` is deliberately still here. Unlike the panels that were
+extracted, it is not a leaf: it closes over the node-update callbacks and backend
+hook state, so pulling it out means designing a props contract rather than moving
+a block of text. Do that as its own change, not as a side effect of something else.
+
+When extracting from this file, two rules have already caught real bugs:
+
+- **Never move a `motion.div` that is a direct child of `AnimatePresence`.**
+  Putting a component boundary where Framer Motion tracks presence silently kills
+  the exit animation, and `tsc` will not tell you. Moving an entire
+  `AnimatePresence` tree as one unit is fine, and so is moving a component whose
+  render site is *already* a boundary (that is why `StartConfigPanel` and
+  `GuardrailConfigPanel` were safe).
+- **This package is CRLF.** New modules must be written with `\r\n` or the diff
+  becomes unreviewable.
 
 Everything in `AgentBuilder.tsx` is reached through three exports —
 `AgentBuilder` (the provider wrapper), `AgentBuilderContent`, and
 `AgentBuilderFlow`. Nothing else in the file is imported elsewhere, so
 extractions here are internal-only and cannot break other features.
+
+Note that `apps/studio/test/agent-builder-overlays.smoke.test.mjs` asserts
+against **source text** for invariants that never reach the DOM (clamp bounds,
+lock ordering). Those assertions are keyed to file paths, so moving markup
+between files means re-pointing the matching assertion at the new module.
 
 ## Node types
 
