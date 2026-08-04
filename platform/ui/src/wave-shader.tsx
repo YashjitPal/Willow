@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout'
+import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout'
 
 declare global {
   interface Window {
@@ -30,7 +30,7 @@ export function WaveShaderBackground({ isSidebarCollapsed = false }: WaveShaderB
   })
 
   // Calculate current sidebar width based on prop
-  const currentSidebarWidth = isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH;
+  const currentSidebarWidth = isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH;
 
   useEffect(() => {
     if (sceneRef.current.uniforms) {
@@ -70,8 +70,8 @@ export function WaveShaderBackground({ isSidebarCollapsed = false }: WaveShaderB
     const container = containerRef.current
     
     // Initial sidebar width
-    // Use the same width constants as the rendered dashboard sidebar.
-    const initialSidebarWidth = isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH;
+    // Use the same width constants as the rendered studio sidebar.
+    const initialSidebarWidth = isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH;
 
     const scene = new THREE.Scene()
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)

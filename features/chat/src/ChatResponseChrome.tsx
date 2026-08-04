@@ -303,7 +303,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
           x: { duration: 0.3, ease: [0.2, 0, 0, 1] },
           opacity: { duration: 0.2, ease: [0.2, 0, 0, 1] },
         }}
-        className="absolute bottom-4 right-3 top-4 z-50 flex w-[400px] max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[var(--dashboard-surface)] text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+        className="absolute bottom-4 right-3 top-4 z-50 flex w-[400px] max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[var(--studio-surface)] text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
       >
         <header className="flex h-16 shrink-0 items-center justify-between py-3 pl-6 pr-3">
           <h2

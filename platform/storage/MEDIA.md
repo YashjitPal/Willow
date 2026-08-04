@@ -60,7 +60,7 @@ load applies) and **never clobbers an in-progress generation**.
   (FileSystemObserver change, or focus) → `MediaView` runs `loadMedia(true)`
   (debounced, skipped while generating) → the gallery reflects external
   adds/deletes live.
-- **On the dashboard:** `saveProjectMedia`/`deleteProjectData` update a realtime
+- **On the studio home:** `saveProjectMedia`/`deleteProjectData` update a realtime
   localStorage **media index** (`willow_media_index`: per-project counts) and fire
   **`willow_media_updated`**. The Media tab shows any project tagged `media` OR
   with `index[id].count > 0` — so media generated into a `code` project still

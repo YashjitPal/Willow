@@ -1528,7 +1528,7 @@ Please analyze the screenshot and perform the necessary actions to test this fea
 /**
  * Runs a small task-oriented computer-use loop for Spark's embedded local
  * browser.  It shares the proven screenshot and action execution primitives
- * with the staging QA runner, while using task-oriented instructions and a
+ * with the workbench QA runner, while using task-oriented instructions and a
  * smaller turn budget suitable for an in-chat surface.
  */
 export async function runComputerUseTask(

@@ -1,5 +1,5 @@
 /**
- * Willow Figma — workspace root mounted by the Dashboard's "Figma" tab.
+ * Willow Figma — workspace root mounted by the studio's "Figma" tab.
  *
  * Owns the surface switch (home file browser ⇄ editor), the EditorStore
  * lifecycle for the open file, autosave, thumbnails and the realtime

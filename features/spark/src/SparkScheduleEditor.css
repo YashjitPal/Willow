@@ -8,7 +8,7 @@
   min-height: 100%;
   overflow-x: clip;
   padding: 48px 0 64px;
-  background: var(--dashboard-surface, #0f0f0f);
+  background: var(--studio-surface, #0f0f0f);
   color: #e3e3e3;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   letter-spacing: 0;

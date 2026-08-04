@@ -1,7 +1,7 @@
 /**
  * Cover utilities.
  *
- * Project covers in Willow are always STILL IMAGES (so the dashboard shows a
+ * Project covers in Willow are always STILL IMAGES (so the studio shows a
  * static thumbnail, never an autoplaying video). When a cover is sourced from a
  * video — the first generated item, a "Set as cover" on a video, or a disk
  * cover.mp4 — we grab a single frame and use that PNG as the cover (saved to

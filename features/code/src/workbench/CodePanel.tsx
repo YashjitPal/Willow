@@ -80,7 +80,7 @@ function buildFileTree(filesMap: Record<string, any>): FileNode[] {
   return root;
 }
 
-const StagingCodePanel: React.FC = () => {
+const CodePanel: React.FC = () => {
   // Use bolt.diy files store
   const filesMap = useStore(workbenchStore.files);
 
@@ -573,4 +573,4 @@ const StagingCodePanel: React.FC = () => {
   );
 };
 
-export default StagingCodePanel;
+export default CodePanel;

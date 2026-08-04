@@ -1,5 +1,5 @@
 /* Willow Figma — scoped styles. Every class is prefixed `figx-` so nothing
-   leaks into (or collides with) the rest of the dashboard. */
+   leaks into (or collides with) the rest of the studio. */
 
 .figx-root {
   --figx-bg: #1e1e1e;

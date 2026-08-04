@@ -4,7 +4,7 @@
 }
 
 .spark-task-detail {
-  --spark-base-surface: var(--dashboard-surface, #0f0f0f);
+  --spark-base-surface: var(--studio-surface, #0f0f0f);
   --spark-raised-surface: #1f1f1f;
   --spark-panel-surface: #1f1f1f;
   display: flex;

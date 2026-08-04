@@ -13,13 +13,13 @@ import { ProjectsPage } from '@willow/project-browser/ProjectsPage';
 import { RainbowButton } from '@willow/ui/rainbow-button';
 import { LoginPage } from '@willow/account/LoginPage';
 import { Onboarding } from '@willow/onboarding/Onboarding';
-import { DashboardChat } from '@willow/chat/ChatView';
+import { ChatView } from '@willow/chat/ChatView';
 import { CodeWorkspaceSkeleton } from '@willow/code/CodeHomeSkeleton';
 import { TopLoadingBar } from '@willow/ui/TopLoadingBar';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
-import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
+import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
 import { LocalFSProvider, useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
@@ -29,10 +29,10 @@ import { mergeDriveProjectsIntoRegistry } from '@willow/storage/adapters/drive-d
 import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-store';
 import { sparkLocation } from '@willow/spark/spark-store';
-import type { DashboardExperience } from '@willow/core/types';
+import type { StudioExperience } from '@willow/core/types';
 
-// Lazy-load StagingView to prevent WebContainer boot on login page
-const StagingView = React.lazy(() => import('@willow/code/WorkbenchView'));
+// Lazy-load WorkbenchView to prevent WebContainer boot on login page
+const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 // Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
@@ -48,7 +48,7 @@ const AgentBuilderContent = React.lazy(() =>
   import('@willow/agent-builder/AgentsWorkspace').then((module) => ({ default: module.AgentsWorkspace }))
 );
 
-const DashboardLoadingFallback: React.FC<{
+const StudioLoadingFallback: React.FC<{
   reason: string;
   onStart: (reason: string) => void;
   onFinish: (reason: string) => void;
@@ -98,7 +98,7 @@ const AuthButtons: React.FC = () => {
   );
 };
 
-const DashboardLayout: React.FC<{
+const StudioLayout: React.FC<{
   isSearchOpen: boolean;
   setIsSearchOpen: (open: boolean) => void;
   currentView: ViewType;
@@ -106,10 +106,10 @@ const DashboardLayout: React.FC<{
   children: React.ReactNode;
   onSettingsClick: () => void;
   isAuthenticated: boolean;
-  dashboardMode: 'develop' | 'chat' | 'media';
+  studioMode: 'develop' | 'chat' | 'media';
   onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
-  dashboardExperience: DashboardExperience;
-  onDashboardExperienceChange: (experience: DashboardExperience) => void;
+  studioExperience: StudioExperience;
+  onStudioExperienceChange: (experience: StudioExperience) => void;
   onNewChat: () => void;
   hasActiveChat: boolean;
   isIncognito: boolean;
@@ -125,10 +125,10 @@ const DashboardLayout: React.FC<{
   children,
   onSettingsClick,
   isAuthenticated,
-  dashboardMode,
+  studioMode,
   onModeChange,
-  dashboardExperience,
-  onDashboardExperienceChange,
+  studioExperience,
+  onStudioExperienceChange,
   onNewChat,
   hasActiveChat,
   isIncognito,
@@ -148,16 +148,16 @@ const DashboardLayout: React.FC<{
     disconnectLocalFolder
   } = useLocalFS();
 
-  const isChatExperience = dashboardExperience === 'chat';
+  const isChatExperience = studioExperience === 'chat';
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
   // Calculate effective background (non-authenticated users get 'lines')
   const effectiveBackground = isAuthenticated ? background : 'lines';
-  const dashboardSurface = '#0f0f0f';
+  const studioSurface = '#0f0f0f';
   
   return (
     <div
-      className={`dashboard-layout dashboard-layout--${dashboardExperience} flex h-screen w-screen overflow-hidden bg-[var(--dashboard-surface)] text-white selection:bg-pink-500/30 relative`}
-      style={{ '--dashboard-surface': dashboardSurface } as React.CSSProperties}
+      className={`studio-layout studio-layout--${studioExperience} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] text-white selection:bg-pink-500/30 relative`}
+      style={{ '--studio-surface': studioSurface } as React.CSSProperties}
     >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
       {currentView === 'home' && isChatExperience && effectiveBackground === 'waves' && (
@@ -166,7 +166,7 @@ const DashboardLayout: React.FC<{
             <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
             <div
               className="absolute inset-0 z-[2] pointer-events-none"
-              style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--dashboard-surface) 110%)' }}
+              style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--studio-surface) 110%)' }}
             />
         </div>
       )}
@@ -174,10 +174,10 @@ const DashboardLayout: React.FC<{
       {/* Only show sidebar when authenticated */}
       {isAuthenticated && (
         <>
-          {dashboardExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
+          {studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
             <button
               type="button"
-              className="dashboard-sidebar-mobile-open"
+              className="studio-sidebar-mobile-open"
               aria-label="Open sidebar"
               onClick={() => setIsSidebarCollapsed(false)}
             >
@@ -194,10 +194,10 @@ const DashboardLayout: React.FC<{
             onSearchClick={() => setIsSearchOpen(true)}
             currentView={currentView}
             onViewChange={setCurrentView}
-            dashboardMode={dashboardMode}
+            studioMode={studioMode}
             onModeChange={onModeChange}
-            dashboardExperience={dashboardExperience}
-            onDashboardExperienceChange={onDashboardExperienceChange}
+            studioExperience={studioExperience}
+            onStudioExperienceChange={onStudioExperienceChange}
             onSettingsClick={onSettingsClick}
             backgroundType={effectiveBackground}
             isCollapsed={isSidebarCollapsed}
@@ -211,10 +211,10 @@ const DashboardLayout: React.FC<{
             onIncognitoChat={onIncognitoChat}
             isHidden={isSidebarHidden}
           />
-          {dashboardExperience === 'spark' && !isSidebarCollapsed && (
+          {studioExperience === 'spark' && !isSidebarCollapsed && (
             <button
               type="button"
-              className="dashboard-sidebar-mobile-scrim"
+              className="studio-sidebar-mobile-scrim"
               aria-label="Close navigation"
               onClick={() => setIsSidebarCollapsed(true)}
             />
@@ -262,7 +262,7 @@ const DashboardLayout: React.FC<{
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
-        {currentView === 'home' && isChatExperience && dashboardMode === 'chat' && !isChatOngoing && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
           <div className="absolute top-[14px] right-[12px] z-30 flex items-center">
             <button
               onClick={() => {
@@ -297,14 +297,14 @@ const DashboardLayout: React.FC<{
               <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
               <div
                 className="absolute inset-0 z-[2] pointer-events-none"
-                style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--dashboard-surface) 110%)' }}
+                style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--studio-surface) 110%)' }}
               />
           </div>
         )}
         {/* Solid background: No overlays, just plain color from parent */}
         <main
           className={`flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col ${
-            isChatExperience ? '' : 'spark-dashboard-scroll'
+            isChatExperience ? '' : 'spark-studio-scroll'
           }`}
           /* Reserve scrollbar gutter so centered content (e.g. InputBar) doesn't
              shift horizontally when the main scrollbar appears/disappears
@@ -331,15 +331,15 @@ const ProjectIframe: React.FC = () => {
     );
 };
 
-// Check for page refresh - used to redirect from staging to dashboard on refresh
+// Check for page refresh — used to redirect from the workbench back to the studio home
 const getNavigationType = (): string => {
   const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
   return navEntries[0]?.type || 'navigate';
 };
 
-// Wrapper component that handles refresh redirect BEFORE StagingView loads
-// This prevents the visual glitch caused by StagingView rendering then redirecting
-const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// Wrapper component that handles refresh redirect BEFORE WorkbenchView loads
+// This prevents the visual glitch caused by WorkbenchView rendering then redirecting
+const WorkbenchRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [searchParams] = useSearchParams();
   // Check synchronously if this is a refresh that should redirect
   const [shouldRedirect] = React.useState(() => {
@@ -348,7 +348,7 @@ const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }
       return false;
     }
     // A durable project id makes this a valid reopen, including a hard refresh.
-    // Only transient prompt-only staging routes still fall back to the dashboard.
+    // Only transient prompt-only workbench routes still fall back to the studio home.
     return getNavigationType() === 'reload' && !searchParams.get('projectId');
   });
 
@@ -356,7 +356,7 @@ const StagingRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }
     sessionStorage.removeItem('staging-nav');
   }, []);
 
-  // If refreshing while on staging, redirect to dashboard immediately
+  // If refreshing while on the workbench, redirect to the studio home immediately
   if (shouldRedirect) {
     return <Navigate to="/" replace />;
   }
@@ -532,11 +532,11 @@ const App: React.FC = () => {
     try { localStorage.setItem('selectedModelId', selectedModelId); } catch { /* ignore */ }
   }, [selectedModelId]);
 
-  // Dashboard top-level mode: Develop (hero → staging) vs Chat (in-dashboard ChatGPT-style thread)
+  // Studio top-level mode: Develop (hero → workbench) vs Chat (in-studio ChatGPT-style thread)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
-  const [dashboardExperience, setDashboardExperience] = useState<DashboardExperience>('chat');
-  const [dashboardMode, setDashboardMode] = useState<'develop' | 'chat' | 'media'>(() => {
+  const [studioExperience, setStudioExperience] = useState<StudioExperience>('chat');
+  const [studioMode, setStudioMode] = useState<'develop' | 'chat' | 'media'>(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
       return modeParam;
@@ -547,8 +547,8 @@ const App: React.FC = () => {
   React.useEffect(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
-      setDashboardExperience('chat');
-      setDashboardMode(modeParam);
+      setStudioExperience('chat');
+      setStudioMode(modeParam);
     }
   }, [searchParams]);
   const [chatResetKey, setChatResetKey] = useState(0);
@@ -558,7 +558,7 @@ const App: React.FC = () => {
   const sparkSidebarRestoreRef = React.useRef<boolean | null>(null);
   React.useEffect(() => {
     const narrowViewport = window.matchMedia('(max-width: 720px)').matches;
-    const isSparkTaskDetail = dashboardExperience === 'spark' && activeSparkLocation.page === 'task';
+    const isSparkTaskDetail = studioExperience === 'spark' && activeSparkLocation.page === 'task';
 
     if (isSparkTaskDetail) {
       if (sparkSidebarRestoreRef.current === null) {
@@ -573,19 +573,19 @@ const App: React.FC = () => {
       sparkSidebarRestoreRef.current = null;
       setIsSidebarCollapsed(narrowViewport ? true : shouldRestoreCollapsed);
     }
-  }, [activeSparkLocation.page, dashboardExperience, isSidebarCollapsed]);
+  }, [activeSparkLocation.page, studioExperience, isSidebarCollapsed]);
 
-  const handleDashboardModeChange = (mode: 'develop' | 'chat' | 'media') => {
-    if (dashboardExperience === 'chat' && mode === dashboardMode) return;
-    startTopLoading('dashboard-mode');
-    setDashboardExperience('chat');
-    setDashboardMode(mode);
+  const handleStudioModeChange = (mode: 'develop' | 'chat' | 'media') => {
+    if (studioExperience === 'chat' && mode === studioMode) return;
+    startTopLoading('studio-mode');
+    setStudioExperience('chat');
+    setStudioMode(mode);
   };
 
   React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-mode'));
+    const frame = window.requestAnimationFrame(() => finishTopLoading('studio-mode'));
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboardExperience, dashboardMode, finishTopLoading]);
+  }, [studioExperience, studioMode, finishTopLoading]);
 
   const handleNewChat = () => {
     setChatResetKey((k) => k + 1);
@@ -606,13 +606,13 @@ const App: React.FC = () => {
     if (view === currentView) return true;
     const sequence = ++viewChangeSequenceRef.current;
     viewChangeIntentRef.current = view;
-    startTopLoading('dashboard-view');
+    startTopLoading('studio-view');
     if (currentView === 'agents' && view !== 'agents') {
       const flushDraft = agentBuilderDraftFlush.get();
       if (flushDraft && !(await flushDraft())) {
         if (sequence === viewChangeSequenceRef.current) {
           viewChangeIntentRef.current = null;
-          finishTopLoading('dashboard-view');
+          finishTopLoading('studio-view');
         }
         return false;
       }
@@ -624,18 +624,18 @@ const App: React.FC = () => {
     return true;
   }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading]);
 
-  const handleDashboardExperienceChange = React.useCallback(async (experience: DashboardExperience) => {
-    if (experience === dashboardExperience && currentView === 'home') return;
+  const handleStudioExperienceChange = React.useCallback(async (experience: StudioExperience) => {
+    if (experience === studioExperience && currentView === 'home') return;
     if (currentView !== 'home' && !(await handleViewChange('home'))) return;
-    startTopLoading('dashboard-experience');
-    setDashboardExperience(experience);
-    if (experience === 'chat') setDashboardMode('chat');
-  }, [currentView, dashboardExperience, handleViewChange, startTopLoading]);
+    startTopLoading('studio-experience');
+    setStudioExperience(experience);
+    if (experience === 'chat') setStudioMode('chat');
+  }, [currentView, studioExperience, handleViewChange, startTopLoading]);
 
   React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-experience'));
+    const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboardExperience, finishTopLoading]);
+  }, [studioExperience, finishTopLoading]);
   const { user, userProfile, loading } = useAuth();
   React.useEffect(() => {
     let cancelled = false;
@@ -652,7 +652,7 @@ const App: React.FC = () => {
 
       if (user && searchParams.get('view') === 'agents') {
         if (!cancelled && sequence === viewChangeSequenceRef.current && currentView !== 'agents') {
-          startTopLoading('dashboard-view');
+          startTopLoading('studio-view');
           setCurrentView('agents');
         }
         return;
@@ -660,18 +660,18 @@ const App: React.FC = () => {
       if (currentView !== 'agents') return;
       if (!user) {
         if (!cancelled && sequence === viewChangeSequenceRef.current) {
-          startTopLoading('dashboard-view');
+          startTopLoading('studio-view');
           setCurrentView('home');
         }
         return;
       }
 
-      startTopLoading('dashboard-view');
+      startTopLoading('studio-view');
       const flushDraft = agentBuilderDraftFlush.get();
       if (flushDraft && !(await flushDraft())) {
         if (!cancelled && sequence === viewChangeSequenceRef.current) {
           navigate('/?view=agents', { replace: true });
-          finishTopLoading('dashboard-view');
+          finishTopLoading('studio-view');
         }
         return;
       }
@@ -685,7 +685,7 @@ const App: React.FC = () => {
   }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, user]);
 
   React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => finishTopLoading('dashboard-view'));
+    const frame = window.requestAnimationFrame(() => finishTopLoading('studio-view'));
     return () => window.cancelAnimationFrame(frame);
   }, [currentView, finishTopLoading]);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -715,7 +715,9 @@ const App: React.FC = () => {
       navigate('/login');
       return;
     }
-    // Mark that we're navigating to staging via React Router (not a page refresh)
+    // Mark that we're navigating to the workbench via React Router (not a page refresh).
+    // The 'staging-nav' key keeps its legacy name on purpose: it is a live
+    // sessionStorage contract read back in the refresh check above.
     sessionStorage.setItem('staging-nav', 'true');
     const encodedPrompt = encodeURIComponent(prompt);
     navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`, { state: { initialAttachments: attachments, isNewProject: true } });
@@ -759,7 +761,7 @@ const App: React.FC = () => {
           <>
             <TopLoadingBar
               active={isTopLoading}
-              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH)}
+              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
             />
             <SettingsModal 
               isOpen={isSettingsOpen} 
@@ -769,7 +771,7 @@ const App: React.FC = () => {
               initialTab={settingsInitialTab}
               initialConnector={settingsInitialConnector}
             />
-            {!(currentView === 'home' && dashboardExperience === 'spark') && (
+            {!(currentView === 'home' && studioExperience === 'spark') && (
               <Suspense fallback={null}>
                 <SparkWorkspace
                   backgroundOnly
@@ -778,17 +780,17 @@ const App: React.FC = () => {
                 />
               </Suspense>
             )}
-            <DashboardLayout
+            <StudioLayout
               isSearchOpen={isSearchOpen}
               setIsSearchOpen={setIsSearchOpen}
               currentView={currentView}
               setCurrentView={handleViewChange}
               onSettingsClick={() => setIsSettingsOpen(true)}
               isAuthenticated={!!user}
-              dashboardMode={dashboardMode}
-              onModeChange={handleDashboardModeChange}
-              dashboardExperience={dashboardExperience}
-              onDashboardExperienceChange={handleDashboardExperienceChange}
+              studioMode={studioMode}
+              onModeChange={handleStudioModeChange}
+              studioExperience={studioExperience}
+              onStudioExperienceChange={handleStudioExperienceChange}
               onNewChat={handleNewChat}
               hasActiveChat={hasActiveChat}
               isIncognito={isIncognito}
@@ -799,9 +801,9 @@ const App: React.FC = () => {
             >
               {currentView === 'agents' ? (
                 <Suspense fallback={
-                  <DashboardLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                  <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
                     <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
-                  </DashboardLoadingFallback>
+                  </StudioLoadingFallback>
                 }>
                   <div className="h-full w-full">
                     <AgentBuilderContent
@@ -811,16 +813,16 @@ const App: React.FC = () => {
                   </div>
                 </Suspense>
               ) : currentView === 'home' ? (
-                dashboardExperience === 'spark' ? (
+                studioExperience === 'spark' ? (
                   <Suspense fallback={
-                    <DashboardLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                    <StudioLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
                       <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
-                    </DashboardLoadingFallback>
+                    </StudioLoadingFallback>
                   }>
                     <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
                   </Suspense>
-                ) : dashboardMode === 'chat' ? (
-                  <DashboardChat
+                ) : studioMode === 'chat' ? (
+                  <ChatView
                     key={chatResetKey}
                     modelConfig={modelConfig}
                     selectedModelId={selectedModelId}
@@ -833,7 +835,7 @@ const App: React.FC = () => {
                     isSidebarCollapsed={isSidebarCollapsed}
                     onCollapseSidebar={() => setIsSidebarCollapsed(true)}
                   />
-                ) : dashboardMode === 'media' ? (
+                ) : studioMode === 'media' ? (
                   <div className="flex flex-col min-h-full" key="media">
                     <HeroSection
                       initialMode="design"
@@ -861,7 +863,7 @@ const App: React.FC = () => {
                       setSelectedModelId={setSelectedModelId}
                       onAuthRequired={!user ? () => navigate('/login') : undefined}
                       isAuthenticated={!!user}
-                      dashboardMode="media"
+                      studioMode="media"
                       isSidebarCollapsed={isSidebarCollapsed}
                     />
                     {/* Only show BottomPanel (projects showcase) when authenticated */}
@@ -873,9 +875,9 @@ const App: React.FC = () => {
                   </div>
                 ) : (
                   <Suspense fallback={
-                    <DashboardLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                    <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
                       <CodeWorkspaceSkeleton />
-                    </DashboardLoadingFallback>
+                    </StudioLoadingFallback>
                   }>
                     <CodeWorkspace
                       key={`develop-${chatResetKey}`}
@@ -898,13 +900,13 @@ const App: React.FC = () => {
               ) : (
                 <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
               )}
-            </DashboardLayout>
+            </StudioLayout>
           </>
         } />
         <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={
-          <StagingRouteGuard>
+          <WorkbenchRouteGuard>
             <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
               <SettingsModal
                 isOpen={isSettingsOpen}
@@ -914,7 +916,7 @@ const App: React.FC = () => {
                 initialTab={settingsInitialTab}
               />
               <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
-                <StagingView
+                <WorkbenchView
                   onSettingsClick={(tab?: string) => {
                     if (tab) setSettingsInitialTab(tab as any);
                     setIsSettingsOpen(true);
@@ -926,17 +928,17 @@ const App: React.FC = () => {
                 />
               </Suspense>
             </div>
-          </StagingRouteGuard>
+          </WorkbenchRouteGuard>
         } />
 
         <Route path="/media/*" element={
-          <StagingRouteGuard>
+          <WorkbenchRouteGuard>
             <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
               <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
                 <MediaView />
               </Suspense>
             </div>
-          </StagingRouteGuard>
+          </WorkbenchRouteGuard>
         } />
 
         <Route path="/login" element={<LoginPage />} />

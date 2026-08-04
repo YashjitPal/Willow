@@ -40,7 +40,7 @@ const BASE_URL =
     (import.meta as { env?: Record<string, string> }).env?.VITE_AGENT_BUILDER_URL) ||
   '';
 
-interface DashboardApiKeys {
+interface StudioApiKeys {
   gemini: string[];
   openai: string[];
   anthropic: string[];
@@ -54,7 +54,7 @@ interface DashboardApiKeys {
 
 let cached: AgentBuilderClient | null = null;
 let cachedKeysRef: (() => ProviderKeys | undefined) | null = null;
-let latestKeys: DashboardApiKeys | undefined;
+let latestKeys: StudioApiKeys | undefined;
 const API_TOKEN_SESSION_KEY = 'willow:agentBuilderApiToken';
 
 function readSessionApiToken(): string | undefined {
@@ -68,7 +68,7 @@ function readSessionApiToken(): string | undefined {
 
 let latestApiToken = readSessionApiToken();
 
-function agentBuilderProviderKeys(keys?: DashboardApiKeys): ProviderKeys | undefined {
+function agentBuilderProviderKeys(keys?: StudioApiKeys): ProviderKeys | undefined {
   if (!keys) return undefined;
   return {
     gemini: keys.gemini,
@@ -85,7 +85,7 @@ function agentBuilderProviderKeys(keys?: DashboardApiKeys): ProviderKeys | undef
  * `useUserDataContext()` whenever you have them — the latest value is always
  * used for subsequent requests.
  */
-export function getAgentBuilderClient(apiKeys?: DashboardApiKeys): AgentBuilderClient {
+export function getAgentBuilderClient(apiKeys?: StudioApiKeys): AgentBuilderClient {
   if (apiKeys) latestKeys = apiKeys;
   if (!cached) {
     cachedKeysRef = () => agentBuilderProviderKeys(latestKeys);
@@ -138,7 +138,7 @@ export interface RunQueryFilters {
 
 export type RunTraceExport = PortableTraceExport;
 
-async function dashboardRequest<T>(path: string): Promise<T> {
+async function studioRequest<T>(path: string): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
   // Keep these lightweight helpers equivalent to AgentBuilderClient requests.
   // They are used by observability panels but still need the configured
@@ -175,12 +175,12 @@ export async function queryAgentBuilderRuns(
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') query.set(key, String(value));
   }
-  return dashboardRequest(`/api/v1/runs?${query.toString()}`);
+  return studioRequest(`/api/v1/runs?${query.toString()}`);
 }
 
 /** Fetch the canonical portable trace artifact rather than rebuilding it in the browser. */
 export async function exportAgentBuilderRunTrace(runId: string): Promise<RunTraceExport> {
-  const response = await dashboardRequest<{ export: RunTraceExport }>(
+  const response = await studioRequest<{ export: RunTraceExport }>(
     `/api/v1/runs/${encodeURIComponent(runId)}/trace/export`,
   );
   return response.export;
@@ -191,7 +191,7 @@ export async function getAgentBuilderTraceSpans(
   runId: string,
   after = 0,
 ): Promise<{ spans: TraceSpan[]; cursor: number }> {
-  return dashboardRequest(
+  return studioRequest(
     `/api/v1/runs/${encodeURIComponent(runId)}/spans?after=${Math.max(0, Math.trunc(after))}`,
   );
 }

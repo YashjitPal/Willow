@@ -61,7 +61,7 @@ function conditionalCrossOriginHeaders(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || '';
-        // Only apply isolation headers when serving the WebContainer staging page
+        // Only apply isolation headers when serving the WebContainer workbench page
         if (url.startsWith('/project1')) {
           res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
           res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');

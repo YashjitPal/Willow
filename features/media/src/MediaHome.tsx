@@ -8,7 +8,7 @@ import { deleteCodeSessions } from '@willow/storage/indexeddb/willow-db';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { transactionalRenameProject } from '@willow/projects/rename';
-import { DASHBOARD_SIDEBAR_COLLAPSED_WIDTH, DASHBOARD_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
+import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 
 // @ts-ignore
 import willSmithVideo from '@willow/assets/media-samples/Will smith.mp4';
@@ -50,15 +50,15 @@ export const HeroSection: React.FC<{
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
   initialMode?: Mode;
-  /** Chat-mode live-voice toggle. Only provided by DashboardChat; Develop leaves it undefined. */
+  /** Chat-mode live-voice toggle. Only provided by ChatView; Develop leaves it undefined. */
   onStartLive?: () => void;
-  dashboardMode?: 'develop' | 'media';
+  studioMode?: 'develop' | 'media';
   isIncognito?: boolean;
   isSidebarCollapsed?: boolean;
-  /** Shared-layout id used by DashboardChat to carry the zero-state composer
+  /** Shared-layout id used by ChatView to carry the zero-state composer
    *  into its bottom-docked position as one continuous surface. */
   composerLayoutId?: string;
-}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, dashboardMode, isIncognito = false, isSidebarCollapsed = false, composerLayoutId }) => {
+}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, composerLayoutId }) => {
   const { userProfile } = useAuth();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -123,7 +123,7 @@ export const HeroSection: React.FC<{
         // Registry array order is CREATION order (new projects are appended),
         // so reverse for display: newest first. Display-only — the registry is
         // never written back reordered (invariant #1).
-        if (dashboardMode === 'media') {
+        if (studioMode === 'media') {
           const idx = getMediaIndex();
           return allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0).reverse();
         }
@@ -159,7 +159,7 @@ export const HeroSection: React.FC<{
           const allProjects = readProjectRegistry() as any[];
           // Media tab shows 'media'-tagged projects OR any project that has media.
           // Reverse for display: registry order is creation order → newest first.
-          if (dashboardMode === 'media') {
+          if (studioMode === 'media') {
             const idx = getMediaIndex();
             setProjectsList(allProjects.filter((p: any) => p.kind === 'media' || (idx[p.id]?.count || 0) > 0).reverse());
           } else {
@@ -175,7 +175,7 @@ export const HeroSection: React.FC<{
       window.removeEventListener('willow_projects_updated', handleUpdate);
       window.removeEventListener('willow_media_updated', handleUpdate);
     };
-  }, [dashboardMode]);
+  }, [studioMode]);
 
   // NOTE: We deliberately do NOT write `projectsList` back to localStorage here.
   // In Media mode `projectsList` is FILTERED to media-only, so persisting it would
@@ -300,7 +300,7 @@ export const HeroSection: React.FC<{
 
   // Butter-smooth 60fps progress tracker and precise transition trigger for videos
   React.useEffect(() => {
-    if (dashboardMode !== 'media') return;
+    if (studioMode !== 'media') return;
 
     let animFrameId: number;
 
@@ -339,11 +339,11 @@ export const HeroSection: React.FC<{
     return () => {
       cancelAnimationFrame(animFrameId);
     };
-  }, [currentMediaIndex, dashboardMode, isFading, triggerTransition, mediaPlaylist.length]);
+  }, [currentMediaIndex, studioMode, isFading, triggerTransition, mediaPlaylist.length]);
 
   // Handle progress ticking for static images
   React.useEffect(() => {
-    if (dashboardMode !== 'media') return;
+    if (studioMode !== 'media') return;
     if (activeMedia.type !== 'image') return;
 
     setProgress(0);
@@ -362,13 +362,13 @@ export const HeroSection: React.FC<{
     }, 30);
 
     return () => clearInterval(interval);
-  }, [currentMediaIndex, activeMedia, dashboardMode, handleMediaEnd]);
+  }, [currentMediaIndex, activeMedia, studioMode, handleMediaEnd]);
 
   // Get user's first name
   const firstName = userProfile?.displayName?.split(' ')[0] || 'there';
 
   const getHeadingText = () => {
-    if (dashboardMode === 'media') {
+    if (studioMode === 'media') {
       return isAuthenticated
         ? `Time to create media, ${firstName}`
         : 'Time to create media';
@@ -407,14 +407,14 @@ export const HeroSection: React.FC<{
 
   const { background } = useBackground();
 
-  const justifyClass = dashboardMode === 'media' ? 'justify-start pt-8 pb-0' : 'justify-center';
-  const minHeightClass = dashboardMode === 'media' ? 'min-h-[74vh]' : 'min-h-[85vh]';
-  const pxClass = dashboardMode === 'media' ? 'px-8' : 'px-4';
-  const mtClass = background === 'solid' && dashboardMode !== 'media' ? '-mt-20' : '';
+  const justifyClass = studioMode === 'media' ? 'justify-start pt-8 pb-0' : 'justify-center';
+  const minHeightClass = studioMode === 'media' ? 'min-h-[74vh]' : 'min-h-[85vh]';
+  const pxClass = studioMode === 'media' ? 'px-8' : 'px-4';
+  const mtClass = background === 'solid' && studioMode !== 'media' ? '-mt-20' : '';
 
   return (
     <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? (isIncognito ? 'willow-gemini-home-glow-gray' : 'willow-gemini-home-glow') : ''}`}>
-      {dashboardMode === 'media' ? (
+      {studioMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}
           <div 
@@ -770,7 +770,7 @@ export const HeroSection: React.FC<{
             style={{
               position: 'fixed',
               bottom: '32px',
-              left: `calc(50vw + ${isSidebarCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH / 2 : DASHBOARD_SIDEBAR_EXPANDED_WIDTH / 2}px)`,
+              left: `calc(50vw + ${isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH / 2 : STUDIO_SIDEBAR_EXPANDED_WIDTH / 2}px)`,
               transform: 'translateX(-50%)',
               transition: 'left 280ms cubic-bezier(0.32, 0.72, 0, 1)',
               zIndex: 50
