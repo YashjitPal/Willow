@@ -1,0 +1,182 @@
+/**
+ * Sizes the composer textarea, and reports back the two flags the surrounding
+ * layout derives from that measurement.
+ *
+ * The effect below is byte-identical to the one that ran inside `InputBar`,
+ * dependency array included. Only the `useRef` holding the pending frame moved
+ * in with it — nothing outside the effect ever read that ref.
+ *
+ * Why the measurement is this convoluted, so nobody "simplifies" it:
+ *
+ *  - Height is first measured under FORCED collapsed padding, then the target
+ *    padding is written before the final height read. Measuring at the wrong
+ *    padding reports a different wrap point and the editor jumps a line.
+ *  - `overflowY` is pinned to hidden for the measurement: a scrollbar narrows
+ *    the editor, which can make `scrollHeight` claim one more wrapped line than
+ *    the final, scrollbar-free textarea actually needs.
+ *  - `transition` is disabled for the whole measurement and restored only after
+ *    a forced reflow (`void offsetHeight`), so the Tailwind padding class is the
+ *    "from" frame and the collapsed -> multiline transition still plays.
+ *  - Everything is throttled into a single `requestAnimationFrame`, and the
+ *    cleanup cancels a pending frame, so fast typing cannot stack measurements.
+ *
+ * Base row height is 24px in the chat/solid composer and 48px otherwise; the
+ * ceiling is 168px in chat and 300px elsewhere. Fullscreen chat opts out of the
+ * height maths entirely and uses 100% with its own scroll.
+ */
+
+import { useEffect, useRef, type RefObject } from 'react';
+import type { BackgroundType } from '@willow/studio/shell/BackgroundContext';
+import type { ToolId } from './composer-options';
+
+export interface UseComposerTextareaAutosizeOptions {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  /** Re-measure triggers, in the effect's original dependency order. */
+  promptText: string;
+  selectedTool: ToolId | null;
+  chatVariant: boolean;
+  effectiveBackground: BackgroundType;
+  isComposerMaximized: boolean;
+  /** Right-side reservation for the collapsed chat editor, in px. */
+  collapsedChatPaddingRight: number;
+  /** While dictating the editor is pinned to one row and both flags clear. */
+  isDictationActive: boolean;
+  /** Set once the content wraps past one row (or a tool chip forces it). */
+  setIsSolidExpanded: (value: boolean) => void;
+  /** Set once the chat editor reaches three rows, which is what reveals the
+   *  fullscreen control. */
+  setCanMaximizeComposer: (value: boolean) => void;
+}
+
+export const useComposerTextareaAutosize = ({
+  textareaRef,
+  promptText,
+  selectedTool,
+  chatVariant,
+  effectiveBackground,
+  isComposerMaximized,
+  collapsedChatPaddingRight,
+  isDictationActive,
+  setIsSolidExpanded,
+  setCanMaximizeComposer,
+}: UseComposerTextareaAutosizeOptions): void => {
+  const textareaResizeRafRef = useRef<number | null>(null);
+
+  // Auto-expand textarea - throttled with RAF to prevent lag
+  useEffect(() => {
+    if (textareaRef.current) {
+      // Cancel any pending resize to avoid stacking
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
+      }
+
+      // Throttle resize to once per frame
+      textareaResizeRafRef.current = requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          if (isDictationActive) {
+            textareaRef.current.style.transition = 'none';
+            textareaRef.current.style.height = '24px';
+            textareaRef.current.style.overflowY = 'hidden';
+            textareaRef.current.style.scrollbarGutter = 'stable';
+            setIsSolidExpanded(false);
+            setCanMaximizeComposer(false);
+            textareaResizeRafRef.current = null;
+            return;
+          }
+
+          const isSolid = chatVariant || effectiveBackground === 'solid';
+          const baseHeight = isSolid ? 24 : 48;
+          
+          if (isSolid) {
+            // Disable padding transition during measurement so scrollHeight reads are exact
+            textareaRef.current.style.transition = 'none';
+            // Never let the temporary one-row measurement create a scrollbar.
+            // A scrollbar narrows the editor, which can make scrollHeight report
+            // one more wrapped line than the final, scrollbar-free textarea uses.
+            textareaRef.current.style.overflowY = 'hidden';
+
+            const collapsedPaddingLeftVal = '40px';
+            const collapsedPaddingRightVal = chatVariant ? `${collapsedChatPaddingRight}px` : '76px';
+            // Gemini's multiline editor begins 24px inside the prompt shell.
+            // Willow's shell already contributes 14px left / 15px right, so
+            // only the remaining inset belongs on the expanded textarea.
+            const expandedPaddingLeftVal = chatVariant ? '10px' : '0px';
+            // Gemini permanently reserves the same compact right-side inset,
+            // including before its fullscreen control becomes visible. This
+            // prevents the editor width (and therefore wrapping) from jumping
+            // when the third line reveals the control.
+            const expandedPaddingRightVal = chatVariant ? '24px' : '0px';
+            // Force narrow padding for measurement to see if it wraps inline
+            textareaRef.current.style.scrollbarGutter = 'stable';
+            textareaRef.current.style.paddingLeft = collapsedPaddingLeftVal;
+            textareaRef.current.style.paddingRight = collapsedPaddingRightVal;
+            textareaRef.current.style.height = `${baseHeight}px`;
+            
+            const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
+            const shouldExpand = (chatVariant && isComposerMaximized)
+              || (hypotheticalScrollHeight > baseHeight)
+              || !!selectedTool;
+            
+            setIsSolidExpanded(shouldExpand);
+            textareaRef.current.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
+            
+            // To prevent height glitch before React re-renders, 
+            // force the target padding before calculating final height
+            textareaRef.current.style.paddingLeft = shouldExpand
+              ? expandedPaddingLeftVal
+              : collapsedPaddingLeftVal;
+            textareaRef.current.style.paddingRight = shouldExpand
+              ? expandedPaddingRightVal
+              : collapsedPaddingRightVal;
+
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const naturalExpandedScrollHeight = textareaRef.current.scrollHeight;
+            const nextCanMaximizeComposer = chatVariant
+              && shouldExpand
+              && naturalExpandedScrollHeight >= baseHeight * 3;
+            setCanMaximizeComposer(nextCanMaximizeComposer);
+
+            textareaRef.current.style.paddingRight = shouldExpand
+              ? expandedPaddingRightVal
+              : collapsedPaddingRightVal;
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const scrollHeight = textareaRef.current.scrollHeight;
+            const maxTextareaHeight = chatVariant ? 168 : 300;
+
+            if (chatVariant && isComposerMaximized) {
+              textareaRef.current.style.height = '100%';
+              textareaRef.current.style.overflowY = 'auto';
+            } else if (scrollHeight > baseHeight) {
+              const newHeight = Math.min(scrollHeight, maxTextareaHeight);
+              textareaRef.current.style.height = `${newHeight}px`;
+              textareaRef.current.style.overflowY = scrollHeight > maxTextareaHeight ? 'auto' : 'hidden';
+            } else {
+              textareaRef.current.style.overflowY = 'hidden';
+            }
+            
+            // Clean up inline styles so Tailwind classes take over smoothly
+            textareaRef.current.style.paddingLeft = '';
+            textareaRef.current.style.paddingRight = '';
+            // Re-enable transition (reflow first so the class padding is the "from" frame)
+            void textareaRef.current.offsetHeight;
+            textareaRef.current.style.transition = '';
+          } else {
+            textareaRef.current.style.height = `${baseHeight}px`;
+            const scrollHeight = textareaRef.current.scrollHeight;
+            if (scrollHeight > baseHeight) {
+              const newHeight = Math.min(scrollHeight, 300);
+              textareaRef.current.style.height = `${newHeight}px`;
+            }
+          }
+        }
+        textareaResizeRafRef.current = null;
+      });
+    }
+
+    return () => {
+      if (textareaResizeRafRef.current) {
+        cancelAnimationFrame(textareaResizeRafRef.current);
+      }
+    };
+  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
+};

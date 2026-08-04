@@ -12,7 +12,6 @@ import {
 } from '../adapters/local-disk';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
-import { getProjectFolderWriters } from '../project-contributors';
 import { compareMediaItemsNewestFirst, loadProjectMedia, saveProjectMedia, deleteProjectData, saveProjectCover, loadProjectCover, migrateProjectKinds, setMediaStorageScope } from '../media-storage';
 import { extractVideoFrame } from '../covers';
 import {
@@ -30,138 +29,39 @@ import {
 } from '../indexeddb/willow-db';
 import type { ChatAttachment } from '@willow/core/attachments';
 import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '@willow/projects/registry';
+import {
+  LEGACY_CHAT_KEYS,
+  LEGACY_CHAT_MIGRATION_KEY,
+  chatMetadataKeysForScope,
+  isValidChatId,
+  mergeSyncRecords,
+  parseTempIdTimestamp,
+  readJSON,
+  sortChatsNewestToOldest,
+  validateChatList,
+  validateSyncRecords,
+  validateTimestampMap,
+  type ChatMetadataKeys,
+  type ChatSyncRecord,
+} from './chat-metadata';
 
-interface FileContent {
-  name: string;
-  content: string;
-}
+// Re-exported so this module's public surface is unchanged: ChatView and the
+// shell Sidebar import isTempChatId from here.
+export { isTempChatId, parseTempIdTimestamp, sortChatsNewestToOldest } from './chat-metadata';
+import { generateChatTitleWith } from './chat-title';
+import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
+import {
+  deleteMediaFileFromDisk,
+  renameMediaFileOnDisk,
+  saveMediaFileToDisk,
+  saveProjectCoverToDisk,
+} from './media-disk';
+import {
+  saveProjectChatToDisk,
+  saveProjectFilesToDisk,
+  type FileContent,
+} from './code-disk';
 
-interface ChatSyncRecord {
-  revision: number;
-  diskRevision: number;
-  diskMtime: number;
-  dirty: boolean;
-  tombstone: boolean;
-  updatedAt: number;
-}
-
-interface ChatMetadataKeys {
-  chats: string;
-  timestamps: string;
-  sync: string;
-}
-
-const LEGACY_CHAT_KEYS: ChatMetadataKeys = {
-  chats: 'willow_local_chats',
-  timestamps: 'willow_chat_timestamps',
-  sync: 'willow_chat_sync_state',
-};
-const LEGACY_CHAT_MIGRATION_KEY = 'willow_chat_metadata_migrated_v2';
-
-const isValidChatId = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0 && value.length <= 240;
-
-const validateChatList = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.filter(isValidChatId)));
-};
-
-const validateTimestampMap = (value: unknown): Record<string, number> => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const next: Record<string, number> = {};
-  for (const [chatId, timestamp] of Object.entries(value as Record<string, unknown>)) {
-    if (isValidChatId(chatId) && typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp >= 0) {
-      next[chatId] = timestamp;
-    }
-  }
-  return next;
-};
-
-const validateSyncRecords = (value: unknown): Record<string, ChatSyncRecord> => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const next: Record<string, ChatSyncRecord> = {};
-  for (const [chatId, raw] of Object.entries(value as Record<string, any>)) {
-    if (!isValidChatId(chatId) || !raw || typeof raw !== 'object') continue;
-    next[chatId] = {
-      revision: Number.isFinite(raw.revision) ? Math.max(0, raw.revision) : 0,
-      diskRevision: Number.isFinite(raw.diskRevision) ? Math.max(0, raw.diskRevision) : 0,
-      diskMtime: Number.isFinite(raw.diskMtime) ? Math.max(0, raw.diskMtime) : 0,
-      dirty: raw.dirty === true,
-      tombstone: raw.tombstone === true,
-      updatedAt: Number.isFinite(raw.updatedAt) ? Math.max(0, raw.updatedAt) : 0,
-    };
-  }
-  return next;
-};
-
-const readJSON = <T,>(key: string, fallback: T): T => {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) as T : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const chatMetadataKeysForScope = (scopeId: string): ChatMetadataKeys => {
-  const suffix = encodeURIComponent(scopeId);
-  return {
-    chats: `willow_local_chats:${suffix}`,
-    timestamps: `willow_chat_timestamps:${suffix}`,
-    sync: `willow_chat_sync_state:${suffix}`,
-  };
-};
-
-// A brand-new chat is stored under a generated timestamp id
-// ("YYYY-MM-DDTHH-MM-SS_xxxxxx") until the naming agent renames it to a real
-// title. Single source of truth: the sidebar's skeleton, the timestamp parser
-// and the load path must all agree on what "still unnamed" means, or a chat can
-// shimmer as un-named in one place while counting as named in another.
-export const isTempChatId = (chatId: string): boolean =>
-  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chatId);
-
-// Parse the creation time embedded in a temp chat id
-// ("YYYY-MM-DDTHH-MM-SS_xxxxxx"), or 0 if the id isn't in that format.
-export const parseTempIdTimestamp = (chatId: string): number => {
-  if (!isTempChatId(chatId)) return 0;
-  try {
-    const firstPart = chatId.split('_')[0]; // "2026-06-06T06-44-09"
-    const tIdx = firstPart.indexOf('T');
-    if (tIdx !== -1) {
-      const datePart = firstPart.slice(0, tIdx); // "2026-06-06"
-      const timePart = firstPart.slice(tIdx + 1).replace(/-/g, ':'); // "06:44:09"
-      // The id is built from new Date().toISOString() — i.e. UTC wall-clock —
-      // so parse it back as UTC. Without the 'Z', new Date() treats a
-      // time-bearing string with no offset as LOCAL time, dating every
-      // brand-new chat off by the viewer's UTC offset (e.g. −5h at UTC+5),
-      // which could sort a just-created chat below older ones.
-      const dateStr = `${datePart}T${timePart}Z`;
-      const parsedTime = new Date(dateStr).getTime();
-      if (!isNaN(parsedTime)) {
-        return parsedTime;
-      }
-    }
-  } catch {}
-  return 0;
-};
-
-export const sortChatsNewestToOldest = (chats: string[], timestamps?: Record<string, number>): string[] => {
-  const stored: Record<string, number> = timestamps || {};
-  const ts = (chatId: string): number => stored[chatId] || parseTempIdTimestamp(chatId);
-  // Deterministic TOTAL order: newest first, then a stable id tiebreaker. The
-  // tiebreaker is essential — without it, chats with equal or missing
-  // timestamps keep whatever order the input happened to have (disk
-  // enumeration order, which varies), so the persisted list and the sidebar's
-  // render-sort could disagree and the list visibly reshuffled on open. This
-  // MUST match the comparator the sidebar uses (see Sidebar.tsx).
-  return validateChatList(chats).sort((a, b) => {
-    const tA = ts(a);
-    const tB = ts(b);
-    if (tB !== tA) return tB - tA;
-    return a.localeCompare(b);
-  });
-};
 
 interface LocalFSContextType {
   chatScopeId: string;
@@ -290,21 +190,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     const name = userProfile?.workspaceName || (userProfile?.displayName ? `${userProfile.displayName.split(' ')[0]}'s Willow` : "My Willow");
     return name.replace(/[\/:*?"<>|]/g, '').trim() || 'My Willow';
   }, [userProfile]);
-
-  const mergeSyncRecords = useCallback((
-    current: Record<string, ChatSyncRecord>,
-    incoming: Record<string, ChatSyncRecord>,
-  ): Record<string, ChatSyncRecord> => {
-    const merged = { ...current };
-    for (const [chatId, candidate] of Object.entries(incoming)) {
-      const existing = merged[chatId];
-      if (!existing || candidate.revision > existing.revision ||
-          (candidate.revision === existing.revision && candidate.updatedAt > existing.updatedAt)) {
-        merged[chatId] = candidate;
-      }
-    }
-    return merged;
-  }, []);
 
   const persistChatMetadata = useCallback((broadcast = true): void => {
     const keys = chatMetadataKeysRef.current;
@@ -438,29 +323,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
     }
   }, []);
-
-  // Resolve a project's stable id from the localStorage registry by its folder name.
-  const getProjectIdByName = useCallback((projectName: string): string | null => {
-    try {
-      const list = readProjectRegistry() as { id: string; name: string }[];
-      const found = list.find((p) => p.name === projectName);
-      if (found?.id) return found.id;
-    } catch {}
-    return null;
-  }, []);
-
-  // Ensure a project folder on disk carries a `.willow.json` manifest with its
-  // stable id, so it is never re-assigned a fresh random id on re-discovery.
-  const ensureProjectManifest = useCallback(async (projectDirHandle: FileSystemDirectoryHandle, projectName: string): Promise<void> => {
-    try {
-      const existing = await readProjectManifest(projectDirHandle);
-      if (existing?.id) return; // already has a stable id
-      const id = getProjectIdByName(projectName);
-      if (id) {
-        await writeProjectManifest(projectDirHandle, id);
-      }
-    } catch {}
-  }, [getProjectIdByName]);
 
   // Full two-way reconciliation of the localStorage project registry against
   // what's actually on disk. DISK IS AUTHORITATIVE. This is the heart of the
@@ -1253,105 +1115,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return handle;
   }, []);
 
-  /**
-   * Save project files locally
-   */
-  const saveLocalFSProjectInner = useCallback(async (projectName: string, files: FileContent[]): Promise<boolean> => {
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return false;
-
-    try {
-      // Redirect through any in-flight rename — a save captured the name
-      // before the rename landed and would otherwise resurrect the old folder.
-      const targetName = resolveCurrentProjectName(projectName);
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-      const codeDir = await workspaceDir.getDirectoryHandle('Code', { create: true });
-      const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
-
-      // Persist the stable project id alongside the code so re-discovery keeps it.
-      await ensureProjectManifest(projectDir, targetName);
-
-      // Create subfolders: Codebase, Chat sessions, Designs, Agents.
-      // Designs/ is owned by a feature contributor (see below) but is created
-      // here so the on-disk layout is identical for every project.
-      const codebaseDir = await projectDir.getDirectoryHandle('Codebase', { create: true });
-      await projectDir.getDirectoryHandle('Chat sessions', { create: true });
-      await projectDir.getDirectoryHandle('Designs', { create: true });
-      await projectDir.getDirectoryHandle('Agents', { create: true });
-
-      // Write the new file set FIRST, then prune stale entries — never the other
-      // way round. The old code deleted the whole Codebase/ tree up front and
-      // then rewrote file-by-file; an interruption in that window (tab close,
-      // crash, permission downgrade, the unmount-flush firing mid-teardown)
-      // left Codebase/ empty or truncated on disk. Write-then-prune means an
-      // interruption at worst leaves a few extra stale files, never an empty
-      // tree, and the next successful save cleans them up.
-      const writtenPaths = new Set<string>();
-      // Mirror writeFileRecursively's own normalization EXACTLY so the prune
-      // pass below recognises each just-written file: backslashes → '/', drop a
-      // leading '/', and drop '.'/'..' path segments (it skips those when
-      // creating dirs, so the on-disk path has them removed too).
-      const normalizeWritten = (p: string): string =>
-        p.replace(/\\/g, '/').replace(/^\//, '').split('/').filter((s) => s !== '.' && s !== '..').join('/');
-      for (const file of files) {
-        await writeFileRecursively(codebaseDir, file.name, file.content);
-        writtenPaths.add(normalizeWritten(file.name));
-      }
-
-      // Prune files no longer in the editor's set (handles deletes/renames),
-      // recursively. Dot-entries (.git, .vscode, …) are user-owned — never
-      // touched. Empty non-dot directories left after pruning are removed too.
-      const pruneStale = async (dir: any, prefix: string): Promise<boolean> => {
-        // Returns true if `dir` still holds anything after pruning. Collect the
-        // full entry list BEFORE mutating — removing during the async
-        // directory iteration can skip siblings on some implementations.
-        const files: string[] = [];
-        const childDirs: { name: string; handle: any }[] = [];
-        let kept = 0;
-        for await (const entry of dir.values()) {
-          if (typeof entry.name === 'string' && entry.name.startsWith('.')) { kept++; continue; }
-          if (entry.kind === 'directory') childDirs.push({ name: entry.name, handle: entry });
-          else files.push(entry.name);
-        }
-        for (const name of files) {
-          const rel = prefix ? `${prefix}/${name}` : name;
-          if (writtenPaths.has(rel)) { kept++; }
-          else { try { await dir.removeEntry(name); } catch {} }
-        }
-        for (const child of childDirs) {
-          const childPrefix = prefix ? `${prefix}/${child.name}` : child.name;
-          const childKept = await pruneStale(child.handle, childPrefix);
-          if (childKept) { kept++; }
-          else { try { await dir.removeEntry(child.name, { recursive: true }); } catch {} }
-        }
-        return kept > 0;
-      };
-      try {
-        await pruneStale(codebaseDir, '');
-      } catch {}
-
-      // Let feature contributors write their own sub-folders (Designs/, ...).
-      // Each folder is emptied first so a contributor always produces the
-      // complete current contents. See project-contributors.ts.
-      for (const writer of getProjectFolderWriters()) {
-        try {
-          const dir = await projectDir.getDirectoryHandle(writer.folder, { create: true });
-          for await (const entry of (dir as any).values()) {
-            if (entry.kind === 'file') await dir.removeEntry(entry.name);
-          }
-          await writer.write({
-            projectName: targetName,
-            writeFile: (relativePath, contents) => writeFileRecursively(dir, relativePath, contents),
-          });
-        } catch {}
-      }
-
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }, [ensureProjectManifest, getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+  // Disk write lives in ./code-disk; this wrapper keeps the context value
+  // identity and dependency array exactly as they were.
+  const saveLocalFSProjectInner = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => (
+    saveProjectFilesToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, files)
+  ), [ensureProjectManifest, getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
 
   const saveLocalFSProject = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => {
     const queueKey = resolveCurrentProjectName(projectName);
@@ -1535,102 +1303,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     });
   }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp]);
 
-  /**
-   * Save codebase/design chat sessions of respective project locally
-   */
-  const saveLocalFSProjectChat = useCallback(async (projectName: string, chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => {
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return false;
+  // Disk write lives in ./code-disk (see saveLocalFSProjectInner).
+  const saveLocalFSProjectChat = useCallback((projectName: string, chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => (
+    saveProjectChatToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, chatId, messages, oldChatId)
+  ), [getActiveHandle, getSanitizedWorkspaceName]);
 
-    try {
-      // Redirect through any in-flight rename (see saveLocalFSProject).
-      const targetName = resolveCurrentProjectName(projectName);
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-      const codeDir = await workspaceDir.getDirectoryHandle('Code', { create: true });
-      const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
-      const chatSessionsDir = await projectDir.getDirectoryHandle('Chat sessions', { create: true });
-      
-      const chatContent = JSON.stringify(messages, null, 2);
-      await writeFileRecursively(chatSessionsDir, `${chatId}.json`, chatContent);
-      
-      if (oldChatId && oldChatId !== chatId) {
-        try {
-          await chatSessionsDir.removeEntry(`${oldChatId}.json`);
-        } catch {}
-      }
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
-
-  /**
-   * Save media creations locally
-   */
-  const saveLocalFSMediaInner = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return null;
-
-    try {
-      // Redirect through any in-flight rename — generation/backfill saves hold
-      // the name across multi-second fetches; a stale name here resurrected
-      // Media/<oldName>/ as a phantom project (or wrote into the folder
-      // mid-move, where the copy-then-delete rename then destroyed the file).
-      const targetName = resolveCurrentProjectName(projectName);
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media', { create: true });
-      const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });
-
-      // Persist the stable project id alongside the media so re-discovery keeps it.
-      await ensureProjectManifest(projectDir, targetName);
-
-      // Pre-create Scenes and Music directories
-      await projectDir.getDirectoryHandle('Scenes', { create: true });
-      await projectDir.getDirectoryHandle('Music', { create: true });
-      
-      // Write file to Images or Videos or Audio subfolder
-      const subFolder = kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio';
-      const subDir = await projectDir.getDirectoryHandle(subFolder, { create: true });
-      
-      // If image kind, also pre-create "Characters" subfolder
-      if (kind === 'image') {
-        await subDir.getDirectoryHandle('Characters', { create: true });
-      }
-
-      // Dynamic file numbering collision check
-      const lastDot = fileName.lastIndexOf('.');
-      const baseName = lastDot !== -1 ? fileName.slice(0, lastDot) : fileName;
-      const ext = lastDot !== -1 ? fileName.slice(lastDot) : '';
-
-      let finalFileName = fileName;
-      let counter = 1;
-      let fileExists = true;
-
-      while (fileExists) {
-        try {
-          // Check if file already exists in destination directory
-          await subDir.getFileHandle(finalFileName, { create: false });
-          // If this call succeeds, the file exists. Increment counter and try again.
-          finalFileName = `${baseName} (${counter})${ext}`;
-          counter++;
-        } catch (e) {
-          // If it throws, the file name is available!
-          fileExists = false;
-        }
-      }
-
-      const fileHandle = await subDir.getFileHandle(finalFileName, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-
-      return finalFileName;
-    } catch (err) {
-      return null;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  // Disk write lives in ./media-disk; this wrapper keeps the context value
+  // identity and dependency array exactly as they were.
+  const saveLocalFSMediaInner = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => (
+    saveMediaFileToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, fileName, blob)
+  ), [getActiveHandle, getSanitizedWorkspaceName]);
 
   /**
    * Read a single media file from a project's Images/ or Videos/ folder on disk
@@ -1664,111 +1346,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, [getSanitizedWorkspaceName]);
 
-  /**
-   * Delete a single media file from a project's Images/ or Videos/ folder on
-   * disk. Used by in-app media-item deletion so the file is actually removed
-   * (and the real-time poller won't re-ingest it). No-op if no folder/permission.
-   */
-  const deleteLocalFSMediaFile = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<boolean> => {
-    if (!projectName || !fsName) return false;
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return false;
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      // Deletion is a targeted operation — never create folders on the way.
-      // Redirect through any in-flight rename so deletes chase the moved folder.
-      const targetName = resolveCurrentProjectName(projectName);
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media');
-      const projectDir = await mediaDir.getDirectoryHandle(targetName);
-      // NOTE: audio artifacts live in Audio/ — this mapped audio to Videos/,
-      // so deleting a song left its file behind (and once Audio/ became part of
-      // the reconcile scan, the leftover file would resurrect the tile).
-      const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
-      await subDir.removeEntry(fsName);
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  const deleteLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<boolean> => (
+    deleteMediaFileFromDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, fsName)
+  ), [getActiveHandle, getSanitizedWorkspaceName]);
 
-  /**
-   * Rename a single media file on disk (Images/, Videos/ or Audio/) so a tile
-   * rename in the gallery keeps the on-disk filename in lock-step with the
-   * item's display name. Preserves the old file's extension VERBATIM (never
-   * rederived from kind — external .jpg/.mp3 files must keep their real
-   * extension), sanitizes the new base name, and dedupes against existing
-   * files with the same "(1)" numbering as saveLocalFSMedia. Prefers the
-   * native FileSystemHandle.move() (atomic), falling back to copy-then-delete
-   * (the original is only removed AFTER a complete copy). Returns the FINAL
-   * new fsName, oldFsName when nothing needed to change, or null when the
-   * folder/permission/file is unavailable (caller keeps the metadata-only
-   * rename in that case).
-   */
-  const renameLocalFSMediaFile = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string): Promise<string | null> => {
-    if (!projectName || !oldFsName || !newBaseName?.trim()) return null;
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle) return null;
-    try {
-      const workspaceName = getSanitizedWorkspaceName();
-      // Rename is a targeted operation — never create folders on the way.
-      // Redirect through any in-flight project rename.
-      const targetName = resolveCurrentProjectName(projectName);
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media');
-      const projectDir = await mediaDir.getDirectoryHandle(targetName);
-      const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
-
-      const lastDot = oldFsName.lastIndexOf('.');
-      const ext = lastDot !== -1 ? oldFsName.slice(lastDot) : '';
-      const cleanBase = newBaseName.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
-
-      // Dynamic file numbering collision check (same pattern as saveLocalFSMedia).
-      let finalFileName = `${cleanBase}${ext}`;
-      if (finalFileName === oldFsName) return oldFsName; // already in lock-step
-      // CASE-ONLY rename ("pic.png" → "Pic.png"): on case-insensitive
-      // filesystems (Windows/macOS) the collision probe would find the file
-      // ITSELF and suffix it, and the copy-then-delete fallback would write to
-      // and then DELETE the same entry. Skip the probe and only allow the
-      // native atomic move for this case.
-      const caseOnly = finalFileName.toLowerCase() === oldFsName.toLowerCase();
-      if (!caseOnly) {
-        let counter = 1;
-        let fileExists = true;
-        while (fileExists) {
-          try {
-            await subDir.getFileHandle(finalFileName, { create: false });
-            finalFileName = `${cleanBase} (${counter})${ext}`;
-            counter++;
-          } catch {
-            fileExists = false;
-          }
-        }
-        if (finalFileName === oldFsName) return oldFsName;
-      }
-
-      const oldHandle: any = await subDir.getFileHandle(oldFsName);
-      // Prefer a native move/rename (Chromium supports it for FILES) — atomic
-      // and instant, and the only safe path for a case-only rename.
-      if (typeof oldHandle.move === 'function') {
-        try {
-          await oldHandle.move(finalFileName);
-          return finalFileName;
-        } catch {}
-      }
-      if (caseOnly) return null; // never risk the copy fallback on the same entry
-
-      // Fallback: copy bytes, THEN delete the original.
-      const file = await oldHandle.getFile();
-      const newHandle = await subDir.getFileHandle(finalFileName, { create: true });
-      const writable = await newHandle.createWritable();
-      await file.stream().pipeTo(writable);
-      await subDir.removeEntry(oldFsName);
-      return finalFileName;
-    } catch (err) {
-      return null;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+  const renameLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string): Promise<string | null> => (
+    renameMediaFileOnDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName)
+  ), [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
 
   /**
    * Rename a project folder on disk so it stays in lock-step with a UI rename
@@ -1958,178 +1542,18 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return run;
   }, [renameLocalFSProjectInner, resolveCurrentProjectName]);
 
-  /**
-   * Save a project cover image to disk at Media/<projectName>/cover.<ext>,
-   * a sibling of the Images/ and Videos/ folders (NOT inside them). Accepts a
-   * data URL or any fetchable URL; the body is read into a Blob and written.
-   */
-  const saveLocalFSCover = useCallback(async (projectName: string, url: string): Promise<boolean> => {
-    const rootHandle = await getActiveHandle();
-    if (!rootHandle || !url) return false;
-
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media', { create: true });
-      // Redirect through any in-flight rename (see saveLocalFSMedia).
-      const targetName = resolveCurrentProjectName(projectName);
-      const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });
-      await ensureProjectManifest(projectDir, targetName);
-
-      // Pick an extension from the blob's mime type (default png for image covers).
-      const ext = blob.type === 'image/jpeg' ? 'jpg'
-        : blob.type === 'image/webp' ? 'webp'
-        : blob.type === 'video/mp4' ? 'mp4'
-        : 'png';
-
-      // Keep a single cover.* at the project root: remove any stale variants.
-      for (const name of ['cover.png', 'cover.jpg', 'cover.jpeg', 'cover.webp', 'cover.mp4']) {
-        if (name === `cover.${ext}`) continue;
-        try { await projectDir.removeEntry(name); } catch {}
-      }
-
-      const fileHandle = await projectDir.getFileHandle(`cover.${ext}`, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }, [getActiveHandle, getSanitizedWorkspaceName, ensureProjectManifest]);
+  const saveLocalFSCover = useCallback((projectName: string, url: string): Promise<boolean> => (
+    saveProjectCoverToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, url)
+  ), [getActiveHandle, getSanitizedWorkspaceName, ensureProjectManifest]);
 
   /**
    * Generate a chat title using the user's default chat naming model
    */
-  const generateChatTitle = useCallback(async (userMessage: string, assistantMessage: string): Promise<string> => {
-    // 1. Resolve which model the user has selected for Chat Naming
-    const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
-    
-    // 2. Look it up across all providers to get the provider + API key
-    const allModels = [
-      ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' as const })),
-      ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' as const })),
-      ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' as const })),
-      ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' as const })),
-      ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' as const })),
-      ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' as const })),
-    ];
-    
-    let targetProvider = 'gemini';
-    let targetModelId = 'gemini-3.1-flash-lite';
-    
-    // If it's the exact default string, we know what it is
-    if (chatNamingSelectionId === 'gemini-3.1-flash-lite') {
-      targetProvider = 'gemini';
-      targetModelId = 'gemini-3.1-flash-lite';
-    } else if (chatNamingSelectionId === 'gemini-3.5-flash-lite') {
-      targetProvider = 'gemini';
-      targetModelId = 'gemini-3.5-flash-lite';
-    } else if (chatNamingSelectionId === 'gemini-3.6-flash') {
-      targetProvider = 'gemini';
-      targetModelId = 'gemini-3.6-flash';
-    } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
-        targetProvider = 'anthropic';
-        targetModelId = 'claude-sonnet-4.5';
-    } else {
-        // It's a custom saved model
-        const sel = allModels.find((m) => m.modelId === chatNamingSelectionId);
-        if (sel) {
-          targetProvider = sel.provider;
-          targetModelId = sel.modelId;
-        }
-    }
-    
-    const apiKey = apiKeys?.[targetProvider]?.[0];
-    if (!apiKey) return ''; // Cannot generate if the target provider has no key
-    
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
-    try {
-      if (targetProvider === 'gemini') {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${targetModelId}:generateContent?key=${apiKey}`,
-            {
-              method: 'POST',
-              signal: controller.signal,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [{
-                    text: `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\nUser: ${userMessage}\nAssistant: ${assistantMessage}`
-                  }]
-                }]
-              })
-            }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (text) {
-              return text.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
-            }
-          }
-      } else if (targetProvider === 'openai') {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-              model: targetModelId,
-              messages: [{
-                role: 'user',
-                content: `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\nUser: ${userMessage}\nAssistant: ${assistantMessage}`
-              }]
-            })
-          });
-          if (response.ok) {
-              const data = await response.json();
-              const text = data?.choices?.[0]?.message?.content?.trim();
-              if (text) {
-                  return text.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
-              }
-          }
-      } else if (targetProvider === 'anthropic') {
-          const response = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              signal: controller.signal,
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-                'anthropic-cors-bypass': 'true'
-              },
-              body: JSON.stringify({
-                model: targetModelId,
-                max_tokens: 50,
-                messages: [{
-                  role: 'user',
-                  content: `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\nUser: ${userMessage}\nAssistant: ${assistantMessage}`
-                }]
-              })
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const text = data?.content?.[0]?.text?.trim();
-                if (text) {
-                    return text.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
-                }
-            }
-      }
-    } catch (err) {
-      // Ignored
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-    return '';
-  }, [apiKeys, modelConfig]);
+  const generateChatTitle = useCallback(
+    (userMessage: string, assistantMessage: string): Promise<string> =>
+      generateChatTitleWith(modelConfig, apiKeys, userMessage, assistantMessage),
+    [apiKeys, modelConfig],
+  );
 
   /**
    * Select local inbox chat

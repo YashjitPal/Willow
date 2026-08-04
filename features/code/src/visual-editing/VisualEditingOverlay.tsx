@@ -11,7 +11,6 @@ import {
   applyVisualEdit,
   selectedElement as selectedElementAtom,
   isVisualEditing,
-  navigateToCode,
   clearSelection,
   addToVisualEditQueue,
   dequeueVisualEdit,
@@ -26,54 +25,15 @@ import {
   hasUnsavedChanges,
 } from './engine/index';
 import type { SelectedElement, FamilyElement } from './engine/types';
+import { findTrueCover, getCoverEffects, readSourceLocation } from './element-geometry';
+import { findSimilarElements } from './element-family';
+import { viewCodeForSourceLocation } from './view-code';
+import { computePromptBoxPosition } from './prompt-box-position';
 import type { AiOptions } from '@willow/ai/chat';
-
-// Constants for prompt box sizing
-const PROMPT_BOX_HEIGHT = 60;
-const EDGE_PADDING = 12;
 
 // Darker blue color for selection/hover
 const SELECTION_COLOR = '#1e40af';
 const SELECTION_COLOR_RGB = '30, 64, 175';
-
-/**
- * Helper to read source location from a DOM element (checks element + ancestors)
- */
-function readSourceLocation(el: Element): FamilyElement['sourceLocation'] {
-  // Try reading from the element itself
-  const sourceAttr = (el as HTMLElement).dataset?.willowSource;
-  if (sourceAttr) {
-    const parts = sourceAttr.split(':');
-    if (parts.length === 3) {
-      return {
-        fileName: parts[0],
-        line: parseInt(parts[1], 10),
-        column: parseInt(parts[2], 10)
-      };
-    }
-  }
-
-  // Fallback: search parent elements
-  let ancestor = el.parentElement;
-  let depth = 0;
-  while (ancestor && depth < 10) {
-    const ancestorSource = (ancestor as HTMLElement).dataset?.willowSource;
-    if (ancestorSource) {
-      const parts = ancestorSource.split(':');
-      if (parts.length === 3) {
-        return {
-          fileName: parts[0],
-          line: parseInt(parts[1], 10),
-          column: parseInt(parts[2], 10)
-        };
-      }
-    }
-    ancestor = ancestor.parentElement;
-    depth++;
-  }
-
-  return null;
-}
 
 interface VisualEditingOverlayProps {
   iframeRef: React.RefObject<HTMLIFrameElement>;
@@ -103,103 +63,6 @@ interface ElementInfo {
   selectionGroupId?: string; // To track grouping for solid/dashed borders
 }
 
-// Helper: Detect the visual effects of a covering element.
-// Returns whether to clip and what effects to apply to the "ghost" border for the covered portion.
-interface CoverEffects {
-  shouldClip: boolean;
-  filter: string | undefined; // full backdrop-filter value to apply as filter
-  opacity: number;
-}
-
-function getCoverEffects(coverEl: Element): CoverEffects {
-  try {
-    const styles = window.getComputedStyle(coverEl);
-
-    // Get opacity
-    const opacity = parseFloat(styles.opacity || '1');
-
-    // Get full backdrop-filter (handles blur, brightness, contrast, saturate, etc.)
-    const backdropFilter = styles.getPropertyValue('backdrop-filter') || styles.getPropertyValue('-webkit-backdrop-filter');
-    const hasBackdropFilter = backdropFilter && backdropFilter !== 'none';
-
-    // Get background alpha
-    let bgAlpha = 1;
-    const bg = styles.backgroundColor;
-    if (bg) {
-      const match = bg.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/);
-      if (match && match[4] !== undefined) {
-        bgAlpha = parseFloat(match[4]);
-      }
-    }
-
-    const effectiveOpacity = opacity * bgAlpha;
-
-    // Fully opaque, no effects → normal clip, no ghost border needed
-    if (effectiveOpacity >= 0.85 && !hasBackdropFilter) {
-      return { shouldClip: true, filter: undefined, opacity: 1 };
-    }
-
-    // Semi-transparent or has effects → clip, but provide effects for ghost border
-    return { shouldClip: true, filter: hasBackdropFilter ? backdropFilter : undefined, opacity: effectiveOpacity };
-  } catch {
-    return { shouldClip: true, filter: undefined, opacity: 1 };
-  }
-}
-
-// Helper: Check if an element is in a fixed/sticky positioning context
-function isInFixedStickyContext(el: Element): boolean {
-  let current: Element | null = el;
-  while (current && current.tagName !== 'BODY' && current.tagName !== 'HTML') {
-    try {
-      const pos = window.getComputedStyle(current).position;
-      if (pos === 'fixed' || pos === 'sticky') return true;
-    } catch { /* ignore */ }
-    current = current.parentElement;
-  }
-  return false;
-}
-
-// Helper: Find the covering element at a given point using a two-phase approach.
-// Phase 1: Validate that at least one element at the point is in a fixed/sticky context
-//          (prevents normal layout siblings from being treated as covers).
-// Phase 2: Among all opaque elements in front of the target, return the one with the
-//          largest `bottom` value (handles stacked covers and transparent wrappers).
-function findTrueCover(doc: Document, x: number, y: number, targetEl: Element): Element | null {
-  try {
-    const elements = doc.elementsFromPoint(x, y);
-    let hasFixedStickyContext = false;
-    let bestCover: Element | null = null;
-    let maxBottom = -Infinity;
-
-    for (const el of elements) {
-      // Once we reach the target, everything after is behind it
-      if (el === targetEl) break;
-      // Skip ancestors and descendants of the target
-      if (el.contains(targetEl) || targetEl.contains(el)) continue;
-      if (el.tagName === 'BODY' || el.tagName === 'HTML') continue;
-
-      // Phase 1: Check if this element is in a fixed/sticky context
-      if (!hasFixedStickyContext && isInFixedStickyContext(el)) {
-        hasFixedStickyContext = true;
-      }
-
-      // Phase 2: Track the opaque element with the largest bottom edge
-      if (getCoverEffects(el).shouldClip) {
-        const rect = el.getBoundingClientRect();
-        if (rect.bottom > maxBottom) {
-          maxBottom = rect.bottom;
-          bestCover = el;
-        }
-      }
-    }
-
-    // Only return a cover if there's structural validation (fixed/sticky context present)
-    return hasFixedStickyContext ? bestCover : null;
-  } catch {
-    // Fallback: ignore
-  }
-  return null;
-}
 const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, selectedModelId, modelConfig, isReloading = false }) => {
   const isActive = useStore(isVisualEditMode);
   const scanning = useStore(isScanning);
@@ -912,85 +775,6 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       pendingParentSyncRef.current = false;
     };
   }, [parentRequest, isActive, iframeRef, getElementInfo]);
-
-  // Find all similar elements (same tag + class, or siblings of same tag for common elements)
-  const findSimilarElements = useCallback((element: Element, iframeDoc: Document): Element[] => {
-    const tagName = element.tagName;
-    const className = element.className;
-    const originalRect = element.getBoundingClientRect();
-    const originalArea = originalRect.width * originalRect.height;
-
-    // Filter function: element must be within 3x the area of original
-    const isSimilarSize = (el: Element) => {
-      const rect = el.getBoundingClientRect();
-      const area = rect.width * rect.height;
-      return area <= originalArea * 3 && area >= originalArea / 3;
-    };
-
-    // Primary strategy: Use data-willow-source (same source code location = true family)
-    // This matches the same logic the sidebar edit system uses for targeting
-    const sourceAttr = (element as HTMLElement).dataset?.willowSource;
-    if (sourceAttr) {
-      const sourceMatches = Array.from(
-        iframeDoc.querySelectorAll(`[data-willow-source="${sourceAttr}"]`)
-      ).filter(el => isSimilarSize(el));
-
-      if (sourceMatches.length > 0) {
-        const withoutTarget = sourceMatches.filter(el => el !== element);
-        return [element, ...withoutTarget];
-      }
-    }
-
-    // Fallback strategies (when source location is not available)
-    let familyElements: Element[] = [];
-
-    // Fallback 1: Same tag + first class name
-    if (className && typeof className === 'string' && className.trim()) {
-      const firstClass = className.split(' ')[0];
-      if (firstClass) {
-        try {
-          const escapedClass = CSS.escape(firstClass);
-          const allMatches = iframeDoc.querySelectorAll(`${tagName.toLowerCase()}.${escapedClass}`);
-          familyElements = Array.from(allMatches).filter(el => isSimilarSize(el));
-        } catch {
-          // CSS.escape might not be available or selector might be invalid
-        }
-      }
-    }
-
-    // Fallback 2: If no matches or only self, try parent's direct children of same tag
-    if (familyElements.length <= 1) {
-      const parent = element.parentElement;
-      if (parent) {
-        const siblings = Array.from(parent.children).filter(
-          el => el.tagName === tagName && isSimilarSize(el)
-        );
-        if (siblings.length > familyElements.length) {
-          familyElements = siblings;
-        }
-      }
-    }
-
-    // Fallback 3: For common interactive elements, also check grandparent
-    if (familyElements.length <= 1 && ['BUTTON', 'A', 'INPUT', 'LI', 'IMG'].includes(tagName)) {
-      const grandparent = element.parentElement?.parentElement;
-      if (grandparent) {
-        const cousins = Array.from(grandparent.querySelectorAll(tagName.toLowerCase()))
-          .filter(el => isSimilarSize(el));
-        if (cousins.length > familyElements.length) {
-          familyElements = cousins;
-        }
-      }
-    }
-
-    // Ensure clicked element is first
-    if (familyElements.length > 0) {
-      const withoutTarget = familyElements.filter(el => el !== element);
-      return [element, ...withoutTarget];
-    }
-
-    return [element];
-  }, []);
 
   // Get elements at point
   const getElementsAtPoint = useCallback((clientX: number, clientY: number): { elements: ElementInfo[], domElements: Element[] } => {
@@ -1769,58 +1553,10 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
   }, [globalSelectedElement]);
 
   // Handle view code button - navigate to source location with line range
+  // (the end-line heuristic lives in ./view-code).
   const handleViewCode = useCallback(() => {
     if (globalSelectedElement?.sourceLocation) {
-      const { fileName, line, column } = globalSelectedElement.sourceLocation;
-
-      // Try to estimate the end line by looking at the file content
-      // This is a heuristic - we look for the matching closing tag
-      import('../runtime/sandpack/sandpack-store').then(({ sandpackStore }) => {
-        const targetFile = '/' + fileName;
-        const fileContent = sandpackStore.getFile(targetFile) || sandpackStore.getFile(fileName);
-
-        if (fileContent) {
-          const lines = fileContent.split('\n');
-          const startLine = line;
-          let endLine = startLine;
-
-          // Simple heuristic: scan from start line to find balanced tags
-          let depth = 0;
-          let foundStart = false;
-
-          for (let i = startLine - 1; i < lines.length && i < startLine + 50; i++) {
-            const lineContent = lines[i];
-
-            // Count opening tags (simplified)
-            const opens = (lineContent.match(/<[a-zA-Z]/g) || []).length;
-            const closes = (lineContent.match(/<\//g) || []).length;
-            const selfClosing = (lineContent.match(/\/>/g) || []).length;
-
-            if (i === startLine - 1) {
-              foundStart = true;
-              depth = opens - closes - selfClosing;
-            } else if (foundStart) {
-              depth += opens - closes - selfClosing;
-            }
-
-            endLine = i + 1;
-
-            // If we're back to depth 0 or negative, we've found the end
-            if (foundStart && depth <= 0 && i > startLine - 1) {
-              break;
-            }
-          }
-
-          // Ensure at least a few lines are highlighted
-          if (endLine === startLine) {
-            endLine = Math.min(startLine + 3, lines.length);
-          }
-
-          navigateToCode(fileName, startLine, column, endLine);
-        } else {
-          navigateToCode(fileName, line, column);
-        }
-      });
+      viewCodeForSourceLocation(globalSelectedElement.sourceLocation);
     }
   }, [globalSelectedElement]);
 
@@ -2002,46 +1738,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       {/* Floating Toolbar - Smart positioning to stay in viewport */}
       <AnimatePresence>
         {primaryElement && !scanning && !isResizing && isPromptVisible && (() => {
-          // Calculate optimal position for the prompt box
-          let viewportWidth = window.innerWidth;
-          let viewportHeight = window.innerHeight;
-
-          if (iframeRef.current) {
-            const rect = iframeRef.current.getBoundingClientRect();
-            viewportWidth = rect.width;
-            viewportHeight = rect.height;
-          }
-
-          // Use a safe estimate for the box width (slightly larger than actual to be safe)
-          const SAFE_BOX_WIDTH = 420;
-
-          // Default: align left edge with selection, position below
-          let left = primaryElement.x;
-          let top = primaryElement.y + primaryElement.height + 10;
-
-          // Clamp left position to keep prompt fully visible
-          const minLeft = EDGE_PADDING;
-          const maxLeft = viewportWidth - SAFE_BOX_WIDTH - EDGE_PADDING;
-
-          // Ensure strictly bounded
-          left = Math.max(minLeft, Math.min(left, maxLeft));
-
-          // Handle vertical positioning
-          const belowWorks = top + PROMPT_BOX_HEIGHT <= viewportHeight - EDGE_PADDING;
-          const aboveTop = primaryElement.y - PROMPT_BOX_HEIGHT - 10;
-          const aboveWorks = aboveTop >= EDGE_PADDING;
-
-          if (!belowWorks) {
-            if (aboveWorks) {
-              // Position above the selection
-              top = aboveTop;
-            } else {
-              // Neither above nor below works - position ON the selection (centered)
-              top = primaryElement.y + (primaryElement.height / 2) - (PROMPT_BOX_HEIGHT / 2);
-              // Clamp to viewport
-              top = Math.max(EDGE_PADDING, Math.min(top, viewportHeight - PROMPT_BOX_HEIGHT - EDGE_PADDING));
-            }
-          }
+          const { left, top } = computePromptBoxPosition(primaryElement, iframeRef);
 
           return (
             <motion.div

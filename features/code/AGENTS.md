@@ -39,6 +39,11 @@ largest feature in the repo.
 | `src/runtime/sandpack/` | **The sandbox.** Sandpack store, AI-response parser, system prompt. |
 | `src/runtime/preview/` | esbuild-wasm bundler for the preview iframe. |
 | `src/visual-editing/` | Click-to-edit overlay and its engine. |
+| `src/visual-editing/VisualEditingOverlay.tsx` | The overlay component (1787 lines): selection state, hit-testing, JSX. |
+| `src/visual-editing/element-geometry.ts` | Pure DOM helpers: source location, cover detection, `findTrueCover`. |
+| `src/visual-editing/element-family.ts` | `findSimilarElements` — the set selected together with a click. |
+| `src/visual-editing/prompt-box-position.ts` | Keeps the floating edit prompt inside the preview viewport. |
+| `src/visual-editing/view-code.ts` | Element → source jump, incl. the end-line estimate heuristic. |
 | `src/github/` | Import a repo. |
 | `src/local-companion.ts` | Client for the optional `services/local-companion` daemon. |
 | `src/use-auto-save.ts` | Debounced project autosave. |
@@ -69,6 +74,30 @@ flow:
 
 Edits are queued and applied as a batch, with an undo stack. `engine/index.ts` is a
 barrel — it is the intended entry point for this subsystem.
+
+### The overlay split
+
+`VisualEditingOverlay.tsx` went from 2089 to 1787 lines by moving out the four
+modules listed above. What moved was only ever pure functions of the DOM; what is
+left holds React state and cannot be cut the same way — `handleClick` (286 lines),
+`handleVisualEditSubmit` (154) and the effects all read and write the overlay's 11
+refs and 7 state values.
+
+Two rules for anyone continuing this:
+
+- **Never move a `motion.div` that is a direct child of `AnimatePresence`.** The
+  floating prompt box is exactly that. A relocated exit animation still compiles
+  and still type-checks — it just silently stops animating on close. When the
+  prompt box's positioning maths was extracted, only the arithmetic moved; the
+  markup stayed put, and the whole `AnimatePresence` subtree was diffed
+  character-for-character afterwards to prove it.
+- **`src/visual-editing/` is LF**, while `src/workbench/` is CRLF. Check before
+  you write, or the diff will show every line as changed.
+
+Note the test suite does **not** cover this subsystem — the 5 tests in
+`apps/studio/test/` are Agent Builder smoke tests. `tsc` plus a diff against the
+pre-change file is the only real safety net here, so prefer extractions you can
+prove byte-identical over ones that reshape call sites.
 
 ## Workbench sidebar split
 

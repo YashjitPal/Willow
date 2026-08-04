@@ -29,6 +29,12 @@ Section 11 (Invariants) lists rules that cause data loss when broken.
 | `src/adapters/drive-discovery.ts` | Merges Drive projects into the local registry on connect. |
 | `src/adapters/use-drive.ts` | React hook: syncs the access token from `AuthContext`. |
 | `src/local-fs/LocalFSContext.tsx` | **The brain.** Directory handle, reconcile loop, CRUD, polling watcher. |
+| `src/local-fs/chat-metadata.ts` | Chat id/list/timestamp validation, storage-key scoping, sync-record merge. |
+| `src/local-fs/chat-title.ts` | Asks the user's chat-naming model for a short title. Never throws. |
+| `src/local-fs/project-manifest.ts` | Reads/repairs a project folder's stable id in `.willow.json`. |
+| `src/local-fs/disk-deps.ts` | The `DiskDeps` contract the two disk writers below are passed. |
+| `src/local-fs/code-disk.ts` | Writes a project's `Code/` folder: codebase files + chat sessions. |
+| `src/local-fs/media-disk.ts` | Writes/deletes/renames files in a project's `Media/` folder + cover. |
 | `src/project-contributors.ts` | Registry where features register their project-save writers. |
 | `src/code-chat-storage.ts` | Saves + loads Code projects (code files + chat threads). |
 | `src/media-storage.ts` | Saves + loads Media projects (generated images/video/music). |
@@ -114,12 +120,39 @@ feature register it — don't reach up and import the feature.
 Read `ARCHITECTURE.md` for the full invariant list and the debugging snippets
 for verifying registry state from the browser console.
 
-## Known issue
+## LocalFSContext is still large — and why
 
-`LocalFSContext.tsx` is 2759 lines. It holds the entire local-disk state machine
-(directory handle, registry, migration, project list, CRUD, Drive merge) plus a
-massive React context. Before editing it, understand that every export is used —
-splitting it means threading React context through multiple files or lifting state
-into nanostores. Neither is trivial.
+`LocalFSContext.tsx` is 2184 lines, down from 2759. The leaves have been pulled
+out into the five `src/local-fs/*` modules listed above; what remains is the
+local-disk state machine itself (directory handle, registry, migration, project
+list, CRUD, Drive merge) plus a large React context.
+
+**Do not try to finish the split by cutting at line numbers.** Every export is in
+use, and every remaining block reads and writes provider refs (`chatScopeIdRef`,
+`recentProjectRenamesRef`, `projectSaveQueuesRef`, …) declared above it. Moving
+one out means threading React context through multiple files or lifting state
+into nanostores. Neither is trivial, and neither is required for the file to be
+readable.
+
+What *was* safe, and is the pattern to follow if you extract more:
+
+- A `useCallback` whose body touches **no ref and no setState** can become a
+  module-scope function of its own dependencies (`generateChatTitleWith`,
+  `saveMediaFileToDisk`, `saveProjectFilesToDisk`). Verify the body first —
+  a dep array is not proof, since two of the media writers call
+  `resolveCurrentProjectName` without listing it.
+- **Keep the provider's `useCallback` wrapper and its dependency array exactly as
+  they were.** The array is part of the context value's identity: shortening it
+  because the body "obviously" no longer needs an entry changes when consumers
+  re-render. Where an original array omitted a dependency, that omission was
+  preserved — it is safe only because `resolveCurrentProjectName` is
+  `useCallback(_, [])` and so never changes identity.
+- Compare every moved block against a pre-extraction copy of the file,
+  **anchored on content, not line numbers**, and check that the comments came
+  with it. The invariant notes on those functions (write-then-prune, the
+  case-only rename hazard, dot-entry ownership) are the reason the code is
+  correct.
+- `platform/storage/src/*` is **LF**, unlike `features/code/src/workbench/*`.
+  A tool that rewrites the file with CRLF will show every line as changed.
 
 Also see `MEDIA.md` for the media-specific storage details.
