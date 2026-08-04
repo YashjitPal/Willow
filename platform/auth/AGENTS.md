@@ -30,3 +30,24 @@ logged in" and their profile, API keys, and settings.
 
 **`platform/auth` must never import from `features/` or `apps/`.** It may import
 sibling platform packages (`@willow/ui`, `@willow/core`) and that is all.
+
+<!-- related-packages -->
+
+## Related packages
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
+- [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/onboarding`](../../features/onboarding/AGENTS.md) — first-run flow
+- [`features/projects`](../../features/projects/AGENTS.md) — project browser UI
+- [`features/spark`](../../features/spark/AGENTS.md) — scheduling / background-task agent
+- [`platform/storage`](../storage/AGENTS.md) — persistence, adapters, sync
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

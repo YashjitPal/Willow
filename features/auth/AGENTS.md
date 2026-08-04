@@ -31,3 +31,20 @@ email/password calls).
 One constraint worth knowing: COOP/COEP headers break Firebase's
 `signInWithPopup`, which is why `apps/studio/vite.config.ts` scopes those headers
 to `/project1` only and never to this route.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../../platform/core/AGENTS.md) — utilities, types, constants
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

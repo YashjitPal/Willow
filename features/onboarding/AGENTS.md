@@ -22,3 +22,18 @@ next load.
 ## Dependencies
 
 `@willow/auth` (2) and `@willow/assets` (1). Nothing else.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

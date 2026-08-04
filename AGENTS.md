@@ -34,7 +34,7 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | [`features/code`](features/code/AGENTS.md) | `@willow/code` | The Workbench — Sandpack sandbox, visual editing |
 | [`features/chat`](features/chat/AGENTS.md) | `@willow/chat` | Standalone chat surface |
 | [`features/media`](features/media/AGENTS.md) | `@willow/media` | AI image and video generation |
-| [`features/agent-builder`](features/agent-builder/AGENTS.md) | `@willow/agents` | React-Flow workflow canvas (frontend of the Agents app) |
+| [`features/agent-builder`](features/agent-builder/AGENTS.md) | `@willow/agent-builder` | React-Flow workflow canvas (frontend of the Agents app) |
 | [`features/spark`](features/spark/AGENTS.md) | `@willow/spark` | Scheduling / background-task agent |
 | [`features/design`](features/design/AGENTS.md) | `@willow/design` | Design surface; writes into the project's `Designs/` folder |
 | [`features/projects`](features/projects/AGENTS.md) | `@willow/project-browser` | Project browser **UI** |
@@ -68,10 +68,32 @@ apps/  →  features/  →  platform/
 - A feature may import `platform/*` and, sparingly, a sibling feature.
 - **`platform/*` must never import from `features/` or `apps/`.** This is the one
   rule worth enforcing strictly — it is what keeps platform code testable alone.
+  Verified: no `platform/*` package imports upward today.
 
 When a platform package needs behaviour that only a feature can supply, the
 feature **registers** it instead. See `apps/studio/src/app/register-features.ts`
 and `platform/storage/src/project-contributors.ts` for the established pattern.
+
+### Where the diagram doesn't hold yet
+
+The strict rule above is clean. The `features/ → apps/` arrow is not: four
+features import *upward* from `apps/studio` — verified, not hypothetical:
+
+| Importer | What it pulls from `apps/studio` |
+| --- | --- |
+| `features/code`, `features/media`, `features/projects`, `features/chat` | `useBackground` / `BackgroundType` from `shell/BackgroundContext` |
+| `features/projects` | `ViewType` from `shell/sidebar/Sidebar` |
+| `features/media` | `RECENT_PROJECTS` from `shell/sample-projects` |
+
+Seven of the nine import sites are the background context. The clean fix is to move
+`BackgroundContext`, `ViewType` and `sample-projects` down into `platform/*`,
+which would leave the rule true as written. Until someone does that, don't cite
+the diagram as if it already holds — and don't add new upward imports.
+
+`platform/projects` and `platform/storage` also import each other
+(`storage → projects/registry`, `projects/rename → storage/indexeddb`). The cycle
+resolves at runtime because the imports are used inside functions rather than at
+module top level, but it does mean neither package loads without the other.
 
 ## Import conventions
 
@@ -117,8 +139,12 @@ One `package.json` and one `node_modules` at the repo root cover `apps/`,
   `<feature>-store.ts` and is the feature's public state surface.
 - **Naming** is `kebab-case.ts` for logic and `PascalCase.tsx` for components.
 - **Vocabulary**: the shell is *Willow Studio*; the coding surface is the
-  *Workbench*. The words *dashboard* and *staging* are legacy names for those two
-  and are being retired — don't introduce new ones. Existing `localStorage` keys
-  that contain them stay as they are: they hold real user data.
+  *Workbench*. *Dashboard* and *staging* are the legacy names for those two and
+  have been retired from identifiers, types and CSS classes — don't reintroduce
+  them. They survive in exactly three places, all deliberate: the storage keys
+  `localStorage['dashboard-background']` and `sessionStorage['staging-nav']`
+  (renaming a key orphans data users already saved), `tools/scripts/migrate-layout.mjs`
+  (a record of the paths files actually had), and user-facing copy such as the
+  "Back to Dashboard" tooltip. See [`features/code/AGENTS.md`](features/code/AGENTS.md#naming).
 - `features/figma` is an unfinished prototype, excluded from `typecheck` and
   routed nowhere. See its README before touching it.

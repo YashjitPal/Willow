@@ -34,3 +34,19 @@ into nanostores. Feasible, but not trivial.
 
 **`platform/ai` must never import from `features/` or `apps/`.** It can import
 sibling platform packages (`@willow/core`, `@models`) and that is all.
+
+<!-- related-packages -->
+
+## Related packages
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/spark`](../../features/spark/AGENTS.md) — scheduling / background-task agent
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

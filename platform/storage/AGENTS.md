@@ -156,3 +156,30 @@ What *was* safe, and is the pattern to follow if you extract more:
   A tool that rewrites the file with CRLF will show every line as changed.
 
 Also see `MEDIA.md` for the media-specific storage details.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/auth`](../auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../core/AGENTS.md) — utilities, types, constants
+- [`platform/projects`](../projects/AGENTS.md) — project data model and registry
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/projects`](../../features/projects/AGENTS.md) — project browser UI
+- [`platform/projects`](../projects/AGENTS.md) — project data model and registry
+
+See also [`ARCHITECTURE.md`](ARCHITECTURE.md) — how persistence actually works, end to end.
+
+See also [`MEDIA.md`](MEDIA.md) — the media pipeline specifically.
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

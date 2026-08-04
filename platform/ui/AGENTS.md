@@ -51,3 +51,25 @@ practice.
 **`platform/ui` must never import from `features/` or `apps/`.** It imports
 `@willow/core` (13 call sites, mostly `cn()`) and nothing else in the repo. If a
 component needs feature data, take it as a prop.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/core`](../core/AGENTS.md) — utilities, types, constants
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
+- [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/spark`](../../features/spark/AGENTS.md) — scheduling / background-task agent
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

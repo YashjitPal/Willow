@@ -31,3 +31,22 @@ feature, stop — the abstraction belongs here, and the feature calls it.
 
 What does **not** go here: React components (those are `platform/ui`), API clients
 (those are the feature or `platform/ai`), storage logic (that is `platform/storage`).
+
+<!-- related-packages -->
+
+## Related packages
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
+- [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`platform/storage`](../storage/AGENTS.md) — persistence, adapters, sync
+- [`platform/ui`](../ui/AGENTS.md) — shared components
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

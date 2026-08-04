@@ -40,3 +40,21 @@ This surface filters projects for display. **A filtered list must never be writt
 back to the registry.** Writing a filtered subset once erased every non-media
 project. See `platform/storage/AGENTS.md` §"Hardest-won rules" — it is rule #1
 there for a reason.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/projects`](../../platform/projects/AGENTS.md) — project data model and registry
+- [`platform/storage`](../../platform/storage/AGENTS.md) — persistence, adapters, sync
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

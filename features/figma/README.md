@@ -62,3 +62,15 @@ as Vite dev middleware the way
 3. Add a route and a sidebar entry in [apps/studio](../../apps/studio/).
 4. Delete `features/figma` from `exclude` in the root `tsconfig.json` and get
    `npm run typecheck` green.
+
+<!-- related-packages -->
+
+## Related packages
+
+This package has no dependency edges in either direction — nothing imports it
+and it imports no other package. That is consistent with it being an unfinished
+prototype that is routed nowhere; the `@willow/figma` alias is defined in
+`apps/studio/vite.config.ts` but never used.
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

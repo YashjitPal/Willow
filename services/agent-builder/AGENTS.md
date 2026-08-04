@@ -74,3 +74,21 @@ npm run agent-builder:start       # standalone on :8787
 
 `npm run typecheck` at the root does **not** cover this package — it targets the
 DOM. Run both.
+
+<!-- related-packages -->
+
+## Related packages
+
+**Imported by:**
+
+- [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
+
+See also [`README.md`](README.md) — running and testing the backend.
+
+Not an import edge: [`apps/studio`](../../apps/studio/AGENTS.md) mounts this
+backend as in-process Vite dev middleware (`vite.config.ts`, runtime `import()`),
+so `npm run dev` serves app and API on one origin. In production it deploys
+standalone.
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).
