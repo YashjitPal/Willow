@@ -86,3 +86,22 @@ the renderer + the `nodeTypes` registry there, and the config UI in
 
 Branch edges: ifElse `<branchId>`/`else`, guardrail `pass`/`fail`, userApproval
 `approved`/`rejected`, while `loop`/`done`.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../../platform/core/AGENTS.md) — utilities, types, constants
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+- [`services/agent-builder`](../../services/agent-builder/AGENTS.md) — the workflow-engine backend
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/code`](../code/AGENTS.md) — the Workbench: sandbox and visual editing
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

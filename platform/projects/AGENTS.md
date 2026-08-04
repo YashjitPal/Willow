@@ -51,3 +51,22 @@ decodes bytes back to text with the right encoding. Both adapters in
 
 **`platform/projects` must never import from `features/` or `apps/`.** It imports
 `@willow/storage` at one call site and nothing else.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`platform/storage`](../storage/AGENTS.md) — persistence, adapters, sync
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/projects`](../../features/projects/AGENTS.md) — project browser UI
+- [`platform/storage`](../storage/AGENTS.md) — persistence, adapters, sync
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

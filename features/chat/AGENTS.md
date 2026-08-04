@@ -145,3 +145,28 @@ into Code for `GithubImportDialog` and up into the Studio shell for
 Chats and their attachments persist through
 `@willow/storage/local-fs/LocalFSContext`; blobs are cached in a
 `Map<string, Blob>` ref in `ChatView` and re-read from storage on a miss.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/code`](../code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/media`](../media/AGENTS.md) — AI image and video generation
+- [`platform/ai`](../../platform/ai/AGENTS.md) — model clients, chat orchestration, computer use
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../../platform/core/AGENTS.md) — utilities, types, constants
+- [`platform/storage`](../../platform/storage/AGENTS.md) — persistence, adapters, sync
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/code`](../code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/media`](../media/AGENTS.md) — AI image and video generation
+- [`features/spark`](../spark/AGENTS.md) — scheduling / background-task agent
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

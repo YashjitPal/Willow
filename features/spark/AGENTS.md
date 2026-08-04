@@ -38,3 +38,22 @@ was duplicated byte-for-byte in `SparkAllTasks.tsx` and `SparkHome.tsx` — all
 three now import it from one place. `spark-store.ts` (1478 lines) is the
 remaining split candidate; its exports are widely referenced — verify before any
 move.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`features/chat`](../chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`platform/ai`](../../platform/ai/AGENTS.md) — model clients, chat orchestration, computer use
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

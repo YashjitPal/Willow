@@ -82,3 +82,35 @@ boundary mocks so mock specifiers still win.
 - `src/settings/tabs/index.ts` and `src/shell/sidebar/index.ts` are barrels that
   nothing currently imports (call sites use deep paths, per the root `AGENTS.md`).
   Harmless, but don't take them as the house style.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
+- [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/design`](../../features/design/AGENTS.md) — the design surface
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/onboarding`](../../features/onboarding/AGENTS.md) — first-run flow
+- [`features/projects`](../../features/projects/AGENTS.md) — project browser UI
+- [`features/spark`](../../features/spark/AGENTS.md) — scheduling / background-task agent
+- [`platform/ai`](../../platform/ai/AGENTS.md) — model clients, chat orchestration, computer use
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../../platform/core/AGENTS.md) — utilities, types, constants
+- [`platform/projects`](../../platform/projects/AGENTS.md) — project data model and registry
+- [`platform/storage`](../../platform/storage/AGENTS.md) — persistence, adapters, sync
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+
+**Imported by:**
+
+- [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
+- [`features/projects`](../../features/projects/AGENTS.md) — project browser UI
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

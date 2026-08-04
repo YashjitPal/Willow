@@ -1,8 +1,8 @@
 # Willow Media Storage (Images & Videos)
 
 > How generated images/videos are stored and displayed. Companion to
-> `STORAGE_SYNC.md` (which covers projects/chats/code and the real-time sync).
-> Read this before touching `MediaView.tsx` media effects, `lib/mediaStorage.ts`,
+> `ARCHITECTURE.md` (which covers projects/chats/code and the real-time sync).
+> Read this before touching `MediaView.tsx` media effects, `src/media-storage.ts`,
 > or the `refreshLocalMedia` / `loadLocalFSMediaUrl` functions in `LocalFSContext.tsx`.
 
 ## The principle: disk is the source of truth, browser is the fallback

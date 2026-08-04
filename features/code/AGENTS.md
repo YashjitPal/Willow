@@ -65,15 +65,17 @@ flow:
 
 1. An inspector script is injected into the preview iframe; it posts hover/click
    events out.
-2. `engine/visual-editor-store.ts` (1301 lines) holds all selection and edit state
-   as nanostores.
-3. `engine/direct-style-service.ts` (1328 lines) maps CSS values to Tailwind
-   classes (`TAILWIND_COLOR_MAP`, `FONT_SIZE_MAP`, …) so edits land as class
-   changes, not inline styles.
-4. `engine/visual-edit-service.ts` writes the change back into the source file.
+2. `visual-editing/engine/visual-editor-store.ts` (1301 lines) holds all selection
+   and edit state as nanostores.
+3. `visual-editing/engine/direct-style-service.ts` (1328 lines) maps CSS values to
+   Tailwind classes (`TAILWIND_COLOR_MAP`, `FONT_SIZE_MAP`, …) so edits land as
+   class changes, not inline styles.
+4. `visual-editing/engine/visual-edit-service.ts` writes the change back into the
+   source file.
 
-Edits are queued and applied as a batch, with an undo stack. `engine/index.ts` is a
-barrel — it is the intended entry point for this subsystem.
+Edits are queued and applied as a batch, with an undo stack.
+`visual-editing/engine/index.ts` is a barrel — it is the intended entry point for
+this subsystem.
 
 ### The overlay split
 
@@ -147,3 +149,31 @@ neither is an oversight:
 
 Storage keys address data users have already saved. Renaming one doesn't migrate
 it, it orphans it, so these keep their legacy names permanently.
+
+<!-- related-packages -->
+
+## Related packages
+
+**This package imports from:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/agent-builder`](../agent-builder/AGENTS.md) — the Agents workflow canvas
+- [`features/chat`](../chat/AGENTS.md) — the standalone chat surface
+- [`features/design`](../design/AGENTS.md) — the design surface
+- [`features/media`](../media/AGENTS.md) — AI image and video generation
+- [`platform/ai`](../../platform/ai/AGENTS.md) — model clients, chat orchestration, computer use
+- [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
+- [`platform/core`](../../platform/core/AGENTS.md) — utilities, types, constants
+- [`platform/projects`](../../platform/projects/AGENTS.md) — project data model and registry
+- [`platform/storage`](../../platform/storage/AGENTS.md) — persistence, adapters, sync
+- [`platform/ui`](../../platform/ui/AGENTS.md) — shared components
+
+**Imported by:**
+
+- [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
+- [`features/chat`](../chat/AGENTS.md) — the standalone chat surface
+- [`features/design`](../design/AGENTS.md) — the design surface
+- [`features/spark`](../spark/AGENTS.md) — scheduling / background-task agent
+
+Repo-wide conventions, the layering rule and the full package table live in
+[the root `AGENTS.md`](../../AGENTS.md).

@@ -1,7 +1,7 @@
 # Willow Storage & Sync Architecture
 
-> **Read this before touching anything under `lib/localFileSystemService.ts`,
-> `lib/mediaStorage.ts`, `lib/willowDB.ts`, `context/LocalFSContext.tsx`, or any
+> **Read this before touching anything under `src/adapters/local-disk.ts`,
+> `src/media-storage.ts`, `src/indexeddb/willow-db.ts`, `src/local-fs/LocalFSContext.tsx`, or any
 > component that reads `willow_projects_list`.** It documents the entire
 > local-first storage + real-time sync system so it can be extended without
 > regressions. The [Invariants](#11-invariants--rules-you-must-not-break) section
@@ -72,16 +72,16 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 
 | File | Responsibility |
 |------|----------------|
-| `lib/localFileSystemService.ts` | Low-level File System Access API helpers: persist/restore the directory handle (IndexedDB `WillowLocalFS`), permission checks, recursive file writes, and the per-project `.willow.json` manifest read/write. **No React, no business logic.** |
-| `lib/mediaStorage.ts` | `WillowMediaDB` IndexedDB: per-project media item lists + covers. Also owns project-kind helpers (`getMediaProjectIds`, `autoDetectProjectKinds`) and `deleteProjectData`. |
-| `lib/willowDB.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
-| `context/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
-| `App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
-| `components/HeroSection.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
-| `components/BottomPanel.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
-| `components/ProjectsPage.tsx` | "All projects" / Starred / Shared. Unfiltered registry. Star toggle + delete. |
-| `components/media/MediaView.tsx` | The media editor for one project. Generates media, saves it, sets covers, and runs **real-time media-file sync** for the open project. |
-| `components/staging/WorkbenchView.tsx` + `WorkbenchSidebar.tsx` | The code editor. Creates code projects (`kind:'code'`); persists sessions via `saveCodeSessions`/`loadCodeSessions`. |
+| `src/adapters/local-disk.ts` | Low-level File System Access API helpers: persist/restore the directory handle (IndexedDB `WillowLocalFS`), permission checks, recursive file writes, and the per-project `.willow.json` manifest read/write. **No React, no business logic.** |
+| `src/media-storage.ts` | `WillowMediaDB` IndexedDB: per-project media item lists + covers. Also owns project-kind helpers (`getMediaProjectIds`, `autoDetectProjectKinds`) and `deleteProjectData`. |
+| `src/indexeddb/willow-db.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
+| `src/local-fs/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
+| `apps/studio/src/app/App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
+| `features/media/src/MediaHome.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
+| `features/media/src/MediaShowcase.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
+| `features/projects/src/ProjectsPage.tsx` | "All projects" / Starred / Shared. Unfiltered registry. Star toggle + delete. |
+| `features/media/src/MediaView.tsx` | The media editor for one project. Generates media, saves it, sets covers, and runs **real-time media-file sync** for the open project. |
+| `features/code/src/WorkbenchView.tsx` + `WorkbenchSidebar.tsx` | The code editor. Creates code projects (`kind:'code'`); persists sessions via `saveCodeSessions`/`loadCodeSessions`. |
 
 ---
 
@@ -166,7 +166,7 @@ type ChatSession = { id: string; messages: any[]; filesSnapshot?: Record<string,
 
 ## 5. Public APIs
 
-### 5a. `useLocalFS()` (context/LocalFSContext.tsx)
+### 5a. `useLocalFS()` (src/local-fs/LocalFSContext.tsx)
 State: `isSupported`, `isLocalFolderConnected`, `isLocalFolderAuthorized`,
 `localFolderName`, `isInitializingLocalFS`, `localChats: string[]`, `activeChatId`.
 
@@ -201,7 +201,7 @@ Reads / refresh:
 `chatSyncRecordsRef`, `chatOperationQueuesRef`, `isPollingRef`,
 `pollPendingRef`, and `manifestIdCacheRef`.
 
-### 5b. `lib/mediaStorage.ts`
+### 5b. `src/media-storage.ts`
 `saveProjectMedia(projectId, items)`, `loadProjectMedia(projectId)` (migrates
 legacy localStorage), `saveProjectCover(projectId, url)` (**converts `blob:` and
 external video URLs to base64** so covers survive reload), `loadProjectCover(id)`,
@@ -209,7 +209,7 @@ external video URLs to base64** so covers survive reload), `loadProjectCover(id)
 cover), `getMediaProjectIds()` → `Set<id>` with media, `autoDetectProjectKinds()`
 (fallback tagging — fills missing only), `migrateProjectKinds()` (alias).
 
-### 5c. `lib/willowDB.ts`
+### 5c. `src/indexeddb/willow-db.ts`
 `saveChatBody(chatId, messages)`, `loadChatBody(chatId)` (migrates legacy),
 `deleteChatBody(chatId)`, `renameChatBody(old, new)`,
 `saveCodeSessions(storageKey, sessions)`, `loadCodeSessions(storageKey)`.
@@ -219,10 +219,10 @@ cover), `getMediaProjectIds()` → `Set<id>` with media, `autoDetectProjectKinds
 (key = `<storageKey>\0<sha256>`), and the session keeps a `path → hash` manifest.
 `loadCodeSessions` "inflates" back to full content, so callers never see hashes.
 Unreferenced blobs are garbage-collected on save. A `hashCache` avoids re-hashing.
-(`KEY_SEP` is a NUL byte ` `; `KEY_MAX` is `￿` for prefix range scans —
-this is why the file is flagged "binary" by some tools. Don't "fix" those chars.)
+(`KEY_SEP` is a NUL byte `\u0000`; `KEY_MAX` is `￿` for prefix range scans —
+both are cited here as escapes so this file stays greppable.)
 
-### 5d. `lib/localFileSystemService.ts`
+### 5d. `src/adapters/local-disk.ts`
 `isFSAAPISupported()`, `storeDirectoryHandle(h)`, `getStoredDirectoryHandle()`,
 `removeStoredDirectoryHandle()`, `verifyPermission(h, readWrite, interactive)`,
 `writeFileRecursively(rootDir, path, content)`, `readProjectManifest(dir)`,
@@ -431,7 +431,7 @@ Chats use React state (`localChats` from context) directly — no event needed.
 10. **`autoDetectProjectKinds` fills missing tags only — never override.**
 11. **Keep durable dirty revisions and tombstones.** Never replace them with a
     timeout-based grace window.
-12. **`<LocalFSProvider>` must wrap every route** (it's in App.tsx around
+12. **`<LocalFSProvider>` must wrap every route** (it's in `apps/studio/src/app/App.tsx` around
     `<Routes>`). Any component calling `useLocalFS()` outside it throws.
 13. **Rename must suppress disk-change reloads.** Renaming a project folder is
     async (native `move()` or recursive copy-then-delete). The `FileSystemObserver`
@@ -474,7 +474,7 @@ Chats use React state (`localChats` from context) directly — no event needed.
   restart Chromium may downgrade the grant to "prompt"; until the user
   re-authorizes (App's Authorize modal), the poller no-ops and
   `autoDetectProjectKinds` is the interim tagger.
-- **Covers are always still images** ([coverUtils.ts](lib/coverUtils.ts)). A
+- **Covers are always still images** ([covers.ts](src/covers.ts)). A
   video source — the first generated item, a "Set as cover" on a video, a disk
   `cover.mp4`, or a `Videos/` file during hydration — is run through
   `extractVideoFrame` (loads it off-DOM, seeks ~0.1s in, draws to a canvas) to
