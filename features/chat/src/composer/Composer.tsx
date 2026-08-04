@@ -1,756 +1,45 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { PlusDropdownMenu } from './PlusDropdownMenu';
-import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { GithubImportDialog } from '@willow/code/github/GithubImportDialog';
 import './Composer.css';
-import { transcribeRecordedAudio } from '@willow/ai/transcription';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
-import {
-  getModelGroupKey,
-  getThinkingEffortLabel,
-  ModelEffortRecord,
-  sortModelEfforts,
-} from '@willow/ai/models/efforts';
 import {
   Plus,
   FileText,
   AudioLines,
   ArrowUp,
   ChevronDown,
-  Search,
-  Settings,
   Rocket,
-  Palette,
-  Zap,
-  MessageSquare,
-  Globe,
   X,
   Mic,
   Square,
-  Lightbulb,
-  ImagePlus,
-  Telescope,
-  BookOpen,
-  SquarePen,
-  Copy,
   Check,
 } from "lucide-react";
-
-const SpotifyIcon = ({ size = 20, className = "" }: { size?: number, className?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="#1ed760" className={className}>
-    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.54.659.3 1.02zm1.44-3.3c-.301.42-.84.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.48.12-1.02-.12-1.14-.6-.12-.48.12-1.02.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.38 4.26-1.26 11.28-1.02 15.72 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-  </svg>
-);
-
-type ToolId = 'thinking' | 'images' | 'research' | 'web' | 'learn' | 'canvas' | 'quizzes' | 'spotify';
-
-interface ToolMetadata {
-  id: ToolId;
-  label: string;
-  chipLabel: string;
-  icon: React.ElementType;
-}
-
-const TOOLS: Record<ToolId, ToolMetadata> = {
-  thinking: { id: 'thinking', label: 'Thinking', chipLabel: 'Think', icon: Lightbulb },
-  images: { id: 'images', label: 'Create image', chipLabel: 'Image', icon: ImagePlus },
-  research: { id: 'research', label: 'Deep research', chipLabel: 'Research', icon: Telescope },
-  web: { id: 'web', label: 'Web search', chipLabel: 'Search', icon: Globe },
-  learn: { id: 'learn', label: 'Study and learn', chipLabel: 'Learn', icon: BookOpen },
-  canvas: { id: 'canvas', label: 'Canvas', chipLabel: 'Canvas', icon: SquarePen },
-  quizzes: { id: 'quizzes', label: 'Quizzes', chipLabel: 'Quizzes', icon: Copy },
-  spotify: { id: 'spotify', label: 'Spotify', chipLabel: 'Spotify', icon: SpotifyIcon as any },
-};
-
-const TOOL_SYMBOLS: Partial<Record<ToolId, string>> = {
-  thinking: 'lightbulb',
-  images: 'add_photo_alternate',
-  research: 'travel_explore',
-  web: 'language',
-  learn: 'school',
-  canvas: 'draw',
-  quizzes: 'quiz',
-};
 
 export type Attachment = ComposerAttachment;
 import { useBackground } from "@willow/studio/shell/BackgroundContext";
 import { DictationWaveform } from './DictationWaveform';
+import { ModelIcon } from './composer-icons';
+import {
+  MODES,
+  TOOLS,
+  TOOL_SYMBOLS,
+  type Mode,
+  type ToolId,
+} from './composer-options';
+import { ModesMenu } from './ModesMenu';
+import { ThemesMenu } from './ThemesMenu';
+import { ModelsMenu } from './ModelsMenu';
+import { useComposerDictation } from './use-composer-dictation';
+import { useComposerModels } from './use-composer-models';
+import { useComposerTextareaAutosize } from './use-composer-textarea-autosize';
+import { useCollapsedChatPaddingRight, useFullscreenShellCentering } from './use-composer-chat-layout';
 
-const ModelIcon = ({ size = 18, ...props }: any) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 512 512"
-    fill="currentColor"
-    xmlns="http://www.w3.org/2000/svg"
-    {...props}
-  >
-    <path d="M256 0C256 0 292 200 512 256C292 312 256 512 256 512C256 512 220 312 0 256C220 200 256 0 256 0Z" />
-  </svg>
-);
-
-interface Theme {
-  id: string;
-  name: string;
-  colors: string[];
-}
-
-const THEMES: Theme[] = [
-  { id: "default", name: "Default", colors: ["#ffffff", "#a78bfa", "#94a3b8"] },
-  { id: "glacier", name: "Glacier", colors: ["#38bdf8", "#94a3b8", "#bae6fd"] },
-  { id: "harvest", name: "Harvest", colors: ["#fb923c", "#fcd34d", "#fef08a"] },
-  {
-    id: "lavender",
-    name: "Lavender",
-    colors: ["#c084fc", "#e879f9", "#ddd6fe"],
-  },
-  {
-    id: "brutalist",
-    name: "Brutalist",
-    colors: ["#ffffff", "#3b82f6", "#10b981"],
-  },
-  {
-    id: "obsidian",
-    name: "Obsidian",
-    colors: ["#94a3b8", "#cbd5e1", "#f1f5f9"],
-  },
-  { id: "orchid", name: "Orchid", colors: ["#f47226", "#fb7185", "#fbcfe8"] },
-  { id: "solar", name: "Solar", colors: ["#facc15", "#fde047", "#fef9c3"] },
-];
-
-
-
-type Mode = "ship" | "design" | "proto" | "chat";
-
-interface ModeOption {
-  id: Mode;
-  label: string;
-  icon: React.ElementType;
-}
-
-const MODES: ModeOption[] = [
-  { id: "ship", label: "Ship", icon: Rocket },
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "design", label: "Design", icon: Palette },
-  { id: "proto", label: "Proto", icon: Zap },
-];
-
-type PickerModel = ModelEffortRecord;
-
-export const ModelsMenu: React.FC<{
-  onClose: () => void;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
-  modelConfig: any;
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onAuthRequired?: () => void;
-  geminiStyle?: boolean;
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false }) => {
-  const isMediaModel = (m: any) => {
-    const id = (m.modelId || m.id || '').toLowerCase();
-    const name = (m.name || '').toLowerCase();
-    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return true;
-    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria')) return true;
-    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return true;
-    return false;
-  };
-
-  // Combine all saved models from all providers and deduplicate by modelId
-  const rawModels = [
-    ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-    ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-    ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
-    ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-    ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-    ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
-
-  const [isEffortHovered, setIsEffortHovered] = useState(false);
-  const effortMenuRef = useRef<HTMLDivElement>(null);
-  const [effortOffset, setEffortOffset] = useState(0);
-
-  useLayoutEffect(() => {
-    if (isEffortHovered && effortMenuRef.current) {
-      const rect = effortMenuRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      if (rect.bottom > viewportHeight - 16) {
-        setEffortOffset(viewportHeight - 16 - rect.bottom);
-      } else {
-        setEffortOffset(0);
-      }
-    } else {
-      setEffortOffset(0);
-    }
-  }, [isEffortHovered]);
-
-  const seenModelKeys = new Set<string>();
-  const ALL_MODELS = rawModels.filter((m: any) => {
-    const key = m.modelId || m.id;
-    if (seenModelKeys.has(key)) return false;
-    seenModelKeys.add(key);
-    return true;
-  });
-
-  const [localSearchQuery, setLocalSearchQuery] = useState("");
-  const [side, setSide] = useState<"top" | "bottom">(geminiStyle ? "bottom" : "top");
-  const [isClosing, setIsClosing] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const handleClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      onClose();
-    }, 150);
-  };
-
-  const calculatePosition = () => {
-    if (!triggerRef.current || !menuRef.current) return;
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = menuRef.current.offsetHeight;
-    const viewportHeight = window.innerHeight;
-    const spacing = geminiStyle ? 4 : 8;
-    const spaceAbove = triggerRect.top;
-    const spaceBelow = viewportHeight - triggerRect.bottom;
-
-    if (side === "top") {
-      if (spaceAbove < menuHeight + spacing && spaceBelow > spaceAbove)
-        setSide("bottom");
-    } else {
-      if (spaceBelow < menuHeight + spacing && spaceAbove > spaceBelow)
-        setSide("top");
-    }
-  };
-
-  useLayoutEffect(() => {
-    calculatePosition();
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => calculatePosition();
-    const scrollContainer = document.querySelector("main");
-    if (scrollContainer)
-      scrollContainer.addEventListener("scroll", handleScroll, {
-        passive: true,
-      });
-    window.addEventListener("resize", handleScroll);
-    return () => {
-      if (scrollContainer)
-        scrollContainer.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [side]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        // Click is outside menu - trigger animated close
-        handleClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filteredModels = ALL_MODELS.filter((m: any) =>
-    m.name.toLowerCase().includes(localSearchQuery.toLowerCase())
-  );
-
-  const groupMap = new Map<string, { key: string; variants: PickerModel[] }>();
-  filteredModels.forEach((model: PickerModel) => {
-    const key = getModelGroupKey(model);
-    const group = groupMap.get(key) || { key, variants: [] };
-    group.variants.push(model);
-    groupMap.set(key, group);
-  });
-
-  const groupedModels = Array.from(groupMap.values()).map((group: { key: string; variants: PickerModel[] }) => ({
-    ...group,
-    variants: sortModelEfforts(group.variants),
-  }));
-
-  const getEffortsForGroup = (group: { key: string; variants: PickerModel[] } | undefined): PickerModel[] => {
-    if (!group || group.variants.length === 0) return [];
-    if (group.variants.length > 1) return sortModelEfforts(group.variants);
-
-    const base = group.variants[0];
-    const provider = String(base.provider || '').toLowerCase();
-    const modelId = String(base.modelId || base.id || base.name || '').toLowerCase();
-
-    let maxLevel = 3;
-    if (provider.includes('openai') || modelId.includes('gpt')) {
-      maxLevel = 6; // Low (1), Medium (2), High (3), Extra High (4), Max (5), Pro (6)
-    } else if (provider.includes('anthropic') || modelId.includes('claude')) {
-      maxLevel = 5; // Low (1), Medium (2), High (3), xHigh (4), Max (5)
-    } else if (modelId.includes('kimi-k3')) {
-      maxLevel = 4; // Low (1), Medium (2), High (3), Max (4)
-    }
-
-    const result: PickerModel[] = [];
-    for (let lvl = 1; lvl <= maxLevel; lvl++) {
-      const effortLabel = getThinkingEffortLabel({ ...base, thinkingLevel: lvl, provider, modelId, thinkingLabel: undefined, effortLabel: undefined });
-      result.push({
-        ...base,
-        id: `${base.id}::effort-${lvl}`,
-        thinkingLevel: lvl,
-        thinkingLabel: effortLabel,
-        effortLabel: effortLabel
-      });
-    }
-    return result;
-  };
-
-  const selectedGroup = groupedModels.find((group) =>
-    group.variants.some((model) => model.id === selectedId || selectedId.startsWith(`${model.id}::effort-`))
-  ) || groupedModels[0];
-
-  const selectedEfforts = getEffortsForGroup(selectedGroup);
-  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId) || selectedEfforts.find((m) => m.thinkingLevel === 3) || selectedEfforts[0];
-
-  const getModelDescription = (model: any) => {
-    const name = String(model.name || '').toLowerCase();
-    if (name.includes('flash lite')) return 'Fastest answers';
-    if (name.includes('flash')) return 'All-around help';
-    if (name.includes('pro')) return 'Advanced math & code';
-    if (name.includes('reason') || name.includes('thinking')) return 'Complex problem solving';
-    return `${model.provider || 'AI'} model`;
-  };
-
-  if (geminiStyle) {
-    return (
-      <div
-        ref={menuRef}
-        role="menu"
-        aria-label="Choose a model"
-        className={`absolute right-0 w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
-        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-      >
-        <div className="max-h-[208px] overflow-y-auto no-scrollbar">
-          {groupedModels.length === 0 ? (
-            <div className="px-3 py-8 text-center text-[13px] text-white/55">
-              No models configured
-            </div>
-          ) : (
-            groupedModels.map((group) => {
-              const model = group.variants.find((variant) => variant.id === selectedId) || group.variants[0];
-              const isSelected = group.variants.some((variant) => variant.id === selectedId);
-              return (
-                <button
-                  key={group.key}
-                  role="menuitem"
-                  onClick={() => {
-                    onSelect(model.id);
-                    handleClose();
-                  }}
-                  className="w-full min-h-[52px] rounded-xl flex items-center text-left transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
-                >
-                  <span className="w-9 shrink-0 flex items-center justify-center text-[#e6e6e6]">
-                    {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
-                  </span>
-                  <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                      {model.name.replace(/\s+Extended$/gi, '')}
-                    </span>
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                      {getModelDescription(model)}
-                    </span>
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        {selectedEffort && (
-          <>
-            <div className="h-px bg-[#444746] my-2" role="separator" />
-            <div 
-              className="relative"
-              onMouseEnter={() => setIsEffortHovered(true)}
-              onMouseLeave={() => setIsEffortHovered(false)}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
-              >
-                <span className="w-9 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  <span className="block leading-[17px]">Thinking Effort</span>
-                  <span className="block truncate text-[12px] leading-4 text-white/55">
-                    {getThinkingEffortLabel(selectedEffort)}
-                  </span>
-                </span>
-                <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
-              </button>
-
-              {isEffortHovered && (
-                <div 
-                  className={`pointer-events-auto absolute left-full -ml-2 pl-4 ${side === "top" ? "bottom-0" : "top-0"}`}
-                  style={{ transform: `translateY(${effortOffset}px)` }}
-                >
-                  <div
-                    ref={effortMenuRef}
-                    role="menu"
-                    aria-label="Thinking Effort"
-                    className="pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
-                  >
-                  {selectedEfforts.map((model) => {
-                    const isSelected = selectedId === model.id;
-                    return (
-                      <button
-                        key={model.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={isSelected}
-                        onClick={() => {
-                          onSelect(model.id);
-                          handleClose();
-                        }}
-                        className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
-                      >
-                        <span className="flex w-9 shrink-0 items-center justify-center">
-                          {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
-                        </span>
-                        <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                          {getThinkingEffortLabel(model)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={menuRef}
-      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
-    >
-      <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
-        <Search
-          className="text-zinc-500 shrink-0 mr-3"
-          size={18}
-          strokeWidth={2.5}
-        />
-        <input
-          value={localSearchQuery}
-          onChange={(e) => setLocalSearchQuery(e.target.value)}
-          className="bg-transparent text-white text-[14px] placeholder-zinc-500 outline-none flex-1 leading-none font-normal"
-          placeholder="Search models..."
-
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar bg-[#1c1c1c]">
-        <div className="px-2 pt-3.5 pb-2 text-[10.5px] font-bold text-zinc-500 uppercase tracking-widest">
-          AVAILABLE MODELS
-        </div>
-        <div className="space-y-0.5">
-          {filteredModels.length === 0 ? (
-            <div className="px-3 py-8 text-center text-[12px] text-zinc-500">
-              {ALL_MODELS.length === 0 ? "No models configured. Add them in Settings." : "No matching models found."}
-            </div>
-          ) : (
-            filteredModels.map((model: any) => {
-              const isSelected = selectedId === model.id;
-              return (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onSelect(model.id);
-                    handleClose();
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-[7px] rounded-lg text-[13.5px] font-medium group
-                    ${
-                      isSelected
-                        ? "bg-[#2563eb] text-white shadow-lg shadow-blue-500/10"
-                        : "text-zinc-300 hover:bg-white/5 hover:text-white"
-                    }`}
-                >
-                  <span>{model.name}</span>
-                  <span
-                    className={`text-[9px] font-bold uppercase tracking-wider opacity-60 ${
-                      isSelected ? "text-white" : "group-hover:text-zinc-400"
-                    }`}
-                  >
-                    {model.provider}
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center h-[42px] border-t border-white/10 mt-0 bg-[#1c1c1c]">
-        <button
-          onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-white/70 hover:text-white hover:bg-white/5 h-full"
-        >
-          <Plus size={14} strokeWidth={2.5} />
-          <span>Add new</span>
-        </button>
-        <div className="w-[1px] h-4 bg-white/10"></div>
-        <button
-          onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="w-[42px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 h-full"
-        >
-          <Settings size={15} strokeWidth={2.2} />
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const ModesMenu: React.FC<{
-  onClose: () => void;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
-  currentMode: Mode;
-  onModeSelect: (mode: Mode) => void;
-}> = ({ onClose, triggerRef, currentMode, onModeSelect }) => {
-  const [side, setSide] = useState<"top" | "bottom">("top");
-  const [isClosing, setIsClosing] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const handleClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      onClose();
-    }, 150);
-  };
-
-  const calculatePosition = () => {
-    if (!triggerRef.current || !menuRef.current) return;
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = menuRef.current.offsetHeight;
-    const viewportHeight = window.innerHeight;
-    const spacing = 8;
-    const spaceAbove = triggerRect.top;
-    const spaceBelow = viewportHeight - triggerRect.bottom;
-
-    if (side === "top") {
-      if (spaceAbove < menuHeight + spacing && spaceBelow > spaceAbove)
-        setSide("bottom");
-    } else {
-      if (spaceBelow < menuHeight + spacing && spaceAbove > spaceBelow)
-        setSide("top");
-    }
-  };
-
-  useLayoutEffect(() => {
-    calculatePosition();
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => calculatePosition();
-    const scrollContainer = document.querySelector("main");
-    if (scrollContainer)
-      scrollContainer.addEventListener("scroll", handleScroll, {
-        passive: true,
-      });
-    window.addEventListener("resize", handleScroll);
-    return () => {
-      if (scrollContainer)
-        scrollContainer.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [side]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        // Click is outside menu - trigger animated close
-        handleClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  return (
-    <div
-      ref={menuRef}
-      className={`absolute left-0 w-[160px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 p-1.5 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
-    >
-      {MODES.map((mode) => (
-        <button
-          key={mode.id}
-          onClick={() => {
-            onModeSelect(mode.id);
-            handleClose();
-          }}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px] font-medium
-            ${
-              currentMode === mode.id
-                ? "bg-[#2563eb] text-white"
-                : "text-zinc-300 hover:bg-white/5 hover:text-white"
-            }`}
-        >
-          <mode.icon size={16} strokeWidth={2.2} />
-          <span>{mode.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-};
-
-const ThemesMenu: React.FC<{
-  onClose: () => void;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
-  onAuthRequired?: () => void;
-}> = ({ onClose, triggerRef, onAuthRequired }) => {
-  const [selectedId, setSelectedId] = useState("default");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [side, setSide] = useState<"top" | "bottom">("top");
-  const [isClosing, setIsClosing] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const handleClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      onClose();
-    }, 150);
-  };
-
-  const calculatePosition = () => {
-    if (!triggerRef.current || !menuRef.current) return;
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = menuRef.current.offsetHeight;
-    const viewportHeight = window.innerHeight;
-    const spacing = 8;
-    const spaceAbove = triggerRect.top;
-    const spaceBelow = viewportHeight - triggerRect.bottom;
-
-    if (side === "top") {
-      if (spaceAbove < menuHeight + spacing && spaceBelow > spaceAbove)
-        setSide("bottom");
-    } else {
-      if (spaceBelow < menuHeight + spacing && spaceAbove > spaceBelow)
-        setSide("top");
-    }
-  };
-
-  useLayoutEffect(() => {
-    calculatePosition();
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => calculatePosition();
-    const scrollContainer = document.querySelector("main");
-    if (scrollContainer)
-      scrollContainer.addEventListener("scroll", handleScroll, {
-        passive: true,
-      });
-    window.addEventListener("resize", handleScroll);
-    return () => {
-      if (scrollContainer)
-        scrollContainer.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [side]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        // Click is outside menu - trigger animated close
-        handleClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filteredThemes = THEMES.filter((t) =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  return (
-    <div
-      ref={menuRef}
-      className={`absolute left-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
-    >
-      <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
-        <Search
-          className="text-zinc-500 shrink-0 mr-3"
-          size={18}
-          strokeWidth={2.5}
-        />
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="bg-transparent text-white text-[14px] placeholder-zinc-500 outline-none flex-1 leading-none font-normal"
-          placeholder="Search themes..."
-
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar bg-[#1c1c1c]">
-        <div className="px-2 pt-3.5 pb-2 text-[10.5px] font-bold text-zinc-500 uppercase tracking-widest">
-          DEFAULT THEMES
-        </div>
-        <div className="space-y-0.5">
-          {filteredThemes.map((theme) => {
-            const isSelected = selectedId === theme.id;
-            return (
-              <button
-                key={theme.id}
-                onClick={() => setSelectedId(theme.id)}
-                className={`w-full flex items-center justify-between px-3 py-[7px] rounded-lg text-[13.5px] font-medium group
-                  ${
-                    isSelected
-                      ? "bg-[#2563eb] text-white shadow-lg shadow-blue-500/10"
-                      : "text-zinc-300 hover:bg-white/5 hover:text-white"
-                  }`}
-              >
-                <span>{theme.name}</span>
-                <div className="flex items-center -space-x-1.5">
-                  {theme.colors.map((color, i) => (
-                    <div
-                      key={i}
-                      className={`w-[14px] h-[14px] rounded-full ring-[1.5px] relative
-                        ${
-                          isSelected
-                            ? "ring-[#2563eb]"
-                            : "ring-[#1c1c1c] group-hover:ring-[#2a2a2a]"
-                        }`}
-                      style={{ backgroundColor: color, zIndex: 3 - i }}
-                    />
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex items-center h-[42px] border-t border-white/10 mt-1 bg-[#1c1c1c]">
-        <button 
-          onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-white/70 hover:text-white hover:bg-white/5 h-full"
-        >
-          <Plus size={14} strokeWidth={2.5} />
-          <span>Create new</span>
-        </button>
-        <div className="w-[1px] h-4 bg-white/10"></div>
-        <button 
-          onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="w-[42px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 h-full"
-        >
-          <Settings size={15} strokeWidth={2.2} />
-        </button>
-      </div>
-    </div>
-  );
-};
+// Re-exported so this module's public surface is unchanged: CodeHome and
+// WorkbenchSidebar import ModelsMenu from here.
+export { ModelsMenu };
 
 export const InputBar: React.FC<{
   currentMode: Mode;
@@ -780,268 +69,33 @@ export const InputBar: React.FC<{
   const [isComposerMaximized, setIsComposerMaximized] = useState(false);
   const [canMaximizeComposer, setCanMaximizeComposer] = useState(false);
   const [collapsedChatPaddingRight, setCollapsedChatPaddingRight] = useState(204);
-  const { apiKeys } = useUserDataContext();
-  const [dictationPhase, setDictationPhaseState] = useState<'idle' | 'recording' | 'processing' | 'revealing'>('idle');
-  const [dictationStream, setDictationStream] = useState<MediaStream | null>(null);
-  const [dictationPlaceholder, setDictationPlaceholder] = useState<string | null>(null);
-  const [isMicRippling, setIsMicRippling] = useState(false);
-  const dictationPrevPromptRef = useRef<string>("");
-  const dictationSelectionRef = useRef({ start: 0, end: 0 });
-  const dictationPhaseRef = useRef(dictationPhase);
-  const dictationRequestIdRef = useRef(0);
-  const dictationRecorderRef = useRef<MediaRecorder | null>(null);
-  const dictationStreamRef = useRef<MediaStream | null>(null);
-  const dictationAbortRef = useRef<AbortController | null>(null);
-  const dictationRevealTimerRef = useRef<number | null>(null);
-  const dictationPlaceholderTimerRef = useRef<number | null>(null);
-  const promptTextRef = useRef(promptText);
-  const isDictating = dictationPhase === 'recording';
-  const isTranscribingDictation = dictationPhase === 'processing';
-  const isDictationActive = isDictating || isTranscribingDictation;
-  const isExitingDictation = dictationPhase === 'revealing';
-
-  const setDictationPhase = useCallback((phase: typeof dictationPhase) => {
-    dictationPhaseRef.current = phase;
-    setDictationPhaseState(phase);
-  }, []);
-
-  useEffect(() => {
-    promptTextRef.current = promptText;
-  }, [promptText]);
-
-  const releaseDictationStream = useCallback((stream?: MediaStream | null) => {
-    const targetStream = stream || dictationStreamRef.current;
-    targetStream?.getTracks().forEach((track) => track.stop());
-    if (!stream || dictationStreamRef.current === stream) {
-      dictationStreamRef.current = null;
-    }
-    setDictationStream((current) => current === targetStream ? null : current);
-  }, []);
-
-  const surfaceDictationError = useCallback((message: string) => {
-    console.warn('[Dictation]', message);
-    setDictationPlaceholder(message);
-    if (dictationPlaceholderTimerRef.current) {
-      window.clearTimeout(dictationPlaceholderTimerRef.current);
-    }
-    dictationPlaceholderTimerRef.current = window.setTimeout(() => {
-      setDictationPlaceholder(null);
-      dictationPlaceholderTimerRef.current = null;
-    }, 3200);
-  }, []);
-
-  const revealDictationResult = useCallback((
-    requestId: number,
-    rawTranscript: string,
-    errorMessage?: string,
-  ) => {
-    if (dictationRequestIdRef.current !== requestId) return;
-
-    dictationAbortRef.current = null;
-    const transcript = rawTranscript.trim();
-    const basePrompt = dictationPrevPromptRef.current;
-    const selectionStart = Math.max(0, Math.min(dictationSelectionRef.current.start, basePrompt.length));
-    const selectionEnd = Math.max(selectionStart, Math.min(dictationSelectionRef.current.end, basePrompt.length));
-    let nextPrompt = basePrompt;
-    let nextCaret = selectionStart;
-
-    if (transcript) {
-      const before = basePrompt.slice(0, selectionStart);
-      const after = basePrompt.slice(selectionEnd);
-      const leadingSpace = before && !/\s$/.test(before) ? ' ' : '';
-      const trailingSpace = after && !/^\s/.test(after) ? ' ' : '';
-      nextPrompt = `${before}${leadingSpace}${transcript}${trailingSpace}${after}`;
-      nextCaret = before.length + leadingSpace.length + transcript.length;
-      promptTextRef.current = nextPrompt;
-      setPromptText(nextPrompt);
-      setDictationPlaceholder(null);
-    } else if (errorMessage) {
-      surfaceDictationError(errorMessage);
-    }
-
-    setDictationPhase('revealing');
-    if (dictationRevealTimerRef.current) {
-      window.clearTimeout(dictationRevealTimerRef.current);
-    }
-    dictationRevealTimerRef.current = window.setTimeout(() => {
-      if (dictationRequestIdRef.current !== requestId) return;
-      setDictationPhase('idle');
-      dictationRevealTimerRef.current = null;
-    }, 350);
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(nextCaret, nextCaret);
-      });
-    });
-  }, [setDictationPhase, surfaceDictationError]);
-
-  const stopDictationRecording = useCallback(() => {
-    if (dictationPhaseRef.current !== 'recording') return;
-    setDictationPhase('processing');
-
-    const recorder = dictationRecorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-        return;
-      } catch {
-        // Fall through to the empty-result recovery below.
-      }
-    }
-
-    releaseDictationStream();
-    revealDictationResult(
-      dictationRequestIdRef.current,
-      '',
-      "Didn't catch that. Try speaking again.",
-    );
-  }, [releaseDictationStream, revealDictationResult, setDictationPhase]);
-
-  const startDictationRecording = useCallback(async () => {
-    const requestId = ++dictationRequestIdRef.current;
-    if (dictationRevealTimerRef.current) {
-      window.clearTimeout(dictationRevealTimerRef.current);
-      dictationRevealTimerRef.current = null;
-    }
-    dictationAbortRef.current?.abort();
-    dictationAbortRef.current = null;
-    releaseDictationStream();
-    setDictationPlaceholder(null);
-    setIsModelsOpen(false);
-    setIsPlusMenuOpen(false);
-    if (isComposerMaximized) setIsComposerMaximized(false);
-
-    const textarea = textareaRef.current;
-    const basePrompt = promptTextRef.current;
-    dictationPrevPromptRef.current = basePrompt;
-    dictationSelectionRef.current = {
-      start: textarea?.selectionStart ?? basePrompt.length,
-      end: textarea?.selectionEnd ?? basePrompt.length,
-    };
-    setDictationPhase('recording');
-
-    try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        throw new Error('Voice recording is not supported in this browser.');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      if (
-        dictationRequestIdRef.current !== requestId
-        || dictationPhaseRef.current !== 'recording'
-      ) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      dictationStreamRef.current = stream;
-      setDictationStream(stream);
-      const preferredMimeType = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-      ].find((mimeType) => MediaRecorder.isTypeSupported?.(mimeType));
-      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
-      const recordedChunks: Blob[] = [];
-      dictationRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) recordedChunks.push(event.data);
-      };
-
-      recorder.onerror = () => {
-        if (dictationRequestIdRef.current !== requestId) return;
-        dictationRecorderRef.current = null;
-        releaseDictationStream(stream);
-        revealDictationResult(requestId, '', 'Voice recording stopped unexpectedly. Try again.');
-      };
-
-      recorder.onstop = async () => {
-        if (dictationRecorderRef.current === recorder) dictationRecorderRef.current = null;
-        const audio = new Blob(recordedChunks, {
-          type: recorder.mimeType || preferredMimeType || 'audio/webm',
-        });
-        releaseDictationStream(stream);
-
-        if (dictationRequestIdRef.current !== requestId) return;
-        if (dictationPhaseRef.current === 'revealing' || dictationPhaseRef.current === 'idle') return;
-        if (dictationPhaseRef.current === 'recording') setDictationPhase('processing');
-        if (!audio.size) {
-          revealDictationResult(requestId, '', "Didn't catch that. Try speaking again.");
-          return;
-        }
-
-        const controller = new AbortController();
-        dictationAbortRef.current = controller;
-        try {
-          const transcript = await transcribeRecordedAudio({
-            audio,
-            apiKeys,
-            modelConfig,
-            signal: controller.signal,
-          });
-          revealDictationResult(
-            requestId,
-            transcript,
-            transcript ? undefined : "Didn't catch that. Try speaking again.",
-          );
-        } catch (error) {
-          if (controller.signal.aborted || dictationRequestIdRef.current !== requestId) return;
-          revealDictationResult(
-            requestId,
-            '',
-            error instanceof Error ? error.message : 'Voice transcription failed. Try again.',
-          );
-        }
-      };
-
-      recorder.start();
-    } catch (error) {
-      releaseDictationStream();
-      revealDictationResult(
-        requestId,
-        '',
-        error instanceof Error ? error.message : 'Voice recording could not be started.',
-      );
-    }
-  }, [apiKeys, isComposerMaximized, modelConfig, releaseDictationStream, revealDictationResult, setDictationPhase]);
-
-  useEffect(() => () => {
-    dictationRequestIdRef.current += 1;
-    dictationAbortRef.current?.abort();
-    if (dictationRevealTimerRef.current) window.clearTimeout(dictationRevealTimerRef.current);
-    if (dictationPlaceholderTimerRef.current) window.clearTimeout(dictationPlaceholderTimerRef.current);
-    const recorder = dictationRecorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      try { recorder.stop(); } catch {}
-    }
-    releaseDictationStream();
-  }, [releaseDictationStream]);
-
-  const handleToggleDictation = () => {
-    if (isTranscribingDictation) return;
-    setIsMicRippling(true);
-    window.setTimeout(() => setIsMicRippling(false), 400);
-
-    if (isDictating) {
-      stopDictationRecording();
-    } else {
-      void startDictationRecording();
-    }
-  };
-  const [isSolidExpanded, setIsSolidExpanded] = useState(false);
+  // Hoisted above useComposerDictation: the hook receives both, and arguments
+  // are evaluated at the call site, so their declarations must come first.
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Recording, transcription and caret restoration live in
+  // ./use-composer-dictation. The JSX that reads these flags is unchanged.
+  const {
+    dictationStream,
+    dictationPlaceholder,
+    isMicRippling,
+    isDictating,
+    isTranscribingDictation,
+    isDictationActive,
+    isExitingDictation,
+    handleToggleDictation,
+  } = useComposerDictation({
+    promptText,
+    setPromptText,
+    textareaRef,
+    modelConfig,
+    isComposerMaximized,
+    setIsComposerMaximized,
+    setIsModelsOpen,
+    setIsPlusMenuOpen,
+  });
+  const [isSolidExpanded, setIsSolidExpanded] = useState(false);
   const [isGithubImportOpen, setIsGithubImportOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
   const solidPlusRef = useRef<HTMLButtonElement>(null);
@@ -1096,61 +150,14 @@ export const InputBar: React.FC<{
   // Non-auth users always see 'lines' background, so styling should match
   const effectiveBackground = isAuthenticated ? background : 'lines';
   
-  // Combine models to find the active one
-  const ALL_MODELS = [
-    ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-      ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-      ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
-      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter((m: any) => {
-    const id = (m.modelId || m.id || '').toLowerCase();
-    const name = (m.name || '').toLowerCase();
-    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return false;
-    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria')) return false;
-    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return false;
-    return true;
-  });
-
-  // Sync selection with available models
-  useEffect(() => {
-    if (ALL_MODELS.length > 0) {
-      const baseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
-      if (!selectedModelId || !ALL_MODELS.find(m => m.id === selectedModelId || m.id === baseId)) {
-        setSelectedModelId(ALL_MODELS[0].id);
-      }
-    } else {
-      setSelectedModelId("");
-    }
-  }, [ALL_MODELS, selectedModelId]);
-
-  const activeModel = ALL_MODELS.find(m => m.id === selectedModelId) || ALL_MODELS.find(m => m.id === (selectedModelId ? selectedModelId.split('::effort-')[0] : ''));
-
-  // Helper to shorten names: "Gemini 3 Pro" -> "3 Pro", "Gemini 2.5 Flash Lite" -> "2.5 Lite"
-  const getShortName = (name: string) => {
-    if (!name) return "Model";
-    if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
-    return name
-      .replace(/Gemini\s+/gi, '')
-      .replace(/Claude\s+/gi, '')
-      .replace(/GPT\s+/gi, '')
-      .replace(/\s+Extended$/gi, '')
-      .trim();
-  };
-
-  let currentThinkingLevel = activeModel?.thinkingLevel ?? 0;
-  if (selectedModelId?.includes('::effort-')) {
-    currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
-  }
-
-  const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && currentThinkingLevel > 0
-    ? getThinkingEffortLabel({ ...activeModel, thinkingLevel: currentThinkingLevel }, true)
-    : '';
-  const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
-    .filter(Boolean)
-    .join(' ');
+  // Model resolution and the pill labels live in ./use-composer-models.
+  const {
+    activeModel,
+    getShortName,
+    activeModelDisplayLabel,
+    activeEffortDisplayLabel,
+    activeModelAndEffortLabel,
+  } = useComposerModels({ modelConfig, selectedModelId, setSelectedModelId });
 
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -1158,8 +165,6 @@ export const InputBar: React.FC<{
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const rightControlsRef = useRef<HTMLDivElement>(null);
   const composerShellRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const textareaResizeRafRef = useRef<number | null>(null);
 
   const toggleComposerMaximized = () => {
     const textarea = textareaRef.current;
@@ -1273,123 +278,20 @@ export const InputBar: React.FC<{
     // Shift+Enter allows default behavior (new line)
   };
 
-  // Auto-expand textarea - throttled with RAF to prevent lag
-  useEffect(() => {
-    if (textareaRef.current) {
-      // Cancel any pending resize to avoid stacking
-      if (textareaResizeRafRef.current) {
-        cancelAnimationFrame(textareaResizeRafRef.current);
-      }
-
-      // Throttle resize to once per frame
-      textareaResizeRafRef.current = requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          if (isDictationActive) {
-            textareaRef.current.style.transition = 'none';
-            textareaRef.current.style.height = '24px';
-            textareaRef.current.style.overflowY = 'hidden';
-            textareaRef.current.style.scrollbarGutter = 'stable';
-            setIsSolidExpanded(false);
-            setCanMaximizeComposer(false);
-            textareaResizeRafRef.current = null;
-            return;
-          }
-
-          const isSolid = chatVariant || effectiveBackground === 'solid';
-          const baseHeight = isSolid ? 24 : 48;
-          
-          if (isSolid) {
-            // Disable padding transition during measurement so scrollHeight reads are exact
-            textareaRef.current.style.transition = 'none';
-            // Never let the temporary one-row measurement create a scrollbar.
-            // A scrollbar narrows the editor, which can make scrollHeight report
-            // one more wrapped line than the final, scrollbar-free textarea uses.
-            textareaRef.current.style.overflowY = 'hidden';
-
-            const collapsedPaddingLeftVal = '40px';
-            const collapsedPaddingRightVal = chatVariant ? `${collapsedChatPaddingRight}px` : '76px';
-            // Gemini's multiline editor begins 24px inside the prompt shell.
-            // Willow's shell already contributes 14px left / 15px right, so
-            // only the remaining inset belongs on the expanded textarea.
-            const expandedPaddingLeftVal = chatVariant ? '10px' : '0px';
-            // Gemini permanently reserves the same compact right-side inset,
-            // including before its fullscreen control becomes visible. This
-            // prevents the editor width (and therefore wrapping) from jumping
-            // when the third line reveals the control.
-            const expandedPaddingRightVal = chatVariant ? '24px' : '0px';
-            // Force narrow padding for measurement to see if it wraps inline
-            textareaRef.current.style.scrollbarGutter = 'stable';
-            textareaRef.current.style.paddingLeft = collapsedPaddingLeftVal;
-            textareaRef.current.style.paddingRight = collapsedPaddingRightVal;
-            textareaRef.current.style.height = `${baseHeight}px`;
-            
-            const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
-            const shouldExpand = (chatVariant && isComposerMaximized)
-              || (hypotheticalScrollHeight > baseHeight)
-              || !!selectedTool;
-            
-            setIsSolidExpanded(shouldExpand);
-            textareaRef.current.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
-            
-            // To prevent height glitch before React re-renders, 
-            // force the target padding before calculating final height
-            textareaRef.current.style.paddingLeft = shouldExpand
-              ? expandedPaddingLeftVal
-              : collapsedPaddingLeftVal;
-            textareaRef.current.style.paddingRight = shouldExpand
-              ? expandedPaddingRightVal
-              : collapsedPaddingRightVal;
-
-            textareaRef.current.style.height = `${baseHeight}px`;
-            const naturalExpandedScrollHeight = textareaRef.current.scrollHeight;
-            const nextCanMaximizeComposer = chatVariant
-              && shouldExpand
-              && naturalExpandedScrollHeight >= baseHeight * 3;
-            setCanMaximizeComposer(nextCanMaximizeComposer);
-
-            textareaRef.current.style.paddingRight = shouldExpand
-              ? expandedPaddingRightVal
-              : collapsedPaddingRightVal;
-            textareaRef.current.style.height = `${baseHeight}px`;
-            const scrollHeight = textareaRef.current.scrollHeight;
-            const maxTextareaHeight = chatVariant ? 168 : 300;
-
-            if (chatVariant && isComposerMaximized) {
-              textareaRef.current.style.height = '100%';
-              textareaRef.current.style.overflowY = 'auto';
-            } else if (scrollHeight > baseHeight) {
-              const newHeight = Math.min(scrollHeight, maxTextareaHeight);
-              textareaRef.current.style.height = `${newHeight}px`;
-              textareaRef.current.style.overflowY = scrollHeight > maxTextareaHeight ? 'auto' : 'hidden';
-            } else {
-              textareaRef.current.style.overflowY = 'hidden';
-            }
-            
-            // Clean up inline styles so Tailwind classes take over smoothly
-            textareaRef.current.style.paddingLeft = '';
-            textareaRef.current.style.paddingRight = '';
-            // Re-enable transition (reflow first so the class padding is the "from" frame)
-            void textareaRef.current.offsetHeight;
-            textareaRef.current.style.transition = '';
-          } else {
-            textareaRef.current.style.height = `${baseHeight}px`;
-            const scrollHeight = textareaRef.current.scrollHeight;
-            if (scrollHeight > baseHeight) {
-              const newHeight = Math.min(scrollHeight, 300);
-              textareaRef.current.style.height = `${newHeight}px`;
-            }
-          }
-        }
-        textareaResizeRafRef.current = null;
-      });
-    }
-
-    return () => {
-      if (textareaResizeRafRef.current) {
-        cancelAnimationFrame(textareaResizeRafRef.current);
-      }
-    };
-  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
+  // Textarea measurement and sizing lives in
+  // ./use-composer-textarea-autosize; it drives the two flags below.
+  useComposerTextareaAutosize({
+    textareaRef,
+    promptText,
+    selectedTool,
+    chatVariant,
+    effectiveBackground,
+    isComposerMaximized,
+    collapsedChatPaddingRight,
+    isDictationActive,
+    setIsSolidExpanded,
+    setCanMaximizeComposer,
+  });
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
   const promptBoxBg = effectiveBackground === 'lines' 
@@ -1424,78 +326,25 @@ export const InputBar: React.FC<{
     />
   );
 
-  // The single-line editor must end before the model pill, regardless of how
-  // long the selected model/effort label becomes. Measure the rendered control
-  // group instead of relying on the previous fixed 204px reservation.
-  useLayoutEffect(() => {
-    if (!chatVariant || solidExpanded || isDictationActive) return;
+  // Both chat-variant layout measurements live in
+  // ./use-composer-chat-layout, called in their original order.
+  useCollapsedChatPaddingRight({
+    chatVariant,
+    solidExpanded,
+    isDictationActive,
+    rightControlsRef,
+    modelButtonRef,
+    micButtonRef,
+    activeModelAndEffortLabel,
+    setCollapsedChatPaddingRight,
+  });
 
-    const controls = rightControlsRef.current;
-    const modelButton = modelButtonRef.current;
-    const micButton = micButtonRef.current;
-    if (!controls || !modelButton || !micButton) return;
-
-    let cancelled = false;
-    const measure = () => {
-      if (cancelled) return;
-      const controlsRect = controls.getBoundingClientRect();
-      const modelRect = modelButton.getBoundingClientRect();
-      const micRect = micButton.getBoundingClientRect();
-
-      const occupiedWidthFromModelPill = controlsRect.right - modelRect.left;
-      const modelToMicControlGap = Math.max(0, micRect.left - modelRect.right);
-      // Account for the mic glyph's side bearing so this is an optical gap,
-      // matching the visible pill-to-mic distance rather than button boxes.
-      const opticalGap = Math.max(12, modelToMicControlGap + (micRect.width - 24) / 2);
-      const nextPadding = Math.ceil(occupiedWidthFromModelPill + opticalGap);
-
-      setCollapsedChatPaddingRight((current) => current === nextPadding ? current : nextPadding);
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(controls);
-    observer.observe(modelButton);
-    observer.observe(micButton);
-    void document.fonts?.ready.then(measure);
-
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [chatVariant, solidExpanded, isDictationActive, activeModelAndEffortLabel]);
-
-  // The empty-state composer intentionally sits slightly above the viewport's
-  // vertical center while collapsed. Once fullscreen is opened, Gemini centers
-  // the enlarged shell itself instead, leaving equal space above and below it.
-  // Translate only that one state so closing fullscreen restores the existing
-  // elevated empty-state position and the active-chat footer is unaffected.
-  useLayoutEffect(() => {
-    const shell = composerShellRef.current;
-    if (!shell) return;
-
-    if (!chatVariant || !isComposerMaximized || showDisclaimer) {
-      shell.style.translate = '';
-      return;
-    }
-
-    const centerFullscreenShell = () => {
-      // Measure from the shell's unshifted flow position on every pass so a
-      // viewport resize cannot compound the previous centering offset.
-      shell.style.translate = '0 0';
-      const shellRect = shell.getBoundingClientRect();
-      const centeredTop = (window.innerHeight - shellRect.height) / 2;
-      shell.style.translate = `0 ${Math.round(centeredTop - shellRect.top)}px`;
-    };
-
-    centerFullscreenShell();
-    window.addEventListener('resize', centerFullscreenShell);
-
-    return () => {
-      window.removeEventListener('resize', centerFullscreenShell);
-      shell.style.translate = '';
-    };
-  }, [chatVariant, isComposerMaximized, showDisclaimer]);
+  useFullscreenShellCentering({
+    composerShellRef,
+    chatVariant,
+    isComposerMaximized,
+    showDisclaimer,
+  });
 
   if (chatVariant || effectiveBackground === 'solid') {
     return (

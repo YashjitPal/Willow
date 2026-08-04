@@ -127,12 +127,13 @@ nothing changed on disk.
 ## Key functions
 | Function | Where | Role |
 |---|---|---|
-| `saveProjectMedia(projectId, items)` | `lib/mediaStorage.ts` | persist metadata; **strips bytes** of disk-backed items |
-| `loadProjectMedia(projectId)` | `lib/mediaStorage.ts` | read metadata |
+| `saveProjectMedia(projectId, items)` | `src/media-storage.ts` | persist metadata; **strips bytes** of disk-backed items |
+| `loadProjectMedia(projectId)` | `src/media-storage.ts` | read metadata |
 | `refreshLocalMedia(projectId, projectName)` | `LocalFSContext` | reconcile metadata against disk; returns metadata |
 | `loadLocalFSMediaUrl(projectName, kind, fsName)` | `LocalFSContext` | read one disk file → `blob:` URL (caller revokes) |
-| `saveLocalFSMedia(projectName, kind, file, blob)` | `LocalFSContext` | write a media file to disk |
-| `deleteLocalFSMediaFile(projectName, kind, fsName)` | `LocalFSContext` | delete one media file from disk |
+| `saveLocalFSMedia(projectName, kind, file, blob)` | `LocalFSContext` → `src/local-fs/media-disk.ts` | write a media file to disk |
+| `deleteLocalFSMediaFile(projectName, kind, fsName)` | `LocalFSContext` → `src/local-fs/media-disk.ts` | delete one media file from disk |
+| `renameLocalFSMediaFile(projectName, kind, oldFsName, newBaseName)` | `LocalFSContext` → `src/local-fs/media-disk.ts` | rename one media file on disk |
 | `MediaVideo` / `useDisplayVideoSrc` | `MediaView.tsx` | stream-friendly video display |
 
 ## Caveats & honest limitations
