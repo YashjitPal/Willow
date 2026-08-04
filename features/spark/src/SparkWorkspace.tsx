@@ -296,7 +296,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>('.spark-dashboard-scroll')?.scrollTo({
+      document.querySelector<HTMLElement>('.spark-studio-scroll')?.scrollTo({
         top: 0,
         left: 0,
         behavior: 'auto',

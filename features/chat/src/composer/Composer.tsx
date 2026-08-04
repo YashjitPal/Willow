@@ -51,13 +51,13 @@ export const InputBar: React.FC<{
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
   /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
-   *  to use mode="chat". Used by the standalone Dashboard chat view. */
+   *  to use mode="chat". Used by the standalone studio chat view. */
   chatVariant?: boolean;
   /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
   showDisclaimer?: boolean;
   /** Chat live-voice session wiring. When `liveActive`, the empty-state send
    *  button becomes a stop control; otherwise it starts the session. Only
-   *  consulted in `chatVariant` — Develop / Staging input is untouched. */
+   *  consulted in `chatVariant` — Develop / Workbench input is untouched. */
   liveActive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;

@@ -107,8 +107,8 @@ export const preloadIdleImages = () => {
   ]);
 };
 
-// Lazy load heavy staging components — they stay in memory once loaded
-const StagingSidebar = React.lazy(() => import('./workbench/WorkbenchSidebar'));
+// Lazy load heavy workbench components — they stay in memory once loaded
+const WorkbenchSidebar = React.lazy(() => import('./workbench/WorkbenchSidebar'));
 const MainPreview = React.lazy(() => import('./workbench/WorkbenchPreview'));
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   isAuthenticated,
   onAuthRequired,
   onSettingsClick,
-  isSidebarCollapsed: dashboardSidebarCollapsed = false,
+  isSidebarCollapsed: studioSidebarCollapsed = false,
   onWorkspaceActive,
   chatResetKey = 0,
 }) => {
@@ -255,7 +255,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   // ── Phase state ──────────────────────────────────────────────────────────
   // 'idle'   = landing screen with heading + prompt box at the bottom
-  // 'active' = StagingView layout inline (chat → workspace morph)
+  // 'active' = WorkbenchView layout inline (chat → workspace morph)
   const [phase, setPhase] = useState<'idle' | 'active'>('idle');
 
   // ── Saved-projects count (drives the empty-state in the scroll-down panel) ──
@@ -305,7 +305,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)';
   };
 
-  // Prompt captured from idle phase, passed to StagingSidebar
+  // Prompt captured from idle phase, passed to WorkbenchSidebar
   const [initialPrompt, setInitialPrompt] = useState('');
   const [initialAttachments, setInitialAttachments] = useState<any[] | undefined>(undefined);
 
@@ -344,11 +344,11 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     }
   };
 
-  // ── Active-phase (StagingView) state ─────────────────────────────────────
+  // ── Active-phase (WorkbenchView) state ─────────────────────────────────────
   const [isChatMode, setIsChatMode] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(400);
   const [lastSidebarWidth, setLastSidebarWidth] = useState(400);
-  const [isStagingSidebarCollapsed, setIsStagingSidebarCollapsed] = useState(false);
+  const [isWorkbenchSidebarCollapsed, setIsWorkbenchSidebarCollapsed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -444,7 +444,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   }, [phase, isChatMode, hasUserCode]);
 
   useEffect(() => {
-    // Hide the dashboard sidebar only when the workspace morphs to the code view
+    // Hide the studio sidebar only when the workspace morphs to the code view
     const isWorkspaceActive = phase === 'active' && !isChatMode;
     onWorkspaceActive?.(isWorkspaceActive);
     
@@ -479,7 +479,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     }
   }, [chatResetKey]);
 
-  // ── Project name generation (from StagingView) ───────────────────────────
+  // ── Project name generation (from WorkbenchView) ───────────────────────────
   useEffect(() => {
     if (phase !== 'active' || !initialPrompt || nameGeneratedRef.current) return;
     if (!apiKeys.gemini?.[0] && !apiKeys.openai?.[0] && !apiKeys.anthropic?.[0] && !apiKeys.moonshot?.[0] && !apiKeys.spacexai?.[0] && !apiKeys.zhipuai?.[0]) return;
@@ -574,7 +574,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     hasUserCode && (!!accessToken || isLocalFolderConnected) && !!projectName
   );
 
-  // ── Resize logic (from StagingView) ──────────────────────────────────────
+  // ── Resize logic (from WorkbenchView) ──────────────────────────────────────
   useEffect(() => { return () => { if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current); }; }, []);
 
   const setTransitionTimeout = useCallback(() => {
@@ -584,7 +584,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   const toggleSidebar = useCallback(() => {
     setIsTransitioning(true);
-    setIsStagingSidebarCollapsed(prev => { if (!prev) setLastSidebarWidth(sidebarWidth); return !prev; });
+    setIsWorkbenchSidebarCollapsed(prev => { if (!prev) setLastSidebarWidth(sidebarWidth); return !prev; });
     setTransitionTimeout();
   }, [sidebarWidth, setTransitionTimeout]);
 
@@ -592,9 +592,9 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   const stopResizing = useCallback(() => { setIsDragging(false); }, []);
 
   const isDraggingRef = useRef(isDragging);
-  const isStagingSidebarCollapsedRef = useRef(isStagingSidebarCollapsed);
+  const isWorkbenchSidebarCollapsedRef = useRef(isWorkbenchSidebarCollapsed);
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
-  useEffect(() => { isStagingSidebarCollapsedRef.current = isStagingSidebarCollapsed; }, [isStagingSidebarCollapsed]);
+  useEffect(() => { isWorkbenchSidebarCollapsedRef.current = isWorkbenchSidebarCollapsed; }, [isWorkbenchSidebarCollapsed]);
 
   const pendingWidthRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -606,10 +606,10 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     const minWidth = totalWidth / 5;
     const maxWidth = totalWidth * 0.37;
     const collapseThreshold = minWidth * 0.5;
-    if (isStagingSidebarCollapsedRef.current) {
+    if (isWorkbenchSidebarCollapsedRef.current) {
       if (newWidth > collapseThreshold) {
         setIsTransitioning(true);
-        setIsStagingSidebarCollapsed(false);
+        setIsWorkbenchSidebarCollapsed(false);
         setSidebarWidth(minWidth);
         setIsDragging(false);
         if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
@@ -618,7 +618,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     } else {
       if (newWidth < collapseThreshold) {
         setIsTransitioning(true);
-        setIsStagingSidebarCollapsed(true);
+        setIsWorkbenchSidebarCollapsed(true);
         setIsDragging(false);
         if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
         transitionTimerRef.current = setTimeout(() => setIsTransitioning(false), 500);
@@ -715,7 +715,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   const containerStyle = isChatMode
     ? { width: '100%' }
-    : { width: `${isStagingSidebarCollapsed ? 0 : sidebarWidth}px` };
+    : { width: `${isWorkbenchSidebarCollapsed ? 0 : sidebarWidth}px` };
 
   // ── COMBINED RENDER ────────────────────────────────────────────────────────
   return (
@@ -1379,7 +1379,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               </div>
             )}
 
-            {/* Left Panel — StagingSidebar container */}
+            {/* Left Panel — WorkbenchSidebar container */}
             <div
               style={{
                 ...containerStyle,
@@ -1406,9 +1406,9 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                   }),
                 }}
               >
-                <StagingSidebar
+                <WorkbenchSidebar
                   width={isChatMode ? 800 : sidebarWidth}
-                  isCollapsed={isStagingSidebarCollapsed}
+                  isCollapsed={isWorkbenchSidebarCollapsed}
                   onToggle={toggleSidebar}
                   prompt={initialPrompt}
                   initialAttachments={initialAttachments}
@@ -1441,13 +1441,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                 style={{
                   top: '56px',
                   bottom: '16px',
-                  transform: isStagingSidebarCollapsed ? 'translate3d(15px, 0, 0)' : 'translate3d(-1px, 0, 0)',
+                  transform: isWorkbenchSidebarCollapsed ? 'translate3d(15px, 0, 0)' : 'translate3d(-1px, 0, 0)',
                   willChange: 'transform',
                   maskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)',
                   WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 128px, black calc(100% - 128px), transparent)',
                 }}
               />
-              <div className={`absolute top-14 bottom-4 -left-1 bg-transparent cursor-[ew-resize] hover:bg-transparent ${isStagingSidebarCollapsed ? '-right-4' : '-right-1'}`} />
+              <div className={`absolute top-14 bottom-4 -left-1 bg-transparent cursor-[ew-resize] hover:bg-transparent ${isWorkbenchSidebarCollapsed ? '-right-4' : '-right-1'}`} />
             </div>
 
             {/* Right Panel — MainPreview, slides in from right */}
@@ -1464,7 +1464,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               {(!isChatMode && !isMorphing) ? (
                 <React.Suspense fallback={<div className="h-full w-full bg-[#1c1c1c]" />}>
                   <MainPreview
-                    isSidebarCollapsed={isStagingSidebarCollapsed}
+                    isSidebarCollapsed={isWorkbenchSidebarCollapsed}
                     onToggleSidebar={toggleSidebar}
                     activeTab={activeTab}
                     onTabChange={setActiveTab}

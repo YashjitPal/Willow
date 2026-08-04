@@ -30,6 +30,6 @@ $env:WILLOW_COMPANION_TOKEN = "choose-a-long-random-token"
 npm start
 ```
 
-The dashboard client can receive that token through the
+The studio client can receive that token through the
 `willow_companion_token` local-storage value. Keep the companion bound to
 loopback; do not expose this port on a LAN or the public internet.

@@ -7,7 +7,7 @@ effects — just the shared vocabulary that both `features/` and `platform/` dep
 
 | Path | Role |
 | --- | --- |
-| `src/types.ts` | TypeScript interfaces used across features. `DashboardExperience`, etc. |
+| `src/types.ts` | TypeScript interfaces used across features. `StudioExperience`, etc. |
 | `src/utils.ts` | `cn()` (clsx + tailwind-merge) and other pure functions. |
 | `src/layout.ts` | Sidebar width constants. |
 | `src/color.ts` | Color manipulation (hex ↔ RGB, interpolation). |

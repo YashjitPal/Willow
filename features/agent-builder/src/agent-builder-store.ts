@@ -1,7 +1,7 @@
 /**
  * Agent Builder integration store.
  *
- * Shared state between the AgentBuilder canvas and the Staging chrome
+ * Shared state between the AgentBuilder canvas and the Workbench chrome
  * (top bar Preview/Code/Evaluate buttons, sidebar workflow list). The canvas
  * owns the backend connection via useAgentBuilderBackend; the chrome only
  * reads status and fires action triggers.

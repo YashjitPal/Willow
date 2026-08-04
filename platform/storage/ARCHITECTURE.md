@@ -76,12 +76,12 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `lib/mediaStorage.ts` | `WillowMediaDB` IndexedDB: per-project media item lists + covers. Also owns project-kind helpers (`getMediaProjectIds`, `autoDetectProjectKinds`) and `deleteProjectData`. |
 | `lib/willowDB.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
 | `context/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
-| `App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`dashboardMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
+| `App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
 | `components/HeroSection.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
 | `components/BottomPanel.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
 | `components/ProjectsPage.tsx` | "All projects" / Starred / Shared. Unfiltered registry. Star toggle + delete. |
 | `components/media/MediaView.tsx` | The media editor for one project. Generates media, saves it, sets covers, and runs **real-time media-file sync** for the open project. |
-| `components/staging/StagingView.tsx` + `StagingSidebar.tsx` | The code editor. Creates code projects (`kind:'code'`); persists sessions via `saveCodeSessions`/`loadCodeSessions`. |
+| `components/staging/WorkbenchView.tsx` + `WorkbenchSidebar.tsx` | The code editor. Creates code projects (`kind:'code'`); persists sessions via `saveCodeSessions`/`loadCodeSessions`. |
 
 ---
 
@@ -267,7 +267,7 @@ this is why the file is flagged "binary" by some tools. Don't "fix" those chars.
   first completed generation; `saveLocalFSMedia` writes the blob to disk →
   `Media/<name>/...`. The next poll sees the folder and sets `onDisk:true` (and
   writes the manifest with the registry id).
-- **Code:** StagingView pushes `{id, name, kind:'code'}`; autosave writes
+- **Code:** WorkbenchView pushes `{id, name, kind:'code'}`; autosave writes
   `Code/<name>/...`. Next poll sets `onDisk:true`.
 
 ### Save
@@ -381,7 +381,7 @@ Priority order (so the two mechanisms never fight):
 2. **`autoDetectProjectKinds` — FALLBACK ONLY.** Runs once on App mount; **fills
    missing tags only, never overrides.** Heuristic: media if it has IndexedDB media
    or an auto-generated name (`Project #NNNN` / a date), else code.
-3. **Creation-time:** StagingView → `code`; MediaView → `media`.
+3. **Creation-time:** WorkbenchView → `code`; MediaView → `media`.
 
 ---
 

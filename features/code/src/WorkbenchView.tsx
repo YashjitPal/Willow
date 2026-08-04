@@ -14,7 +14,7 @@ import { MessageLoading } from '@willow/ui/message-loading';
 import { PROJECT_NAME_MODEL } from '@models';
 import { PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 
-interface StagingViewProps {
+interface WorkbenchViewProps {
   prompt?: string;
   onSettingsClick?: (tab?: string) => void;
   modelConfig: any;
@@ -23,7 +23,7 @@ interface StagingViewProps {
   setSelectedModelId: (id: string) => void;
 }
 
-const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
+const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -56,7 +56,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   }, [projectId, projectName]);
 
   // Existing projects reopen by durable id. Resolving the display/folder name
-  // from the scoped registry lets StagingSidebar load the saved chat session and
+  // from the scoped registry lets WorkbenchSidebar load the saved chat session and
   // its file snapshot instead of starting from the template.
   useEffect(() => {
     if (!projectId) return;
@@ -392,7 +392,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   const [activeTab, setActiveTab] = useState('preview');
   
   // Note: Test mode is no longer tied to activeTab
-  // testStore.enterTestMode() is called when test starts in StagingSidebar.startTestGeneration()
+  // testStore.enterTestMode() is called when test starts in WorkbenchSidebar.startTestGeneration()
   // testStore.exitTestMode() is called when test completes
   
   // Calculate effective layout based on chat mode
@@ -411,7 +411,7 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
       {isChatMode && (
         <div className="absolute top-0 left-0 right-0 h-14 flex items-center justify-between z-30 bg-[#1c1c1c]">
           <div className="flex items-center min-w-0 h-full" style={{ paddingLeft: '21px' }}>
-            {/* Logo Button - Squircle hover background, Dashboard link */}
+            {/* Logo Button — Squircle hover background, studio home link */}
             <button 
               onClick={() => navigate('/')}
               className="flex items-center justify-center p-1.5 hover:bg-white/5 transition-colors rounded-xl flex-shrink-0"
@@ -555,4 +555,4 @@ const StagingView: React.FC<StagingViewProps> = ({ prompt: propPrompt, onSetting
   );
 };
 
-export default React.memo(StagingView);
+export default React.memo(WorkbenchView);

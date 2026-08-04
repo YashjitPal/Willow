@@ -622,7 +622,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [suggestionsVisible, setSuggestionsVisible] = useState(false); // Start hidden
   const suggestionsGeneratedRef = useRef(false);
   const prevGeneratingRef = useRef(false);
-  const initialLoadCompleteRef = useRef(false); // Track if first generation from dashboard is done
+  const initialLoadCompleteRef = useRef(false); // Track if first generation from the studio home is done
 
   // Helper to extract a clean serializable snapshot of the sandpack files
   const getFilesSnapshot = useCallback(() => {
@@ -1709,7 +1709,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
   };
 
-  // Handle Initial Prompt Display & UI Status (both chat mode and staging mode)
+  // Handle Initial Prompt Display & UI Status (both chat mode and workbench mode)
   const initialPromptDisplayed = useRef(false);
   // True only when THIS mount is starting a genuinely fresh generation (a brand
   // new project). Stays false when we're merely returning to an existing project
@@ -3199,11 +3199,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         </>
       )}
 
-      {/* Header - Hidden in Chat Mode since StagingView renders it at root level */}
+      {/* Header - Hidden in Chat Mode since WorkbenchView renders it at root level */}
       {!isChatMode && (
         <div className={`h-14 flex items-center justify-between z-20 flex-shrink-0 bg-[#1c1c1c]`}>
           <div className="flex items-center min-w-0 h-full" style={{ paddingLeft: '10px' }}>
-            {/* Logo Button - Squircle hover background, Dashboard link */}
+            {/* Logo Button — Squircle hover background, studio home link */}
             <button 
               onClick={() => onHomeClick ? onHomeClick() : navigate('/')}
               className="flex items-center justify-center p-1.5 hover:bg-white/5 transition-colors rounded-xl flex-shrink-0"

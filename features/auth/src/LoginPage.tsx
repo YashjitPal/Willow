@@ -220,7 +220,7 @@ export function LoginPage() {
   useEffect(() => {
     console.log('[LoginPage] Auth state check - user:', user?.email, 'loading:', authLoading);
     if (user && !authLoading) {
-      console.log('[LoginPage] User logged in, redirecting to dashboard...');
+      console.log('[LoginPage] User logged in, redirecting to the studio...');
       navigate('/', { replace: true });
     }
   }, [user, authLoading, navigate]);
@@ -367,7 +367,7 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await signInWithGoogle();
-      // Popup successful - auth state will update and redirect to dashboard
+      // Popup successful — auth state will update and redirect to the studio
     } catch (err: any) {
       console.error("Google sign-in error:", err);
       if (err.code === 'auth/popup-closed-by-user') {

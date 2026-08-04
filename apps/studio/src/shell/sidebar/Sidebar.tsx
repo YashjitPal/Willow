@@ -29,8 +29,8 @@ import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContex
 import { useBackground, BackgroundType } from '../BackgroundContext';
 import { isCodeChat, markCodeChat, migrateVerifiedLegacyCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import {
-  DASHBOARD_SIDEBAR_COLLAPSED_WIDTH,
-  DASHBOARD_SIDEBAR_EXPANDED_WIDTH,
+  STUDIO_SIDEBAR_COLLAPSED_WIDTH,
+  STUDIO_SIDEBAR_EXPANDED_WIDTH,
 } from '@willow/core/layout';
 import {
   goToAllSparkTasks,
@@ -40,7 +40,7 @@ import {
   goToSparkSkills,
   sparkLocation,
 } from '@willow/spark/spark-store';
-import type { DashboardExperience } from '@willow/core/types';
+import type { StudioExperience } from '@willow/core/types';
 // NOTE: import from './index' (not './sidebar'). On a case-insensitive
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
@@ -244,7 +244,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'agents' | 'projects' | 'staging' | 'starred' | 'shared';
+export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -295,10 +295,10 @@ interface SidebarProps {
   onSearchClick?: () => void;
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
-  dashboardMode?: 'chat' | 'develop' | 'media';
+  studioMode?: 'chat' | 'develop' | 'media';
   onModeChange?: (mode: 'chat' | 'develop' | 'media') => void;
-  dashboardExperience: DashboardExperience;
-  onDashboardExperienceChange: (experience: DashboardExperience) => void;
+  studioExperience: StudioExperience;
+  onStudioExperienceChange: (experience: StudioExperience) => void;
   onSettingsClick?: () => void;
   backgroundType?: 'waves' | 'lines' | 'solid';
   isCollapsed: boolean;
@@ -316,10 +316,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSearchClick, 
   currentView, 
   onViewChange, 
-  dashboardMode,
+  studioMode,
   onModeChange,
-  dashboardExperience,
-  onDashboardExperienceChange,
+  studioExperience,
+  onStudioExperienceChange,
   onSettingsClick, 
   backgroundType,
   isCollapsed,
@@ -347,7 +347,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     isInitializingLocalFS
   } = useLocalFS();
 
-  const isChatOngoing = dashboardExperience === 'chat' && (!!activeChatId || hasActiveChat);
+  const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [, setCodeChatVersion] = useState(0);
@@ -613,24 +613,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     updateFaviconColor();
   }, [userProfile?.workspaceColor]);
 
-  // Gemini fades the expanded rail surface into the dashboard surface as it collapses.
+  // Gemini fades the expanded rail surface into the studio surface as it collapses.
   const expandedSidebarBgClass = backgroundType === 'waves'
     ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
     : 'bg-[#1f1f1f]';
   const sidebarBgClass = isCollapsed
-    ? 'bg-[var(--dashboard-surface)]'
+    ? 'bg-[var(--studio-surface)]'
     : expandedSidebarBgClass;
 
   const expandedGlowGradient = backgroundType === 'waves'
     ? 'linear-gradient(to bottom, rgba(31, 31, 31, 0.9) 15%, rgba(31, 31, 31, 0))'
     : 'linear-gradient(to bottom, #1f1f1f 15%, rgba(31, 31, 31, 0))';
-  const collapsedGlowGradient = 'linear-gradient(to bottom, var(--dashboard-surface) 15%, transparent)';
+  const collapsedGlowGradient = 'linear-gradient(to bottom, var(--studio-surface) 15%, transparent)';
 
   return (
     <aside
-      className={`dashboard-sidebar ${isCollapsed ? 'dashboard-sidebar--collapsed' : 'dashboard-sidebar--expanded'} group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+      className={`studio-sidebar ${isCollapsed ? 'studio-sidebar--collapsed' : 'studio-sidebar--expanded'} group relative h-screen ${sidebarBgClass} flex flex-col shrink-0 z-50 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
       style={{
-        width: isHidden ? '0px' : `${isCollapsed ? DASHBOARD_SIDEBAR_COLLAPSED_WIDTH : DASHBOARD_SIDEBAR_EXPANDED_WIDTH}px`,
+        width: isHidden ? '0px' : `${isCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH}px`,
         // Keep min-width constant. A state-dependent min-width clamps the
         // interpolated width on expansion and makes the rail snap open.
         minWidth: '0px',
@@ -722,7 +722,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div
             className="absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full bg-[#1f1f1f] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
             style={{
-              transform: dashboardExperience === 'spark' ? 'translateX(calc(100%))' : 'translateX(0px)',
+              transform: studioExperience === 'spark' ? 'translateX(calc(100%))' : 'translateX(0px)',
               opacity: isCollapsed ? 0 : 1,
             }}
           />
@@ -739,11 +739,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <button
               type="button"
-              onClick={() => onDashboardExperienceChange('chat')}
-              aria-pressed={dashboardExperience === 'chat'}
+              onClick={() => onStudioExperienceChange('chat')}
+              aria-pressed={studioExperience === 'chat'}
               tabIndex={isCollapsed ? -1 : 0}
               className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
-                dashboardExperience === 'chat'
+                studioExperience === 'chat'
                   ? 'text-[#e3e3e3]'
                   : 'text-white/55 hover:text-white'
               }`}
@@ -754,12 +754,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={() => {
                 goToSparkHome();
-                onDashboardExperienceChange('spark');
+                onStudioExperienceChange('spark');
               }}
-              aria-pressed={dashboardExperience === 'spark'}
+              aria-pressed={studioExperience === 'spark'}
               tabIndex={isCollapsed ? -1 : 0}
               className={`flex-1 flex h-full items-center justify-center gap-1 rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
-                dashboardExperience === 'spark'
+                studioExperience === 'spark'
                   ? 'text-[#e3e3e3]'
                   : 'text-white/55 hover:text-white'
               }`}
@@ -772,16 +772,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => {
-              if (dashboardExperience === 'chat') {
+              if (studioExperience === 'chat') {
                 goToSparkHome();
-                onDashboardExperienceChange('spark');
+                onStudioExperienceChange('spark');
               } else {
-                onDashboardExperienceChange('chat');
+                onStudioExperienceChange('chat');
               }
             }}
-            aria-label={dashboardExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
-            aria-pressed={dashboardExperience === 'spark'}
-            title={dashboardExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
+            aria-label={studioExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
+            aria-pressed={studioExperience === 'spark'}
+            title={studioExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
             tabIndex={isCollapsed ? 0 : -1}
             className={`absolute left-1 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${isCollapsed ? '' : 'pointer-events-none'}`}
             style={{
@@ -798,13 +798,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320',
               }}
             >
-              {dashboardExperience === 'spark' ? 'toggle_on' : 'toggle_off'}
+              {studioExperience === 'spark' ? 'toggle_on' : 'toggle_off'}
             </span>
           </button>
         </div>
       </div>
 
-      {dashboardExperience === 'spark' ? (
+      {studioExperience === 'spark' ? (
         <div className={`min-h-0 flex-1 pb-4 ${isCollapsed ? 'pt-2' : 'pt-0'}`}>
           <SparkSidebarItem
             label="Tasks"
@@ -816,7 +816,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               || currentSparkLocation.page === 'task'
             }
             onClick={() => {
-              onDashboardExperienceChange('spark');
+              onStudioExperienceChange('spark');
               onViewChange('home');
               goToAllSparkTasks();
             }}
@@ -834,7 +834,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             isCollapsed={isCollapsed}
             active={currentSparkLocation.page === 'schedules'}
             onClick={() => {
-              onDashboardExperienceChange('spark');
+              onStudioExperienceChange('spark');
               onViewChange('home');
               goToSparkSchedules();
             }}
@@ -845,7 +845,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             isCollapsed={isCollapsed}
             active={currentSparkLocation.page === 'skills'}
             onClick={() => {
-              onDashboardExperienceChange('spark');
+              onStudioExperienceChange('spark');
               onViewChange('home');
               goToSparkSkills();
             }}
@@ -856,7 +856,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             isCollapsed={isCollapsed}
             active={currentSparkLocation.page === 'apps'}
             onClick={() => {
-              onDashboardExperienceChange('spark');
+              onStudioExperienceChange('spark');
               onViewChange('home');
               goToSparkApps();
             }}
@@ -870,7 +870,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           symbol="gemini_chat" 
           label="New chat" 
           isCollapsed={isCollapsed} 
-          active={currentView === 'home' && dashboardMode === 'chat' && !isChatOngoing}
+          active={currentView === 'home' && studioMode === 'chat' && !isChatOngoing}
           onClick={() => {
             if (isChatOngoing) {
               selectLocalFSInboxChat(null);
@@ -909,7 +909,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               icon={Terminal} 
               label="Code" 
               isCollapsed={isCollapsed} 
-              active={currentView === 'home' && dashboardMode === 'develop'}
+              active={currentView === 'home' && studioMode === 'develop'}
               onClick={() => {
                 onViewChange('home');
                 onModeChange?.('develop');
@@ -919,7 +919,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               icon={MediaIcon} 
               label="Media" 
               isCollapsed={isCollapsed} 
-              active={currentView === 'home' && dashboardMode === 'media'}
+              active={currentView === 'home' && studioMode === 'media'}
               onClick={() => {
                 onViewChange('home');
                 onModeChange?.('media');
@@ -1048,7 +1048,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 )
                               }
                               isCollapsed={isCollapsed} 
-                              active={currentView === 'home' && dashboardMode === 'chat' && activeChatId === chat}
+                              active={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
                               onClick={() => {
                                 onViewChange('home');
                                 onModeChange?.('chat');
@@ -1113,7 +1113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="absolute bottom-0 left-0 right-0 h-14 pointer-events-none z-10 transition-opacity duration-200"
           style={{
             opacity: isAtScrollEnd ? 0 : 1,
-            background: `linear-gradient(to bottom, transparent, ${isCollapsed ? 'var(--dashboard-surface)' : '#1f1f1f'})`,
+            background: `linear-gradient(to bottom, transparent, ${isCollapsed ? 'var(--studio-surface)' : '#1f1f1f'})`,
           }}
         />
       </div>

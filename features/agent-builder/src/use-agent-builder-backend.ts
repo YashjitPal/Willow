@@ -10,7 +10,7 @@
  *  - preview runs with live SSE streaming into the run store
  *  - publish + code export, approvals resolution
  *
- * The canvas passes its nodes/edges + setters; the Staging chrome drives
+ * The canvas passes its nodes/edges + setters; the Workbench chrome drives
  * actions through the shared nanostores (previewTrigger/codeTrigger/...).
  */
 

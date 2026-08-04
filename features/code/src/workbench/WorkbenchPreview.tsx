@@ -4,7 +4,7 @@ import { ReactFlow, ReactFlowProvider, Background, Panel, useStore as useRFStore
 import "@xyflow/react/dist/style.css";
 import { useStore } from "@nanostores/react";
 import TopBar from "./WorkbenchTopBar";
-import StagingCodePanel from "./CodePanel";
+import CodePanel from "./CodePanel";
 import { AgentBuilder } from "@willow/agent-builder/AgentBuilder";
 // ScanningOverlay import removed - component not yet created
 import VisualEditingOverlay from "../visual-editing/VisualEditingOverlay";
@@ -1095,7 +1095,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               }`}
             >
               <div className="flex-1 min-h-0 w-full overflow-hidden">
-                <StagingCodePanel />
+                <CodePanel />
               </div>
             </div>
 

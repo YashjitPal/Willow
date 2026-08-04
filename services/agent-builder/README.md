@@ -1,7 +1,7 @@
 # Willow Agent Builder — Backend
 
 A standalone backend for the Willow **Agent Builder** canvas (the visual agent-workflow
-editor inside Staging → Agents → Builder). It replicates the OpenAI Agent Builder
+editor inside Workbench → Agents → Builder). It replicates the OpenAI Agent Builder
 (AgentKit) backend surface: workflow drafts/versions, durable runs with live traces,
 CEL-powered logic nodes, guardrails, MCP servers, vector-store file search, ChatKit-style
 chat sessions, and Agents-SDK code export.

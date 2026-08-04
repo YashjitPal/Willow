@@ -29,9 +29,9 @@ import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { CHAT_SYSTEM_PROMPT, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
 
-const CHAT_COMPOSER_LAYOUT_ID = 'willow-dashboard-chat-composer';
+const CHAT_COMPOSER_LAYOUT_ID = 'willow-chat-composer';
 
-interface DashboardChatProps {
+interface ChatViewProps {
   modelConfig: any;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
@@ -47,7 +47,7 @@ interface DashboardChatProps {
 // ──────────────────────────────────────────────────────────────────────────────
 // Component
 // ──────────────────────────────────────────────────────────────────────────────
-export const DashboardChat: React.FC<DashboardChatProps> = ({
+export const ChatView: React.FC<ChatViewProps> = ({
   modelConfig,
   selectedModelId,
   setSelectedModelId,
@@ -464,12 +464,12 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     onChatStartedChange?.(hasStarted);
   }, [hasStarted, onChatStartedChange]);
 
-  // ── Scroll-to-top + dynamic response-area sizing (ported from Staging) ─────
+  // ── Scroll-to-top + dynamic response-area sizing (ported from Workbench) ───
   // When you send, your bubble animates to `TARGET_VISUAL_OFFSET` from the top
   // and the assistant block below it is given exactly enough min-height to fill
   // the remaining visible viewport, so you can't scroll into empty space before
   // the reply fills it. The gap below the 👍👎Copy row and the top of the input
-  // box matches Staging's gap to its suggestions row (both = the 32px gradient).
+  // box matches the Workbench's gap to its suggestions row (both = the 32px gradient).
   const TARGET_VISUAL_OFFSET = 72; // Gemini's settled first-query top edge
   const MESSAGE_GAP = 52;          // Gemini bubble edge to the following response
   const THREAD_GAP = 32;           // All other completed-turn adjacencies
@@ -1109,7 +1109,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
       onTurnComplete: ({ aborted }) => closeLiveTurn({ aborted }),
       onError: (err) => {
         // eslint-disable-next-line no-console
-        console.error('[DashboardChat] live error', err);
+        console.error('[ChatView] live error', err);
         if (liveTurnRef.current) {
           // Mid-turn failure → finalise the in-flight assistant bubble with the error.
           closeLiveTurn({ error: `Live session error: ${err.message}` });
@@ -1309,10 +1309,10 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   // EMPTY STATE — render the *actual* HeroSection + BottomPanel so the layout
   // is literally the same component tree as Develop mode (single source of
   // truth for prompt-box position). Only `onPromptSubmit` differs: it starts
-  // an in-dashboard chat instead of navigating to Staging.
+  // an in-studio chat instead of navigating to the Workbench.
   if (!hasStarted) {
     return (
-      <LayoutGroup id="willow-dashboard-chat-layout">
+      <LayoutGroup id="willow-chat-layout">
         <div className="flex flex-col min-h-full">
           <HeroSection
             initialMode="chat"
@@ -1350,7 +1350,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
     messages[0].isNew === true;
 
   return (
-    <LayoutGroup id="willow-dashboard-chat-layout">
+    <LayoutGroup id="willow-chat-layout">
     <div
       className={`relative grid h-full min-h-0 w-full overflow-hidden grid-cols-[minmax(0,1fr)] ${
         openResource
@@ -1570,7 +1570,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
                         // Reserve exactly the visible area below the user bubble.
                         // paddingBottom = footer height so the action row clears
                         // the input overlay by the same 32px (h-8 gradient) that
-                        // separates action-row → suggestions in Staging.
+                        // separates action-row → suggestions in the Workbench.
                         minHeight: !needsScrollPadding
                           ? responseAreaMinHeight + footerH
                           : undefined,
@@ -1670,7 +1670,7 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         </motion.div>
       </div>
 
-      {/* Bottom-docked input (footer). h-8 gradient matches Staging so the gap
+      {/* Bottom-docked input (footer). h-8 gradient matches the Workbench so the gap
           action-row → input-top here == action-row → suggestions-top there. */}
       <div
         ref={footerRef}
@@ -1679,13 +1679,13 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
         <div
           className="h-8 w-full max-w-[820px]"
           style={{
-            backgroundColor: 'var(--dashboard-surface)',
+            backgroundColor: 'var(--studio-surface)',
             WebkitMaskImage: 'linear-gradient(to top, black 20%, transparent)',
             maskImage: 'linear-gradient(to top, black 20%, transparent)',
           }}
         />
         <div
-          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[var(--dashboard-surface)]"
+          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[var(--studio-surface)]"
         >
           <motion.div
             layoutId={CHAT_COMPOSER_LAYOUT_ID}
@@ -1747,4 +1747,4 @@ export const DashboardChat: React.FC<DashboardChatProps> = ({
   );
 };
 
-export default DashboardChat;
+export default ChatView;

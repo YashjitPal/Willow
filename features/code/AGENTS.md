@@ -136,7 +136,14 @@ Everything here is live. Verify before you move anything.
 
 ## Naming
 
-The workbench was once called "Staging". `WorkbenchView.tsx` still declares
-`StagingView` / `StagingViewProps` internally. Renaming those is safe (they are not
-persisted anywhere); renaming `localStorage` keys that contain `staging` is **not**
-— those hold user data.
+The workbench was once called "Staging", and the shell around it "Dashboard".
+Both names have been retired from identifiers, types and CSS classes — see
+**Vocabulary** in the root `AGENTS.md`. Two deliberate exceptions remain, and
+neither is an oversight:
+
+- `sessionStorage['staging-nav']` — set here and in `features/projects` /
+  `features/media`, read back by the refresh guard in `apps/studio/src/app/App.tsx`.
+- `localStorage['dashboard-background']` — in `apps/studio/src/shell/BackgroundContext.tsx`.
+
+Storage keys address data users have already saved. Renaming one doesn't migrate
+it, it orphans it, so these keep their legacy names permanently.

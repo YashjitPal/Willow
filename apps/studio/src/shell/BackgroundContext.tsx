@@ -10,6 +10,8 @@ interface BackgroundContextType {
 
 const BackgroundContext = createContext<BackgroundContextType | undefined>(undefined);
 
+// Legacy key name, kept deliberately: it addresses backgrounds real users have
+// already saved. Renaming it would silently orphan their choice.
 const STORAGE_KEY = 'dashboard-background';
 
 export const BackgroundProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
