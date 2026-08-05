@@ -23,7 +23,7 @@
  */
 
 import { useEffect } from 'react';
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 
 export interface UseComposerModelsOptions {
   /** Provider settings from user data; shape is provider-defined. */
@@ -100,8 +100,14 @@ export const useComposerModels = ({
   }
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && currentThinkingLevel > 0
-    ? getThinkingEffortLabel({ ...activeModel, thinkingLevel: currentThinkingLevel }, true)
+  // A no-thinking selection contributes nothing to the pill — "Opus 5", not
+  // "Opus 5 None". `isNonThinkingEffort` also catches labels that already mean
+  // off (Gemini flash's `minimal`), so those read as just the model too.
+  const activeEffortRecord = activeModel
+    ? { ...activeModel, thinkingLevel: currentThinkingLevel }
+    : undefined;
+  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+    ? getThinkingEffortLabel(activeEffortRecord, true)
     : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)

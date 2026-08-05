@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { CreateGemView } from './CreateGemView';
 
 interface GemCardProps {
   title: string;
@@ -332,8 +334,14 @@ const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, 
 };
 
 export const GemsView: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [premadeExpanded, setPremadeExpanded] = useState(false);
   const [showSharedGemsInfo, setShowSharedGemsInfo] = useState(false);
+
+  if (location.pathname === '/gems/create') {
+    return <CreateGemView />;
+  }
 
   return (
     <>
@@ -528,6 +536,7 @@ export const GemsView: React.FC = () => {
             </div>
             
             <button
+              onClick={() => navigate('/gems/create')}
               style={{
                 color: 'rgb(6, 46, 111)',
                 backgroundColor: 'rgb(168, 199, 250)',

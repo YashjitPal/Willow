@@ -22,6 +22,7 @@ import {
   getModelGroupKey,
   getThinkingEffortLabel,
   ModelEffortRecord,
+  modelSupportsNoThinking,
   sortModelEfforts,
 } from '@willow/ai/models/efforts';
 
@@ -160,11 +161,31 @@ export const ModelsMenu: React.FC<{
 
   const getEffortsForGroup = (group: { key: string; variants: PickerModel[] } | undefined): PickerModel[] => {
     if (!group || group.variants.length === 0) return [];
-    if (group.variants.length > 1) return sortModelEfforts(group.variants);
 
     const base = group.variants[0];
     const provider = String(base.provider || '').toLowerCase();
     const modelId = String(base.modelId || base.id || base.name || '').toLowerCase();
+
+    // A group with several saved variants already carries its own effort levels.
+    // Only synthesise the "None" entry, and only when the model genuinely
+    // supports it and no saved variant already covers level 0.
+    if (group.variants.length > 1) {
+      const variants = sortModelEfforts(group.variants);
+      if (!modelSupportsNoThinking(base) || variants.some((v) => Number(v.thinkingLevel || 0) === 0)) {
+        return variants;
+      }
+      const noneLabel = getThinkingEffortLabel({ ...base, thinkingLevel: 0, provider, modelId, thinkingLabel: undefined, effortLabel: undefined });
+      return [
+        {
+          ...base,
+          id: `${base.id}::effort-0`,
+          thinkingLevel: 0,
+          thinkingLabel: noneLabel,
+          effortLabel: noneLabel,
+        },
+        ...variants,
+      ];
+    }
 
     let maxLevel = 3;
     if (provider.includes('openai') || modelId.includes('gpt')) {
@@ -175,8 +196,13 @@ export const ModelsMenu: React.FC<{
       maxLevel = 4; // Low (1), Medium (2), High (3), Max (4)
     }
 
+    // Level 0 is offered only where the request layer really sends "no thinking"
+    // — see modelSupportsNoThinking. Gemini Pro and Grok deliberately have no
+    // level-0 mapping, so they keep starting at Low.
+    const minLevel = modelSupportsNoThinking(base) ? 0 : 1;
+
     const result: PickerModel[] = [];
-    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+    for (let lvl = minLevel; lvl <= maxLevel; lvl++) {
       const effortLabel = getThinkingEffortLabel({ ...base, thinkingLevel: lvl, provider, modelId, thinkingLabel: undefined, effortLabel: undefined });
       result.push({
         ...base,
@@ -189,12 +215,25 @@ export const ModelsMenu: React.FC<{
     return result;
   };
 
+  // `selectedId` is either a plain saved-model id or `<baseId>::effort-<n>`.
+  // Everything that decides a checkmark has to compare against the base, or the
+  // tick vanishes as soon as an effort level is picked.
+  const selectedBaseId = selectedId ? selectedId.split('::effort-')[0] : '';
+  const matchesSelection = (model: PickerModel) =>
+    model.id === selectedId || model.id === selectedBaseId;
+
   const selectedGroup = groupedModels.find((group) =>
-    group.variants.some((model) => model.id === selectedId || selectedId.startsWith(`${model.id}::effort-`))
+    group.variants.some(matchesSelection)
   ) || groupedModels[0];
 
   const selectedEfforts = getEffortsForGroup(selectedGroup);
-  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId) || selectedEfforts.find((m) => m.thinkingLevel === 3) || selectedEfforts[0];
+  // Falling back to level 3 keeps the previous default. `> 0` on the last
+  // fallback stops a freshly added level-0 entry from being reported as the
+  // default effort for models whose ceiling is below 3.
+  const selectedEffort = selectedEfforts.find((model) => model.id === selectedId)
+    || selectedEfforts.find((m) => m.thinkingLevel === 3)
+    || selectedEfforts.find((m) => Number(m.thinkingLevel || 0) > 0)
+    || selectedEfforts[0];
 
   const getModelDescription = (model: any) => {
     const name = String(model.name || '').toLowerCase();
@@ -221,8 +260,8 @@ export const ModelsMenu: React.FC<{
             </div>
           ) : (
             groupedModels.map((group) => {
-              const model = group.variants.find((variant) => variant.id === selectedId) || group.variants[0];
-              const isSelected = group.variants.some((variant) => variant.id === selectedId);
+              const model = group.variants.find(matchesSelection) || group.variants[0];
+              const isSelected = group.variants.some(matchesSelection);
               return (
                 <button
                   key={group.key}
@@ -286,7 +325,11 @@ export const ModelsMenu: React.FC<{
                     className="pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
                   >
                   {selectedEfforts.map((model) => {
-                    const isSelected = selectedId === model.id;
+                    // Compare against the *resolved* effort, not the raw
+                    // selectedId. When only the model has been picked the id
+                    // carries no `::effort-` suffix, so a raw comparison ticks
+                    // nothing even though a default level is in force.
+                    const isSelected = selectedEffort?.id === model.id;
                     return (
                       <button
                         key={model.id}
@@ -349,7 +392,7 @@ export const ModelsMenu: React.FC<{
             </div>
           ) : (
             filteredModels.map((model: any) => {
-              const isSelected = selectedId === model.id;
+              const isSelected = matchesSelection(model);
               return (
                 <button
                   key={model.id}

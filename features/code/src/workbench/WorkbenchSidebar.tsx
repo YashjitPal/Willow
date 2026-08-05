@@ -58,7 +58,7 @@ import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/chat/composer/Composer';
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import logoG from '@willow/assets/brand/logo-glyph.png';
 import { ALL_TOOLS } from './WorkbenchTopBar';
@@ -2873,7 +2873,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && Number(activeModel.thinkingLevel || 0) > 0
+  // No-thinking selections add nothing to the pill — see use-composer-models.
+  const activeEffortDisplayLabel = activeModel && !isNonThinkingEffort(activeModel)
     ? getThinkingEffortLabel(activeModel)
     : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]

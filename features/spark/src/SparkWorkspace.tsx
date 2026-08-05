@@ -8,7 +8,7 @@ import {
   type ChatMessage as AiChatMessage,
   type StreamPhase,
 } from '@willow/ai/chat';
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import {
   deleteSparkAttachmentPayloads,
   resolveSparkTaskAttachments,
@@ -124,9 +124,9 @@ const getExecutionModelLabel = (
     .trim();
   const rawBase = configuredName || (provider === 'gemini' ? fallbackName : `${provider} ${fallbackName}`);
   const base = provider === 'gemini' ? rawBase.replace(/^Gemini\s+/i, '') : rawBase;
-  const effort = thinkingLevel > 0
-    ? getThinkingEffortLabel(selected || { provider, modelId: model, thinkingLevel, name: base })
-    : '';
+  // No-thinking selections add nothing to the label — see use-composer-models.
+  const effortRecord = { ...(selected || { provider, modelId: model, name: base }), thinkingLevel };
+  const effort = isNonThinkingEffort(effortRecord) ? '' : getThinkingEffortLabel(effortRecord);
   return effort ? `${base} ${effort}` : base;
 };
 
