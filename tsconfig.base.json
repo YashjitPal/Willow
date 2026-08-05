@@ -35,6 +35,7 @@
       "@willow/onboarding/*": ["features/onboarding/src/*"],
       "@willow/account/*": ["features/auth/src/*"],
       "@willow/project-browser/*": ["features/projects/src/*"],
+      "@willow/gems/*": ["features/gems/src/*"],
 
       "@willow/studio/*": ["apps/studio/src/*"],
       "@willow/assets/*": ["assets/*"],

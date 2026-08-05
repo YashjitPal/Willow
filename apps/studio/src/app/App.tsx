@@ -34,6 +34,7 @@ import type { StudioExperience } from '@willow/core/types';
 const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
+const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
 // Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
 // never ships while on Home; resolve only after the default card images are
 // warmed so the bento grid appears fully formed (skeleton shows meanwhile).
@@ -365,10 +366,12 @@ const App: React.FC = () => {
     if (view === 'agents') navigate('/?view=agents');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'saved-info') navigate('/saved-info');
+    else if (view === 'gems') navigate('/gems');
     else if (
       searchParams.get('view') === 'agents' ||
       location.pathname === '/personalization-settings' ||
-      location.pathname === '/saved-info'
+      location.pathname === '/saved-info' ||
+      location.pathname === '/gems'
     ) {
       navigate('/', { replace: true });
     }
@@ -393,7 +396,11 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         setCurrentView('saved-info');
       }
-    } else if (currentView === 'personal-intelligence' || currentView === 'saved-info') {
+    } else if (location.pathname === '/gems') {
+      if (currentView !== 'gems') {
+        setCurrentView('gems');
+      }
+    } else if (currentView === 'personal-intelligence' || currentView === 'saved-info' || currentView === 'gems') {
       setCurrentView('home');
     }
   }, [location.pathname, currentView]);
@@ -548,6 +555,8 @@ const App: React.FC = () => {
         onSettingsClick={(tabId) => {
           if (tabId === 'intelligence') {
             handleViewChange('personal-intelligence');
+          } else if (tabId === 'gems') {
+            handleViewChange('gems');
           } else {
             if (tabId) setSettingsInitialTab(tabId as any);
             setIsSettingsOpen(true);
@@ -668,6 +677,10 @@ const App: React.FC = () => {
           <PersonalIntelligenceTab />
         ) : currentView === 'saved-info' ? (
           <SavedInfoTab />
+        ) : currentView === 'gems' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
+            <GemsView />
+          </Suspense>
         ) : (
           <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
         )}
@@ -684,6 +697,7 @@ const App: React.FC = () => {
            <Route path="/" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
+           <Route path="/gems" element={mainAppShell} />
            <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={
