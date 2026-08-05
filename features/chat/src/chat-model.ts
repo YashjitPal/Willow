@@ -2,7 +2,7 @@
 // Which model a chat turn runs on, and the prompt it runs with.
 // ──────────────────────────────────────────────────────────────────────────────
 
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 
 /** Pure conversational system prompt (no code-gen artifacts). */
 export const CHAT_SYSTEM_PROMPT =
@@ -83,7 +83,8 @@ export const resolveChatModel = ({
 
   const apiKey: string | undefined = apiKeys?.[provider]?.[0];
   const dummyObj = { ...sel, thinkingLevel, provider };
-  const effortLabel = sel && thinkingLevel > 0 ? getThinkingEffortLabel(dummyObj) : '';
+  // No-thinking selections add nothing to the label — see use-composer-models.
+  const effortLabel = sel && !isNonThinkingEffort(dummyObj) ? getThinkingEffortLabel(dummyObj) : '';
   const baseLabel = getShortModelName(sel?.name || model);
   const modelLabel = `${baseLabel}${effortLabel ? ` ${effortLabel}` : ''}`;
   return { provider, model, thinkingLevel, apiKey, modelLabel };

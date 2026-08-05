@@ -396,7 +396,7 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         setCurrentView('saved-info');
       }
-    } else if (location.pathname === '/gems') {
+    } else if (location.pathname.startsWith('/gems')) {
       if (currentView !== 'gems') {
         setCurrentView('gems');
       }
@@ -698,6 +698,7 @@ const App: React.FC = () => {
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
+           <Route path="/gems/create" element={mainAppShell} />
            <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={

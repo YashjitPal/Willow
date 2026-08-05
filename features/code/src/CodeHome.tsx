@@ -14,7 +14,7 @@ import { getCachedFirstName, cacheFirstName } from '@willow/core/display-name';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/chat/composer/Composer';
-import { getThinkingEffortLabel } from '@willow/ai/models/efforts';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import logoG from '@willow/assets/brand/logo-glyph.png';
@@ -401,8 +401,12 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   }
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  const activeEffortDisplayLabel = activeModel && currentThinkingLevel > 0
-    ? getThinkingEffortLabel({ ...activeModel, thinkingLevel: currentThinkingLevel }, true)
+  // No-thinking selections add nothing to the pill — see use-composer-models.
+  const activeEffortRecord = activeModel
+    ? { ...activeModel, thinkingLevel: currentThinkingLevel }
+    : undefined;
+  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+    ? getThinkingEffortLabel(activeEffortRecord, true)
     : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
