@@ -26,33 +26,38 @@ const PREMADE_GEM_MENU_ITEMS: MenuItem[] = [
   { icon: 'content_copy', label: 'Make a copy' }
 ];
 
-const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: string }> = ({ icon, onClick, title }) => (
-  <button
-    title={title}
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onClick?.();
-    }}
-    className="gem-action-btn transition-colors duration-200"
-    style={{
-      width: '40px',
-      height: '40px',
-      borderRadius: '50%',
-      backgroundColor: 'transparent',
-      border: 'none',
-      color: 'rgb(196, 199, 197)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      padding: '8px',
-      margin: '0px'
-    }}
-  >
-    <MaterialSymbol name={icon} size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
-  </button>
-);
+const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: string }> = ({ icon, onClick, title }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  return (
+    <button
+      title={title}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className="transition-colors duration-200"
+      style={{
+        width: '40px',
+        height: '40px',
+        borderRadius: '50%',
+        backgroundColor: isHovered ? 'rgb(55, 57, 59)' : 'transparent',
+        border: 'none',
+        color: 'rgb(196, 199, 197)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        padding: '8px',
+        margin: '0px'
+      }}
+    >
+      <MaterialSymbol name={icon} size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
+    </button>
+  );
+};
 
 const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> = ({ items, isPremade = false }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,7 +70,7 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
     setTimeout(() => {
       setIsOpen(false);
       setIsClosing(false);
-    }, 75); // Material menu exit duration is usually short
+    }, 120); // Material menu exact exit duration (120ms)
   };
 
   useEffect(() => {
@@ -86,10 +91,15 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
   const buttonPadding = isPremade ? '0px' : '8px';
   const iconColor = isPremade ? 'rgb(196, 199, 197)' : 'rgb(227, 227, 227)';
 
+  const [isBtnHovered, setIsBtnHovered] = useState(false);
+  const [hoveredItemIndex, setHoveredItemIndex] = useState<number | null>(null);
+
   return (
     <div style={{ position: 'relative', display: 'flex' }}>
       <button
         ref={btnRef}
+        onMouseEnter={() => setIsBtnHovered(true)}
+        onMouseLeave={() => setIsBtnHovered(false)}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -99,12 +109,12 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
             setIsOpen(true);
           }
         }}
-        className="gem-action-btn transition-colors duration-200"
+        className="transition-colors duration-200"
         style={{
           width: buttonSize,
           height: buttonSize,
           borderRadius: '50%',
-          backgroundColor: 'transparent',
+          backgroundColor: isBtnHovered ? 'rgb(55, 57, 59)' : 'transparent',
           border: 'none',
           color: iconColor,
           display: 'flex',
@@ -127,7 +137,7 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
             left: '0',
             zIndex: 100,
             backgroundColor: 'rgb(30, 31, 32)',
-            borderRadius: '16px',
+            borderRadius: '8px',
             padding: '0px',
             boxShadow: 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
             minWidth: '112px',
@@ -141,18 +151,20 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
           {items.map((item, index) => (
             <button
               key={index}
+              onMouseEnter={() => setHoveredItemIndex(index)}
+              onMouseLeave={() => setHoveredItemIndex(null)}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 closeMenu();
               }}
-              className="gem-menu-item transition-colors duration-200"
+              className="transition-colors duration-200"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 padding: '0px 12px',
                 minHeight: '48px',
-                backgroundColor: 'transparent',
+                backgroundColor: hoveredItemIndex === index ? 'rgba(227, 227, 227, 0.08)' : 'transparent',
                 border: 'none',
                 width: '100%',
                 cursor: 'pointer',
@@ -338,13 +350,7 @@ export const GemsView: React.FC = () => {
           animation: 0.12s cubic-bezier(0, 0, 0.2, 1) _mat-menu-enter;
         }
         .gem-menu-panel-exit {
-          animation: 0.075s linear _mat-menu-exit forwards;
-        }
-        .gem-menu-item:hover {
-          background-color: rgba(227, 227, 227, 0.08) !important;
-        }
-        .gem-action-btn:hover {
-          background-color: rgba(255, 255, 255, 0.08) !important;
+          animation: 0.12s linear _mat-menu-exit forwards;
         }
       `}</style>
       <div className="h-full w-full overflow-y-auto" style={{ backgroundColor: '#131314' }}>
@@ -370,7 +376,7 @@ export const GemsView: React.FC = () => {
           Gem manager
         </h1>
 
-        <section style={{ width: '830px', marginBottom: '10px' }}>
+        <section style={{ width: '830px' }}>
           <div 
             className="group/premade-header"
             style={{ 
@@ -429,8 +435,8 @@ export const GemsView: React.FC = () => {
         </section>
 
         {/* My Gems Section */}
-        <section style={{ width: '830px', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '48px' }}>
-          <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', height: '45px' }}>
+        <section style={{ width: '830px', display: 'flex', flexDirection: 'column', marginBottom: '48px' }}>
+          <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', height: '45px', margin: '16px 0px' }}>
             <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', alignItems: 'center', position: 'relative' }}>
               <h2
                 style={{
@@ -551,7 +557,7 @@ export const GemsView: React.FC = () => {
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {/* Custom Gem List Row */}
             <div
               style={{
