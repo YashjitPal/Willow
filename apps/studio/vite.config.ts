@@ -182,6 +182,7 @@ export default defineConfig(() => {
         { find: "@willow/spark", replacement: path.resolve(ROOT, "features/spark/src") },
         { find: "@willow/chat", replacement: path.resolve(ROOT, "features/chat/src") },
         { find: "@willow/code", replacement: path.resolve(ROOT, "features/code/src") },
+        { find: "@willow/gems", replacement: path.resolve(ROOT, "features/gems/src") },
         { find: "@willow/core", replacement: path.resolve(ROOT, "platform/core/src") },
         { find: "@willow/auth", replacement: path.resolve(ROOT, "platform/auth/src") },
         { find: "@willow/ui", replacement: path.resolve(ROOT, "platform/ui/src") },
