@@ -56,6 +56,86 @@ Two alias pairs are easy to confuse — both are documented in the feature docs:
 `@willow/account` (UI) vs `@willow/auth` (Firebase), and `@willow/project-browser`
 (UI) vs `@willow/projects` (data).
 
+## Where new work goes
+
+Start here before creating a file. The rule of thumb: **one sub-app per
+`features/` folder, anything shared moves down to `platform/`, anything that runs
+on Node lives in `services/`, and anything not shipped lives in `tools/`.**
+
+| You are adding | It goes in | Notes |
+| --- | --- | --- |
+| A whole new sub-app | `features/<name>/src/` | Needs wiring — see below |
+| UI or logic for an existing sub-app | that feature's own `src/` | Group a cluster of modules in a subfolder |
+| Something two features both need | `platform/*` | Pick the package from the table below |
+| A shared React component | `platform/ui/src/` | `@willow/ui/<module>` |
+| A util, type or constant | `platform/core/src/` | The default home for cross-cutting plumbing |
+| Model clients / prompt orchestration | `platform/ai/src/` | |
+| Persistence, save/load, sync | `platform/storage/src/` | Read its `AGENTS.md` first |
+| A Node backend or daemon | `services/<name>/` | Its own `package.json` + `node_modules` |
+| A one-off maintenance script | `tools/scripts/` | Typechecked; see caveat below |
+| A build or dev script for the shell | `apps/studio/scripts/` | Alongside `build-production.mjs` |
+| An image, video, cursor, animation | `assets/<category>/` | Import via `@willow/assets/*` |
+| Throwaway or exploratory code | `tools/scratch/`, `tools/prototypes/` | Never imported by shipped code |
+| Docs for a package | that package's own `AGENTS.md` | This file is for cross-cutting rules only |
+
+Inside a feature or platform package, everything lives under `src/`, with the
+package's `AGENTS.md` as its only sibling. There is no `src/components/`
+convention — modules sit flat under `src/` and cluster into a subfolder only when
+a group grows large enough to warrant one (`features/chat/src/composer/`,
+`platform/storage/src/adapters/`).
+
+### Wiring a new feature
+
+Creating the folder is not enough; a feature is reachable only after four steps.
+
+1. **Declare the alias twice.** Add the path to `compilerOptions.paths` in
+   `tsconfig.base.json` *and* to `resolve.alias` in
+   `apps/studio/vite.config.ts` — see the caveat under *Import conventions*
+   about these two lists.
+2. **Route it.** Add a `React.lazy` import and a `case` in
+   `apps/studio/src/app/App.tsx`.
+3. **Give it a sidebar entry** if it is a top-level destination: extend the
+   `ViewType` union in `apps/studio/src/shell/sidebar/Sidebar.tsx`.
+4. **Register any platform contributions.** If the feature writes its own
+   sub-folder into a saved project (or otherwise needs platform code to call
+   into it), export a `register.ts` and import it from
+   `apps/studio/src/app/register-features.ts`. Do **not** make `platform/*`
+   import the feature — that inverts the arrow described below.
+
+State goes in `<feature>-store.ts` beside the UI, per *Conventions*.
+
+### Scripts
+
+`tools/scripts/` is for one-off repo maintenance — migrations, bulk fixes,
+archival. It is inside the root `tsconfig.json` `include`, so **these scripts are
+typechecked and a broken one fails `npm run typecheck`** even though they are
+never bundled. `tools/prototypes/`, `tools/ui-research/` and `tools/scratch/` are
+excluded from typecheck precisely because they are not maintained. See
+[`tools/README.md`](tools/README.md).
+
+Scripts that belong to the shell's own build (rather than the repo) go in
+`apps/studio/scripts/`. A script meant to be run from Windows Explorer gets a
+`.cmd` shim at the repo root, next to `backup.cmd`.
+
+### Tests
+
+| Kind | Location | Run by |
+| --- | --- | --- |
+| Backend | `services/agent-builder/test/*.test.ts` | `npm run agent-builder:test` |
+| Companion smoke | `services/local-companion/test/smoke.mjs` | `npm run companion:test` |
+| Studio smoke | `apps/studio/test/` | `npm test` |
+
+All of it is the **built-in `node --test` runner** — there is no vitest or jest in
+this repo, so don't reach for `describe`/`expect` from a framework that isn't
+installed.
+
+One caveat worth knowing before you add a test: `npm test` runs a single named
+file, not a glob. Six co-located `*.test.ts` files exist next to the code they
+cover under `features/agent-builder/src/`, `platform/projects/src/` and
+`platform/storage/src/adapters/` — **no script currently executes them.** If you
+add a browser-side test, either extend the `test` script in
+`apps/studio/package.json` to match it or expect it never to run.
+
 ## The layering rule
 
 Imports may only point **down** this list, never up:
@@ -109,11 +189,15 @@ not `@willow/ui`. That keeps Vite's code-splitting granular (the Media chunk doe
 not drag in the Agents chunk) and makes every import line say exactly where the
 symbol lives. Do not add barrel files that re-export a whole package.
 
-**Aliases have one source of truth:** `compilerOptions.paths` in
-`tsconfig.base.json`. `apps/studio/scripts/lib/willow-aliases.mjs` reads that file
-at build time and feeds both bundlers, so the type-checker and the build cannot
-drift apart. Add a path there and it works everywhere; hardcode it in a config and
-it will rot.
+**Aliases are declared in two places, and both need editing.**
+`compilerOptions.paths` in `tsconfig.base.json` is the canonical list — the
+type-checker and the esbuild production scripts both read it, the latter via
+`apps/studio/scripts/lib/willow-aliases.mjs`. But **`resolve.alias` in
+`apps/studio/vite.config.ts` is a hand-maintained copy**, so the dev server and
+`vite build` do *not* inherit from `tsconfig.base.json`. Add a path to only one of
+the two and it will typecheck but fail to resolve at runtime (or the reverse).
+The Vite list is ordered longest-prefix-first because Vite takes the first match —
+keep `@willow/project-browser` above `@willow/projects`.
 
 > **`services/` is the exception.** Backends run on Node's native TS loader and
 > *require* explicit extensions — `from '../config.ts'`. Never run a repo-wide
