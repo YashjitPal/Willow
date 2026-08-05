@@ -3,7 +3,7 @@ cd /d "%~dp0"
 SETLOCAL EnableDelayedExpansion
 
 echo ===================================================
-echo              WILLOW CODE GITHUB BACKUP             
+echo              WILLOW CODE GITHUB BACKUP (BETA)     
 echo ===================================================
 
 :: Check if git is installed and directory is a repo
@@ -15,8 +15,8 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Set target branch to main
-set "BRANCH=main"
+:: Set target branch to beta
+set "BRANCH=beta"
 
 :: Check for uncommitted changes (modified, deleted, or brand new files)
 set HAS_UNCOMMITTED=

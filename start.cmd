@@ -9,7 +9,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| find ":5173" ^| find "LISTENING"') do
     taskkill /f /pid %%a >nul 2>&1
 )
 
-cd /d "%~dp0Front End\Dashboard"
+cd /d "%~dp0"
 echo Starting dev server at http://localhost:3000...
 call npm run dev
 pause
