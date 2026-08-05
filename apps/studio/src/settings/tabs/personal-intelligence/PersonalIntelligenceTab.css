@@ -1,0 +1,300 @@
+/* Exact replication of Gemini Personalization settings stylesheet */
+
+.personal-intelligence-container {
+  --gem-sys-spacing--xxl: 24px;
+  --gem-sys-spacing--xl: 20px;
+  --gem-sys-spacing--l: 16px;
+  --gem-sys-spacing--m: 12px;
+  --gem-sys-spacing--s: 8px;
+  --gem-sys-spacing--xs: 4px;
+
+  --gem-sys-color--surface-container: #1e1f20;
+  --gem-sys-color--on-surface-variant: #c4c7c5;
+  --gem-sys-color--primary: #a8c7fa;
+  --gem-sys-shape--corner-medium: 12px;
+  
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background-color: #0f0f0f;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.page-content {
+  height: fit-content;
+  padding: 0 var(--gem-sys-spacing--xxl) var(--gem-sys-spacing--xxl);
+  margin: 68px auto var(--gem-sys-spacing--xxl); /* Pushed down by 56px to offset Gemini top header height + 12px page margin */
+  width: 100%;
+  max-width: 800px;
+  box-sizing: border-box;
+}
+
+.page-headline {
+  margin-top: var(--gem-sys-spacing--m);
+  margin-bottom: 0px;
+}
+
+.page-description {
+  margin-bottom: var(--gem-sys-spacing--xl);
+  padding-bottom: var(--gem-sys-spacing--m);
+  margin-top: var(--gem-sys-spacing--m);
+}
+
+.section {
+  position: relative;
+  background-color: var(--gem-sys-color--surface-container);
+  border-radius: var(--gem-sys-shape--corner-medium);
+  padding: var(--gem-sys-spacing--xl);
+  margin-bottom: var(--gem-sys-spacing--l);
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease;
+}
+
+.section:has(.section-link-overlay):hover {
+  background-color: #2a2b2c;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+}
+
+.title-container {
+  flex-grow: 1;
+}
+
+.title-container .gds-title-l {
+  margin-bottom: 0px;
+}
+
+.toggle-container {
+  margin-left: var(--gem-sys-spacing--l);
+  width: 52px;
+  height: 32px;
+}
+
+.description {
+  margin-top: var(--gem-sys-spacing--xs);
+  color: var(--gem-sys-color--on-surface-variant);
+}
+
+.links {
+  margin-top: var(--gem-sys-spacing--l);
+}
+
+.links a {
+  color: var(--gem-sys-color--primary);
+  text-decoration: none;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+.section-link-overlay {
+  position: absolute;
+  top: 0px;
+  right: 0px;
+  width: 33.33%;
+  height: 100%;
+  z-index: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.space-filler {
+  flex-grow: 1;
+}
+
+.link-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: var(--gem-sys-spacing--l);
+  width: 32px;
+  height: 32px;
+}
+
+/* Material Design Typography Classes matching Gemini specs precisely */
+.gds-display-s {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  color: #e3e3e3;
+  letter-spacing: normal;
+}
+
+.gds-body-l {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  color: #c4c7c5;
+  letter-spacing: normal;
+}
+
+/* Page description color override */
+.page-description {
+  color: #e3e3e3;
+}
+
+.gds-title-l {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  color: #e3e3e3;
+  margin-top: 16.6px;
+  letter-spacing: normal;
+}
+
+.gds-label-m {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 370;
+  color: #c4c7c5;
+  letter-spacing: normal;
+}
+
+.links a {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 370;
+  color: #a8c7fa;
+}
+
+/* MatIcon / Lumi Symbols font configurations */
+.mat-icon {
+  font-family: 'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif;
+  font-weight: 260;
+  font-style: normal;
+  font-size: 28px;
+  line-height: 28px;
+  letter-spacing: normal;
+  text-transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  color: #e3e3e3;
+  user-select: none;
+  width: 28px;
+  height: 28px;
+}
+
+.gem-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+/* MDC Slide Toggle styling matching Material Design 3 spec precisely */
+.mat-mdc-slide-toggle {
+  display: inline-block;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mdc-form-field {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.mdc-switch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mdc-switch__track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  box-sizing: border-box;
+  transition: background-color 75ms, border-color 75ms;
+  background-color: #353636;
+  border: 2px solid #8e918f;
+}
+
+.mdc-switch--checked .mdc-switch__track {
+  background-color: #a8c7fa;
+  border-color: #a8c7fa;
+}
+
+.mdc-switch__handle-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transition: transform 75ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mdc-switch__handle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #c4c7c5;
+  transition: transform 75ms cubic-bezier(0.4, 0, 0.2, 1), width 75ms, height 75ms, top 75ms, left 75ms, background-color 75ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mdc-switch--checked .mdc-switch__handle {
+  transform: translateX(20px);
+  width: 24px;
+  height: 24px;
+  top: 4px;
+  left: 4px;
+  background-color: #003060;
+}
+
+.mdc-switch__icons {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 75ms;
+}
+
+.mdc-switch--checked .mdc-switch__icons {
+  opacity: 1;
+}
+
+.mdc-switch__icon {
+  width: 16px;
+  height: 16px;
+  fill: #003060;
+}

@@ -57,7 +57,7 @@ type GeminiSettingsMenuProps = {
   isOpen: boolean;
   isCollapsed: boolean;
   onClose: () => void;
-  onSettingsClick?: () => void;
+  onSettingsClick?: (tabId?: string) => void;
 };
 
 type GeminiSettingsItem = {
@@ -185,7 +185,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
     }
     if (item.action === 'settings') {
       onClose();
-      onSettingsClick?.();
+      onSettingsClick?.(item.id);
     }
   };
 
@@ -244,7 +244,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared';
+export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -299,7 +299,7 @@ interface SidebarProps {
   onModeChange?: (mode: 'chat' | 'develop' | 'media') => void;
   studioExperience: StudioExperience;
   onStudioExperienceChange: (experience: StudioExperience) => void;
-  onSettingsClick?: () => void;
+  onSettingsClick?: (tabId?: string) => void;
   backgroundType?: 'waves' | 'lines' | 'solid';
   isCollapsed: boolean;
   onToggleCollapse: () => void;
@@ -902,7 +902,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div
           onScroll={handleScroll}
-          className="h-full overflow-y-auto pt-0 pb-0 no-scrollbar"
+          className="h-full overflow-y-auto pt-0 pb-0 gemini-chat-scrollbar"
         >
           <div className="space-y-0">
             <SidebarItem 

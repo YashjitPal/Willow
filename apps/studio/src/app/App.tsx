@@ -1,16 +1,15 @@
 
 import React, { useState, Suspense } from 'react';
 import { useStore } from '@nanostores/react';
-import { Routes, Route, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
-import { Sidebar, ViewType } from '../shell/sidebar/Sidebar';
+import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocation } from 'react-router-dom';
+import type { ViewType } from '../shell/sidebar/Sidebar';
+import { StudioLayout } from '../shell/StudioLayout';
 import { HeroSection } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
-import { ShaderAnimation } from '@willow/ui/shader-lines';
-import { WaveShaderBackground } from '@willow/ui/wave-shader';
-import { SearchModal } from '../shell/SearchModal';
 import { SettingsModal } from '../settings/SettingsModal';
+import { PersonalIntelligenceTab } from '../settings/tabs/personal-intelligence/PersonalIntelligenceTab';
+import { SavedInfoTab } from '../settings/tabs/saved-info/SavedInfoTab';
 import { ProjectsPage } from '@willow/project-browser/ProjectsPage';
-import { RainbowButton } from '@willow/ui/rainbow-button';
 import { LoginPage } from '@willow/account/LoginPage';
 import { Onboarding } from '@willow/onboarding/Onboarding';
 import { ChatView } from '@willow/chat/ChatView';
@@ -60,262 +59,6 @@ const StudioLoadingFallback: React.FC<{
   }, [onFinish, onStart, reason]);
 
   return <>{children}</>;
-};
-
-// Dynamic background renderer based on context
-const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
-  const { background } = useBackground();
-  
-  // Force 'lines' background for non-authenticated users
-  const effectiveBackground = isAuthenticated ? background : 'lines';
-  
-  switch (effectiveBackground) {
-    case 'waves':
-      return <WaveShaderBackground isSidebarCollapsed={isSidebarCollapsed} />;
-    case 'lines':
-      return <ShaderAnimation />;
-    case 'solid':
-    default:
-      return null;
-  }
-};
-
-// Auth buttons for non-authenticated users
-const AuthButtons: React.FC = () => {
-  return (
-    <div className="absolute top-4 right-6 z-50 flex items-center gap-3">
-      <Link to="/login?mode=login">
-        <button className="px-4 py-2 text-sm font-medium text-white/80 hover:text-white transition-colors">
-          Log in
-        </button>
-      </Link>
-      <Link to="/login?mode=signup">
-        <RainbowButton className="px-4 py-2 text-sm font-bold">
-          Sign up
-        </RainbowButton>
-      </Link>
-    </div>
-  );
-};
-
-const StudioLayout: React.FC<{
-  isSearchOpen: boolean;
-  setIsSearchOpen: (open: boolean) => void;
-  currentView: ViewType;
-  setCurrentView: (view: ViewType) => void;
-  children: React.ReactNode;
-  onSettingsClick: () => void;
-  isAuthenticated: boolean;
-  studioMode: 'develop' | 'chat' | 'media';
-  onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
-  studioExperience: StudioExperience;
-  onStudioExperienceChange: (experience: StudioExperience) => void;
-  onNewChat: () => void;
-  hasActiveChat: boolean;
-  isIncognito: boolean;
-  onIncognitoChat: () => void;
-  isSidebarCollapsed: boolean;
-  setIsSidebarCollapsed: (collapsed: boolean) => void;
-  isSidebarHidden?: boolean;
-}> = ({
-  isSearchOpen,
-  setIsSearchOpen,
-  currentView,
-  setCurrentView,
-  children,
-  onSettingsClick,
-  isAuthenticated,
-  studioMode,
-  onModeChange,
-  studioExperience,
-  onStudioExperienceChange,
-  onNewChat,
-  hasActiveChat,
-  isIncognito,
-  onIncognitoChat,
-  isSidebarCollapsed,
-  setIsSidebarCollapsed,
-  isSidebarHidden = false
-}) => {
-  const { background } = useBackground();
-  const { 
-    selectLocalFSInboxChat, 
-    activeChatId,
-    isLocalFolderConnected,
-    isLocalFolderAuthorized,
-    isInitializingLocalFS,
-    authorizeLocalFolder,
-    disconnectLocalFolder
-  } = useLocalFS();
-
-  const isChatExperience = studioExperience === 'chat';
-  const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
-  // Calculate effective background (non-authenticated users get 'lines')
-  const effectiveBackground = isAuthenticated ? background : 'lines';
-  const studioSurface = '#0f0f0f';
-  
-  return (
-    <div
-      className={`studio-layout studio-layout--${studioExperience} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] text-white selection:bg-pink-500/30 relative`}
-      style={{ '--studio-surface': studioSurface } as React.CSSProperties}
-    >
-      {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
-      {currentView === 'home' && isChatExperience && effectiveBackground === 'waves' && (
-        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
-            <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
-            <div
-              className="absolute inset-0 z-[2] pointer-events-none"
-              style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--studio-surface) 110%)' }}
-            />
-        </div>
-      )}
-
-      {/* Only show sidebar when authenticated */}
-      {isAuthenticated && (
-        <>
-          {studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
-            <button
-              type="button"
-              className="studio-sidebar-mobile-open"
-              aria-label="Open sidebar"
-              onClick={() => setIsSidebarCollapsed(false)}
-            >
-              <MaterialSymbol
-                name="side_nav_expand"
-                family="google-symbols"
-                size={24}
-                weight={400}
-                opticalSize={24}
-              />
-            </button>
-          )}
-          <Sidebar
-            onSearchClick={() => setIsSearchOpen(true)}
-            currentView={currentView}
-            onViewChange={setCurrentView}
-            studioMode={studioMode}
-            onModeChange={onModeChange}
-            studioExperience={studioExperience}
-            onStudioExperienceChange={onStudioExperienceChange}
-            onSettingsClick={onSettingsClick}
-            backgroundType={effectiveBackground}
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            hasActiveChat={isChatOngoing}
-            onNewChat={() => {
-              selectLocalFSInboxChat(null);
-              onNewChat();
-            }}
-            isIncognito={isIncognito}
-            onIncognitoChat={onIncognitoChat}
-            isHidden={isSidebarHidden}
-          />
-          {studioExperience === 'spark' && !isSidebarCollapsed && (
-            <button
-              type="button"
-              className="studio-sidebar-mobile-scrim"
-              aria-label="Close navigation"
-              onClick={() => setIsSidebarCollapsed(true)}
-            />
-          )}
-        </>
-      )}
-      
-      {/* Show auth buttons when not authenticated */}
-      {!isAuthenticated && <AuthButtons />}
-      
-      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
-
-      {/* Persistent Authorize Sync Modal */}
-      {isLocalFolderConnected && !isLocalFolderAuthorized && !isInitializingLocalFS && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-fade-in" />
-          <div className="relative bg-[#1e1f20] rounded-[28px] p-6 max-w-[500px] w-full shadow-2xl modal-scale-in">
-            <h2 className="text-[22px] font-medium text-[#e3e3e3] mb-4">Authorize local folder?</h2>
-            <p className="text-[15px] text-[#c4c7c5] leading-relaxed mb-8">
-              Willow requires your permission to read and write to the connected folder in order to sync your chats and projects.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void disconnectLocalFolder();
-                }}
-                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
-              >
-                Turn off
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void authorizeLocalFolder();
-                }}
-                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
-              >
-                Authorize
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
-        {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[12px] z-30 flex items-center">
-            <button
-              onClick={() => {
-                selectLocalFSInboxChat(null);
-                if (isIncognito) {
-                  onNewChat(); // Toggle back to normal chat mode
-                } else {
-                  onIncognitoChat(); // Toggle to incognito chat mode
-                }
-              }}
-              title={isIncognito ? "Exit temporary chat" : "Temporary chat"}
-              aria-label="Temporary chat"
-              className={`w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors ${
-                isIncognito 
-                  ? 'bg-[#e3e3e3]/[0.16] text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.24]' 
-                  : 'bg-transparent text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
-              }`}
-            >
-              <span 
-                className="lumi-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
-                style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
-              >
-                gemini_chat_temp
-              </span>
-            </button>
-          </div>
-        )}
-        {/* Background rendered in content area for lines only (solid is just plain color) */}
-        {currentView === 'home' && isChatExperience && effectiveBackground === 'lines' && (
-          <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-              <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
-              <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
-              <div
-                className="absolute inset-0 z-[2] pointer-events-none"
-                style={{ background: 'radial-gradient(circle at center, transparent 30%, var(--studio-surface) 110%)' }}
-              />
-          </div>
-        )}
-        {/* Solid background: No overlays, just plain color from parent */}
-        <main
-          className={`flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col ${
-            isChatExperience ? '' : 'spark-studio-scroll'
-          }`}
-          /* Reserve scrollbar gutter so centered content (e.g. InputBar) doesn't
-             shift horizontally when the main scrollbar appears/disappears
-             between Develop hero, Chat hero, and Chat thread views. */
-          style={{ scrollbarGutter: 'stable' }}
-        >
-             {children}
-        </main>
-      </div>
-    </div>
-  );
 };
 
 const ProjectIframe: React.FC = () => {
@@ -389,6 +132,7 @@ const DriveProjectDiscovery: React.FC = () => {
 
 const App: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const activeSparkLocation = useStore(sparkLocation);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -619,10 +363,18 @@ const App: React.FC = () => {
     }
     if (sequence !== viewChangeSequenceRef.current) return false;
     if (view === 'agents') navigate('/?view=agents');
-    else if (searchParams.get('view') === 'agents') navigate('/', { replace: true });
+    else if (view === 'personal-intelligence') navigate('/personalization-settings');
+    else if (view === 'saved-info') navigate('/saved-info');
+    else if (
+      searchParams.get('view') === 'agents' ||
+      location.pathname === '/personalization-settings' ||
+      location.pathname === '/saved-info'
+    ) {
+      navigate('/', { replace: true });
+    }
     setCurrentView(view);
     return true;
-  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading]);
+  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, location.pathname]);
 
   const handleStudioExperienceChange = React.useCallback(async (experience: StudioExperience) => {
     if (experience === studioExperience && currentView === 'home') return;
@@ -631,6 +383,20 @@ const App: React.FC = () => {
     setStudioExperience(experience);
     if (experience === 'chat') setStudioMode('chat');
   }, [currentView, studioExperience, handleViewChange, startTopLoading]);
+
+  React.useEffect(() => {
+    if (location.pathname === '/personalization-settings') {
+      if (currentView !== 'personal-intelligence') {
+        setCurrentView('personal-intelligence');
+      }
+    } else if (location.pathname === '/saved-info') {
+      if (currentView !== 'saved-info') {
+        setCurrentView('saved-info');
+      }
+    } else if (currentView === 'personal-intelligence' || currentView === 'saved-info') {
+      setCurrentView('home');
+    }
+  }, [location.pathname, currentView]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
@@ -751,159 +517,174 @@ const App: React.FC = () => {
     return <Onboarding onComplete={() => setShowOnboarding(false)} />;
   }
 
+  const mainAppShell = (
+    <>
+      <TopLoadingBar
+        active={isTopLoading}
+        leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
+      />
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={handleSettingsClose} 
+        modelConfig={modelConfig}
+        setModelConfig={setModelConfig}
+        initialTab={settingsInitialTab}
+        initialConnector={settingsInitialConnector}
+      />
+      {!(currentView === 'home' && studioExperience === 'spark') && (
+        <Suspense fallback={null}>
+          <SparkWorkspace
+            backgroundOnly
+            modelConfig={modelConfig}
+            selectedModelId={selectedModelId}
+          />
+        </Suspense>
+      )}
+      <StudioLayout
+        isSearchOpen={isSearchOpen}
+        setIsSearchOpen={setIsSearchOpen}
+        currentView={currentView}
+        setCurrentView={handleViewChange}
+        onSettingsClick={(tabId) => {
+          if (tabId === 'intelligence') {
+            handleViewChange('personal-intelligence');
+          } else {
+            if (tabId) setSettingsInitialTab(tabId as any);
+            setIsSettingsOpen(true);
+          }
+        }}
+        isAuthenticated={!!user}
+        studioMode={studioMode}
+        onModeChange={handleStudioModeChange}
+        studioExperience={studioExperience}
+        onStudioExperienceChange={handleStudioExperienceChange}
+        onNewChat={handleNewChat}
+        hasActiveChat={hasActiveChat}
+        isIncognito={isIncognito}
+        onIncognitoChat={handleIncognitoChat}
+        isSidebarCollapsed={isSidebarCollapsed}
+        setIsSidebarCollapsed={setIsSidebarCollapsed}
+        isSidebarHidden={isSidebarHidden}
+      >
+        {currentView === 'agents' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
+            </StudioLoadingFallback>
+          }>
+            <div className="h-full w-full">
+              <AgentBuilderContent
+                isSidebarCollapsed={isSidebarCollapsed}
+                onClose={() => handleViewChange('home')}
+              />
+            </div>
+          </Suspense>
+        ) : currentView === 'home' ? (
+          studioExperience === 'spark' ? (
+            <Suspense fallback={
+              <StudioLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
+              </StudioLoadingFallback>
+            }>
+              <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
+            </Suspense>
+          ) : studioMode === 'chat' ? (
+            <ChatView
+              key={chatResetKey}
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              isAuthenticated={!!user}
+              onAuthRequired={!user ? () => navigate('/login') : undefined}
+              onOpenDriveSettings={openDriveSettings}
+              isIncognito={isIncognito}
+              onChatStartedChange={setHasActiveChat}
+              isSidebarCollapsed={isSidebarCollapsed}
+              onCollapseSidebar={() => setIsSidebarCollapsed(true)}
+            />
+          ) : studioMode === 'media' ? (
+            <div className="flex flex-col min-h-full" key="media">
+              <HeroSection
+                initialMode="design"
+                onPromptSubmit={(prompt) => {
+                  if (!user) {
+                     navigate('/login');
+                     return;
+                  }
+                  sessionStorage.setItem('staging-nav', 'true');
+                  navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                }}
+                onProjectSelect={(projectId, tempName) => {
+                  if (!user) {
+                     navigate('/login');
+                     return;
+                  }
+                  sessionStorage.setItem('staging-nav', 'true');
+                  const query = tempName 
+                    ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}` 
+                    : `?projectId=${encodeURIComponent(projectId)}`;
+                  navigate(`/media${query}`);
+                }}
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                onAuthRequired={!user ? () => navigate('/login') : undefined}
+                isAuthenticated={!!user}
+                studioMode="media"
+                isSidebarCollapsed={isSidebarCollapsed}
+              />
+              {/* Only show BottomPanel (projects showcase) when authenticated */}
+              {user && (
+                <div className="pb-20">
+                  <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
+                </div>
+              )}
+            </div>
+          ) : (
+            <Suspense fallback={
+              <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <CodeWorkspaceSkeleton />
+              </StudioLoadingFallback>
+            }>
+              <CodeWorkspace
+                key={`develop-${chatResetKey}`}
+                chatResetKey={chatResetKey}
+                modelConfig={modelConfig}
+                setModelConfig={setModelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                isAuthenticated={!!user}
+                onAuthRequired={!user ? () => navigate('/login') : undefined}
+                onSettingsClick={(tab) => {
+                  if (tab) setSettingsInitialTab(tab as any);
+                  setIsSettingsOpen(true);
+                }}
+                isSidebarCollapsed={isSidebarCollapsed}
+                onWorkspaceActive={setIsSidebarHidden}
+              />
+            </Suspense>
+          )
+        ) : currentView === 'personal-intelligence' ? (
+          <PersonalIntelligenceTab />
+        ) : currentView === 'saved-info' ? (
+          <SavedInfoTab />
+        ) : (
+          <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
+        )}
+      </StudioLayout>
+    </>
+  );
+
   return (
     <BackgroundProvider>
       <UserDataProvider>
         <LocalFSProvider modelConfig={modelConfig}>
           <DriveProjectDiscovery />
           <Routes>
-          <Route path="/" element={
-          <>
-            <TopLoadingBar
-              active={isTopLoading}
-              leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
-            />
-            <SettingsModal 
-              isOpen={isSettingsOpen} 
-              onClose={handleSettingsClose} 
-              modelConfig={modelConfig}
-              setModelConfig={setModelConfig}
-              initialTab={settingsInitialTab}
-              initialConnector={settingsInitialConnector}
-            />
-            {!(currentView === 'home' && studioExperience === 'spark') && (
-              <Suspense fallback={null}>
-                <SparkWorkspace
-                  backgroundOnly
-                  modelConfig={modelConfig}
-                  selectedModelId={selectedModelId}
-                />
-              </Suspense>
-            )}
-            <StudioLayout
-              isSearchOpen={isSearchOpen}
-              setIsSearchOpen={setIsSearchOpen}
-              currentView={currentView}
-              setCurrentView={handleViewChange}
-              onSettingsClick={() => setIsSettingsOpen(true)}
-              isAuthenticated={!!user}
-              studioMode={studioMode}
-              onModeChange={handleStudioModeChange}
-              studioExperience={studioExperience}
-              onStudioExperienceChange={handleStudioExperienceChange}
-              onNewChat={handleNewChat}
-              hasActiveChat={hasActiveChat}
-              isIncognito={isIncognito}
-              onIncognitoChat={handleIncognitoChat}
-              isSidebarCollapsed={isSidebarCollapsed}
-              setIsSidebarCollapsed={setIsSidebarCollapsed}
-              isSidebarHidden={isSidebarHidden}
-            >
-              {currentView === 'agents' ? (
-                <Suspense fallback={
-                  <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                    <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
-                  </StudioLoadingFallback>
-                }>
-                  <div className="h-full w-full">
-                    <AgentBuilderContent
-                      isSidebarCollapsed={isSidebarCollapsed}
-                      onClose={() => handleViewChange('home')}
-                    />
-                  </div>
-                </Suspense>
-              ) : currentView === 'home' ? (
-                studioExperience === 'spark' ? (
-                  <Suspense fallback={
-                    <StudioLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                      <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
-                    </StudioLoadingFallback>
-                  }>
-                    <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
-                  </Suspense>
-                ) : studioMode === 'chat' ? (
-                  <ChatView
-                    key={chatResetKey}
-                    modelConfig={modelConfig}
-                    selectedModelId={selectedModelId}
-                    setSelectedModelId={setSelectedModelId}
-                    isAuthenticated={!!user}
-                    onAuthRequired={!user ? () => navigate('/login') : undefined}
-                    onOpenDriveSettings={openDriveSettings}
-                    isIncognito={isIncognito}
-                    onChatStartedChange={setHasActiveChat}
-                    isSidebarCollapsed={isSidebarCollapsed}
-                    onCollapseSidebar={() => setIsSidebarCollapsed(true)}
-                  />
-                ) : studioMode === 'media' ? (
-                  <div className="flex flex-col min-h-full" key="media">
-                    <HeroSection
-                      initialMode="design"
-                      onPromptSubmit={(prompt) => {
-                        if (!user) {
-                           navigate('/login');
-                           return;
-                        }
-                        sessionStorage.setItem('staging-nav', 'true');
-                        navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
-                      }}
-                      onProjectSelect={(projectId, tempName) => {
-                        if (!user) {
-                           navigate('/login');
-                           return;
-                        }
-                        sessionStorage.setItem('staging-nav', 'true');
-                        const query = tempName 
-                          ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}` 
-                          : `?projectId=${encodeURIComponent(projectId)}`;
-                        navigate(`/media${query}`);
-                      }}
-                      modelConfig={modelConfig}
-                      selectedModelId={selectedModelId}
-                      setSelectedModelId={setSelectedModelId}
-                      onAuthRequired={!user ? () => navigate('/login') : undefined}
-                      isAuthenticated={!!user}
-                      studioMode="media"
-                      isSidebarCollapsed={isSidebarCollapsed}
-                    />
-                    {/* Only show BottomPanel (projects showcase) when authenticated */}
-                    {user && (
-                      <div className="pb-20">
-                        <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <Suspense fallback={
-                    <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                      <CodeWorkspaceSkeleton />
-                    </StudioLoadingFallback>
-                  }>
-                    <CodeWorkspace
-                      key={`develop-${chatResetKey}`}
-                      chatResetKey={chatResetKey}
-                      modelConfig={modelConfig}
-                      setModelConfig={setModelConfig}
-                      selectedModelId={selectedModelId}
-                      setSelectedModelId={setSelectedModelId}
-                      isAuthenticated={!!user}
-                      onAuthRequired={!user ? () => navigate('/login') : undefined}
-                      onSettingsClick={(tab) => {
-                        if (tab) setSettingsInitialTab(tab as any);
-                        setIsSettingsOpen(true);
-                      }}
-                      isSidebarCollapsed={isSidebarCollapsed}
-                      onWorkspaceActive={setIsSidebarHidden}
-                    />
-                  </Suspense>
-                )
-              ) : (
-                <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
-              )}
-            </StudioLayout>
-          </>
-        } />
-        <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
+           <Route path="/" element={mainAppShell} />
+           <Route path="/personalization-settings" element={mainAppShell} />
+           <Route path="/saved-info" element={mainAppShell} />
+           <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={
           <WorkbenchRouteGuard>

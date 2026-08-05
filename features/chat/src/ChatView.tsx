@@ -487,10 +487,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
   const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
-  // Live footer (input overlay) height — InputBar grows with multi-line text /
-  // tool chips / attachments, so this must be reactive for the reserve + gap
-  // math to stay correct.
-  const [footerH, setFooterH] = useState(0);
 
   const handleUserBubbleToggleStart = useCallback((willExpand: boolean) => {
     const container = chatScrollRef.current;
@@ -517,37 +513,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useLayoutEffect(() => {
-    const el = footerRef.current;
-    if (!el) return;
-    // Keep footerH AND responseAreaMinHeight in lock-step. The rendered
-    // reserve is `responseAreaMinHeight + footerH`; if the two update in
-    // separate renders the sum dips for one frame, scrollHeight shrinks, the
-    // browser clamps scrollTop, and content visibly 'vibrates' while InputBar
-    // animates (tool chip add/remove). Setting both in the same RO tick lets
-    // React 18 auto-batch them into a single commit with a matched pair.
+    const c = chatScrollRef.current;
+    if (!c) return;
     const sync = () => {
-      const h = el.offsetHeight;
-      setFooterH(h);
       setResponseAreaMinHeight((prev) => {
         if (prev === undefined) return prev;
-        const c = chatScrollRef.current;
         const msgs = messagesRef.current;
         const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
         const msgEl = lastUser ? messageRefs.current[lastUser.id] : null;
-        if (!c || !msgEl) return prev;
+        if (!msgEl) return prev;
         return Math.max(
           0,
           c.clientHeight
             - TARGET_VISUAL_OFFSET
             - msgEl.offsetHeight
             - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
-            - h,
         );
       });
     };
     sync();
     const ro = new ResizeObserver(sync);
-    ro.observe(el);
+    ro.observe(c);
     return () => ro.disconnect();
   }, [hasStarted, editingUserId]);
 
@@ -587,16 +573,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const c = chatScrollRef.current;
 
       // Reserve response-area height on the new placeholder BEFORE scrolling so
-      // there's enough scrollHeight to reach the target. Read the LIVE footer
-      // height from the DOM (InputBar has just shrunk after submit) and commit
-      // it to state in the same flushSync so the reserve render uses matching
-      // numbers — otherwise `responseAreaMinHeight` (computed with the small
-      // live value) would be paired with a stale large `footerH` state.
-      const liveFooterH = footerRef.current?.offsetHeight ?? 0;
+      // there's enough scrollHeight to reach the target.
       const preMinH =
-        c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP - liveFooterH;
+        c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP;
       flushSync(() => {
-        setFooterH(liveFooterH);
         setResponseAreaMinHeight(Math.max(0, preMinH));
         setNeedsScrollPadding(false);
       });
@@ -644,17 +624,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
         const msgEl = lastUser ? messageRefs.current[lastUser.id] : null;
         if (!msgEl) return prev;
-        // Read the live footer height so a container resize always commits a
-        // matched (responseAreaMinHeight, footerH) pair even mid-InputBar
-        // animation; the footer RO above keeps footerH itself in sync.
-        const liveFooterH = footerRef.current?.offsetHeight ?? 0;
         return Math.max(
           0,
           c.clientHeight
             - TARGET_VISUAL_OFFSET
             - msgEl.offsetHeight
             - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
-            - liveFooterH,
         );
       });
 
@@ -697,7 +672,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     ro.observe(el);
     check();
     return () => ro.disconnect();
-  }, [messages, responseAreaMinHeight, streaming, footerH]);
+  }, [messages, responseAreaMinHeight, streaming]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const stopThinking = useCallback(() => {
@@ -1266,18 +1241,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const lastUser = [...messagesRef.current].reverse().find((message) => message.role === 'user');
     const messageElement = lastUser ? messageRefs.current[lastUser.id] : null;
     if (messageElement) {
-      const liveFooterHeight = footerRef.current?.offsetHeight ?? 0;
       const nextReserve = Math.max(
         0,
         container.clientHeight
           - TARGET_VISUAL_OFFSET
           - messageElement.offsetHeight
           - MESSAGE_GAP
-          - liveFooterHeight,
       );
 
       flushSync(() => {
-        setFooterH(liveFooterHeight);
         setResponseAreaMinHeight((current) => (current === undefined ? current : nextReserve));
       });
     }
@@ -1387,13 +1359,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           onAnimationComplete={() => {
             if (isFirstTurnEntranceActive) setIsFirstTurnEntranceActive(false);
           }}
-          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-[72px] transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
+          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-[72px] pb-[20px] transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
             thinkingMessage ? 'min-[1024px]:pl-9' : ''
           }`}
-          style={{
-            paddingBottom:
-              responseAreaMinHeight !== undefined && !needsScrollPadding ? 0 : footerH,
-          }}
         >
           {isIncognito && (
             <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white/5 border border-white/5 text-zinc-400 text-[12px] font-medium rounded-full w-fit mx-auto select-none backdrop-blur-md">
@@ -1568,13 +1536,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   ...(isLastAssistant && responseAreaMinHeight !== undefined
                     ? {
                         // Reserve exactly the visible area below the user bubble.
-                        // paddingBottom = footer height so the action row clears
-                        // the input overlay by the same 32px (h-8 gradient) that
-                        // separates action-row → suggestions in the Workbench.
                         minHeight: !needsScrollPadding
-                          ? responseAreaMinHeight + footerH
+                          ? responseAreaMinHeight
                           : undefined,
-                        paddingBottom: !needsScrollPadding ? footerH : undefined,
                       }
                     : {}),
                 }}
@@ -1670,22 +1634,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </motion.div>
       </div>
 
-      {/* Bottom-docked input (footer). h-8 gradient matches the Workbench so the gap
-          action-row → input-top here == action-row → suggestions-top there. */}
+      {/* Bottom-docked input (footer). Position relative makes it a sibling in the
+          flex column, ensuring the scroller above it terminates correctly instead
+          of spanning under it. */}
       <div
         ref={footerRef}
-        className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center pointer-events-none"
+        className="relative z-30 flex shrink-0 flex-col items-center"
       >
+        {/* Gemini's native 28px fading gradient overlay that covers the bottom edge of the scroller */}
         <div
-          className="h-8 w-full max-w-[820px]"
+          className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
           style={{
-            backgroundColor: 'var(--studio-surface)',
-            WebkitMaskImage: 'linear-gradient(to top, black 20%, transparent)',
-            maskImage: 'linear-gradient(to top, black 20%, transparent)',
+            background: 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
           }}
         />
         <div
-          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[var(--studio-surface)]"
+          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]"
         >
           <motion.div
             layoutId={CHAT_COMPOSER_LAYOUT_ID}
