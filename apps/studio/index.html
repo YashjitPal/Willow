@@ -252,89 +252,53 @@
         font-synthesis-weight: none;
       }
 
-      /* Gemini's current fine-pointer scrollbar treatment. */
+      /* 
+       * Gemini Custom Scrollbar Implementation (Scoped utility class)
+       * Use .gemini-chat-scrollbar on containers that should have the custom invisible-until-hover scrollbar.
+       * Explicitly scoped so it doesn't bleed into canvases like Code, Media, or Agents.
+       */
       @media (pointer: fine) {
-        ::-webkit-scrollbar,
-        ::-webkit-scrollbar-corner {
-          width: 12px;
+        .gemini-chat-scrollbar::-webkit-scrollbar,
+        .gemini-chat-scrollbar::-webkit-scrollbar-corner {
+          background: transparent;
           height: 12px;
-          background: transparent;
+          width: 12px;
         }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          min-width: 48px;
-          min-height: 48px;
+        
+        .gemini-chat-scrollbar::-webkit-scrollbar-thumb {
+          background: content-box transparent;
           border: 2px solid transparent;
           border-radius: 9999px;
-          background: transparent;
-          background-clip: content-box;
+          min-height: 48px;
+          min-width: 48px;
         }
-        :hover::-webkit-scrollbar-thumb {
-          background-color: #333537;
+        
+        /* Show scrollbar when hovering over the container */
+        .gemini-chat-scrollbar:hover::-webkit-scrollbar-thumb {
+          background: content-box rgb(51, 53, 55);
         }
-        ::-webkit-scrollbar-thumb:hover,
-        ::-webkit-scrollbar-thumb:active {
-          background-color: #444746;
+        
+        /* Brighten scrollbar when interacting directly with it */
+        .gemini-chat-scrollbar::-webkit-scrollbar-thumb:active,
+        .gemini-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: content-box rgb(68, 71, 70);
         }
-        ::-webkit-scrollbar-button {
-          width: 0;
-          height: 0;
-        }
-
-        @supports not (selector(::-webkit-scrollbar)) {
-          * {
-            scrollbar-color: transparent transparent;
-            scrollbar-gutter: auto;
-            scrollbar-width: thin;
-          }
-          :hover {
-            scrollbar-color: #333537 transparent;
-          }
+        
+        .gemini-chat-scrollbar::-webkit-scrollbar-button {
+          height: 0px;
+          width: 0px;
         }
       }
 
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: transparent;
-      }
-      .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-        background-color: #333537;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background-color: #444746;
-      }
-
-      .gemini-chat-scrollbar {
-        scrollbar-color: transparent transparent;
-        scrollbar-width: auto;
-      }
-      .gemini-chat-scrollbar::-webkit-scrollbar {
-        width: 12px;
-        height: 12px;
-      }
-      .gemini-chat-scrollbar::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .gemini-chat-scrollbar::-webkit-scrollbar-thumb {
-        min-height: 48px;
-        border: 2px solid transparent;
-        border-radius: 9999px;
-        background: transparent;
-        background-clip: content-box;
-      }
-      .gemini-chat-scrollbar:hover {
-        scrollbar-color: #333537 transparent;
-      }
-      .gemini-chat-scrollbar:hover::-webkit-scrollbar-thumb {
-        background-color: #333537;
-      }
-      .gemini-chat-scrollbar::-webkit-scrollbar-thumb:hover {
-        background-color: #444746;
-      }
-      .gemini-chat-scrollbar::-webkit-scrollbar-button {
-        width: 0;
-        height: 0;
+      /* Fallback for non-webkit browsers */
+      @supports not (selector(::-webkit-scrollbar)) {
+        .gemini-chat-scrollbar {
+          scrollbar-color: transparent transparent;
+          scrollbar-width: thin;
+        }
+        .gemini-chat-scrollbar:hover {
+          scrollbar-color: rgb(51, 53, 55) transparent;
+        }
       }
 
       @media (hover: none), (pointer: coarse) {
