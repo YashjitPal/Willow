@@ -409,6 +409,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // which would bump the "last edited" timestamp to Date.now() simply by clicking on a chat.
   const initialLoadRef = useRef(true);
   const lastSavedMessagesRef = useRef<ChatMsg[]>([]);
+  const inFlightSaveRef = useRef<ChatMsg[] | null>(null);
 
   useEffect(() => {
     if (isIncognito) return;
@@ -419,16 +420,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
        return;
     }
 
-    if (messages === lastSavedMessagesRef.current) {
-        return; // Exact same array reference (e.g. from a load or unrelated re-render)
+    if (messages === lastSavedMessagesRef.current || messages === inFlightSaveRef.current) {
+        return; // Already saved, or a save for this exact array is in flight
     }
 
     if (isLocalFolderConnected && messages.length > 0 && !isGenerating && !initialLoadRef.current) {
       const activeId = chatTitle || chatSessionId;
       // Strip runtime flags before persisting
       const toSave = messages.map(serializeChatMessage).filter(hasSavedMessageContent);
-      void saveLocalFSChat(activeId, toSave, chatTitle ? chatSessionId : null);
-      lastSavedMessagesRef.current = messages;
+      const attempted = messages;
+      // Dedup marker, set synchronously so a re-render for an unrelated dep
+      // (chatTitle landing, say) cannot stack a second write for the same
+      // array while the first is still in flight.
+      inFlightSaveRef.current = attempted;
+      // `lastSavedMessagesRef` only advances once the write reports success.
+      // saveLocalFSChat can decline — it no-ops while the chat storage scope is
+      // switching and returns false on a name collision — and advancing
+      // regardless meant this effect never retried, silently losing the turn.
+      // Every save writes the whole conversation, so the next successful save
+      // subsumes anything a failed one missed.
+      void (async () => {
+        const saved = await saveLocalFSChat(activeId, toSave, chatTitle ? chatSessionId : null);
+        if (saved) lastSavedMessagesRef.current = attempted;
+        if (inFlightSaveRef.current === attempted) inFlightSaveRef.current = null;
+      })();
     }
   }, [messages, chatTitle, chatSessionId, isLocalFolderConnected, saveLocalFSChat, isGenerating, isIncognito]);
 

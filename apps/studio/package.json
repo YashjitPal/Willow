@@ -10,7 +10,7 @@
     "build": "vite build",
     "build:no-env": "node scripts/build-production.mjs",
     "preview": "vite preview",
-    "test": "node --test test/agent-builder-overlays.smoke.test.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
     "qa:agent-builder:build": "node scripts/agent-builder-qa.mjs",
     "qa:agent-builder": "node scripts/agent-builder-qa.mjs --serve"
   }
