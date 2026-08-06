@@ -29,6 +29,22 @@ interface UserProfile {
 // Export the interface for use in other components
 export type { UserProfile };
 
+/**
+ * Field-wise comparison of two profiles. Every `UserProfile` field is a
+ * primitive, so this is an exact equality test, not an approximation.
+ *
+ * Used to avoid handing out a new object identity when a re-fetch returned the
+ * same data — see the auth-state listener.
+ */
+const USER_PROFILE_FIELDS: (keyof UserProfile)[] = [
+  'displayName', 'photoURL', 'role', 'onboardingComplete', 'workspaceName',
+  'username', 'workspaceColor', 'workspaceDescription', 'location',
+  'background', 'theme', 'description',
+];
+
+const isSameUserProfile = (a: UserProfile, b: UserProfile): boolean =>
+  USER_PROFILE_FIELDS.every((field) => a[field] === b[field]);
+
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
@@ -123,22 +139,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       const generation = ++authGenerationRef.current;
       const nextUid = firebaseUser?.uid || null;
-      if (activeAuthUidRef.current !== nextUid) {
+      const previousUid = activeAuthUidRef.current;
+      if (previousUid !== nextUid) {
         // Close the account-switch window before any profile/network work can
         // run with the previous account's Drive credential.
         setDriveAccessToken(null);
         setIsDriveConnected(false);
         setUserProfile(null);
       }
+      // Whether this fire is a genuine account change or Firebase simply
+      // re-reporting the user we already have (it re-fires on token refresh and
+      // revalidation, typically a few seconds after startup).
+      const isSameAccountRefire = previousUid !== null && previousUid === nextUid;
       activeAuthUidRef.current = nextUid;
       console.log('[Auth] State changed:', firebaseUser ? firebaseUser.email : 'No user');
       setUser(firebaseUser);
-      
+
       if (firebaseUser) {
-        setLoading(true);
+        // Only show the blocking loader for a real sign-in. App renders a bare
+        // spinner while `loading` is true, which UNMOUNTS the whole tree —
+        // LocalFSProvider and ChatView included — so flipping it on a
+        // same-account re-fire destroyed the live conversation and dropped the
+        // user back on the home screen. The profile below is still refreshed;
+        // it just happens without ripping the UI down first.
+        if (!isSameAccountRefire) setLoading(true);
         const profile = await fetchUserProfile(firebaseUser.uid);
         if (authGenerationRef.current !== generation) return;
-        setUserProfile(profile);
+        // Keep the previous object when nothing actually changed. fetchUserProfile
+        // always returns a fresh object, and several consumers derive useCallback
+        // identities from `userProfile` — notably the local-FS provider, whose
+        // restore effect re-runs on every identity change. Every field is a
+        // primitive, so a shallow compare is exact here.
+        setUserProfile((prev) => (prev && isSameUserProfile(prev, profile) ? prev : profile));
 
         const storedDriveToken = sessionStorage.getItem('googleDriveAccessToken');
         const storedDriveOwner = sessionStorage.getItem('googleDriveTokenOwner');

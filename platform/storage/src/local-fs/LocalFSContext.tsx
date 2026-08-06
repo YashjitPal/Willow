@@ -233,6 +233,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, [mergeSyncRecords]);
 
+  /**
+   * The single definition of a chat scope id. Anything that needs to know
+   * whether a scope is about to change must build the candidate id through
+   * this, or the two spellings drift and the comparison silently stops working.
+   */
+  const buildChatScopeId = useCallback((rootId: string): string =>
+    `${user?.uid || 'signed-out'}::${rootId}::${getSanitizedWorkspaceName()}`,
+  [getSanitizedWorkspaceName, user?.uid]);
+
   const activateChatScope = useCallback(async (rootId: string): Promise<void> => {
     isSwitchingChatScopeRef.current = true;
     try {
@@ -248,7 +257,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
     const workspaceId = getSanitizedWorkspaceName();
     const userId = user?.uid || 'signed-out';
-    const scopeId = `${userId}::${rootId}::${workspaceId}`;
+    const scopeId = buildChatScopeId(rootId);
     const keys = chatMetadataKeysForScope(scopeId);
     if (chatScopeIdRef.current !== scopeId) {
       // These caches are keyed by project name/id and must never leak across
@@ -290,7 +299,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     localChatsRef.current = sortChatsNewestToOldest(chats.filter((id) => !records[id]?.tombstone), timestamps);
     setChatScopeId(scopeId);
     persistChatMetadata(false);
-  }, [getSanitizedWorkspaceName, persistChatMetadata, user?.uid]);
+  }, [buildChatScopeId, getSanitizedWorkspaceName, persistChatMetadata, user?.uid]);
 
   const updateScopedChatTimestamp = useCallback((chatId: string, timestamp = Date.now()): void => {
     chatTimestampsRef.current[chatId] = timestamp;
@@ -782,28 +791,57 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       await enqueueChatOperation([chatId], async () => {
         const record = chatSyncRecordsRef.current[chatId];
         if (record?.tombstone) return;
+
+        // `diskFiles` was enumerated at the top of this reconcile, but we only
+        // reach this decision after every per-chat await above — seconds later.
+        // A chat saved in that window is present on disk and absent from the
+        // snapshot, which reads here as "externally deleted" and destroys a
+        // conversation the user is actively in. Renaming to the AI-generated
+        // title is exactly that write, which is why this hit reliably on the
+        // first message of a new chat. Re-check disk before believing the
+        // snapshot; absence has to be true *now* to count as a deletion.
+        try {
+          await chatsDir.getFileHandle(`${chatId}.json`);
+          if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
+          return;
+        } catch (error: any) {
+          // Only a genuine "not there" is evidence. A permission or transient
+          // failure must not be read as a delete.
+          if (error?.name && error.name !== 'NotFoundError') return;
+        }
+
         if (record?.dirty) {
           let body: any[] | null = null;
           try { body = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
-          if (body) {
-            try {
-              await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(body, null, 2));
-              const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
-              const latest = chatSyncRecordsRef.current[chatId];
-              if (latest?.dirty) {
-                chatSyncRecordsRef.current[chatId] = {
-                  ...latest,
-                  diskRevision: latest.revision,
-                  diskMtime: written.lastModified,
-                  dirty: false,
-                  updatedAt: Date.now(),
-                };
-              }
-              return;
-            } catch {
-              return;
-            }
+          if (!body) {
+            // `dirty` means there is local work disk has never seen, so a body
+            // we cannot read right now is NOT evidence of an external delete —
+            // it is a read to retry. Falling through to the tombstone below
+            // permanently erased the chat and its body, which is exactly how a
+            // conversation the user is still looking at gets lost. A save in
+            // flight is the common cause: saveLocalFSChat registers the chat in
+            // the list before writing its body, so a reconcile landing in that
+            // window sees dirty-with-no-body. Leave it dirty; the next
+            // watcher/poll tick retries.
+            return;
           }
+          try {
+            await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(body, null, 2));
+            const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+            const latest = chatSyncRecordsRef.current[chatId];
+            if (latest?.dirty) {
+              chatSyncRecordsRef.current[chatId] = {
+                ...latest,
+                diskRevision: latest.revision,
+                diskMtime: written.lastModified,
+                dirty: false,
+                updatedAt: Date.now(),
+              };
+            }
+          } catch {
+            // Keep dirty; a later watcher/focus tick retries the flush.
+          }
+          return;
         }
 
         const revision = nextChatRevision(chatId);
@@ -860,15 +898,32 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     const restoreConnection = async () => {
       setIsInitializingLocalFS(true);
       setIsLocalFolderAuthorized(false);
-      // Do not expose the previous account/root's chat registry while the new
-      // scope is being restored.
-      setLocalChats([]);
-      localChatsRef.current = [];
-      setActiveChatId(null);
       const stored = await getStoredDirectoryRecord();
       if (!isCurrent()) return;
       const handle = stored?.handle || null;
-      await activateChatScope(stored?.rootId || 'browser');
+      const nextRootId = stored?.rootId || 'browser';
+
+      // Only drop the visible chat registry when this restore is actually
+      // moving to a different scope. This effect re-runs whenever
+      // `getSanitizedWorkspaceName`/`activateChatScope` change identity — which
+      // happens on ANY userProfile change, including one that leaves the
+      // workspace name untouched. Wiping unconditionally nulled `activeChatId`
+      // mid-conversation, and ChatView reads a sustained null as a deselect and
+      // clears the live thread (see its clear-effect), dumping the user back on
+      // the home screen with the chat gone.
+      //
+      // Skipping the wipe leaks nothing: an identical scopeId means same
+      // account, same root, and same workspace, so the registry on screen
+      // already belongs to this scope. When the scope DOES differ we still
+      // clear first, so another account's chats can never be shown, and
+      // activateChatScope repopulates from that scope's own metadata.
+      if (buildChatScopeId(nextRootId) !== chatScopeIdRef.current) {
+        setLocalChats([]);
+        localChatsRef.current = [];
+        setActiveChatId(null);
+      }
+
+      await activateChatScope(nextRootId);
       // activateChatScope advances the generation when account/root/workspace
       // changes; adopt that new generation for the work this restore started.
       if (cancelled) return;
@@ -923,7 +978,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       providerGenerationRef.current += 1;
       pendingChatsDirRef.current = null;
     };
-  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
+  }, [isSupported, buildChatScopeId, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
 
   // Cross-tab sync bridge. Another tab's writes to the shared localStorage
   // registry/indexes fire only the DOM `storage` event in this tab — nothing
@@ -1864,8 +1919,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // broadcast `willow_disk_changed` so the media gallery can refresh too.
   // FALLBACK / BACKSTOP: a timer poll (rare when the observer is active, normal
   // cadence when it isn't) plus an immediate reconcile on focus/visibility — so it
-  // works everywhere and can't miss a change. Our own writes only flip IndexedDB
-  // (not the disk reconcile), so this can't loop.
+  // works everywhere and can't miss a change.
+  //
+  // Our own `saveLocalFSChat` writes DO land on disk, so they do wake this
+  // watcher. That is safe but not free: a reconcile can already be in flight,
+  // holding a directory listing taken before our write, while that write
+  // completes. Anything concluding a chat is gone must therefore re-check disk
+  // instead of trusting that listing — see the external-deletion pass in
+  // reconcileChatsWithDisk.
   useEffect(() => {
     if (!isSupported || !isLocalFolderConnected || !isLocalFolderAuthorized) return;
 
