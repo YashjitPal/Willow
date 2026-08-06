@@ -76,6 +76,10 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `src/media-storage.ts` | `WillowMediaDB` IndexedDB: per-project media item lists + covers. Also owns project-kind helpers (`getMediaProjectIds`, `autoDetectProjectKinds`) and `deleteProjectData`. |
 | `src/indexeddb/willow-db.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
 | `src/local-fs/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
+| `src/synced-folders.ts` | **The registry a feature plugs into.** A feature declares one top-level workspace folder (`Gems/`) plus how an item serializes; nothing here knows which features exist. Top-level sibling of `src/project-contributors.ts`, which covers sub-folders *inside* one project. See [§13](#13-how-to-extend-safely-recipes). |
+| `src/local-fs/folder-sync-engine.ts` | **The one reconcile algorithm**, shared by every registered folder. Pure: no React, no `FileSystemDirectoryHandle`, everything arrives through `FolderSyncPorts` — which is what makes the sync rules unit-testable instead of only reviewable. Owns revisions, tombstones, dirty flushes, conflict copies, and every delete-safety rule. |
+| `src/local-fs/synced-folder-driver.ts` | Adapter binding a registered folder to a real directory handle: supplies the engine with disk I/O, localStorage-backed sync records (`willow_synced_*` keys), and the per-item in-tab + cross-tab lock. |
+| `src/project-contributors.ts` | Registry for sub-folders *within* a saved project (`Code/<project>/Designs/`). Used by `features/design/src/register.ts`. |
 | `apps/studio/src/app/App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
 | `features/media/src/MediaHome.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
 | `features/media/src/MediaShowcase.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
@@ -95,6 +99,9 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `willow_chat_timestamps:<scope>` | `{ [chatId]: epochMs }` for newest-first sort | LocalFSContext |
 | `willow_chat_sync_state:<scope>` | revisions, disk mtimes, dirty flags, tombstones | LocalFSContext |
 | `willow_pinned_chats:v2:<scope>` | `string[]` of pinned chat ids | Sidebar |
+| `willow_synced_ids:<folder>:<scope>` | `string[]` of item ids for one registered folder | syncedFolderDriver |
+| `willow_synced_timestamps:<folder>:<scope>` | `{ [itemId]: epochMs }` | syncedFolderDriver |
+| `willow_synced_state:<folder>:<scope>` | revisions, disk mtimes, dirty flags, tombstones (same shape as the chat equivalent) | syncedFolderDriver |
 | `willow_media_index:<scope>` / `willow_media_index_meta:<scope>` | lightweight media counts + revision metadata | mediaStorage |
 | `willow_code_chats:v2:<scope>` / `willow_code_chat_state:v2:<scope>:<chat>` | Code-mode markers and tombstones | codeChatStorage |
 | `modelConfig`, `selectedModelId` | non-secret UI settings | settings UI |
@@ -246,14 +253,20 @@ both are cited here as escapes so this file stays greppable.)
     │       ├── Chat sessions/        // per-project chat <chatId>.json
     │       ├── Designs/              // <name>.tsx + <name>.json design nodes
     │       └── Agents/
-    └── Media/
-        └── <projectName>/
-            ├── .willow.json          // { id }
-            ├── Images/  (+ Characters/)
-            ├── Videos/
-            ├── Scenes/               // reserved (created, not yet written)
-            └── Music/                // reserved
+    ├── Media/
+    │   └── <projectName>/
+    │       ├── .willow.json          // { id }
+    │       ├── Images/  (+ Characters/)
+    │       ├── Videos/
+    │       ├── Scenes/               // reserved (created, not yet written)
+    │       └── Music/                // reserved
+    └── Gems/                         // registered via registerSyncedFolder
+        └── <gemId>.json              // gemId = sanitized gem name
 ```
+
+`Chats/`, `Code/` and `Media/` are hand-wired (they predate the registry).
+`Gems/` is the first folder driven by `registerSyncedFolder`, and is the pattern
+new folders should follow — see [§13](#13-how-to-extend-safely-recipes).
 
 `kind` is decided by which parent the folder is under (`Code/` → code,
 `Media/` → media). A folder present in **both** is treated as `code`.
@@ -500,10 +513,87 @@ Chats use React state (`localChats` from context) directly — no event needed.
   unknown fields survive — good. Just make sure no mutation rebuilds the object
   from scratch and drops it.
 
-**Add a new disk-backed thing to the poll**
+### Sync a new folder to disk (the common case) — use the registry
+
+**Do not write a second reconciler.** Declare a folder and the engine does the
+rest. Two files, and nothing in `platform/storage` needs to change:
+
+```ts
+// features/<feature>/src/<feature>-store.ts
+export const gemsStore = atom<Gem[]>([]);
+
+// features/<feature>/src/register.ts
+import { registerSyncedFolder } from '@willow/storage/synced-folders';
+
+registerSyncedFolder('gems', {
+  folder: 'Gems',           // <workspace>/Gems/ — created on demand
+  extension: '.json',       // other files in the folder are ignored
+  async readLocal() {       // what the feature holds right now
+    return gemsStore.get().map((g) => ({ id: g.id, contents: JSON.stringify(g, null, 2) }));
+  },
+  async applyRemote(items) { // what disk says it should hold
+    gemsStore.set(items.map(parse).filter(Boolean));
+  },
+  // Optional: isPaused() — return true mid-generation/mid-rename. A paused
+  // folder performs ZERO deletions, exactly like a failed scan.
+});
+```
+
+Then add one line to [`apps/studio/src/app/register-features.ts`](../../apps/studio/src/app/register-features.ts):
+`import '@willow/<feature>/register';`. That is the whole wiring —
+`pollDiskNow` iterates the registry, so it never needs editing again.
+
+`features/gems` is the reference implementation ([register.ts](../../features/gems/src/register.ts),
+~55 lines including JSON validation).
+
+**What the engine already guarantees — never reimplement these:**
+
+| Concern | Where it lives |
+| --- | --- |
+| Per-item revisions, dirty tracking, durable tombstones | `reconcileFolder` |
+| In-tab queue + cross-tab Web Locks, per item | `lockItems` (driver) |
+| Delete decisions re-checked against **live** disk | `reconcileFolder` pass 2 |
+| `NotFoundError` is the *only* proof of deletion | `statNow` (driver) |
+| Dirty item with an unreadable body → retry, never erase | `reconcileFolder` pass 2 |
+| External edits preserved as `(Disk conflict <stamp>)` copies | `reconcileFolder` pass 1 |
+| Zero deletions on failed scan or paused folder | `reconcileFolder` / driver |
+| Change-only `applyRemote` (invariant 7) | driver |
+
+**Rules for your descriptor:**
+- **`id` is the file name stem.** It must survive a filesystem round trip — the
+  engine ignores ids containing `` \ / : * ? " < > | ``. Sanitize at creation
+  (see `makeGemId`), not at save time: an id that changes on the way to disk is
+  precisely what made a chat vanish (see [§12](#12-known-issues--tech-debt)).
+- **`applyRemote` must tolerate hostile input.** Files are user-editable. Narrow
+  untrusted JSON and skip malformed entries rather than throwing — one bad file
+  must not take the rest of the folder down.
+- **`readLocal`/`applyRemote` must not throw.** Both are wrapped, but a thrown
+  error means that pass does nothing.
+- **Text only.** Heavy binary (images, video) does not belong here — it would go
+  through localStorage-adjacent metadata and blow the budget. Follow the media
+  path instead (`src/local-fs/media-disk.ts`), which streams bytes to disk and
+  keeps only metadata in IndexedDB.
+- One folder has exactly one owner. Registering a folder another feature already
+  owns throws at registration — including a case-only difference, since Windows
+  and macOS filesystems are case-insensitive.
+
+Tests: [`folder-sync-engine.test.mjs`](../../apps/studio/test/folder-sync-engine.test.mjs)
+(12, the engine's delete-safety spec) and
+[`synced-folders.test.mjs`](../../apps/studio/test/synced-folders.test.mjs) (10,
+the registry contract). If you change the engine, those are the gate.
+
+### Add a disk-backed thing that does NOT fit the registry
+
+Chats, Code and Media predate the registry and keep bespoke paths, because they
+carry extra behaviour the descriptor model does not express (project manifests,
+per-project sub-folders, blob-URL lifecycles, cover extraction). If you are
+genuinely in that territory:
 - Write a `refreshX()` that diffs disk vs state, is **change-only**, and is
   **delete-safe** (scan-failure → no deletes; a grace guard if it can race with
   saves). Call it from `pollDiskNow`. Never delete without an `onDisk`-style gate.
+- Prefer reusing `reconcileFolder` by implementing `FolderSyncPorts` over
+  hand-rolling the algorithm. Every rule in the table above is one you would
+  otherwise have to rediscover — two of them by losing a user's data first.
 
 **Change poll cadence**
 - Edit the `period` in the watcher effect. Keep visible < hidden. Sub-second is

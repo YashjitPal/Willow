@@ -35,11 +35,37 @@ Section 11 (Invariants) lists rules that cause data loss when broken.
 | `src/local-fs/disk-deps.ts` | The `DiskDeps` contract the two disk writers below are passed. |
 | `src/local-fs/code-disk.ts` | Writes a project's `Code/` folder: codebase files + chat sessions. |
 | `src/local-fs/media-disk.ts` | Writes/deletes/renames files in a project's `Media/` folder + cover. |
-| `src/project-contributors.ts` | Registry where features register their project-save writers. |
+| `src/project-contributors.ts` | Registry where features register their project-save writers (sub-folders *inside* a project). |
+| `src/synced-folders.ts` | **Registry where features register a top-level synced folder** (`Gems/`). Start here to make a new feature sync. |
+| `src/local-fs/folder-sync-engine.ts` | The one reconcile algorithm, shared by every registered folder. Pure + unit-tested. |
+| `src/local-fs/synced-folder-driver.ts` | Binds a registered folder to a real directory handle; owns its sync records and per-item locks. |
 | `src/code-chat-storage.ts` | Saves + loads Code projects (code files + chat threads). |
 | `src/media-storage.ts` | Saves + loads Media projects (generated images/video/music). |
 | `src/indexeddb/willow-db.ts` | Chat bodies + code sessions with **content-addressed file-snapshot dedup**. |
 | `src/covers.ts` | Project cover-image logic (extract still frame from video as PNG). |
+
+## Making a new feature sync to disk
+
+**Do not write another reconciler.** Declare the folder and the engine drives it:
+
+```ts
+// features/<feature>/src/register.ts
+import { registerSyncedFolder } from '@willow/storage/synced-folders';
+
+registerSyncedFolder('gems', {
+  folder: 'Gems',
+  extension: '.json',
+  readLocal: async () => gemsStore.get().map((g) => ({ id: g.id, contents: JSON.stringify(g, null, 2) })),
+  applyRemote: async (items) => gemsStore.set(items.map(parse).filter(Boolean)),
+});
+```
+
+Then one line in `apps/studio/src/app/register-features.ts`. `pollDiskNow`
+iterates the registry, so it never needs editing. Revisions, tombstones, dirty
+tracking, cross-tab locks, conflict copies and every delete-safety rule already
+live in the engine — reimplementing them is how data gets lost. Reference
+implementation: `features/gems/src/register.ts`. Full guide and the list of
+guarantees: [ARCHITECTURE.md §13](ARCHITECTURE.md#13-how-to-extend-safely-recipes).
 
 ## The two surfaces
 

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,9 +14,30 @@ export const CreateGemView: React.FC = () => {
   const [instructions, setInstructions] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
 
-  const hasUnsavedChanges = name.length > 0 || desc.length > 0 || instructions.length > 0;
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const isNameError = nameTouched && name.trim().length === 0;
   const canSave = name.trim().length > 0;
+
+  const [selectedTool, setSelectedTool] = useState('No default tool');
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const [menuCoords, setMenuCoords] = useState<{top: number, left: number} | null>(null);
+  const toolButtonRef = useRef<HTMLButtonElement>(null);
+
+  const TOOL_MENU_ITEMS = [
+    { text: 'No default tool', icon: 'do_not_disturb_on', family: 'google-symbols' },
+    { text: 'Create image', icon: 'image_create', family: 'luminous' },
+    { text: 'Create video', icon: 'movie', family: 'luminous' },
+    { text: 'Create music', icon: 'music', family: 'luminous' },
+    { text: 'Canvas', icon: 'canvas', family: 'luminous' },
+    { text: 'Deep research', icon: 'deep_research', family: 'luminous' },
+    { text: 'Guided learning', icon: 'guided_learning', family: 'luminous' }
+  ];
+
+  useEffect(() => {
+    const handleResize = () => setToolMenuOpen(false);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <div style={{
@@ -31,6 +53,20 @@ export const CreateGemView: React.FC = () => {
       background: '#131314'
     }}>
       <style>{`
+        @keyframes menu-enter {
+          0% { opacity: 0; transform: scale(0.8); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes menu-exit {
+          0% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(0.8); }
+        }
+        .default-tool-btn {
+          background-color: transparent;
+        }
+        .default-tool-btn:hover, .default-tool-btn:focus, .default-tool-btn[data-open="true"] {
+          background-color: rgba(227, 227, 227, 0.08) !important;
+        }
         @font-face {
           font-family: "Google Symbols";
           font-style: normal;
@@ -154,7 +190,10 @@ export const CreateGemView: React.FC = () => {
                   type="text"
                   placeholder="Give your Gem a name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setHasUnsavedChanges(true);
+                  }}
                   onFocus={() => setNameFocused(true)}
                   onBlur={() => {
                     setNameFocused(false);
@@ -203,7 +242,10 @@ export const CreateGemView: React.FC = () => {
               <textarea
                 placeholder="Describe your Gem and explain what it does"
                 value={desc}
-                onChange={(e) => setDesc(e.target.value)}
+                onChange={(e) => {
+                  setDesc(e.target.value);
+                  setHasUnsavedChanges(true);
+                }}
                 onFocus={() => setDescFocused(true)}
                 onBlur={() => setDescFocused(false)}
                 style={{
@@ -261,9 +303,12 @@ export const CreateGemView: React.FC = () => {
               boxSizing: 'border-box'
             }}>
               <textarea
-                placeholder="Example: You are a horticulturist with a background in natural lawns and native plants, and you help people plan low water gardens. Take..."
+                placeholder="Example: You are a horticulturist with a background in natural lawns and native plants, and you help people plan low water gardens. Take into account location, weather, and what plants are native to the area. You are knowledgeable, casual, and friendly."
                 value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
+                onChange={(e) => {
+                  setInstructions(e.target.value);
+                  setHasUnsavedChanges(true);
+                }}
                 onFocus={() => setInstFocused(true)}
                 onBlur={() => setInstFocused(false)}
                 style={{
@@ -274,10 +319,13 @@ export const CreateGemView: React.FC = () => {
                   border: 'none',
                   outline: 'none',
                   backgroundColor: 'transparent',
-                  width: '100%',
-                  flex: '1 1 auto',
-                  minHeight: '0px',
+                  flex: 1,
                   resize: 'none',
+                  overflow: 'hidden',
+                  lineHeight: '24px',
+                  WebkitMaskImage: !instFocused ? 'linear-gradient(to bottom, black 40%, transparent 100%)' : 'none',
+                  maskImage: !instFocused ? 'linear-gradient(to bottom, black 40%, transparent 100%)' : 'none',
+                  transition: 'mask-image 0.25s, -webkit-mask-image 0.25s',
                   boxSizing: 'border-box'
                 }}
               />
@@ -340,12 +388,27 @@ export const CreateGemView: React.FC = () => {
                 <MaterialSymbol name="info" family="google-symbols" size={20} weight={400} />
               </button>
               <div style={{ flex: 1 }}></div>
-              <button style={{
-                padding: '12px 12px 12px 16px', borderRadius: '9999px', height: '32px', fontSize: '14px', fontWeight: 500,
-                color: 'rgb(227, 227, 227)', backgroundColor: 'transparent', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0px 4px 0px 0px', cursor: 'pointer'
-              }}>
-                No default tool <MaterialSymbol name="arrow_drop_down" size={20} style={{ marginLeft: '4px' }} />
+              <button 
+                ref={toolButtonRef}
+                className="default-tool-btn"
+                data-open={toolMenuOpen}
+                onClick={() => {
+                  if (toolMenuOpen) {
+                    setToolMenuOpen(false);
+                  } else if (toolButtonRef.current) {
+                    const rect = toolButtonRef.current.getBoundingClientRect();
+                    setMenuCoords({ top: rect.top - 360, left: rect.left });
+                    setToolMenuOpen(true);
+                  }
+                }}
+                style={{
+                  padding: '12px 12px 12px 16px', borderRadius: '9999px', height: '32px', fontSize: '14px', fontWeight: 500,
+                  fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
+                  color: 'rgb(227, 227, 227)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0px 4px 0px 0px', cursor: 'pointer'
+                }}
+              >
+                {selectedTool} <MaterialSymbol name={toolMenuOpen ? "keyboard_arrow_up" : "keyboard_arrow_down"} family="google-symbols" size={18} variationSettings='"ROND" 0, "slnt" 0, "wdth" 92, "wght" 370' style={{ marginLeft: '4px' }} />
               </button>
             </div>
 
@@ -503,6 +566,69 @@ export const CreateGemView: React.FC = () => {
         </div>
       </div>
       
+      {toolMenuOpen && menuCoords && createPortal(
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+          onClick={(e) => { e.stopPropagation(); setToolMenuOpen(false); }}
+        >
+          <div 
+            style={{
+              position: 'absolute',
+              top: menuCoords.top,
+              left: menuCoords.left,
+              width: '320px',
+              backgroundColor: 'rgb(30, 31, 32)',
+              borderRadius: '16px',
+              padding: '8px 0px',
+              boxShadow: 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
+              zIndex: 1000,
+              transformOrigin: '0px 352px',
+              animation: '0.12s cubic-bezier(0, 0, 0.2, 1) menu-enter',
+              display: 'flex',
+              flexDirection: 'column',
+              boxSizing: 'border-box'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {TOOL_MENU_ITEMS.map((item, i) => (
+              <button
+                key={i}
+                onClick={() => { 
+                  setSelectedTool(item.text); 
+                  setToolMenuOpen(false); 
+                  setHasUnsavedChanges(true);
+                  toolButtonRef.current?.focus();
+                }}
+                style={{
+                  height: '48px',
+                  padding: '0px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  color: 'rgb(227, 227, 227)',
+                  fontSize: '14px',
+                  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(227, 227, 227, 0.12)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <MaterialSymbol name={item.icon} family={item.family as any} size={24} style={{ color: 'rgb(196, 199, 197)' }} />
+                <span>{item.text}</span>
+                {selectedTool === item.text && (
+                  <MaterialSymbol name="check_circle" family="google-symbols" size={20} fill={true} variationSettings='"FILL" 1, "wght" 400' style={{ color: 'rgb(78, 143, 248)' }} />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+
       <div style={{
         padding: '16px 0px 0px',
         margin: '0px',
