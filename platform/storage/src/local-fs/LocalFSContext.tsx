@@ -50,6 +50,8 @@ import {
 export { isTempChatId, parseTempIdTimestamp, sortChatsNewestToOldest } from './chat-metadata';
 import { generateChatTitleWith } from './chat-title';
 import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
+import { getSyncedFolders } from '../synced-folders';
+import { syncRegisteredFolder } from './synced-folder-driver';
 import {
   deleteMediaFileFromDisk,
   renameMediaFileOnDisk,
@@ -1885,6 +1887,30 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   }, [getSanitizedWorkspaceName]);
 
   /**
+   * Reconcile every folder a feature registered via `registerSyncedFolder`.
+   *
+   * This is the seam that means adding a synced data type does not mean editing
+   * this file: the loop is over the registry, not over a hardcoded list of kinds.
+   * Chats, Code and Media still have their own bespoke paths above for now (they
+   * predate the registry and carry extra behaviour like project manifests), but
+   * anything new should arrive here. See ARCHITECTURE.md §13.
+   *
+   * One folder failing must not stop the others, so each is isolated.
+   */
+  const syncRegisteredFolders = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+    const folders = getSyncedFolders();
+    if (folders.length === 0) return;
+    const scopeId = chatScopeIdRef.current;
+    for (const descriptor of folders) {
+      try {
+        await syncRegisteredFolder(workspaceDir, descriptor, scopeId);
+      } catch (error) {
+        console.error(`[storage] synced folder "${descriptor.folder}" failed to reconcile`, error);
+      }
+    }
+  }, []);
+
+  /**
    * Poll the workspace once: reconcile projects + chats against disk. Used by the
    * real-time watcher below and on focus/visibility changes. Re-entrancy guarded.
    */
@@ -1905,13 +1931,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const workspaceDir = await handle.getDirectoryHandle(workspaceName);
         await syncProjectsFromDisk(workspaceDir);
         await refreshLocalChats();
+        await syncRegisteredFolders(workspaceDir);
       } while (pollPendingRef.current);
     } catch {
       // transient — next tick will retry
     } finally {
       isPollingRef.current = false;
     }
-  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, refreshLocalChats]);
+  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, refreshLocalChats, syncRegisteredFolders]);
 
   // Real-time disk watcher.
   // PRIMARY: FileSystemObserver (recent Chromium) gives true change events — when

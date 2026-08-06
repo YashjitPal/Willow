@@ -40,6 +40,7 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | [`features/projects`](features/projects/AGENTS.md) | `@willow/project-browser` | Project browser **UI** |
 | [`features/auth`](features/auth/AGENTS.md) | `@willow/account` | Login / account **UI** |
 | [`features/onboarding`](features/onboarding/AGENTS.md) | `@willow/onboarding` | First-run flow |
+| [`features/gems`](features/gems/AGENTS.md) | `@willow/gems` | Gem manager. Reference implementation of the synced-folder seam |
 | [`features/figma`](features/figma/README.md) | `@willow/figma` | Unfinished canvas prototype. Not routed, not typechecked |
 | [`platform/storage`](platform/storage/AGENTS.md) | `@willow/storage` | Persistence, adapters, sync. **Read before touching** |
 | [`platform/projects`](platform/projects/AGENTS.md) | `@willow/projects` | Project **data model** and registry |
