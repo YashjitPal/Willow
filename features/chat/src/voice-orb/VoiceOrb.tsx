@@ -43,6 +43,10 @@ import {
   type PaletteName,
 } from './horizon-constants';
 import {
+  WORKSPACE_PALETTE_INDEX,
+  type WorkspaceColorName,
+} from './orb-palette';
+import {
   EMPTY_VOICE_SNAPSHOT,
   HorizonMotion,
   LinearRamp,
@@ -68,6 +72,14 @@ export interface VoiceOrbProps {
   /** Assistant output analyser, for the waveform-driven motion. */
   assistantAnalyser?: AnalyserNode | null;
   palette?: PaletteName;
+  /**
+   * Workspace colour from the user's profile, which tints the orb.
+   *
+   * Takes precedence over `palette` when set: this is the app-driven colour, while
+   * `palette` is upstream's own name map, kept for the shipped palettes. Undefined
+   * leaves `palette` in charge, so an orb rendered without a profile is unchanged.
+   */
+  workspaceColor?: WorkspaceColorName;
   /** Pre-connection dot colour follows the theme. */
   theme?: 'dark' | 'light';
   /**
@@ -124,6 +136,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
   analyser = null,
   assistantAnalyser = null,
   palette = 'default',
+  workspaceColor,
   theme = 'dark',
   renderScale = 1,
   className,
@@ -139,6 +152,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
   const analyserRef = React.useRef(analyser);
   const assistantAnalyserRef = React.useRef(assistantAnalyser);
   const paletteRef = React.useRef(palette);
+  const workspaceColorRef = React.useRef(workspaceColor);
   const themeRef = React.useRef(theme);
   const renderScaleRef = React.useRef(renderScale);
 
@@ -148,6 +162,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
   analyserRef.current = analyser;
   assistantAnalyserRef.current = assistantAnalyser;
   paletteRef.current = palette;
+  workspaceColorRef.current = workspaceColor;
   themeRef.current = theme;
   renderScaleRef.current = renderScale;
 
@@ -365,8 +380,15 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
           ? PRE_CONNECTION_DOT_COLOR_LIGHT
           : PRE_CONNECTION_DOT_COLOR_DARK;
 
+      // Read per frame, so switching workspace colour re-tints the running orb
+      // rather than waiting for the render loop to be torn down and rebuilt.
+      const workspaceIndex =
+        workspaceColorRef.current === undefined
+          ? undefined
+          : WORKSPACE_PALETTE_INDEX[workspaceColorRef.current];
+
       const variables: HorizonFrameVariables = {
-        paletteIndex: PALETTE_INDEX_BY_NAME[paletteRef.current] ?? 0,
+        paletteIndex: workspaceIndex ?? PALETTE_INDEX_BY_NAME[paletteRef.current] ?? 0,
         waveFrame,
         baseShaderFrame,
         waveAmplitude: output.waveAmplitude,

@@ -58,8 +58,48 @@ const HorizonPalette materialPurplePalette = HorizonPalette(
   vec4(0.920169115, 0.883867264, 0.988235295, 1.0)
 );
 
+// Palettes derived for Willow's workspace colours. Every one of these is the
+// measured workspace-blue -> materialDefaultPalette transform applied to its own
+// swatch, so each stands in the same perceptual relationship to its swatch that the
+// orb's current blue stands in to `#3b82f6`. See `orb-palette.ts` for the
+// measurement and `voice-orb-palette.test.mjs`, which re-derives these numbers and
+// fails if they drift. Workspace blue is absent on purpose: it uses
+// materialDefaultPalette, which it already matches exactly.
+const HorizonPalette workspaceGreenPalette = HorizonPalette(
+  vec4(0.28638262624566163, 0.5452024905933573, 0.46599409914208917, 1.0),
+  vec4(0.5180876142161649, 0.6568346316256439, 0.5618436134281265, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.753035277458444, 0.8320069719704309, 0.800192378940683, 1.0)
+);
+const HorizonPalette workspacePinkPalette = HorizonPalette(
+  vec4(1.0, 0.34118997869513573, 0.46490911260985607, 1.0),
+  vec4(0.9894626511975045, 0.5484021369271269, 0.7181493103651085, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(1.0, 0.7976432194972878, 0.8190122496394945, 1.0)
+);
+const HorizonPalette workspaceYellowPalette = HorizonPalette(
+  vec4(0.8257334152406405, 0.7824177324060113, 0.2107328467274618, 1.0),
+  vec4(0.9423333685781136, 0.811038081720388, 0.4831518462450169, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.9375869169168376, 0.9234424515355211, 0.7710733152303008, 1.0)
+);
+const HorizonPalette workspaceOrangePalette = HorizonPalette(
+  vec4(0.9262761638777691, 0.5681750450947537, 0.0, 1.0),
+  vec4(1.0, 0.6552118258681787, 0.46018287887375603, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.9889729582824206, 0.8489665066945756, 0.7205450785523978, 1.0)
+);
+
 HorizonPalette materialPaletteForIndex(uint paletteIndex) {
   switch (paletteIndex) {
+    case 7u:
+      return workspaceGreenPalette;
+    case 8u:
+      return workspacePinkPalette;
+    case 9u:
+      return workspaceYellowPalette;
+    case 10u:
+      return workspaceOrangePalette;
     case 1u:
       return materialBluePalette;
     case 2u:

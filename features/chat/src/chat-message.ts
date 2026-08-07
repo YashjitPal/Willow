@@ -31,6 +31,9 @@ export interface ChatMsg {
   isLive?: boolean;
   /** Live reply cut short by user barge-in — rendered without the action row. */
   wasInterrupted?: boolean;
+  /** Typed reply the user stopped from the composer. Persisted, because Gemini
+   *  keeps the "You stopped this response" notice on reload. */
+  wasStopped?: boolean;
   /** Whether this message was newly sent in the current session (should animate in). */
   isNew?: boolean;
   /** Locally owned file metadata; bytes live in WillowDB's attachment store. */

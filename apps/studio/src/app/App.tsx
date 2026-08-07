@@ -610,6 +610,7 @@ const App: React.FC = () => {
               onChatStartedChange={setHasActiveChat}
               isSidebarCollapsed={isSidebarCollapsed}
               onCollapseSidebar={() => setIsSidebarCollapsed(true)}
+              workspaceColor={userProfile?.workspaceColor}
             />
           ) : studioMode === 'media' ? (
             <div className="flex flex-col min-h-full" key="media">

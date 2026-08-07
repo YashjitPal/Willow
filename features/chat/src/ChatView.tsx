@@ -13,7 +13,8 @@ import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview'
 import { ResponseActions, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
 import { UserMessageBubble } from './UserMessageBubble';
-import { streamChat, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
+import { ResponseInfoLine } from './ResponseInfoLine';
+import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
 import {
   GeminiLiveSession,
   LIVE_MODEL_ID,
@@ -32,6 +33,7 @@ import { useStore } from '@nanostores/react';
 import { experimentsStore } from '@willow/core/experiments-store';
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
 import { resolveFocusSurfaceAttributes } from './voice-orb/focus-surface-constants';
+import type { WorkspaceColorName } from './voice-orb/orb-palette';
 
 const CHAT_COMPOSER_LAYOUT_ID = 'willow-chat-composer';
 
@@ -46,6 +48,8 @@ interface ChatViewProps {
   onChatStartedChange?: (started: boolean) => void;
   isSidebarCollapsed?: boolean;
   onCollapseSidebar?: () => void;
+  /** Workspace colour from the profile; tints the voice orb. */
+  workspaceColor?: WorkspaceColorName;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -62,6 +66,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onChatStartedChange,
   isSidebarCollapsed = true,
   onCollapseSidebar,
+  workspaceColor,
 }) => {
   const { apiKeys } = useUserDataContext();
   const {
@@ -342,6 +347,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const sendInFlightRef = useRef(false);
+  // Aborts the in-flight typed turn when the composer's stop button is pressed.
+  const generationAbortRef = useRef<AbortController | null>(null);
   // React 19 may batch rapid SDK stream callbacks with the completion cleanup.
   // Track the deferred clear so a new turn can cancel it before accepting text.
   const streamingClearRafRef = useRef<number | null>(null);
@@ -563,13 +570,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return () => window.removeEventListener('resize', measure);
   }, [showVoiceOrb]);
 
-  // When the voice surface leaves the screen, restore the focused state so the
-  // next session opens large, which is how the captured session behaved: every
-  // fresh open started focused and only collapsed once the orb was pressed.
-  useEffect(() => {
-    if (!showVoiceOrb) focusModeAtom.set(true);
-  }, [showVoiceOrb]);
-
   // Transcript fade. Upstream hides the conversation behind the expanded orb and
   // reveals it once the orb collapses, which is the behaviour these attributes
   // drive: `voice-focus-surface.css` keys the opacity, the lift and the scroll
@@ -788,12 +788,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     id: string,
     content: string,
     thinkingTime?: number,
-    isError = false
+    isError = false,
+    wasStopped = false
   ) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped }
           : m
       )
     );
@@ -913,6 +914,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       let acc = '';
       let thoughtAcc = '';
+      const abort = new AbortController();
+      generationAbortRef.current = abort;
       try {
         await attachmentPersistence;
         const history = await buildAiHistory([...prevMessages, userMsg]);
@@ -928,6 +931,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             enableSearch: true,
             enableCodeExecution: true,
             baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
+            signal: abort.signal,
           },
           (token) => {
             if (isThinkingRef.current) {
@@ -963,15 +967,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
         // finalisation happens in the same task, React can otherwise replace the
         // streaming buffer with the completed message before it was ever shown.
         await waitForBrowserPaint();
-        finalizeAssistant(assistantId, acc, thinkSecondsRef.current);
+        // Some SDKs swallow the abort and return normally instead of throwing,
+        // so a clean return is not proof the turn ran to completion.
+        finalizeAssistant(assistantId, acc, thinkSecondsRef.current, false, abort.signal.aborted);
       } catch (e: any) {
-        finalizeAssistant(
-          assistantId,
-          `Something went wrong: ${e?.message || 'Unknown error.'}`,
-          undefined,
-          true
-        );
+        // A stop is not a failure. Gemini keeps whatever streamed before the
+        // press and marks the turn, so the partial text is the final content
+        // rather than being replaced by an error.
+        //
+        // The signal is the test, not the error's shape: providers rewrap an
+        // abort into their own type, losing the AbortError name and code. The
+        // Gemini SDK reports "[GoogleGenerativeAI Error]: Error reading from
+        // the stream", which isAbortError alone cannot recognise. Checking the
+        // signal we own works the same way for every provider.
+        if (abort.signal.aborted || isAbortError(e)) {
+          await waitForBrowserPaint();
+          finalizeAssistant(assistantId, acc, thinkSecondsRef.current, false, true);
+        } else {
+          finalizeAssistant(
+            assistantId,
+            `Something went wrong: ${e?.message || 'Unknown error.'}`,
+            undefined,
+            true
+          );
+        }
       } finally {
+        generationAbortRef.current = null;
         sendInFlightRef.current = false;
         stopThinking();
         // Keep the final streaming value alive through the completion commit.
@@ -1115,6 +1136,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // unspoken), so finalise with the trailing `—` just like a barge-in.
     if (liveTurnRef.current) closeLiveTurn({ aborted: true });
   }, [closeLiveTurn]);
+
+  /**
+   * Composer stop button. Aborting the stream is enough: the catch path in the
+   * send effect owns finalisation, so the partial text and the `wasStopped`
+   * marker are written in exactly one place.
+   */
+  const handleStopGenerating = useCallback(() => {
+    generationAbortRef.current?.abort();
+  }, []);
 
   const handleStartLive = useCallback(() => {
     if (isLive || isGenerating) return;
@@ -1723,6 +1753,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   />
                 )}
 
+                {/* Stopped turn: Gemini inserts the notice between the body and
+                    the action row, 8px below the body and flush against the row
+                    (measured 8px / 0px). It sits outside the wrapper's
+                    space-y-3 rhythm, so the margin is set explicitly. */}
+                {msg.wasStopped && !generating && (
+                  <div style={{ marginTop: 8, marginBottom: 0 }}>
+                    <ResponseInfoLine />
+                  </div>
+                )}
+
                 {/* Action row — fades in only after completion to avoid layout jump */}
                 <motion.div
                   initial={false}
@@ -1730,6 +1770,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     height: generating ? 0 : 'auto',
                   }}
                   transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
+                  // Gemini butts the action row straight against the notice
+                  // (measured 0px), so the wrapper's 12px rhythm is cancelled
+                  // for this one case rather than left to double up.
+                  style={msg.wasStopped ? { marginTop: 0 } : undefined}
                   className={`overflow-visible transition-opacity duration-[240ms] ease-[cubic-bezier(0.2,0,0,1)] ${
                     generating
                       ? 'pointer-events-none opacity-0'
@@ -1792,6 +1836,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               analyser={liveAnalysers.mic}
               assistantAnalyser={liveAnalysers.output}
               mainContentRect={mainContentRect}
+              workspaceColor={workspaceColor}
             />
           )}
         </AnimatePresence>
@@ -1822,6 +1867,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               liveActive={isLive}
               onStartLive={handleStartLive}
               onStopLive={handleStopLive}
+              isGenerating={isGenerating}
+              onStopGenerating={handleStopGenerating}
               modelConfig={modelConfig}
               selectedModelId={selectedModelId}
               setSelectedModelId={setSelectedModelId}
