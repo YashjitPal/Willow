@@ -242,6 +242,40 @@ const CAPTURE_BUFFER_SIZE = 2048;
 // We still parse `rate=` from the inlineData mimeType in case this changes.
 const OUTPUT_SAMPLE_RATE_DEFAULT = 24_000;
 
+/**
+ * Analyser settings for the visualiser taps.
+ *
+ * These four values were read off the analysers a live voice session actually
+ * built, and the voice orb's motion is calibrated against them: its speaking
+ * gate levels were fitted to band means measured under exactly this window and
+ * resolution, so changing any of them here invalidates those levels. `fftSize`
+ * and `smoothingTimeConstant` are both non-default; the decibel window happens
+ * to equal the Web Audio defaults but is set explicitly so a UA default change
+ * cannot move it silently. Kept as literals rather than imported from the orb,
+ * which sits above this module and would make the dependency circular — see
+ * ANALYSER_SETTINGS in features/chat/src/voice-orb/horizon-constants.ts.
+ *
+ * Only the *settings* transfer. Bin indices do not: these contexts run at 16 kHz
+ * (mic) and 24 kHz (playback) against the reference 48 kHz, so a given index
+ * covers a different frequency here. Consumers convert a frequency to an index
+ * per analyser instead of reusing indices (`bandMaxBin`).
+ */
+const VISUALISER_ANALYSER = {
+  fftSize: 2048,
+  smoothingTimeConstant: 0.8,
+  minDecibels: -100,
+  maxDecibels: -30,
+} as const;
+
+function applyVisualiserAnalyserSettings(node: AnalyserNode): void {
+  node.fftSize = VISUALISER_ANALYSER.fftSize;
+  node.smoothingTimeConstant = VISUALISER_ANALYSER.smoothingTimeConstant;
+  // Order matters: the setters reject a window where min >= max, so widening the
+  // floor first keeps both assignments valid whatever the incoming defaults are.
+  node.minDecibels = VISUALISER_ANALYSER.minDecibels;
+  node.maxDecibels = VISUALISER_ANALYSER.maxDecibels;
+}
+
 export interface LiveHistoryTurn {
   role: 'user' | 'model';
   text: string;
@@ -292,6 +326,10 @@ export class GeminiLiveSession {
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  // Analysers are read-only taps for visualisers. They sit on side-branches, so
+  // they never affect what is sent upstream or what the user hears.
+  private micAnalyserNode: AnalyserNode | null = null;
+  private outputAnalyserNode: AnalyserNode | null = null;
   private procNode: ScriptProcessorNode | null = null;
   // ── Playback (model → speakers) ──
   private playCtx: AudioContext | null = null;
@@ -422,6 +460,19 @@ export class GeminiLiveSession {
       try { this.ws.close(1000); } catch { /* noop */ }
     }
     this.ws = null;
+  }
+
+  /**
+   * Microphone analyser, for visualisers. Null until the audio graph is built
+   * (and if the browser refused to create the node).
+   */
+  get micAnalyser(): AnalyserNode | null {
+    return this.micAnalyserNode;
+  }
+
+  /** Model-output analyser, for visualisers. Null in `transcribeOnly` mode. */
+  get outputAnalyser(): AnalyserNode | null {
+    return this.outputAnalyserNode;
   }
 
   get isActive(): boolean {
@@ -656,6 +707,17 @@ export class GeminiLiveSession {
     // Must be connected to a destination for onaudioprocess to fire in Chrome.
     this.procNode.connect(this.audioCtx.destination);
 
+    // Mic analyser tap for visualisers: a leaf node off the source, so it adds
+    // no path to any destination and cannot colour the captured signal.
+    try {
+      this.micAnalyserNode = this.audioCtx.createAnalyser();
+      applyVisualiserAnalyserSettings(this.micAnalyserNode);
+      this.sourceNode.connect(this.micAnalyserNode);
+    } catch {
+      // A visualiser tap is optional; losing it must not break the session.
+      this.micAnalyserNode = null;
+    }
+
     // Separate playback context (output is 24 kHz, input is 16 kHz). Create it
     // here — inside the user gesture — so autoplay policy lets it run.
     if (!this.opts.transcribeOnly) {
@@ -667,6 +729,15 @@ export class GeminiLiveSession {
       void this.playCtx.resume?.();
       this.playGain = this.playCtx.createGain();
       this.playGain.gain.value = 1;
+
+      // Output analyser tap, on the same leaf-node basis as the mic one.
+      try {
+        this.outputAnalyserNode = this.playCtx.createAnalyser();
+        applyVisualiserAnalyserSettings(this.outputAnalyserNode);
+        this.playGain.connect(this.outputAnalyserNode);
+      } catch {
+        this.outputAnalyserNode = null;
+      }
 
       // ── Echo-cancellation workaround ──────────────────────────────────────
       // Chrome's getUserMedia AEC only cancels audio it can "see" on the
@@ -742,8 +813,10 @@ export class GeminiLiveSession {
     this.flushPlayback();
     try { this.procNode?.disconnect(); } catch { /* noop */ }
     try { this.sourceNode?.disconnect(); } catch { /* noop */ }
+    try { this.micAnalyserNode?.disconnect(); } catch { /* noop */ }
     try { this.audioCtx?.close(); } catch { /* noop */ }
     try { this.playGain?.disconnect(); } catch { /* noop */ }
+    try { this.outputAnalyserNode?.disconnect(); } catch { /* noop */ }
     try { this.playCtx?.close(); } catch { /* noop */ }
     if (this.playSinkEl) {
       try {
@@ -755,10 +828,12 @@ export class GeminiLiveSession {
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.procNode = null;
     this.sourceNode = null;
+    this.micAnalyserNode = null;
     this.audioCtx = null;
     this.micStream = null;
     this.playCtx = null;
     this.playGain = null;
+    this.outputAnalyserNode = null;
     this.playSinkEl = null;
   }
 }

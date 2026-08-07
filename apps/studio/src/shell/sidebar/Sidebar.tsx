@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '@nanostores/react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -27,7 +27,7 @@ import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { useBackground, BackgroundType } from '../BackgroundContext';
-import { isCodeChat, markCodeChat, migrateVerifiedLegacyCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
+import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import {
   STUDIO_SIDEBAR_COLLAPSED_WIDTH,
   STUDIO_SIDEBAR_EXPANDED_WIDTH,
@@ -350,12 +350,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
 
   const [isScrolled, setIsScrolled] = useState(false);
-  const [, setCodeChatVersion] = useState(0);
+  const [codeChatVersion, setCodeChatVersion] = useState(0);
   useEffect(() => {
     const refresh = () => setCodeChatVersion((version) => version + 1);
     window.addEventListener('willow_code_chats_updated', refresh);
     return () => window.removeEventListener('willow_code_chats_updated', refresh);
   }, []);
+  // Resolve the Code-mode map ONCE per render. Asking per chat re-derived it per
+  // row, and each derivation walks all of localStorage — the dominant cost of
+  // painting a long Recents list. `codeChatVersion` is the invalidation signal.
+  const codeChats = useMemo(
+    () => readCodeChats(chatScopeId),
+    [chatScopeId, codeChatVersion]
+  );
+  // Chats whose body has been examined for a legacy Code-mode marker. Backed by
+  // localStorage via has/markScannedCodeChat, so the scan is once per chat EVER.
+  // It used to live only in this ref, which meant every launch re-read every
+  // chat body from disk — the "app lags while the chats load" symptom.
   const codeChatScannedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     codeChatScannedRef.current.clear();
@@ -364,7 +375,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isInitializingLocalFS) return;
     let cancelled = false;
     let timer: number | undefined;
-    const pending = localChats.filter((chatId) => !isCodeChat(chatScopeId, chatId) && !codeChatScannedRef.current.has(chatId));
+    // Deliberately NOT the memoized `codeChats`. This effect marks chats, which
+    // invalidates that memo — depending on it would restart the scan on every
+    // mark, cancelling an in-flight body read for a chat already recorded in
+    // `codeChatScannedRef` and permanently losing its Code-mode marker. The
+    // module-level cache makes this per-chat call O(1) anyway.
+    const pending = localChats.filter((chatId) =>
+      !isCodeChat(chatScopeId, chatId) &&
+      !codeChatScannedRef.current.has(chatId) &&
+      !hasScannedCodeChat(chatScopeId, chatId)
+    );
     const scanNext = async () => {
       // Legacy marker migration is intentionally lazy and bounded: never load
       // every full chat body concurrently just to paint the sidebar.
@@ -377,6 +397,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           // proof that makes adopting a matching legacy marker safe.
           if (!migrateVerifiedLegacyCodeChat(chatScopeId, chatId)) markCodeChat(chatScopeId, chatId);
         }
+        // Record only AFTER the body was actually read. Marking before the await
+        // would persist "scanned" for a chat whose read was cancelled mid-flight,
+        // and its Code-mode marker would then never be recovered.
+        markScannedCodeChat(chatScopeId, chatId);
       }
       if (!cancelled && pending.length > 0) timer = window.setTimeout(() => { void scanNext(); }, 100);
     };
@@ -502,7 +526,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setPinnedChatState({ scopeId: chatScopeId, chats: next });
         localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
       }
-      if (success) renameCodeChat(chatScopeId, editingChatId!, trimmed);
+      if (success) {
+        renameCodeChat(chatScopeId, editingChatId!, trimmed);
+        // Carry the scan verdict to the new id, or the renamed chat's body gets
+        // re-read from disk on the next launch for no reason.
+        renameScannedCodeChat(chatScopeId, editingChatId!, trimmed);
+      }
     }
     setEditingChatId(null);
   };
@@ -526,7 +555,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const confirmDeleteChat = async () => {
     if (chatToDelete) {
       const success = await deleteLocalFSChat(chatToDelete);
-      if (success) unmarkCodeChat(chatScopeId, chatToDelete);
+      if (success) {
+        unmarkCodeChat(chatScopeId, chatToDelete);
+        // Also drop scan bookkeeping, so a future chat that reuses this id gets
+        // examined rather than inheriting this one's "already scanned" verdict.
+        forgetScannedCodeChat(chatScopeId, chatToDelete);
+      }
       if (!success) {
         alert("Failed to delete chat file.");
       }
@@ -1018,7 +1052,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
                           }
                           const displayName = isTemp ? 'Untitled' : chat;
-                          const startedInCode = isCodeChat(chatScopeId, chat);
+                          const startedInCode = codeChats[chat] === true;
 
                           return (
                             <SidebarItem 

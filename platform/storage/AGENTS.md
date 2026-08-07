@@ -16,7 +16,7 @@ rewriting every caller.
 Rule: localStorage = pointers/indexes; IndexedDB = heavy bytes; Disk = truth.
 When disk is connected it wins.
 
-Read `ARCHITECTURE.md` before changing anything in this package — it is 542 lines
+Read `ARCHITECTURE.md` before changing anything in this package — it is 650 lines
 with exact flows, data shapes, storage keys, invariants, and debugging snippets.
 Section 11 (Invariants) lists rules that cause data loss when broken.
 
@@ -107,6 +107,31 @@ Chat sync uses **monotonic revisions + durable `dirty`/`tombstone` records**. A
 failed disk write stays retryable; it is never converted into an external deletion
 after a timeout.
 
+## Cost model: the reconcile pass runs constantly
+
+This is easy to regress because a correct-looking change can be quadratic, and
+nothing fails — the app just gets slower as the user's history grows. The pass
+runs on connect, on every window focus, on every `FileSystemObserver` event, and
+on a 3s/30s timer. So **anything it does per chat, it does hundreds of times a
+minute.**
+
+Two rules, both load-bearing (ARCHITECTURE.md §11.16–17):
+
+- **Settle the unchanged case without reading the body.** mtime comparison plus
+  `hasChatBody` (a key probe). `loadChatBody` deserializes the whole message
+  array; using it as an existence check made startup read the entire history.
+  A `false` probe must still fall through to `loadChatBody` — that call also
+  performs legacy-localStorage migration.
+- **First loop concurrent, second loop sequential.** See §11.17 for why the
+  external-delete loop cannot be parallelised.
+
+The same trap exists in `code-chat-storage.ts`. `scanCodeChats` walks **every**
+localStorage key, and there is one key per Code-mode chat, so a per-chat caller
+is O(chats x keys). `readCodeChats` is the cached read and is safe to call per
+row; the cached object is **shared and must not be mutated**. Writers call
+`scanCodeChats` for a private copy, then `invalidateCodeChatsCache()`. Pinned by
+`apps/studio/test/code-chat-cache.test.mjs`, which counts scans directly.
+
 ## Content-addressed dedup (code sessions)
 
 Code sessions carry a full `filesSnapshot` per turn for revert/preview. Storing
@@ -148,7 +173,7 @@ for verifying registry state from the browser console.
 
 ## LocalFSContext is still large — and why
 
-`LocalFSContext.tsx` is 2184 lines, down from 2759. The leaves have been pulled
+`LocalFSContext.tsx` is 2313 lines, down from 2759. The leaves have been pulled
 out into the five `src/local-fs/*` modules listed above; what remains is the
 local-disk state machine itself (directory handle, registry, migration, project
 list, CRUD, Drive merge) plus a large React context.

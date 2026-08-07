@@ -238,3 +238,75 @@ it('still guards the dirty-with-unreadable-body case, in the shipped source', ()
   assert.notEqual(dirtyGuard, -1, 'the unreadable-body guard is gone');
   assert.ok(dirtyGuard < tombstone, 'the unreadable-body guard must precede the tombstone');
 });
+
+/**
+ * Startup cost, same loop.
+ *
+ * The pass used to load every chat's full message array out of IndexedDB before
+ * checking whether that chat had changed, and to do it strictly one chat at a
+ * time behind a cross-tab lock each. So opening the app read the entire history
+ * sequentially just to conclude nothing had changed — the reason a large Recents
+ * list hung the app until the scan finished, and kept hitching afterwards
+ * because the watcher repeats this pass on a timer and on every window focus.
+ *
+ * These are source assertions for the same reason as the ones above: the logic
+ * lives inline in a React callback and cannot be imported.
+ */
+const diskLoopBlock = () => {
+  const source = fs.readFileSync(CONTEXT_SOURCE, 'utf8');
+  const start = source.indexOf('const reconcileEntry = async (');
+  assert.notEqual(start, -1, 'could not locate the per-chat reconcile body');
+  const end = source.indexOf('for (const chatId of [...localChatsRef.current]) {', start);
+  assert.notEqual(end, -1, 'could not locate the end of the disk loop');
+  return source.slice(start, end);
+};
+
+it('decides "unchanged" without loading the chat body, in the shipped source', () => {
+  const block = diskLoopBlock();
+
+  const probe = block.indexOf('hasChatBody(');
+  const load = block.indexOf('loadChatBody(');
+
+  assert.notEqual(probe, -1,
+    'the cheap presence probe is gone — startup is reading every chat body again');
+  assert.notEqual(load, -1, 'could not find the body load');
+  assert.ok(probe < load,
+    'the probe must come BEFORE the body load, or the expensive read still happens every pass');
+});
+
+it('still loads the body for a chat that genuinely changed, in the shipped source', () => {
+  const block = diskLoopBlock();
+  // The probe is an optimisation for the unchanged case only. A changed or dirty
+  // chat must still go through loadChatBody, which is also what performs legacy
+  // localStorage migration — skipping it there would strand old data.
+  assert.match(block, /loadChatBody\(chatId, chatStorageScopeRef\.current\)/,
+    'the body load for changed chats is gone — legacy migration would be stranded');
+});
+
+it('reconciles chats with bounded concurrency, in the shipped source', () => {
+  const block = diskLoopBlock();
+  const source = fs.readFileSync(CONTEXT_SOURCE, 'utf8');
+
+  assert.match(source, /RECONCILE_CONCURRENCY\s*=\s*(\d+)/,
+    'the concurrency bound is gone');
+  const limit = Number(source.match(/RECONCILE_CONCURRENCY\s*=\s*(\d+)/)[1]);
+  assert.ok(limit > 1, 'a bound of 1 is the old sequential behaviour');
+  assert.ok(limit <= 32,
+    'an unbounded fan-out would flood the disk and the cross-tab lock manager');
+
+  // A failure in one chat must not abandon the remaining chats in the pass.
+  assert.match(block.length ? source.slice(source.indexOf('const RECONCILE_CONCURRENCY')) : source,
+    /try \{ await reconcileEntry\(entry\); \} catch \{\}/,
+    'one failing chat can abort the whole reconcile pass');
+});
+
+it('keeps the external-delete loop sequential, in the shipped source', () => {
+  const source = fs.readFileSync(CONTEXT_SOURCE, 'utf8');
+  const loop = source.indexOf('for (const chatId of [...localChatsRef.current]) {');
+  const tail = source.slice(loop, loop + 2000);
+
+  // This loop reassigns localChatsRef.current wholesale, so overlapping
+  // iterations could drop a concurrent push. It must stay a plain await loop.
+  assert.ok(!/Promise\.all\(/.test(tail),
+    'the external-delete loop was parallelised — concurrent writes to localChatsRef can lose a chat');
+});

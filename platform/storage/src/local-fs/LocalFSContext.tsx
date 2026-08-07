@@ -17,6 +17,7 @@ import { extractVideoFrame } from '../covers';
 import {
   saveChatBody,
   loadChatBody,
+  hasChatBody,
   deleteChatBody,
   renameChatBody,
   renameCodeSessions,
@@ -701,14 +702,41 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
     }
 
-    for (const [chatId, disk] of diskFiles) {
+    // Per-chat reconciliation is independent — `enqueueChatOperation` already
+    // serializes by chat id, and every id here is distinct. Awaiting them one
+    // at a time serialized N unrelated IO round trips (each with its own
+    // cross-tab lock), so startup latency grew linearly with chat count. A
+    // bounded pool overlaps the waiting without flooding the disk or the lock
+    // manager. Ordering is not relied upon: `persistChatMetadata` re-sorts at
+    // the end, and each task re-reads shared refs after its own awaits.
+    const RECONCILE_CONCURRENCY = 8;
+    const diskEntries = [...diskFiles];
+    let nextEntryIndex = 0;
+    const reconcileEntry = async ([chatId, disk]: [string, { handle: FileSystemFileHandle; mtime: number }]) => {
       await enqueueChatOperation([chatId], async () => {
         let record = chatSyncRecordsRef.current[chatId];
         if (record?.tombstone) return;
 
+        // Order matters for cost. The overwhelmingly common case is "nothing
+        // changed", and deciding that needs only an mtime comparison plus a
+        // presence probe — NOT the chat body. Loading every body up front made
+        // startup scale with total history size, which is what made a large
+        // Recents list hang the app until the scan finished.
+        const diskChanged = !record || !record.diskMtime || disk.mtime !== record.diskMtime;
+        if (!record?.dirty && !diskChanged) {
+          let bodyPresent = false;
+          try { bodyPresent = await hasChatBody(chatId, chatStorageScopeRef.current); } catch {}
+          if (bodyPresent) {
+            if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
+            return;
+          }
+        }
+
+        // Past this point the chat genuinely needs work, so the body is worth
+        // reading. `loadChatBody` also performs legacy migration, which is why
+        // the probe above must not be treated as authoritative on absence.
         let cached: any[] | null = null;
         try { cached = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
-        const diskChanged = !record || !record.diskMtime || disk.mtime !== record.diskMtime;
         if (!record?.dirty && cached && !diskChanged) {
           if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
           return;
@@ -783,8 +811,22 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         }
         if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
       });
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(RECONCILE_CONCURRENCY, diskEntries.length) }, async () => {
+        while (nextEntryIndex < diskEntries.length) {
+          const entry = diskEntries[nextEntryIndex++];
+          // One failing chat must not abandon the rest of the pass.
+          try { await reconcileEntry(entry); } catch {}
+        }
+      })
+    );
 
+    // Deliberately sequential, unlike the pass above. This loop reassigns
+    // `localChatsRef.current` wholesale, so overlapping iterations could drop a
+    // concurrent push. It is also nearly free in practice — on a healthy
+    // install every known chat is present on disk and this exits immediately.
+    //
     // A clean cached chat missing from disk is an external deletion, including
     // one made while the app was closed. Only an explicitly dirty revision is
     // eligible to be flushed back to disk.

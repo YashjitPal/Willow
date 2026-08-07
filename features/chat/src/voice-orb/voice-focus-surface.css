@@ -1,0 +1,59 @@
+/**
+ * Transcript fade for voice focus mode.
+ *
+ * Transcribed verbatim from the shipped stylesheet, which builds the rule from
+ * template literals in `8b34dbc2-m85ucq45nitacrlg.js:61-75`:
+ *
+ *   [${ti}] {
+ *     transform-origin: center top;
+ *     transition:
+ *       opacity ${uD.duration}s cubic-bezier(0.32, 0.72, 0, 1),
+ *       transform ${E7.duration}s cubic-bezier(0.22, 1, 0.36, 1);
+ *   }
+ *   [${ti}][${ku}="expanded"] { opacity: 0; transform: translateY(${UEn}px); }
+ *   [${ti}][${ku}="floating"] { opacity: 1; }
+ *
+ * with the interpolated identifiers resolved from the same bundle:
+ *   ti  = data-voice-floating-orb-focus-surface
+ *   ku  = data-voice-floating-orb-focus-surface-state
+ *   UEn = -56                        (MAIN_CONTENT_EXPANDED_OFFSET_Y)
+ *   E7  = { duration: .36, ease: [.22, 1, .36, 1] }   (FOCUS_TRANSITION)
+ *   uD.duration = 0.24               (FOCUS_FADE_TRANSITION)
+ *
+ * The numbers are duplicated in `focus-surface-constants.ts` so the
+ * correspondence stays checkable from a test; they are literals here because
+ * CSS cannot read them from the module.
+ */
+
+[data-voice-floating-orb-focus-surface] {
+  transform-origin: center top;
+  transition:
+    opacity 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-voice-floating-orb-focus-surface][data-voice-floating-orb-focus-surface-state='expanded'] {
+  opacity: 0;
+  transform: translateY(-56px);
+}
+
+[data-voice-floating-orb-focus-surface][data-voice-floating-orb-focus-surface-state='floating'] {
+  opacity: 1;
+}
+
+/**
+ * Scroll lock while expanded.
+ *
+ * Not part of the injected stylesheet above — upstream spells this as a Tailwind
+ * variant in the scroll root's own class list, `not-print:data-voice-focus-mode:
+ * overflow-y-hidden!`, alongside `[scrollbar-gutter:stable]` and
+ * `group/scroll-root`. It is written here as the plain CSS it compiles to,
+ * keyed on the same attribute, because Willow's scroll root is styled with v3
+ * utilities that have no such variant.
+ *
+ * The `!important` is upstream's trailing `!`, and it is load-bearing: the
+ * element's own `overflow-y-auto` would otherwise win on specificity.
+ */
+[data-voice-focus-mode] {
+  overflow-y: hidden !important;
+}

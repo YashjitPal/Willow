@@ -62,7 +62,7 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
 
   return (
     <div
-      className="relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] bg-[#141414] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+      className="relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] bg-[#171717] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       <div
@@ -90,7 +90,7 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
           {!isExpanded && (
             <div
               aria-hidden="true"
-              className="absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 bg-[linear-gradient(to_right,transparent,#141414_56px,#141414_100%)]"
+              className="absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 bg-[linear-gradient(to_right,transparent,#171717_56px,#171717_100%)]"
             />
           )}
           <button
