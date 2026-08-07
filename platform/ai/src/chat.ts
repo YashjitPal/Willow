@@ -509,7 +509,8 @@ export const runStreamCall = async (modelInstance: any, history: any[], signal?:
 };
 
 // ============ MAIN STREAM CHAT FUNCTION ============
-export const streamChat: any = async (
+// Wrapped by `streamChat` below, which normalises aborts across providers.
+const streamChatImpl: any = async (
   messages: ChatMessage[],
   options: AiOptions,
   onToken: (token: string) => void,
@@ -1421,6 +1422,37 @@ Adhere to the following rules and guidelines:
         onToken(content);
       }
     }
+  }
+};
+
+/**
+ * Every provider's stream, with one guarantee added: if the caller aborted, the
+ * error that comes out is a real `AbortError`.
+ *
+ * SDKs rewrap a mid-stream abort into their own error type and lose the name and
+ * code that identify it — the Gemini SDK surfaces "[GoogleGenerativeAI Error]:
+ * Error reading from the stream", the OpenAI-compatible clients surface their own
+ * connection errors. Callers that classified by error shape therefore showed a
+ * failure when the user had simply pressed stop, and each new provider brought a
+ * new error string to special-case.
+ *
+ * The signal is authoritative and provider-independent, so the translation belongs
+ * here — once — rather than in every call site. `isAbortError` at any caller now
+ * works for all providers. The original error is kept as `cause` so a genuine
+ * failure that happens to race an abort is still debuggable.
+ */
+export const streamChat: any = async (...args: any[]) => {
+  const signal: AbortSignal | undefined = args[1]?.signal;
+  try {
+    return await streamChatImpl(...args);
+  } catch (error) {
+    if (signal?.aborted && !isAbortError(error)) {
+      throw Object.assign(
+        new DOMException('The AI request was cancelled.', 'AbortError'),
+        { cause: error },
+      );
+    }
+    throw error;
   }
 };
 

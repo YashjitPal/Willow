@@ -102,8 +102,20 @@ export const VoiceFocusSurface: React.FC<VoiceFocusSurfaceProps> = ({
   // visible (`p1.js:41706`), which opens the orb expanded for transcript-visible
   // sessions. The atom initialises false, so this effect reproduces that on
   // mount.
+  //
+  // The cleanup restores it for the next session, and the surface's own lifecycle
+  // is the only correct clock for that. The atom is module state that outlives
+  // this component, so a caller is tempted to reset it when its "show the orb"
+  // flag flips — but `AnimatePresence` deliberately keeps this subtree mounted
+  // after that flag goes false so the exit can run. Resetting on the flag
+  // therefore re-renders a *visible* surface as focused, and an orb collapsed at
+  // the time is sent flying back to the centre mid-exit: the wrapper animates
+  // `top`/`left` over FOCUS_TRANSITION while the shader's scale springs back to
+  // 1, on top of the scale-out. React runs this cleanup only once the element is
+  // genuinely removed, which is after the exit has finished.
   useEffect(() => {
     focusModeAtom.set(isSemiFocusedMode);
+    return () => focusModeAtom.set(isSemiFocusedMode);
   }, [isSemiFocusedMode]);
 
   const focusOrbSize = resolveOrbSize({

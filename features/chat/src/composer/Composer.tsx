@@ -41,6 +41,20 @@ import { useCollapsedChatPaddingRight, useFullscreenShellCentering } from './use
 // WorkbenchSidebar import ModelsMenu from here.
 export { ModelsMenu };
 
+/**
+ * Stop glyph, measured off the live Gemini composer during generation.
+ *
+ * It is a different font from the send arrow -- send is "Luminous Symbols",
+ * stop is filled "Google Symbols" -- so the axes cannot be shared between the
+ * two states. MaterialSymbol's google-symbols branch emits only ROND/slnt/wdth/
+ * wght, which drops the FILL that makes this a solid square, hence the explicit
+ * variationSettings override.
+ */
+export const STOP_BUTTON_ICON = {
+  size: 24,
+  variationSettings: '"FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300',
+} as const;
+
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -61,7 +75,11 @@ export const InputBar: React.FC<{
   liveActive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive }) => {
+  /** A reply is streaming. Gemini reuses the send slot as a stop control for the
+   *  whole generation, so this outranks both the send and the live states. */
+  isGenerating?: boolean;
+  onStopGenerating?: () => void;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, isGenerating = false, onStopGenerating }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -210,6 +228,9 @@ export const InputBar: React.FC<{
 
   // Submit prompt internally
   const handleSubmit = () => {
+    // Enter reaches here too, so the generation guard has to live in the
+    // submit path rather than only on the button.
+    if (isGenerating) return;
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
       const submittedAttachments = attachments;
       onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments);
@@ -540,6 +561,9 @@ export const InputBar: React.FC<{
               <button
                 onClick={() => {
                   if (isDictationActive) return;
+                  // Stop outranks send: while a reply streams this slot is the
+                  // stop control, so a click here must never submit the draft.
+                  if (isGenerating) return onStopGenerating?.();
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
                   if (isComposerMaximized) setIsComposerMaximized(false);
@@ -548,9 +572,11 @@ export const InputBar: React.FC<{
                   // and the Chat spacing math stays valid.
                   liveActive ? onStopLive?.() : onStartLive?.();
                 }}
-                disabled={isDictationActive}
+                disabled={isDictationActive && !isGenerating}
                 title={
-                  isTranscribingDictation
+                  isGenerating
+                    ? 'Stop response'
+                    : isTranscribingDictation
                     ? 'Transcribing voice'
                     : hasContent
                     ? undefined
@@ -558,26 +584,41 @@ export const InputBar: React.FC<{
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
-                aria-label={isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
-                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isDictationActive ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation ? 'willow-transcription-spinner' : ''} ${
+                aria-label={isGenerating ? 'Stop response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
+                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
-                    ? isTranscribingDictation
+                    ? isGenerating
+                      // Gemini swaps the accent fill for a neutral surface while
+                      // stopping is offered. #282828 is its MDC hover layer
+                      // (#e6e6e6 at 0.08) composited over #171717.
+                      ? 'bg-[#171717] hover:bg-[#282828]'
+                      : isTranscribingDictation
                       ? 'bg-[#4a7c59]'
                       : !hasContent && liveActive
                       ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
                       : 'bg-[#4a7c59] hover:bg-[#3f694a]'
-                    : isTranscribingDictation
+                    : isGenerating
+                      ? 'bg-[#171717] hover:bg-[#282828]'
+                      : isTranscribingDictation
                       ? 'bg-white'
                       : !hasContent && liveActive
                       ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
                       : 'bg-white hover:bg-zinc-200'
                 }`}
               >
-                {isTranscribingDictation ? (
+                {isGenerating ? (
+                  <MaterialSymbol
+                    family="google-symbols"
+                    name="stop"
+                    size={STOP_BUTTON_ICON.size}
+                    variationSettings={STOP_BUTTON_ICON.variationSettings}
+                    className="text-[#e6e6e6]"
+                  />
+                ) : isTranscribingDictation ? (
                   <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? 'text-white' : 'text-black'} />
                 ) : hasContent ? (
                   chatVariant
-                    ? <MaterialSymbol name="arrow_upward" size={24} weight={400} className="text-white" />
+                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className="text-white" />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
                 ) : chatVariant && liveActive ? (
                   <MaterialSymbol name="stop" size={18} weight={600} fill className="text-white" />

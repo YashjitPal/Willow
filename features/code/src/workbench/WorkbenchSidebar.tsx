@@ -1100,7 +1100,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       ? 56
       : 20;
 
-  const LAST_RESPONSE_PREVIEW_GAP_COMPENSATION = 48;
   const responseHasCodeChanges = (response: string) => parseAIResponse(response).length > 0;
 
   // Generate prompt suggestions based on conversation
@@ -2694,19 +2693,57 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             lastPromptIds.current[activeConversationMode] = lastUserMessage.id;
             isScrollingToTop.current = true;
 
+            // Re-reserve for the NEW turn synchronously. Everything below happens in a
+            // rAF, and until that frame runs the previous turn's reserve is still applied
+            // -- sized for the previous bubble. If the frame never runs (a backgrounded
+            // tab throttles rAF to zero), that stale height would be all we ever get.
+            const syncMsgEl = messageRefs.current[lastUserMessage.id];
+            if (syncMsgEl) {
+              const syncGap = 48; // space-y-12 between message groups
+              setResponseAreaMinHeight(Math.max(
+                0,
+                container.clientHeight - currentTargetVisualOffset - syncMsgEl.offsetHeight - syncGap,
+              ));
+              setNeedsScrollPadding(false);
+            }
+
             // CRITICAL: Temporarily force overflow to auto so scroll can work
             container.style.overflow = 'auto';
+            // .hover-scrollbar sets scroll-behavior: smooth, which turns every scrollTop
+            // write below into a browser-driven animation -- it fights the rAF easing and
+            // a write can read back as 0. Force instant writes; restored once we land.
+            container.style.scrollBehavior = 'auto';
 
             // Wait one frame for DOM to fully settle after state changes
             // (streaming div, suggestions collapse, etc.)
             requestAnimationFrame(() => {
                 const msgEl = messageRefs.current[lastUserMessage.id];
 
-                if (msgEl && container) {
-                    // Capture initial state AFTER DOM has settled
+                if (!msgEl || !container) {
+                    // Nothing to scroll to -- do not leave the overrides behind.
+                    if (container) container.style.scrollBehavior = '';
+                    isScrollingToTop.current = false;
+                    return;
+                }
+                {
+                    const targetVisualOffset = currentTargetVisualOffset;
+
+                    // Reserve the response area BEFORE scrolling. The scroll below is a
+                    // direct scrollTop write, so the page has to already be tall enough --
+                    // otherwise the browser clamps against a too-short page and the bubble
+                    // never reaches the anchor. flushSync commits the height synchronously
+                    // so the very next layout read sees it.
+                    const gap = 48; // space-y-12 between message groups
+                    const preMinH =
+                      container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
+                    flushSync(() => {
+                      setResponseAreaMinHeight(Math.max(0, preMinH));
+                      setNeedsScrollPadding(false);
+                    });
+
+                    // Capture initial state AFTER the reserve has landed
                     const containerRect = container.getBoundingClientRect();
                     const msgRect = msgEl.getBoundingClientRect();
-                    const targetVisualOffset = currentTargetVisualOffset;
                     const initialOffset = msgRect.top - containerRect.top;
                     const totalScrollNeeded = initialOffset - targetVisualOffset;
 
@@ -2747,18 +2784,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                         if (progress < 1) {
                             requestAnimationFrame(animateScroll);
                         } else {
-                            // Ensure we land exactly on FINAL target
+                            // Ensure we land exactly on FINAL target. The reserve was already
+                            // committed before the scroll started, so this is not clamped.
                             container.scrollTop = targetScrollTop;
+                            container.style.scrollBehavior = '';
                             isScrollingToTop.current = false;
-
-                            // Calculate dynamic min-height for response area:
-                            // Fill the full remaining visible space below the user message.
-                            // This keeps enough scrollable height for the animation to work.
-                            // Footer overlap is handled by paddingBottom on the response container.
-                            const gap = 48; // space-y-12 between message groups
-                            const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
-                            setResponseAreaMinHeight(Math.max(0, minH));
-                            setNeedsScrollPadding(false);
                         }
                     };
 
@@ -2815,15 +2845,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const lastMsg = activeConversationMessages[activeConversationMessages.length - 1];
       if (lastMsg?.role === 'assistant') {
         const el = messageRefs.current[lastMsg.id];
-        const effectiveMinHeight = Math.max(
-          0,
-          responseAreaMinHeight - (
-            !lastMsg.isGenerating && !lastMsg.designNodeId && !lastMsg.hasCodeChanges
-              ? LAST_RESPONSE_PREVIEW_GAP_COMPENSATION
-              : 0
-          )
-        );
-        if (el && el.scrollHeight > effectiveMinHeight + 5) {
+        if (el && el.scrollHeight > responseAreaMinHeight + 5) {
           setNeedsScrollPadding(true);
         }
       }
@@ -3578,15 +3600,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               // Check if this is the last assistant message (needs min-height to prevent snap)
               const isLastAssistantMessage = msg.role === 'assistant' &&
                 msgIndex === activeConversationMessages.length - 1;
+              // The reserve is applied verbatim. Shrinking it once the response settles
+              // would drop scrollHeight below the current scrollTop, and the browser's
+              // clamp would drag the whole thread down off the anchor.
               const lastAssistantMinHeight = isLastAssistantMessage && responseAreaMinHeight !== undefined
-                ? Math.max(
-                    0,
-                    responseAreaMinHeight - (
-                      !msg.isGenerating && !msg.designNodeId && !msg.hasCodeChanges
-                        ? LAST_RESPONSE_PREVIEW_GAP_COMPENSATION
-                        : 0
-                    )
-                  )
+                ? responseAreaMinHeight
                 : undefined;
 
               return (
