@@ -224,7 +224,13 @@ it('keeps the migration-scan effect off the memoized map', () => {
 
   const pending = source.indexOf('const pending = localChats.filter(');
   assert.notEqual(pending, -1, 'could not locate the migration-scan filter');
-  const filterLine = source.slice(pending, source.indexOf('\n', pending));
+  // The whole filter expression, not its first line. The predicate spans four
+  // lines, so slicing to the first newline captured only
+  // `const pending = localChats.filter((chatId) =>` — which contains neither
+  // name this test is about, so the isCodeChat assertion could never pass.
+  const filterEnd = source.indexOf(');', pending);
+  assert.notEqual(filterEnd, -1, 'could not find the end of the migration-scan filter');
+  const filterLine = source.slice(pending, filterEnd);
 
   assert.match(filterLine, /isCodeChat\(/,
     'the migration scan must call isCodeChat, not read the memo');

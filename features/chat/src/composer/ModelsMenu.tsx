@@ -25,6 +25,7 @@ import {
   modelSupportsNoThinking,
   sortModelEfforts,
 } from '@willow/ai/models/efforts';
+import type { VoiceModelListing } from '../voice-settings/voice-providers';
 
 type PickerModel = ModelEffortRecord;
 
@@ -36,7 +37,16 @@ export const ModelsMenu: React.FC<{
   onSelect: (id: string) => void;
   onAuthRequired?: () => void;
   geminiStyle?: boolean;
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false }) => {
+  /**
+   * The live models to list instead of the text roster, set only while a voice
+   * session is up. Passed in rather than read from the registry here so the two
+   * outside importers (CodeHome, WorkbenchSidebar), which know nothing about
+   * voice mode, keep their current behaviour by simply not passing it.
+   */
+  voiceModels?: VoiceModelListing[];
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels }) => {
+  const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
+
   const isMediaModel = (m: any) => {
     const id = (m.modelId || m.id || '').toLowerCase();
     const name = (m.name || '').toLowerCase();
@@ -47,14 +57,33 @@ export const ModelsMenu: React.FC<{
   };
 
   // Combine all saved models from all providers and deduplicate by modelId
-  const rawModels = [
+  const savedModels = [
     ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
     ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
     ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
     ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
     ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
     ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
+  ];
+
+  /**
+   * The live roster as picker rows.
+   *
+   * `id` is the live model id itself, not a saved-model key, because that is
+   * what the caller stores and what goes on the wire — a live model need not be
+   * saved in Settings → Models at all. The saved entry is consulted only for its
+   * display name, so a model the user has named keeps that name here. It scans
+   * the unfiltered saved list on purpose: `isMediaModel` drops anything
+   * containing "voice", which is exactly the roster being matched.
+   */
+  const voiceRows = (voiceModels || []).map((m) => {
+    const saved = savedModels.find((s: any) => s.modelId === m.id);
+    return { id: m.id, modelId: m.id, name: saved?.name || m.name, provider: m.providerLabel };
+  });
+
+  const rawModels = isVoiceRoster
+    ? voiceRows
+    : savedModels.filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
 
   const [isEffortHovered, setIsEffortHovered] = useState(false);
   const effortMenuRef = useRef<HTMLDivElement>(null);
@@ -226,7 +255,10 @@ export const ModelsMenu: React.FC<{
     group.variants.some(matchesSelection)
   ) || groupedModels[0];
 
-  const selectedEfforts = getEffortsForGroup(selectedGroup);
+  // A live model has no thinking levels, so the submenu is not merely hidden —
+  // there is nothing to offer. Empty here also makes `selectedEffort` undefined,
+  // which is what removes the separator and the row below the list.
+  const selectedEfforts = isVoiceRoster ? [] : getEffortsForGroup(selectedGroup);
   // Falling back to level 3 keeps the previous default. `> 0` on the last
   // fallback stops a freshly added level-0 entry from being reported as the
   // default effort for models whose ceiling is below 3.
@@ -236,6 +268,10 @@ export const ModelsMenu: React.FC<{
     || selectedEfforts[0];
 
   const getModelDescription = (model: any) => {
+    // Live models get the provider that runs them. The name-matching below is
+    // about text-model capability ("Fastest answers"), which says nothing true
+    // about a live model — and "…Flash Live" would otherwise match `flash`.
+    if (isVoiceRoster) return String(model.provider || '');
     const name = String(model.name || '').toLowerCase();
     if (name.includes('flash lite')) return 'Fastest answers';
     if (name.includes('flash')) return 'All-around help';

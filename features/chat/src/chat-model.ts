@@ -36,7 +36,12 @@ export interface ResolveChatModelInput {
   apiKeys?: Partial<Record<ChatProvider, string[]>>;
 }
 
-const getShortModelName = (name: string) => {
+/**
+ * "Gemini 3.1 Flash Live" -> "3.1 Flash Live". Exported because the live turn's
+ * `modelSnapshot` label has to be shortened the same way as a text turn's, and
+ * that one is built in ChatView rather than here.
+ */
+export const getShortModelName = (name: string) => {
   if (!name) return 'Model';
   if (name.includes('2.5 Flash Lite')) return '2.5 Lite';
   return name.replace(/Gemini\s+/gi, '').replace(/\s+Extended$/gi, '').trim();

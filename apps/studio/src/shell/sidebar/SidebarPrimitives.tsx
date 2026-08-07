@@ -26,7 +26,7 @@ export const SidebarItem: React.FC<{
         }
       }}
       className={`relative flex h-8 items-center transition-colors duration-150 group/item cursor-pointer outline-none
-        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : 'mx-auto w-full gap-1.5 px-1.5 overflow-hidden'}
+        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 ${!Icon && !symbol ? 'pl-[8px] pr-1.5' : 'px-1.5'} overflow-hidden`}
         ${active ? 'bg-[#171717] text-[#e6e6e6] hover:bg-[#171717]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] hover:text-[#e6e6e6]'}
         rounded-full`}
     >
@@ -59,8 +59,8 @@ export const SidebarItem: React.FC<{
       )}
 
       {actions && !isCollapsed && (
-        <div className={`ml-auto pr-2 transition-opacity flex items-center justify-center shrink-0 ${
-          keepActionsVisible ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+        <div className={`ml-auto pr-0.5 flex items-center justify-center shrink-0 ${
+          keepActionsVisible ? 'opacity-100' : 'max-w-0 overflow-hidden opacity-0 group-hover/item:max-w-none group-hover/item:overflow-visible group-hover/item:opacity-100'
         }`}>
           {actions}
         </div>

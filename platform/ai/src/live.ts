@@ -371,6 +371,7 @@ export class GeminiLiveSession {
   private turnOpen = false;       // between onTurnStart and onTurnComplete
   private userTranscriptAcc = ''; // accumulated for the current turn
   private disposed = false;
+  private micMuted = false;       // see setMicMuted
 
   constructor(opts: LiveSessionOptions) {
     this.opts = opts;
@@ -497,6 +498,30 @@ export class GeminiLiveSession {
       try { this.ws.close(1000); } catch { /* noop */ }
     }
     this.ws = null;
+  }
+
+  /**
+   * Mute the microphone at the source by disabling the capture tracks.
+   *
+   * Disabling the track rather than gating our own PCM copy is deliberate: it is
+   * a real source mute, so the browser tab and OS mic indicators go out and the
+   * user can trust that nothing is being heard. It also silences the visualiser
+   * for free, since `micAnalyser` is a side-tap off `sourceNode`.
+   *
+   * A disabled track still produces buffers, just silent ones, so the socket
+   * keeps receiving audio frames and the server's voice-activity detection sees
+   * an unbroken — merely quiet — timeline instead of a stream that stopped.
+   *
+   * Recorded even before the graph exists so a mute chosen between `start()` and
+   * the mic actually being acquired is not lost.
+   */
+  setMicMuted(muted: boolean): void {
+    this.micMuted = muted;
+    this.micStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+  }
+
+  get isMicMuted(): boolean {
+    return this.micMuted;
   }
 
   /**
@@ -705,6 +730,9 @@ export class GeminiLiveSession {
         autoGainControl: true,
       },
     });
+    // Re-apply a mute requested before the stream existed, and carry the current
+    // mute across a reconnect, which builds a fresh stream on the same session.
+    if (this.micMuted) this.setMicMuted(true);
 
     // Request a 16 kHz context so no manual resampling is needed. Supported in
     // all evergreen browsers; fall back to default rate + downsample if not.

@@ -209,6 +209,43 @@ export const StudioLayout: React.FC<{
       )}
 
       <div className="flex-1 relative flex flex-col min-w-0 bg-transparent">
+        {/*
+          Pinned "Temporary Chat" label, measured from Gemini's
+          `div.temporary-chat-header`: 16px padding around a 40px line box
+          (72px tall), centred, 14px/500 in #c4c7c5, with the 8px `.info-text`
+          padding-left that offsets the label 4px right of true centre.
+
+          Gemini positions this `fixed` at `right: 0` with
+          `width: calc(100vw - 288px - 16px * 2)` and transitions the width over
+          300ms so it tracks the sidebar. Willow's content column is already a
+          `relative` flex sibling of the sidebar, so `absolute inset-x-0 top-0`
+          resolves to the identical box (measured x 288 -> 1536 at a 1536px
+          viewport) and follows the sidebar for free.
+
+          It stays mounted for the whole session, zero state and live thread
+          alike, which is the point — it is not part of the message flow.
+
+          `pointer-events-none` is the one deliberate departure. The measured
+          header box fully contains the toggle button (x 1488-1524, y 14-50), so
+          a click-absorbing overlay here would make incognito impossible to
+          leave. The label has no interactive content, so this changes nothing
+          visual.
+        */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isIncognito && (
+          <div
+            data-test-id="temporary-chat-header"
+            className="absolute inset-x-0 top-0 z-20 flex items-center justify-center p-4 pointer-events-none select-none"
+            style={{
+              fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+              fontSize: '14px',
+              fontWeight: 500,
+              lineHeight: '40px',
+              color: '#c4c7c5',
+            }}
+          >
+            <span style={{ paddingLeft: '8px' }}>Temporary Chat</span>
+          </div>
+        )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
           <div className="absolute top-[14px] right-[12px] z-30 flex items-center">

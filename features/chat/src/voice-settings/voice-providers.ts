@@ -13,6 +13,31 @@
  * their published characteristics, 97 BCP-47 codes), not a sample.
  */
 
+import { LIVE_MODEL_ID } from '@willow/ai/live';
+
+/**
+ * One live model a provider can run.
+ *
+ * `matches()` classifies a model id; this enumerates them, which is what the
+ * composer's picker needs — it has to list the roster before anything is
+ * selected, and there is nothing to pattern-match against yet. Kept here rather
+ * than read off the user's saved models because these are the ids voice mode
+ * actually opens a socket with, and a model can be missing from Settings →
+ * Models while still being the one live mode runs.
+ */
+export type VoiceModelOption = {
+  /** Sent as the Live API `model`. */
+  id: string;
+  /** Shown in the picker when no saved model supplies a name for this id. */
+  name: string;
+};
+
+/** A model plus the provider that runs it, which is the picker's second line. */
+export type VoiceModelListing = VoiceModelOption & {
+  providerId: string;
+  providerLabel: string;
+};
+
 /** One entry in the voice carousel: dot, name, and the line under it. */
 export type VoiceOption = {
   /** Sent to the API verbatim — for Gemini, `prebuiltVoiceConfig.voiceName`. */
@@ -46,10 +71,12 @@ export type LanguageMode = 'speechConfig' | 'systemInstruction';
 export type VoiceProvider = {
   /** Stable key for persistence. Never shown. */
   id: string;
-  /** Shown nowhere today; kept for a future multi-provider header. */
+  /** Shown as the second line of each of this provider's rows in the picker. */
   label: string;
   /** True when this provider serves the given live model id. */
   matches: (modelId: string) => boolean;
+  /** The live models this provider can run, in the order the picker lists them. */
+  models: VoiceModelOption[];
   voices: VoiceOption[];
   languages: LanguageOption[];
   languageMode: LanguageMode;
@@ -230,6 +257,9 @@ export const GEMINI_VOICE_PROVIDER: VoiceProvider = {
   id: 'gemini-live',
   label: 'Gemini Live',
   matches: (modelId) => modelId.includes('gemini') && modelId.includes('live'),
+  // The one model live mode opens a socket with today. `matches` above stays the
+  // broader test, so a second Gemini live model only has to be added here.
+  models: [{ id: LIVE_MODEL_ID, name: 'Gemini 3.1 Flash Live' }],
   voices: GEMINI_VOICES,
   languages: GEMINI_LANGUAGES,
   languageMode: 'systemInstruction',
@@ -247,6 +277,31 @@ export const VOICE_PROVIDERS: VoiceProvider[] = [GEMINI_VOICE_PROVIDER];
 /** The provider serving `modelId`, or null when none claims it. */
 export function findVoiceProvider(modelId: string): VoiceProvider | null {
   return VOICE_PROVIDERS.find((p) => p.matches(modelId)) ?? null;
+}
+
+/**
+ * Every live model Willow can run, across all providers, in registry order.
+ *
+ * This is what the composer's picker lists while voice mode is active. It is
+ * derived rather than a second list, so a provider added to VOICE_PROVIDERS
+ * appears in the picker with no change here or in the composer.
+ */
+export function listVoiceModels(): VoiceModelListing[] {
+  return VOICE_PROVIDERS.flatMap((p) =>
+    p.models.map((m) => ({ ...m, providerId: p.id, providerLabel: p.label })),
+  );
+}
+
+/**
+ * The live model a session should open with, given a stored preference.
+ *
+ * Falls back to the first registered model, so a preference left behind by a
+ * build that had a model this one does not can never put an unrunnable id on
+ * the wire.
+ */
+export function resolveVoiceModelId(modelId: string | undefined): string {
+  const models = listVoiceModels();
+  return models.find((m) => m.id === modelId)?.id ?? models[0].id;
 }
 
 /** The named voice, falling back to the provider's default then its first. */
