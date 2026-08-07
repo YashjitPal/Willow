@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { Glasses } from 'lucide-react';
@@ -34,6 +34,17 @@ import { experimentsStore } from '@willow/core/experiments-store';
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
 import { resolveFocusSurfaceAttributes } from './voice-orb/focus-surface-constants';
 import type { WorkspaceColorName } from './voice-orb/orb-palette';
+import { VoiceSettingsButton } from './voice-settings/VoiceSettingsButton';
+import { VoiceSettingsDialog } from './voice-settings/VoiceSettingsDialog';
+import { findVoiceProvider } from './voice-settings/voice-providers';
+import {
+  buildLiveVoiceOptions,
+  getVoiceSelection,
+  setLanguage,
+  setVoice,
+  voiceSettingsSignature,
+  voiceSettingsStore,
+} from './voice-settings/voice-settings-store';
 
 const CHAT_COMPOSER_LAYOUT_ID = 'willow-chat-composer';
 
@@ -163,6 +174,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // Strip runtime-only flags that should never be persisted.
             // If a save happened mid-generation, the assistant placeholder
             // will have isGenerating:true and empty content — drop those.
+            //
+            // Every flag `serializeChatMessage` writes must be read back here.
+            // This list previously omitted `wasStopped`, so a stopped turn lost
+            // its "You stopped this response" notice on any reload — including
+            // the disk-sync reload that fires after the next turn is saved,
+            // which is why the notice vanished mid-conversation rather than only
+            // on refresh. `chat-message.ts` owns which flags are runtime-only;
+            // the load path has to agree with it.
             const sanitized: ChatMsg[] = (await Promise.all(msgs
               .map(async (m: any) => ({
                 id: m.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
@@ -178,6 +197,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 isTranscribing: false,
                 isLive: false,
                 wasInterrupted: m.wasInterrupted,
+                wasStopped: m.wasStopped,
               })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             if (sanitized.length > 0) {
@@ -242,10 +262,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [activeChatId, messages.length, revokeAllAttachmentObjectUrls]);
 
-  // Generate the chat title only after the first assistant reply has finished.
-  // Starting this from the empty assistant placeholder races the temp-id rename
-  // against the first response stream and can reload/replace the live thread.
-  // Naming is background work and must never sit on the reply's critical path.
+  // Name the chat from the first user prompt, as soon as there is one.
+  //
+  // This used to wait for the first assistant reply to finish. That made naming
+  // depend on something the user controls independently: stopping the very first
+  // response left the chat on its temp id forever, and the sidebar renders a
+  // skeleton for exactly `isTempChatId(id) && activeChatId === id`, so it
+  // shimmered for the rest of the session. The prompt is enough to name a chat —
+  // the reply was never needed — so the dependency is gone rather than patched
+  // with another special case for stopped turns.
+  //
+  // Firing mid-stream is safe, and both halves of that are load-bearing:
+  //   - `setChatTitle` runs before the await that flips activeChatId temp→title,
+  //     so the load effect's `activeChatId === chatTitle` guard still holds and
+  //     it never reloads over the live thread.
+  //   - the forced external reload defers itself while isGeneratingRef is set,
+  //     so the disk-sync path cannot land mid-generation either.
+  // Naming is background work on its own fetch and never joins the reply's
+  // critical path.
+  //
   // localChats is read via a ref (not a dep) so poll-driven list reorders can't
   // re-trigger this effect, and an in-flight ref guards against a second
   // generation firing while the first is still awaiting the naming model.
@@ -254,19 +289,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const titleGenInFlightRef = useRef(false);
   useEffect(() => {
     if (isIncognito) return;
-    const firstUserIndex = messages.findIndex((message) => message.role === 'user');
-    const firstUser = firstUserIndex >= 0 ? messages[firstUserIndex] : undefined;
-    const firstAssistant = firstUserIndex >= 0
-      ? messages.slice(firstUserIndex + 1).find((message) => message.role === 'assistant')
-      : undefined;
-    const firstReplyFinished = !!firstAssistant
-      && !firstAssistant.isGenerating
-      && firstAssistant.content.trim().length > 0;
+    const firstUser = messages.find((message) => message.role === 'user');
 
     if (
       isLocalFolderConnected
       && firstUser
-      && firstReplyFinished
       && !chatTitle
       && !titleGenInFlightRef.current
     ) {
@@ -274,12 +301,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const userMsg = firstUser.content.trim()
         || firstUser.attachments?.map((attachment) => attachment.name).join(', ')
         || 'Attached file';
-      const assistantMsg = firstAssistant.content;
-      
+
       const fetchTitle = async () => {
         let title = '';
         try {
-          title = await generateChatTitle(userMsg, assistantMsg);
+          title = await generateChatTitle(userMsg);
         } catch (err) {
           // Fallback handled below
         }
@@ -323,13 +349,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // dropped that turn from persistence. Strip runtime flags and any
           // still-streaming placeholder (empty content) exactly like the
           // load path does.
-          const latest = messagesRef.current
+          // Read the ref ONCE and mark that exact array as saved. Reading it
+          // again after the await would mark a newer array as persisted than the
+          // one actually written: naming now overlaps the first response by
+          // design, so the reply routinely finalizes mid-save, and crediting the
+          // post-finalize array would make the autosave effect dedup away the
+          // save that carries the reply.
+          const snapshot = messagesRef.current;
+          const latest = snapshot
             .map(serializeChatMessage)
             .filter((message) => hasSavedMessageContent(message));
           if (latest.length > 0) {
             const saved = await saveLocalFSChat(uniqueTitle, latest, chatSessionId);
             if (saved) {
-              lastSavedMessagesRef.current = messagesRef.current;
+              lastSavedMessagesRef.current = snapshot;
             } else {
               // A cross-tab or on-disk collision may have appeared after our
               // optimistic uniqueness check. Keep the temp chat intact and let
@@ -461,6 +494,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // ── Live voice mode (Gemini Live API) ──────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const liveSessionRef = useRef<GeminiLiveSession | null>(null);
+  // Voice/language the running session was opened with, so a change can be
+  // detected without re-running the reconnect on unrelated store writes.
+  const liveSettingsSignatureRef = useRef('');
   // Voice-orb state. Behind the Labs experiment, so it stays inert by default.
   const { voiceOrb: isVoiceOrbEnabled } = useStore(experimentsStore);
   // Connected flips on the socket ACK, which is when the orb reveals itself;
@@ -500,6 +536,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // they are being listened to, which is the orb's listening signal.
   const isUserSpeaking = isLive && messages.some((message) => message.isTranscribing);
   const showVoiceOrb = isVoiceOrbEnabled && isLive;
+
+  // ── Voice + language for the live session ──────────────────────────────────
+  // The panel rides the same experiment as the orb: it is the orb's settings, and
+  // it draws the orb, so it should not exist while the orb does not.
+  const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
+  const voiceSettings = useStore(voiceSettingsStore);
+  const voiceProvider = useMemo(() => findVoiceProvider(LIVE_MODEL_ID), []);
+  const voiceSelection = useMemo(
+    () => (voiceProvider ? getVoiceSelection(voiceProvider, voiceSettings) : null),
+    [voiceProvider, voiceSettings],
+  );
+
+  // Close the panel whenever voice mode ends, so it cannot outlive the session
+  // that gives it an orb to draw.
+  useEffect(() => {
+    if (!showVoiceOrb) setIsVoiceSettingsOpen(false);
+  }, [showVoiceOrb]);
 
   useEffect(() => {
     onChatStartedChange?.(hasStarted);
@@ -558,16 +611,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const container = chatScrollRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
+      // This is the same element `voice-focus-surface.css` lifts by -56px in the
+      // expanded state, and getBoundingClientRect reports the post-transform box —
+      // so the lift has to come back out or the orb is placed against a rect that
+      // is 56px high. Normally the lift transitions from 0 and this reads ~0, but
+      // an empty chat mounts the whole active tree *with* the expanded attribute
+      // already set: nothing transitions, and the very first measurement is fully
+      // lifted. Subtracting the live translation gives the layout box in both
+      // cases, and mid-transition too.
+      const { m41: translateX, m42: translateY } = new DOMMatrix(
+        getComputedStyle(container).transform,
+      );
       setMainContentRect({
-        top: rect.top,
-        left: rect.left,
+        top: rect.top - translateY,
+        left: rect.left - translateX,
         width: rect.width,
         height: rect.height,
       });
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // The scroller can settle after this effect runs — the composer's shared-layout
+    // move on the empty-state → active swap is the case that matters — and a stale
+    // rect would strand the orb wherever the first frame put it.
+    const observer = new ResizeObserver(measure);
+    if (chatScrollRef.current) observer.observe(chatScrollRef.current);
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer.disconnect();
+    };
   }, [showVoiceOrb]);
 
   // Transcript fade. Upstream hides the conversation behind the expanded orb and
@@ -1146,36 +1218,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     generationAbortRef.current?.abort();
   }, []);
 
-  const handleStartLive = useCallback(() => {
-    if (isLive || isGenerating) return;
-    if (!isAuthenticated) { onAuthRequired?.(); return; }
-
-    const apiKey: string | undefined = apiKeys?.gemini?.[0];
-    if (!apiKey) {
-      // Surface the same friendly inline error style as typed chat.
-      const uId = newId();
-      const aId = newId();
-      setMessages((prev) => [
-        ...prev,
-        { id: uId, role: 'user', content: 'Start live voice chat', isNew: true },
-        {
-          id: aId,
-          role: 'assistant',
-          content:
-            'A **Gemini** API key is required for live voice mode ' +
-            `(\`${LIVE_MODEL_ID}\`). Add one in **Settings → Models**.`,
-          isError: true,
-        },
-      ]);
-      return;
-    }
-
-    // Still inside the click gesture: create/resume the chime AudioContext and
-    // kick off both fetches so the start cue is decoded before onOpen fires.
-    primeLiveChimes();
-
-    setIsLive(true);
-
+  /**
+   * Opens a live session against the current voice/language selection.
+   *
+   * Split out of `handleStartLive` so a voice or language change can reopen the
+   * socket without re-running the entry guards — `speechConfig` is fixed in the
+   * setup frame, so a change only lands on reconnect.
+   */
+  const openLiveSession = useCallback((apiKey: string) => {
     // Prime the live model with everything already in the thread so a mid-chat
     // voice session has full context. Read from the ref (fresh) not the
     // closed-over `messages`.
@@ -1186,25 +1236,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
         text: m.content,
       }));
 
+    // Voice, and either a `languageCode` or a prompt directive depending on what
+    // the provider accepts. With no provider match this returns the prompt
+    // untouched and neither field set, i.e. exactly the pre-existing request.
+    const voiceOptions = buildLiveVoiceOptions(LIVE_MODEL_ID, CHAT_SYSTEM_PROMPT);
+    liveSettingsSignatureRef.current = voiceSettingsSignature(LIVE_MODEL_ID);
+
+    // Every callback below is late-bound to the ref, so a session that has been
+    // replaced goes quiet instead of tearing down its successor.
+    const isCurrentSession = () => liveSessionRef.current === session;
+
     const session = new GeminiLiveSession({
       apiKey,
       model: LIVE_MODEL_ID,
-      systemPrompt: CHAT_SYSTEM_PROMPT,
+      systemPrompt: voiceOptions.systemPrompt,
+      voiceName: voiceOptions.voiceName,
+      languageCode: voiceOptions.languageCode,
       history,
       // Rising two-note earcon the moment the socket ACKs setup + mic is hot —
       // i.e. the exact instant it's actually listening.
       onOpen: () => {
+        if (!isCurrentSession()) return;
         playLiveChime('start');
         // Socket ACKed and mic is hot: the orb reveals from here.
         setIsLiveConnected(true);
-        const active = liveSessionRef.current;
         setLiveAnalysers({
-          mic: active?.micAnalyser ?? null,
-          output: active?.outputAnalyser ?? null,
+          mic: session.micAnalyser ?? null,
+          output: session.outputAnalyser ?? null,
         });
       },
-      onTurnStart: () => openLiveTurn(),
+      onTurnStart: () => { if (isCurrentSession()) openLiveTurn(); },
       onUserTranscript: (full) => {
+        if (!isCurrentSession()) return;
         const turn = liveTurnRef.current;
         if (!turn) return;
         setMessages((prev) =>
@@ -1214,6 +1277,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         );
       },
       onModelText: (chunk) => {
+        if (!isCurrentSession()) return;
         const turn = liveTurnRef.current;
         if (!turn) return;
         // `chunk` is released by live.ts only when its audio is actually being
@@ -1224,12 +1288,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
         flushSync(() => setStreaming(turn.acc));
       },
       onTurnComplete: ({ aborted }) => {
+        if (!isCurrentSession()) return;
         setIsAssistantSpeaking(false);
         closeLiveTurn({ aborted });
       },
       onError: (err) => {
         // eslint-disable-next-line no-console
         console.error('[ChatView] live error', err);
+        if (!isCurrentSession()) return;
         if (liveTurnRef.current) {
           // Mid-turn failure → finalise the in-flight assistant bubble with the error.
           closeLiveTurn({ error: `Live session error: ${err.message}` });
@@ -1265,6 +1331,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       onClose: () => {
         // onError (above) already handled the unhappy path; a clean close just
         // drops back to typed mode.
+        if (!isCurrentSession()) return;
         liveSessionRef.current = null;
         setIsLive(false);
         setIsLiveConnected(false);
@@ -1274,16 +1341,87 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
     liveSessionRef.current = session;
     void session.start();
+  }, [openLiveTurn, closeLiveTurn]);
+
+  const handleStartLive = useCallback(() => {
+    if (isLive || isGenerating) return;
+    if (!isAuthenticated) { onAuthRequired?.(); return; }
+
+    const apiKey: string | undefined = apiKeys?.gemini?.[0];
+    if (!apiKey) {
+      // Surface the same friendly inline error style as typed chat.
+      const uId = newId();
+      const aId = newId();
+      setMessages((prev) => [
+        ...prev,
+        { id: uId, role: 'user', content: 'Start live voice chat', isNew: true },
+        {
+          id: aId,
+          role: 'assistant',
+          content:
+            'A **Gemini** API key is required for live voice mode ' +
+            `(\`${LIVE_MODEL_ID}\`). Add one in **Settings → Models**.`,
+          isError: true,
+        },
+      ]);
+      return;
+    }
+
+    // Still inside the click gesture: create/resume the chime AudioContext and
+    // kick off both fetches so the start cue is decoded before onOpen fires.
+    primeLiveChimes();
+
+    setIsLive(true);
+    openLiveSession(apiKey);
   }, [
     isLive,
     isGenerating,
     isAuthenticated,
     onAuthRequired,
     apiKeys,
-    openLiveTurn,
-    closeLiveTurn,
-    stopThinking,
+    openLiveSession,
   ]);
+
+  /**
+   * Reopen the socket after a voice or language change.
+   *
+   * Voice and language ride the setup frame, so there is no way to change them on
+   * a running session — it has to be torn down and reopened. `stop()` reaches
+   * `ws.onclose` unconditionally, which is why every callback above is guarded on
+   * `liveSessionRef.current === session`: without that, the outgoing session's
+   * close would null the ref the incoming one just claimed and drop the user out
+   * of voice mode entirely.
+   *
+   * The end chime is skipped deliberately — voice mode is not ending, and the
+   * start chime on the new socket already marks the transition.
+   *
+   * `isLiveConnected` is deliberately left alone for the same reason. It drives the
+   * orb's reveal ramp, so dropping it to false across the swap would fade the orb
+   * out and play the connect reveal again on every voice change — which is visible
+   * as the settings panel "affecting" the orb behind it, since the panel is where
+   * voice changes come from. Voice mode does not end here, so the flag should not
+   * say it did; a reopen that fails still lands on `onError`/`onClose`, which clear
+   * it, and a reopen that succeeds sets it true again on `onOpen`.
+   */
+  const restartLiveSession = useCallback(() => {
+    if (!liveSessionRef.current) return;
+    const apiKey: string | undefined = apiKeys?.gemini?.[0];
+    if (!apiKey) return;
+
+    liveSessionRef.current.stop();
+    liveSessionRef.current = null;
+    setIsAssistantSpeaking(false);
+    setLiveAnalysers({ mic: null, output: null });
+    openLiveSession(apiKey);
+  }, [apiKeys, openLiveSession]);
+
+  // A change while live reconnects; a change while idle just waits for the next
+  // session, which will read the store when it opens.
+  useEffect(() => {
+    if (!isLive || !liveSessionRef.current) return;
+    if (voiceSettingsSignature(LIVE_MODEL_ID) === liveSettingsSignatureRef.current) return;
+    restartLiveSession();
+  }, [isLive, restartLiveSession, voiceSettings]);
 
   // Tear down the socket + mic if the component unmounts mid-session.
   useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
@@ -1676,7 +1814,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // ternary) means the instant generation flips off we keep rendering
             // the same string, so StreamingMarkdown's RAF buffer can finish
             // draining without a content swap.
-            const bodyText = generating ? streaming : msg.content || streaming;
+            // `streaming` is a single thread-wide buffer belonging to whichever
+            // turn is generating now, so a finished turn must never fall back to
+            // it. A turn stopped before its first token has empty content, and
+            // the old fallback to `streaming` here made such a turn mirror the
+            // NEXT turn's text as soon as that began streaming.
+            const bodyText = generating ? streaming : msg.content;
             // Live turns: no "Thinking" shimmer, no "Thought for Xs" — the
             // voice starts near-instantly so the row is noise.
             const showThinkingRow =
@@ -1754,9 +1897,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 )}
 
                 {/* Stopped turn: Gemini inserts the notice between the body and
-                    the action row, 8px below the body and flush against the row
-                    (measured 8px / 0px). It sits outside the wrapper's
-                    space-y-3 rhythm, so the margin is set explicitly. */}
+                    the action row. Measured on both stopped turns in the live
+                    app: body bottom -> 8px -> 20px notice -> 4px -> 32px button
+                    row. (An earlier pass read that last gap as 0 because it
+                    measured to `message-actions`, whose own 4px inset sits above
+                    the buttons; the notice-to-button distance is 4px.) The
+                    notice sits outside the wrapper's space-y-3 rhythm, so both
+                    margins are set explicitly. */}
                 {msg.wasStopped && !generating && (
                   <div style={{ marginTop: 8, marginBottom: 0 }}>
                     <ResponseInfoLine />
@@ -1770,10 +1917,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     height: generating ? 0 : 'auto',
                   }}
                   transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
-                  // Gemini butts the action row straight against the notice
-                  // (measured 0px), so the wrapper's 12px rhythm is cancelled
-                  // for this one case rather than left to double up.
-                  style={msg.wasStopped ? { marginTop: 0 } : undefined}
+                  // Gemini leaves 4px between the notice and the button row,
+                  // replacing the wrapper's 12px rhythm for this one case.
+                  style={msg.wasStopped ? { marginTop: 4 } : undefined}
                   className={`overflow-visible transition-opacity duration-[240ms] ease-[cubic-bezier(0.2,0,0,1)] ${
                     generating
                       ? 'pointer-events-none opacity-0'
@@ -1788,6 +1934,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     listening={listeningId === msg.id}
                     canRedo={isLastAssistant}
                     canShowThinking={!msg.isError}
+                    isStopped={!!msg.wasStopped}
                     onLike={() => setReactions((current) => ({
                       ...current,
                       [msg.id]: current[msg.id] === 'like' ? null : 'like',
@@ -1840,6 +1987,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           )}
         </AnimatePresence>
+        {/* Voice settings — the trigger rides the same experiment and the same
+            live-session gate as the orb, and the panel draws the orb itself, so
+            neither exists outside a live session. */}
+        {showVoiceOrb && voiceProvider && voiceSelection && (
+          <>
+            <VoiceSettingsButton
+              onClick={() => setIsVoiceSettingsOpen(true)}
+              expanded={isVoiceSettingsOpen}
+            />
+            <VoiceSettingsDialog
+              open={isVoiceSettingsOpen}
+              onClose={() => setIsVoiceSettingsOpen(false)}
+              provider={voiceProvider}
+              voice={voiceSelection.voice}
+              language={voiceSelection.language}
+              onVoiceChange={(voiceId) => setVoice(voiceProvider, voiceId)}
+              onLanguageChange={(code) => setLanguage(voiceProvider, code)}
+              orbProps={{
+                connected: isLiveConnected,
+                isUserSpeaking,
+                isAssistantSpeaking,
+                analyser: liveAnalysers.mic,
+                assistantAnalyser: liveAnalysers.output,
+                workspaceColor,
+              }}
+            />
+          </>
+        )}
         <div
           className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]"
         >

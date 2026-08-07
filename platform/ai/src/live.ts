@@ -300,6 +300,24 @@ export interface LiveSessionOptions {
    * https://ai.google.dev/gemini-api/docs/live-tools#search-tool
    */
   enableSearch?: boolean;
+  /**
+   * Prebuilt voice for the model's speech, e.g. `'Kore'`.
+   *
+   * Sent as `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`. Omitted
+   * leaves the API on its own default.
+   * https://ai.google.dev/gemini-api/docs/live-guide#change-voice
+   */
+  voiceName?: string;
+  /**
+   * BCP-47 code for the model's speech, e.g. `'hi-IN'`.
+   *
+   * Only sent when `languageMode` is `'speechConfig'`. Native-audio Live models —
+   * which is what `LIVE_MODEL_ID` is — pick the language themselves and reject an
+   * explicit `languageCode`, so for those the caller steers via the system prompt
+   * instead and leaves this unset. Half-cascade models accept it.
+   * https://ai.google.dev/gemini-api/docs/live-guide#change-language
+   */
+  languageCode?: string;
   /** Fired once the server ACKs setup and mic capture has begun. */
   onOpen?: () => void;
   /**
@@ -403,6 +421,25 @@ export class GeminiLiveSession {
           model: `models/${this.opts.model ?? LIVE_MODEL_ID}`,
           generationConfig: {
             responseModalities: ['AUDIO'],
+            // Voice and language for the spoken output. Left off entirely when
+            // neither is set, so a caller that passes nothing gets exactly the
+            // request shape this sent before either option existed.
+            ...(this.opts.voiceName || this.opts.languageCode
+              ? {
+                  speechConfig: {
+                    ...(this.opts.voiceName
+                      ? {
+                          voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: this.opts.voiceName },
+                          },
+                        }
+                      : {}),
+                    ...(this.opts.languageCode
+                      ? { languageCode: this.opts.languageCode }
+                      : {}),
+                  },
+                }
+              : {}),
           },
           systemInstruction: this.opts.systemPrompt
             ? { role: 'user', parts: [{ text: this.opts.systemPrompt }] }

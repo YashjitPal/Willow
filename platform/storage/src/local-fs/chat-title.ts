@@ -25,9 +25,19 @@ type ApiKeyMap = any;
  *
  * It insists on no quotes, punctuation, or extension because the reply becomes
  * a directory name on disk.
+ *
+ * The assistant half is optional, and the `Assistant:` line is omitted entirely
+ * when there is none — a dangling empty label reads to the naming model as a
+ * reply that exists and said nothing. Chat naming runs off the user's prompt
+ * alone (see the title effect in ChatView), so the no-reply form is the common
+ * case, not a degraded one.
  */
-const buildTitlePrompt = (userMessage: string, assistantMessage: string): string =>
-  `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\nUser: ${userMessage}\nAssistant: ${assistantMessage}`;
+const buildTitlePrompt = (userMessage: string, assistantMessage?: string): string => {
+  const transcript = assistantMessage?.trim()
+    ? `User: ${userMessage}\nAssistant: ${assistantMessage}`
+    : `User: ${userMessage}`;
+  return `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\n${transcript}`;
+};
 
 /**
  * Strips the characters Windows and POSIX forbid in a filename, then caps the
@@ -46,7 +56,7 @@ export const generateChatTitleWith = async (
   modelConfig: any,
   apiKeys: ApiKeyMap,
   userMessage: string,
-  assistantMessage: string,
+  assistantMessage?: string,
 ): Promise<string> => {
   // 1. Resolve which model the user has selected for Chat Naming
   const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';

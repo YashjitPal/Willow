@@ -11,6 +11,19 @@ interface ResponseActionsProps {
   listening: boolean;
   canRedo: boolean;
   canShowThinking: boolean;
+  /**
+   * Turn the user stopped. Gemini drops most of the row for these: rating a
+   * reply it never finished writing is meaningless, and there is no complete
+   * answer to copy. Measured on two stopped turns in the live app — one with
+   * body text, one stopped before any arrived:
+   *
+   *   stopped + last turn  -> refresh ("Redo"), flag ("Report legal issue")
+   *   stopped, not last    -> flag only
+   *
+   * Redo tracks `canRedo` exactly as it does on a normal turn (only the last
+   * assistant turn had it), so the two rules compose rather than conflict.
+   */
+  isStopped?: boolean;
   onLike: () => void;
   onDislike: () => void;
   onRedo: () => void;
@@ -42,6 +55,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   listening,
   canRedo,
   canShowThinking,
+  isStopped = false,
   onLike,
   onDislike,
   onRedo,
@@ -110,16 +124,43 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
     ...(canShowThinking ? [{ label: 'Show thinking steps', symbol: 'route', action: onShowThinking }] : []),
   ];
 
+  const rowStyle = {
+    '--response-action-size': '2rem',
+    '--response-icon-size': `${RESPONSE_SYMBOL_PROPS.size}px`,
+    marginInlineStart: 'calc((var(--response-icon-size) - var(--response-action-size)) / 2)',
+  } as React.CSSProperties;
+
+  // A stopped turn gets its own short row. Returning early also keeps the
+  // more_horiz menu portal unmounted, which is right: the menu is reached
+  // through a button this row does not render.
+  if (isStopped) {
+    return (
+      <div className="flex h-8 items-center" aria-label="Response actions" style={rowStyle}>
+        {canRedo && (
+          <button type="button" className={ACTION_BUTTON} onClick={onRedo} aria-label="Redo" title="Redo">
+            <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="refresh" />
+          </button>
+        )}
+        <button
+          type="button"
+          className={ACTION_BUTTON}
+          aria-label="Report legal issue"
+          title="Unavailable in Willow"
+          disabled
+          aria-disabled
+        >
+          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="flag" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       <div
         className="flex h-8 items-center"
         aria-label="Response actions"
-        style={{
-          '--response-action-size': '2rem',
-          '--response-icon-size': `${RESPONSE_SYMBOL_PROPS.size}px`,
-          marginInlineStart: 'calc((var(--response-icon-size) - var(--response-action-size)) / 2)',
-        } as React.CSSProperties}
+        style={rowStyle}
       >
         <button
           type="button"

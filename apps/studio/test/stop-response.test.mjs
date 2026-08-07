@@ -20,6 +20,7 @@ const infoLine = read('features/chat/src/ResponseInfoLine.tsx');
 const chatView = read('features/chat/src/ChatView.tsx');
 const chatMessage = read('features/chat/src/chat-message.ts');
 const aiChat = read('platform/ai/src/chat.ts');
+const chrome = read('features/chat/src/ChatResponseChrome.tsx');
 
 test('send glyph uses the Luminous axes Gemini renders, not the default weight', () => {
   // Gemini: font-family "Luminous Symbols", "FILL" 0, "GRAD" 0, "ROND" 100,
@@ -167,9 +168,96 @@ test('a swallowed abort still marks the turn stopped', () => {
   );
 });
 
-test('notice sits 8px under the body and flush against the action row', () => {
+// --- A stopped turn survives the next turn, and a reload -------------------
+//
+// Reported symptom: the notice appeared, then vanished as soon as the FOLLOWING
+// message started generating. Three separate defects could each erase it, so
+// each is pinned separately.
+
+test('the load path reads back every flag serializeChatMessage writes', () => {
+  // The load path rebuilds messages field by field. It listed `wasInterrupted`
+  // but not `wasStopped`, so a stopped turn lost its notice on any reload —
+  // including the disk-sync reload that fires once the next turn is saved.
+  // This asserts the general rule rather than the one flag, so the next flag
+  // added to ChatMsg cannot repeat it.
+  const runtimeOnly = new Set(['isGenerating', 'isTranscribing', 'isLive', 'isNew']);
+  const persistedFlags = [...chatMessage.matchAll(/^\s*(was[A-Z]\w*)\??:/gm)].map((m) => m[1]);
+  assert.ok(persistedFlags.length >= 2, 'expected ChatMsg to declare was* flags');
+
+  const loadBlock = chatView.slice(
+    chatView.indexOf('const sanitized: ChatMsg[]'),
+    chatView.indexOf('hasSavedMessageContent(m))'),
+  );
+  assert.ok(loadBlock.length > 0, 'could not locate the load path');
+  for (const flag of persistedFlags) {
+    if (runtimeOnly.has(flag)) continue;
+    assert.match(
+      loadBlock,
+      new RegExp(`${flag}: m\\.${flag}`),
+      `the load path drops ${flag}, so it is lost on reload`,
+    );
+  }
+});
+
+test('a turn stopped before its first token is still persisted', () => {
+  // Empty content, but the notice IS the content. hasSavedMessageContent used
+  // to drop it, taking the whole turn off disk and leaving the user's question
+  // with no response under it.
+  assert.match(chatMessage, /!!message\.wasStopped/);
+  assert.match(chatMessage, /'content' \| 'attachments' \| 'wasStopped'/);
+});
+
+test('a finished turn never falls back to the live streaming buffer', () => {
+  // `streaming` is thread-wide and belongs to whichever turn is generating now.
+  // `msg.content || streaming` made an empty stopped turn mirror the NEXT
+  // turn's text the moment it began streaming.
+  assert.match(chatView, /const bodyText = generating \? streaming : msg\.content;/);
+  assert.doesNotMatch(chatView, /msg\.content \|\| streaming/);
+});
+
+// --- Reduced action row on a stopped turn ----------------------------------
+
+// The stopped-turn branch, sliced out so the assertions below cannot be
+// satisfied by the full row further down the file. Markers are newline-free
+// on purpose — this repo is CRLF, so a pattern containing "\n" never matches.
+const stoppedBranch = chrome.slice(
+  chrome.indexOf('if (isStopped)'),
+  chrome.indexOf('aria-label="Good response"'),
+);
+
+test('a stopped turn shows only Redo and Report legal issue', () => {
+  // Measured on two live stopped turns:
+  //   stopped + last turn -> refresh ("Redo"), flag ("Report legal issue")
+  //   stopped, not last   -> flag only
+  // No like, dislike, copy or more_horiz — there is no finished reply to rate
+  // or copy.
+  assert.ok(stoppedBranch.length > 0, 'could not locate the stopped-turn branch');
+  assert.match(stoppedBranch, /name="refresh"/);
+  assert.match(stoppedBranch, /aria-label="Report legal issue"/);
+  assert.match(stoppedBranch, /name="flag"/);
+  for (const absent of ['thumb_up', 'thumb_down', 'more_horiz', 'name={copied']) {
+    assert.ok(
+      !stoppedBranch.includes(absent),
+      `stopped turns must not render ${absent}`,
+    );
+  }
+});
+
+test('Redo on a stopped turn still follows canRedo', () => {
+  // Gemini showed refresh on the last stopped turn and not on the earlier one,
+  // matching normal turns — the two rules compose rather than conflict.
+  assert.match(stoppedBranch, /\{canRedo && \(/);
+});
+
+test('ChatView tells the action row when a turn was stopped', () => {
+  assert.match(chatView, /isStopped=\{!!msg\.wasStopped\}/);
+});
+
+test('notice sits 8px under the body and 4px above the button row', () => {
   // Measured on a stopped Gemini turn:
-  //   body bottom -> 8px -> 20px notice -> 0px -> 36px action row.
+  //   body bottom -> 8px -> 20px notice -> 4px -> 32px button row.
+  // An earlier pass recorded that last gap as 0 by measuring to
+  // `message-actions`, whose own 4px inset sits above the buttons.
   assert.match(chatView, /marginTop: 8, marginBottom: 0/);
-  assert.match(chatView, /msg\.wasStopped \? \{ marginTop: 0 \}/);
+  assert.match(chatView, /msg\.wasStopped \? \{ marginTop: 4 \}/);
 });

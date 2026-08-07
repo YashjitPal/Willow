@@ -246,3 +246,55 @@ describe('focus state reset', () => {
     );
   });
 });
+
+describe('surface rect measurement', () => {
+  // The rect handed to the surface is measured off the scroll root — the same
+  // element this stylesheet lifts. getBoundingClientRect is post-transform, so
+  // the lift lands in the measurement unless it is taken back out.
+  //
+  // It normally hides: with a message on screen the scroller already exists, the
+  // lift transitions up from 0, and the measurement taken right after paint reads
+  // ~0. Starting voice mode on an empty chat mounts the whole active tree with
+  // the expanded attribute already set — nothing transitions, and the first
+  // measurement is fully lifted, putting the orb 56px too high in both states.
+
+  it('subtracts the live translation so the layout box is what is measured', () => {
+    const measure = chatView.match(
+      /const measure = \(\) => \{[\s\S]*?setMainContentRect\(\{[\s\S]*?\}\);/,
+    );
+    assert.ok(measure, 'ChatView should measure the scroll root for the surface');
+    const body = measure[0];
+
+    assert.match(
+      body,
+      /new DOMMatrix\(\s*getComputedStyle\(container\)\.transform,?\s*\)/,
+      'the compensation should read the element’s own computed transform',
+    );
+    assert.match(body, /top: rect\.top - translateY/);
+    assert.match(body, /left: rect\.left - translateX/);
+  });
+
+  it('compensates the exact offset the stylesheet applies', () => {
+    // What the arithmetic is worth: an uncompensated read of a scroller sitting
+    // at its expanded transform reports a top 56px above the layout box, which
+    // is the whole of the reported "appears a bit upwards". The stylesheet side
+    // of the same number is asserted above, in "hides and lifts the transcript".
+    const layoutTop = 100;
+    const measuredWhileLifted = layoutTop + MAIN_CONTENT_EXPANDED_OFFSET_Y;
+    assert.equal(measuredWhileLifted, 44);
+    assert.equal(measuredWhileLifted - MAIN_CONTENT_EXPANDED_OFFSET_Y, layoutTop);
+  });
+
+  it('re-measures when the scroll root settles rather than keeping the first frame', () => {
+    // The empty-state tree swaps for the active one as voice mode starts, and the
+    // composer's shared-layout move settles after this effect runs. A resize
+    // listener alone never fires for that.
+    const effect = chatView.match(
+      /if \(!showVoiceOrb\) return;[\s\S]*?\}, \[showVoiceOrb\]\);/,
+    );
+    assert.ok(effect, 'the measurement should live in an effect gated on the orb');
+    assert.match(effect[0], /new ResizeObserver\(measure\)/);
+    assert.match(effect[0], /observer\.observe\(chatScrollRef\.current\)/);
+    assert.match(effect[0], /observer\.disconnect\(\)/, 'and be torn down with the effect');
+  });
+});
