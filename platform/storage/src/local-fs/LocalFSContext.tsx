@@ -86,7 +86,7 @@ interface LocalFSContextType {
   renameLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string) => Promise<string | null>;
   renameLocalFSProject: (oldName: string, newName: string) => Promise<boolean>;
   saveLocalFSCover: (projectName: string, url: string) => Promise<boolean>;
-  generateChatTitle: (userMessage: string, assistantMessage: string) => Promise<string>;
+  generateChatTitle: (userMessage: string, assistantMessage?: string) => Promise<string>;
   localChats: string[];
   activeChatId: string | null;
   selectLocalFSInboxChat: (chatId: string | null) => void | Promise<void>;
@@ -1646,10 +1646,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   ), [getActiveHandle, getSanitizedWorkspaceName, ensureProjectManifest]);
 
   /**
-   * Generate a chat title using the user's default chat naming model
+   * Generate a chat title using the user's default chat naming model.
+   *
+   * The assistant reply is optional: chat naming must not depend on a finished
+   * response, or a chat whose first reply the user stopped can never be named.
    */
   const generateChatTitle = useCallback(
-    (userMessage: string, assistantMessage: string): Promise<string> =>
+    (userMessage: string, assistantMessage?: string): Promise<string> =>
       generateChatTitleWith(modelConfig, apiKeys, userMessage, assistantMessage),
     [apiKeys, modelConfig],
   );

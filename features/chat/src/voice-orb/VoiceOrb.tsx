@@ -89,6 +89,16 @@ export interface VoiceOrbProps {
    * 1 to the ratio `(floatingSize / focusSize)` and back.
    */
   renderScale?: number;
+  /**
+   * Whether the orb plays its own scale-in/scale-out on mount and unmount.
+   *
+   * Defaults true, which is the captured behaviour for the focus surface: the orb
+   * is what appears, so it owns the appearance. A host that animates its own
+   * container — the voice-settings panel scales 0.96 → 1 as one piece — sets this
+   * false, so the orb does not additionally pop from 0.2 inside a surface that is
+   * already scaling.
+   */
+  animatePresence?: boolean;
   className?: string;
 }
 
@@ -139,6 +149,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
   workspaceColor,
   theme = 'dark',
   renderScale = 1,
+  animatePresence = true,
   className,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -195,13 +206,20 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
     const listenRampState = new LinearRamp(STATE_RAMP_DURATION_MS);
     const speakRampState = new LinearRamp(STATE_RAMP_DURATION_MS);
     const userSpeakingRampState = new LinearRamp(USER_SPEAKING_RAMP_DURATION_MS);
-    const revealRampState = new LinearRamp(REVEAL_RAMP_DURATION_MS);
+    // Seeded from the current connection state for the same reason `surfaceScale`
+    // is seeded from `renderScale` below: an orb mounted into a session that is
+    // *already* connected has nothing to reveal, and ramping 0 → 1 would replay
+    // the connect animation every time such an orb appears. Mounting before the
+    // socket opens — the ordinary case for the first orb — still seeds 0, so the
+    // reveal plays exactly once, when the connection actually lands.
+    const initialReveal = connectedRef.current ? 1 : 0;
+    const revealRampState = new LinearRamp(REVEAL_RAMP_DURATION_MS, initialReveal);
     const micSpeakingGate = new MicSpeakingGate();
     // Starts at the requested scale rather than 1, so an orb mounted already
     // collapsed does not spring open on its first frame.
     let surfaceScale = renderScaleRef.current;
     let surfaceVelocity = 0;
-    let revealAmount = 0;
+    let revealAmount = initialReveal;
     const cumulativeAudio = [0, 0, 0, 0];
     let lastCumulativeAt = 0;
 
@@ -452,9 +470,9 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
 
   return (
     <motion.div
-      initial={{ scale: ORB_SCALE_HIDDEN }}
+      initial={animatePresence ? { scale: ORB_SCALE_HIDDEN } : false}
       animate={{ scale: ORB_SCALE_VISIBLE }}
-      exit={{ scale: ORB_SCALE_HIDDEN }}
+      exit={animatePresence ? { scale: ORB_SCALE_HIDDEN } : undefined}
       transition={ORB_TRANSITION}
       className={className ?? 'h-full w-full'}
     >

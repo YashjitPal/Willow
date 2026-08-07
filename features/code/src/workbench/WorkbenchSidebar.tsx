@@ -93,6 +93,15 @@ import { GlobalErrorToasts } from './GlobalErrorToasts';
 import { MAX_IMAGE_SIZE_BYTES, fileToBase64, getUniqueImagePath, readFileText } from './attachment-files';
 import { collectSavedModels, getShortName } from './model-labels';
 
+// The reveal is Chat mode's: a 400ms opacity fade per word, fired on arrival
+// rather than staggered. Both values mirror `--animation-duration` on
+// `.char-reveal` (features/code/src/workbench/char-reveal-styles.ts), which in
+// turn mirrors `.smd-streaming` in Chat's StreamingMarkdown stylesheet. The
+// timeout only flips bookkeeping to 'done' so a re-render stops re-animating a
+// word, so it has to outlast the CSS animation it is tracking.
+const WORD_REVEAL_DELAY = '0ms';
+const WORD_REVEAL_DURATION_MS = 400;
+
 interface SidebarProps {
   width: number;
   isCollapsed: boolean;
@@ -1367,7 +1376,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return unsub;
   }, [handleNewChat]);
 
-  // Helper to render plain text with word-by-word staggered animation
+  // Helper to render plain text with word-by-word animation
   // isAnimating: true for streaming content that should animate
   // For completed messages (in completedMessagesRef), always render without animation
   const renderTextContent = (text: string, isAnimating: boolean = false, contentKey?: string) => {
@@ -1378,107 +1387,124 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     const isCompletedMessage = messageId && completedMessagesRef.current.has(messageId);
     
     const blockLines = text.split('\n').filter(line => line.trim());
-    let globalWordCounter = 0;
 
     // Wrap words - animate new content, skip already-animated content
     // For completed messages, always render plain (no animation)
     // For test mode conclusions (not marked complete), animate genuinely new content
-    const wrapWords = (nodes: React.ReactNode[], baseKey: string) => {
-      return nodes.map((node, nodeIdx) => {
-        if (typeof node === 'string') {
-          const words = node.split(/(\s+)/);
-          return words.map((word, wordIdx) => {
-            if (!word) return null;
-            
-            // Completed messages NEVER animate - render plain immediately
-            if (isCompletedMessage) {
-              return (
-                <span key={wordIdx} className="inline-block whitespace-pre-wrap">
-                  {word}
-                </span>
-              );
-            }
-            
-            const wordKey = `${baseKey}-n${nodeIdx}-w${wordIdx}`;
-            const existingEntry = animatedContentRef.current.get(wordKey);
-            
-            // Already fully animated - render as plain visible text
-            if (existingEntry === 'done') {
-              return (
-                <span key={wordIdx} className="inline-block whitespace-pre-wrap">
-                  {word}
-                </span>
-              );
-            }
-            
-            // Currently animating - keep animation with saved delay
-            if (existingEntry) {
-              return (
-                <span key={wordIdx} className="inline-block whitespace-pre-wrap char-reveal" style={{ animationDelay: existingEntry }}>
-                  {word}
-                </span>
-              );
-            }
-            
-            // NEW word - animate if we have a contentKey (streaming or test mode)
-            if (contentKey) {
-              const delay = `${globalWordCounter * 50}ms`;
-              animatedContentRef.current.set(wordKey, delay);
-              globalWordCounter++;
-              
-              // Mark as done after animation completes
-              const totalDelay = globalWordCounter * 50 + 400;
-              setTimeout(() => {
-                animatedContentRef.current.set(wordKey, 'done');
-              }, totalDelay);
-              
-              return (
-                <span key={wordIdx} className="inline-block whitespace-pre-wrap char-reveal" style={{ animationDelay: delay }}>
-                  {word}
-                </span>
-              );
-            }
-            
-            // No contentKey - render plain
-            return (
-              <span key={wordIdx} className="inline-block whitespace-pre-wrap">
-                {word}
-              </span>
-            );
-          });
+    //
+    // One reveal unit = one word, which is what Chat does: StreamingMarkdown emits
+    // a <Word> per word and fades each as it arrives. Getting there means walking
+    // INTO the inline formatting, because processBold wraps even unformatted prose
+    // in a Fragment -- so a top-level `typeof node === 'string'` test never matched
+    // and every line fell through to the element branch below and faded as a single
+    // block. Measured: 29 streamed tokens produced exactly one animationstart.
+    const revealWord = (
+      content: React.ReactNode,
+      wordKey: string,
+      reactKey: React.Key,
+    ): React.ReactNode => {
+      // Completed messages NEVER animate - render plain immediately
+      if (isCompletedMessage) {
+        return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
+      }
+
+      const existingEntry = animatedContentRef.current.get(wordKey);
+
+      // Already fully animated - render as plain visible text
+      if (existingEntry === 'done') {
+        return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
+      }
+
+      // Currently animating - keep animation with saved delay
+      if (existingEntry) {
+        return (
+          <span key={reactKey} className="whitespace-pre-wrap char-reveal" style={{ animationDelay: existingEntry }}>
+            {content}
+          </span>
+        );
+      }
+
+      // NEW word - animate if we have a contentKey (streaming or test mode)
+      if (contentKey) {
+        // No per-word stagger: Chat fades each word the moment it arrives,
+        // so the reveal tracks the stream instead of trailing it. A 50ms
+        // cumulative delay put word 100 five seconds behind its own text.
+        const delay = WORD_REVEAL_DELAY;
+        animatedContentRef.current.set(wordKey, delay);
+
+        // Mark as done after animation completes
+        setTimeout(() => {
+          animatedContentRef.current.set(wordKey, 'done');
+        }, WORD_REVEAL_DURATION_MS);
+
+        return (
+          <span key={reactKey} className="whitespace-pre-wrap char-reveal" style={{ animationDelay: delay }}>
+            {content}
+          </span>
+        );
+      }
+
+      // No contentKey - render plain
+      return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
+    };
+
+    // Identity of a word is its offset in the markdown source, which is what Chat
+    // keys <Word> on (`absoluteOffset = start + match.index`). An offset is stable
+    // for an append-only stream, where a per-part index is not: an unterminated
+    // `**bold` sits in part 0 until its closing marker lands, and then every part
+    // index after it shifts and that text animates a second time. Hence the marker
+    // widths added below -- the cursor tracks the source, not the rendered text.
+    const wrapWords = (
+      nodes: React.ReactNode[],
+      baseKey: string,
+      cursor: { offset: number },
+    ): React.ReactNode[] => {
+      return nodes.map((node) => {
+        if (typeof node === 'string' || typeof node === 'number') {
+          // Chat's exact tokenizer: renderAnimatedText scans /\S+/g, wraps each run,
+          // and pushes the whitespace between runs as a bare string. A space is never
+          // itself a reveal unit -- it has no ink to fade, and giving it one doubled
+          // the animation count for no visible difference.
+          const text = String(node);
+          const out: React.ReactNode[] = [];
+          const expression = /\S+/g;
+          let last = 0;
+          let match: RegExpExecArray | null;
+          while ((match = expression.exec(text))) {
+            if (match.index > last) out.push(text.slice(last, match.index));
+            const at = cursor.offset + match.index;
+            out.push(revealWord(match[0], `${baseKey}-o${at}`, at));
+            last = match.index + match[0].length;
+          }
+          if (last < text.length) out.push(text.slice(last));
+          cursor.offset += text.length;
+          return out;
         }
 
-        // Non-string nodes (formatted content)
-        // Completed messages NEVER animate
-        if (isCompletedMessage) {
-          return <span key={nodeIdx} className="inline-block">{node}</span>;
+        if (!React.isValidElement(node)) return node;
+        const element = node as React.ReactElement<{ children?: React.ReactNode }>;
+        const children = React.Children.toArray(element.props.children);
+
+        // Inline code fades whole rather than word by word -- Chat renders a code
+        // span as a single .smd-w unit, so splitting it would animate at a
+        // granularity Chat never uses. Backticks counted so later words keep their
+        // source offsets.
+        if (element.type === 'code') {
+          const at = cursor.offset;
+          cursor.offset += 1 + children.reduce<number>(
+            (sum, child) => sum + (typeof child === 'string' ? child.length : 0), 0) + 1;
+          return revealWord(element, `${baseKey}-o${at}`, at);
         }
-        
-        const itemKey = `${baseKey}-n${nodeIdx}`;
-        const existingEntry = animatedContentRef.current.get(itemKey);
-        
-        if (existingEntry === 'done') {
-          return <span key={nodeIdx} className="inline-block">{node}</span>;
-        }
-        
-        if (existingEntry) {
-          return <span key={nodeIdx} className="inline-block char-reveal" style={{ animationDelay: existingEntry }}>{node}</span>;
-        }
-        
-        if (contentKey) {
-          const delay = `${globalWordCounter * 50}ms`;
-          animatedContentRef.current.set(itemKey, delay);
-          globalWordCounter++;
-          
-          const totalDelay = globalWordCounter * 50 + 400;
-          setTimeout(() => {
-            animatedContentRef.current.set(itemKey, 'done');
-          }, totalDelay);
-          
-          return <span key={nodeIdx} className="inline-block char-reveal" style={{ animationDelay: delay }}>{node}</span>;
-        }
-        
-        return <span key={nodeIdx} className="inline-block">{node}</span>;
+
+        if (children.length === 0) return node;
+        const marker = element.type === 'strong' ? 2 : 0;
+        const at = cursor.offset;
+        cursor.offset += marker;
+        // Recurse so <strong> keeps its styling while the words inside it are the
+        // things that fade -- Chat carries bold as a weight on the word itself.
+        const wrapped = wrapWords(children, baseKey, cursor);
+        cursor.offset += marker;
+        return React.cloneElement(element, { key: `e${at}` }, wrapped);
       });
     };
     
@@ -1505,7 +1531,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               }[level as 1|2|3|4|5|6];
               return (
                 <div key={idx} className={baseHeaderClasses}>
-                  {wrapWords(processBold(headerText), lineBaseKey)}
+                  {wrapWords(processBold(headerText), lineBaseKey, { offset: 0 })}
                 </div>
               );
             }
@@ -1517,7 +1543,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               <div key={idx} className="flex gap-3 pl-4 items-start">
                 <div className="w-1.5 h-1.5 rounded-full bg-zinc-600 mt-[9px] shrink-0" />
                 <div className="text-gray-400 text-[15px] leading-relaxed">
-                  {wrapWords(processBold(bulletContent), lineBaseKey)}
+                  {wrapWords(processBold(bulletContent), lineBaseKey, { offset: 0 })}
                 </div>
               </div>
             );
@@ -1525,7 +1551,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
           return (
             <p key={idx} className="text-gray-300 text-[15px] leading-[1.65]">
-              {wrapWords(processBold(line), lineBaseKey)}
+              {wrapWords(processBold(line), lineBaseKey, { offset: 0 })}
             </p>
           );
         })}
@@ -2674,6 +2700,43 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const lastPromptIds = useRef<{ default: string | null; design: string | null }>({ default: null, design: null });
   const isScrollingToTop = useRef(false);
 
+  // True while the thread is still parked on the send anchor -- scrollTop sitting
+  // at the bottom of a page the reserve is holding open. Updated on every scroll,
+  // ours and the user's alike, so scrolling away by hand clears it and the resize
+  // handler below leaves that position alone.
+  const isPinnedToAnchor = useRef(false);
+
+  // Last width the resize observer saw. Lives outside that effect because the
+  // effect re-subscribes whenever the reserve changes, and a fresh observe()
+  // delivers an immediate callback -- with the width kept per-observer, every send
+  // would look like a width change on that first delivery.
+  const lastObservedWidth = useRef<number | null>(null);
+
+  useEffect(() => {
+    const container = chatScrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      isPinnedToAnchor.current =
+        container.scrollHeight - container.clientHeight - container.scrollTop <= 1;
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Park a prompt bubble on the send anchor. block:'start' aligns to the
+  // scrollport's scroll-padding edge, which the container already sets per tab,
+  // so scroll-margin only has to supply whatever that padding does not.
+  const parkOnAnchor = React.useCallback((
+    container: HTMLElement,
+    msgEl: HTMLElement,
+    offset: number,
+    behavior: ScrollBehavior,
+  ) => {
+    const scrollPadTop = parseFloat(getComputedStyle(container).scrollPaddingTop) || 0;
+    msgEl.style.scrollMarginTop = `${Math.max(0, offset - scrollPadTop)}px`;
+    msgEl.scrollIntoView({ behavior, block: 'start', inline: 'nearest' });
+  }, []);
+
 
   useEffect(() => {
     if (activeConversationMessages.length === 0) {
@@ -2709,10 +2772,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
             // CRITICAL: Temporarily force overflow to auto so scroll can work
             container.style.overflow = 'auto';
-            // .hover-scrollbar sets scroll-behavior: smooth, which turns every scrollTop
-            // write below into a browser-driven animation -- it fights the rAF easing and
-            // a write can read back as 0. Force instant writes; restored once we land.
-            container.style.scrollBehavior = 'auto';
 
             // Wait one frame for DOM to fully settle after state changes
             // (streaming div, suggestions collapse, etc.)
@@ -2720,19 +2779,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 const msgEl = messageRefs.current[lastUserMessage.id];
 
                 if (!msgEl || !container) {
-                    // Nothing to scroll to -- do not leave the overrides behind.
-                    if (container) container.style.scrollBehavior = '';
                     isScrollingToTop.current = false;
                     return;
                 }
                 {
                     const targetVisualOffset = currentTargetVisualOffset;
 
-                    // Reserve the response area BEFORE scrolling. The scroll below is a
-                    // direct scrollTop write, so the page has to already be tall enough --
-                    // otherwise the browser clamps against a too-short page and the bubble
-                    // never reaches the anchor. flushSync commits the height synchronously
-                    // so the very next layout read sees it.
+                    // Reserve the response area BEFORE scrolling. The page has to
+                    // already be tall enough or the scroll is clamped against a
+                    // too-short page and the bubble never reaches the anchor.
+                    // flushSync commits the height synchronously so the scroll
+                    // below is measured against the reserved layout, not the old one.
                     const gap = 48; // space-y-12 between message groups
                     const preMinH =
                       container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
@@ -2741,59 +2798,24 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                       setNeedsScrollPadding(false);
                     });
 
-                    // Capture initial state AFTER the reserve has landed
-                    const containerRect = container.getBoundingClientRect();
-                    const msgRect = msgEl.getBoundingClientRect();
-                    const initialOffset = msgRect.top - containerRect.top;
-                    const totalScrollNeeded = initialOffset - targetVisualOffset;
-
-                    // Calculate the FINAL target position first (this never changes)
-                    const startScrollTop = container.scrollTop;
-                    const targetScrollTop = startScrollTop + totalScrollNeeded;
-
-                    // INSTANT JUMP: Skip 85% of the journey immediately
-                    const instantJumpRatio = 0.85;
-                    const instantScrollAmount = totalScrollNeeded * instantJumpRatio;
-                    container.scrollTop = startScrollTop + instantScrollAmount;
-
-                    // Capture position after jump for animation start
-                    const animationStartScrollTop = container.scrollTop;
-
-                    // Calculate remaining distance to the FINAL target
-                    const remainingScroll = targetScrollTop - animationStartScrollTop;
-
-                    const startTime = performance.now();
-                    const duration = 200; // Shorter since we jump most of the way
-
-                    // Ease-out cubic for smooth deceleration
-                    const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
-
-                    const animateScroll = (currentTime: number) => {
-                        if (!container) return;
-
-                        // Keep overflow auto during scroll
-                        container.style.overflow = 'auto';
-
-                        const elapsed = currentTime - startTime;
-                        const progress = Math.min(elapsed / duration, 1);
-                        const easedProgress = easeOutCubic(progress);
-
-                        // Smoothly interpolate scroll position to FINAL target
-                        container.scrollTop = animationStartScrollTop + (remainingScroll * easedProgress);
-
-                        if (progress < 1) {
-                            requestAnimationFrame(animateScroll);
-                        } else {
-                            // Ensure we land exactly on FINAL target. The reserve was already
-                            // committed before the scroll started, so this is not clamped.
-                            container.scrollTop = targetScrollTop;
-                            container.style.scrollBehavior = '';
-                            isScrollingToTop.current = false;
-                        }
-                    };
-
-                    // Start animation immediately (no additional frame delay)
-                    animateScroll(startTime);
+                    // Hand the movement to the browser, exactly as Chat does. The
+                    // old path jumped 85% of the distance instantly and eased only
+                    // the last 15% over a fixed 200ms, so a short scroll looked
+                    // like a snap and a long one still took 200ms -- native smooth
+                    // scrolling is distance-aware, which is the difference you see.
+                    //
+                    // block:'start' aligns to the scrollport's scroll-padding edge,
+                    // and the container already carries scroll-pt-* for this tab
+                    // (see the chatScrollRef className), so the anchor offset is
+                    // applied for free. scroll-margin-top would stack on top of it
+                    // and land the bubble at twice the offset. Where the two ever
+                    // disagree, the margin makes up only the difference.
+                    parkOnAnchor(container, msgEl, targetVisualOffset, 'smooth');
+                    // Claim the anchor for this turn up front: a layout change
+                    // during the scroll must still count as parked, and the
+                    // landing scroll event will confirm it either way.
+                    isPinnedToAnchor.current = true;
+                    isScrollingToTop.current = false;
                 }
             });
         }
@@ -2806,6 +2828,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     const container = chatScrollRef.current;
 
     const observer = new ResizeObserver(() => {
+      // Border box, not clientWidth: a scrollbar appearing when the reserve makes
+      // the page scrollable changes clientWidth without the sidebar having moved,
+      // and that must not read as a layout change.
+      const width = container.offsetWidth;
+      const widthChanged = lastObservedWidth.current !== null && width !== lastObservedWidth.current;
+      lastObservedWidth.current = width;
+
       // Only recalculate if we have a previous value (scroll animation has run)
       if (responseAreaMinHeight === undefined) return;
 
@@ -2820,13 +2849,43 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       const gap = 48;
       const minH = container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
-      setResponseAreaMinHeight(Math.max(0, minH));
+
+      // A width change re-wraps every bubble and moves the anchor, but it leaves
+      // scrollTop exactly where it was. That is the chat -> code morph: the
+      // sidebar goes from 800px to the workbench width mid-turn, the prompt grows
+      // taller as it re-wraps, and the turn that was parked on the anchor ends up
+      // hundreds of pixels short of it with that much dead space underneath. The
+      // reserve alone cannot fix it -- the scroll position has to move too.
+      //
+      // flushSync commits the new reserve first, so the re-park is measured
+      // against the page it is about to land on rather than the old one, exactly
+      // as the send path does. Instant, not smooth: the observer fires on every
+      // frame of the morph, so per-frame parking keeps the bubble glued to the
+      // anchor while the layout animates instead of chasing it.
+      //
+      // Gated on the width having actually changed, because this observer watches
+      // the footer too and the footer's height animates on every send. Re-parking
+      // on those frames issued an instant scroll into the middle of the send's
+      // smooth one, which cancels it -- the bubble reached the anchor in a single
+      // frame and the slide-up was gone. Height changes never move the anchor
+      // sideways, so they need the reserve recomputed and nothing else.
+      const repark = widthChanged && isPinnedToAnchor.current && !needsScrollPadding;
+      flushSync(() => {
+        setResponseAreaMinHeight(Math.max(0, minH));
+      });
+      if (repark) parkOnAnchor(container, msgEl, targetVisualOffset, 'instant');
     });
 
     observer.observe(container);
     if (footerRef.current) observer.observe(footerRef.current);
     return () => observer.disconnect();
-  }, [activeConversationMessages, currentTargetVisualOffset, responseAreaMinHeight]);
+  }, [
+    activeConversationMessages,
+    currentTargetVisualOffset,
+    responseAreaMinHeight,
+    needsScrollPadding,
+    parkOnAnchor,
+  ]);
 
   // Detect when response content overflows the allocated min-height.
   // When it does, re-enable bottom padding so the user can scroll past the input box.

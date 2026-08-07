@@ -40,9 +40,19 @@ export interface ChatMsg {
   attachments?: ChatAttachment[];
 }
 
-/** A message is worth persisting if it has text or at least one attachment. */
-export const hasSavedMessageContent = (message: Pick<ChatMsg, 'content' | 'attachments'>): boolean =>
-  message.content.trim().length > 0 || !!message.attachments?.length;
+/**
+ * A message is worth persisting if it has text or at least one attachment.
+ *
+ * A stopped turn counts even when it is empty. Pressing stop before the first
+ * token leaves no text, but the turn still renders — the "You stopped this
+ * response" notice IS its content, and Gemini keeps such a turn in the thread.
+ * Without this the whole turn was dropped on save, so the user's question came
+ * back from disk with no response under it at all.
+ */
+export const hasSavedMessageContent = (
+  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped'>,
+): boolean =>
+  message.content.trim().length > 0 || !!message.attachments?.length || !!message.wasStopped;
 
 /** Strip the runtime-only flags so a reloaded chat never resumes mid-generation. */
 export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew'> => {

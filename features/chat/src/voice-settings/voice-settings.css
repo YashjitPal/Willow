@@ -1,0 +1,87 @@
+/**
+ * The two shipped rules the voice-settings panel needs that cannot be spelled as
+ * Tailwind utilities in Willow's v3 build.
+ *
+ * Both values are the measured ones — read back with `getComputedStyle` off the
+ * live panel and its open language dropdown — and both are duplicated in
+ * `voice-settings-constants.ts` so a test can assert the correspondence. They are
+ * literals here because CSS cannot read them from the module.
+ */
+
+/**
+ * `shadow-long`, on the panel and on the dropdown surface.
+ *
+ * Three layers, comma-separated, so it cannot go in a Tailwind arbitrary value —
+ * `shadow-[…]` splits on the commas. Verbatim from the computed `box-shadow`:
+ *
+ *   rgba(0, 0, 0, 0.32) 0px 8px 16px 0px,
+ *   rgba(255, 255, 255, 0.2) 0px 0px 1px 0px inset,
+ *   rgba(0, 0, 0, 0.62) 0px 0px 1px 0px
+ *
+ * The inset white hairline is what gives both surfaces their lit top edge; the
+ * second black hairline sits outside it. Dropping either reads as a flat card.
+ */
+.willow-vs-shadow-long {
+  box-shadow:
+    0 8px 16px 0 rgba(0, 0, 0, 0.32),
+    inset 0 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 1px 0 rgba(0, 0, 0, 0.62);
+}
+
+/**
+ * `.__menu-item`, the dropdown row.
+ *
+ * Upstream's own class name, resolved against the shipped
+ * `--menu-item-height: calc(.25rem * 9)` = 36px. Measured: 36px tall with a 36px
+ * min-height, padding `6px 32px 6px 10px`, `margin-inline: 6px`, radius 10px,
+ * 14px/20px at weight 400, `cursor: pointer`.
+ *
+ * `transition: all` is what the computed style reports, with a 0s duration — so
+ * the hover change is instant, and writing a duration here would be a change
+ * rather than a clone.
+ *
+ * The resting background is transparent even for the selected row: the tick in
+ * the trailing slot is the only selected affordance. Hover and keyboard
+ * highlight are the same `--interactive-bg-secondary-hover`, #ffffff1a.
+ */
+.willow-vs-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  min-height: 36px;
+  padding: 6px 32px 6px 10px;
+  margin-inline: 6px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: #fff;
+  cursor: pointer;
+  background-color: transparent;
+  transition: all;
+  transition-duration: 0s;
+}
+
+.willow-vs-menu-item:hover,
+.willow-vs-menu-item[data-highlighted] {
+  background-color: #ffffff1a;
+}
+
+/**
+ * The tick is a plain flex sibling of the label, as in the shipped markup:
+ *
+ *   <div role="option" class="__menu-item flex justify-between">
+ *     <span>Afrikaans</span>
+ *     <span aria-hidden="true" class="trailing"><svg …/></span>
+ *   </div>
+ *
+ * so `justify-between` pushes it to the row's content edge — 32px in from the
+ * row's right, which is what the measured `padding-inline-end` puts there. It is
+ * not absolutely placed and gets no rule of its own; `.trailing` carries only
+ * layout in the shipped sheet, and the 16px svg is sized by `icon-sm`.
+ */
+.willow-vs-menu-item > .willow-vs-menu-item-trailing {
+  display: flex;
+  align-items: center;
+}
