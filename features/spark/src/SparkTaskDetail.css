@@ -1293,6 +1293,11 @@
   overflow-wrap: anywhere;
 }
 
+.spark-task-detail__assistant-response strong,
+.spark-task-detail__thinking-step strong {
+  font-weight: 540;
+}
+
 .spark-task-detail__assistant-response > :first-child {
   margin-top: 0;
 }

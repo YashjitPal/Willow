@@ -82,6 +82,43 @@ boundary mocks so mock specifiers still win.
 - `src/settings/tabs/index.ts` and `src/shell/sidebar/index.ts` are barrels that
   nothing currently imports (call sites use deep paths, per the root `AGENTS.md`).
   Harmless, but don't take them as the house style.
+- Import sidebar siblings from `'./index'`, **never `'./sidebar'`**. On a
+  case-insensitive filesystem the latter resolves to `Sidebar.tsx` itself, and the
+  resulting circular self-import makes its named exports `undefined` — which black-
+  screens the whole app. There is a comment on this at the import site; leave it.
+
+## Sidebar Recents: the one hot render path
+
+The Recents list renders one row per chat, so **anything done per row is done
+hundreds of times per redraw** — and the sidebar redraws often, including on
+scroll (`handleScroll` sets `isScrolled`/`isAtScrollEnd`), on hover-driven menu
+state, and on every keystroke while renaming.
+
+Rules:
+
+- **Never call a per-chat function that scans a whole store.** Resolve it once
+  per render and index into the result. `codeChats` (a `useMemo` over
+  `readCodeChats`) exists for exactly this; `codeChats[chat] === true` replaced a
+  per-row `isCodeChat()` that walked all of localStorage each time, which is what
+  made a large history lock up the UI on every render.
+- **The lazy Code-mode migration effect must NOT depend on `codeChats`.** That
+  effect calls `markCodeChat`, which invalidates the memo. Depending on it
+  restarts the scan on every mark, cancelling an in-flight body read for a chat
+  already recorded in `codeChatScannedRef` — permanently losing that chat's
+  Code-mode marker. It deliberately calls `isCodeChat()` instead, which the
+  module-level cache makes O(1). There is a comment saying so; leave it.
+- `pinnedChats` is an array and the render does `.includes()` per row. Fine at
+  current sizes, but it is the next thing to make a `Set` if the list grows.
+
+**Still outstanding (deliberately):** rows are neither memoized nor virtualized,
+so all rows exist in the DOM and redraw together. This is a *linear* cost, not the
+quadratic one above, and only matters at thousands of chats. Note that memoizing
+`SidebarItem` alone does nothing — each row's `actions`, `onClick` and
+`customLabel` are built inline in `Sidebar.tsx`, so React sees new props every
+render regardless. The prerequisite is extracting a row component that takes
+stable primitives and callbacks keyed by chat id. If you virtualize, the row being
+renamed and the row with an open menu must stay mounted even when scrolled out of
+view, or unmounting the input drops the pending rename.
 
 <!-- related-packages -->
 

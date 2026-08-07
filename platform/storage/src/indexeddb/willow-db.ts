@@ -251,6 +251,29 @@ async function claimAndCopyLegacyChat(
 }
 
 /**
+ * Whether a chat body is already stored under the current scope, without
+ * deserializing it. `loadChatBody` returns the entire message array (including
+ * inline content), so using it merely to test presence made reconciliation cost
+ * proportional to total history size. `getKey` reads the index only.
+ *
+ * Note this deliberately does NOT consider legacy localStorage bodies, so a
+ * `false` result still routes callers through `loadChatBody` and its migration.
+ */
+export async function hasChatBody(chatId: string, scope?: ChatStorageScope): Promise<boolean> {
+  const key = buildChatStorageKey(chatId, scope);
+  const db = await getDB();
+  return await new Promise<boolean>((resolve, reject) => {
+    const tx = db.transaction(CHATS_STORE, 'readonly');
+    const request = tx.objectStore(CHATS_STORE).getKey(key);
+    let found = false;
+    request.onsuccess = () => { found = request.result !== undefined; };
+    tx.oncomplete = () => resolve(found);
+    tx.onerror = () => reject(tx.error ?? request.error ?? new Error('IndexedDB key probe failed'));
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB key probe aborted'));
+  });
+}
+
+/**
  * Persist a chat's full message array (keyed by chatId) in IndexedDB.
  */
 export async function saveChatBody(chatId: string, messages: any[], scope?: ChatStorageScope): Promise<void> {

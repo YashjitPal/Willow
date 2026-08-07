@@ -467,6 +467,25 @@ Chats use React state (`localChats` from context) directly — no event needed.
     Without this, each periodic disk poll triggers a React re-render and
     framer-motion `layout` animations that cause tiles to visibly reposition
     even though nothing changed on disk. (This is a refinement of invariant 7.)
+16. **Never decide "this chat is unchanged" by loading its body.** In
+    `reconcileChatsWithDisk`, the unchanged case must be settled with the mtime
+    comparison plus `hasChatBody` (an IndexedDB *key* probe). `loadChatBody`
+    deserializes the entire message array, so calling it before the change check
+    made every startup read the whole history just to conclude nothing had
+    changed — with a few hundred chats this froze the app until the pass
+    finished, and repeated on every watcher tick and window focus.
+    **The probe is not authoritative on absence.** A `false` result must still
+    fall through to `loadChatBody`, because that is also what migrates a legacy
+    `willow_chat_<id>` localStorage body. Skipping it there strands old data.
+17. **The per-chat disk pass may run concurrently; the external-delete pass may
+    not.** `enqueueChatOperation` already serializes by chat id and every id in
+    the disk listing is distinct, so reconciling them through a bounded pool
+    (`RECONCILE_CONCURRENCY`) is safe and is what keeps startup from scaling
+    linearly with chat count. Wrap each task so one failure cannot abandon the
+    rest of the pass. The **second** loop is different: it reassigns
+    `localChatsRef.current` wholesale, so overlapping iterations can drop a
+    concurrent `push` and lose a chat. Keep it a plain sequential `await` loop.
+    Pinned by `apps/studio/test/chat-reconcile-race.test.mjs`.
 
 ---
 

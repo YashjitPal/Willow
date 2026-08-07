@@ -28,6 +28,10 @@ import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, serializeChat
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { CHAT_SYSTEM_PROMPT, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
+import { useStore } from '@nanostores/react';
+import { experimentsStore } from '@willow/core/experiments-store';
+import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
+import { resolveFocusSurfaceAttributes } from './voice-orb/focus-surface-constants';
 
 const CHAT_COMPOSER_LAYOUT_ID = 'willow-chat-composer';
 
@@ -450,6 +454,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // ── Live voice mode (Gemini Live API) ──────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const liveSessionRef = useRef<GeminiLiveSession | null>(null);
+  // Voice-orb state. Behind the Labs experiment, so it stays inert by default.
+  const { voiceOrb: isVoiceOrbEnabled } = useStore(experimentsStore);
+  // Connected flips on the socket ACK, which is when the orb reveals itself;
+  // before that it shows the pre-connection dot.
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
+  // Analysers are read off the session once its audio graph exists.
+  const [liveAnalysers, setLiveAnalysers] = useState<{
+    mic: AnalyserNode | null;
+    output: AnalyserNode | null;
+  }>({ mic: null, output: null });
   // Keep the clear-effect's refs in sync with live/generation state.
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
@@ -474,6 +489,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const hasStarted = messages.length > 0 || isGenerating || isLive;
   const lastUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id;
+  // A live turn marks the user's bubble `isTranscribing` for exactly as long as
+  // they are being listened to, which is the orb's listening signal.
+  const isUserSpeaking = isLive && messages.some((message) => message.isTranscribing);
+  const showVoiceOrb = isVoiceOrbEnabled && isLive;
 
   useEffect(() => {
     onChatStartedChange?.(hasStarted);
@@ -486,8 +505,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // the reply fills it. The gap below the 👍👎Copy row and the top of the input
   // box matches the Workbench's gap to its suggestions row (both = the 32px gradient).
   const TARGET_VISUAL_OFFSET = 72; // Gemini's settled first-query top edge
-  const MESSAGE_GAP = 52;          // Gemini bubble edge to the following response
-  const THREAD_GAP = 32;           // All other completed-turn adjacencies
+  // Measured off the live Gemini app: `infinite-scroller.chat-history` is a
+  // flex column with `row-gap: 52px`, and the same 52px separates a query
+  // bubble from its response inside a turn. So every turn boundary is 52 --
+  // both user->assistant and assistant->next user. Gemini's action row lives
+  // inside `model-response` (36px, opacity 0 on non-last turns) rather than in
+  // the gap, which is also how our assistant wrapper is built, so the visible
+  // blank from response text to the next bubble comes out at 88px on both.
+  const MESSAGE_GAP = 52;          // Any user/assistant turn boundary
+  const THREAD_GAP = 32;           // The incognito banner only
+  // The thread column's own `pb-[20px]`, mirrored here the way
+  // TARGET_VISUAL_OFFSET mirrors its `pt-[72px]`. The reserve below fills the
+  // viewport from the anchored bubble down to the scrollport's bottom edge, but
+  // this padding sits *below* that, so leaving it out makes the page exactly
+  // this much taller than the anchor needs — which is scrollable slop before
+  // the reply has filled anything. Subtracting it is what keeps the thread
+  // pinned until the response actually overflows.
+  const THREAD_BOTTOM_PADDING = 20;
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
@@ -502,6 +536,50 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
   const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
+
+  // Main content rect for the voice focus surface — measured from the scroll container
+  const [mainContentRect, setMainContentRect] = useState({
+    top: 0,
+    left: 0,
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+  });
+
+  useEffect(() => {
+    if (!showVoiceOrb) return;
+    const measure = () => {
+      const container = chatScrollRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      setMainContentRect({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [showVoiceOrb]);
+
+  // When the voice surface leaves the screen, restore the focused state so the
+  // next session opens large, which is how the captured session behaved: every
+  // fresh open started focused and only collapsed once the orb was pressed.
+  useEffect(() => {
+    if (!showVoiceOrb) focusModeAtom.set(true);
+  }, [showVoiceOrb]);
+
+  // Transcript fade. Upstream hides the conversation behind the expanded orb and
+  // reveals it once the orb collapses, which is the behaviour these attributes
+  // drive: `voice-focus-surface.css` keys the opacity, the lift and the scroll
+  // lock off them. The surface attribute only exists while the orb does — the
+  // shipped resolver returns undefined when the surface is hidden, so a chat
+  // with the experiment off carries no attributes and no transition at all.
+  const isVoiceFocusExpanded = useStore(focusModeAtom);
+  const voiceFocusSurfaceAttributes = showVoiceOrb
+    ? resolveFocusSurfaceAttributes(isVoiceFocusExpanded)
+    : undefined;
 
   const handleUserBubbleToggleStart = useCallback((willExpand: boolean) => {
     const container = chatScrollRef.current;
@@ -543,6 +621,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             - TARGET_VISUAL_OFFSET
             - msgEl.offsetHeight
             - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - THREAD_BOTTOM_PADDING
         );
       });
     };
@@ -590,7 +669,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // Reserve response-area height on the new placeholder BEFORE scrolling so
       // there's enough scrollHeight to reach the target.
       const preMinH =
-        c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP;
+        c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP
+          - THREAD_BOTTOM_PADDING;
       flushSync(() => {
         setResponseAreaMinHeight(Math.max(0, preMinH));
         setNeedsScrollPadding(false);
@@ -645,6 +725,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             - TARGET_VISUAL_OFFSET
             - msgEl.offsetHeight
             - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - THREAD_BOTTOM_PADDING
         );
       });
 
@@ -1024,6 +1105,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     liveSessionRef.current?.stop();
     liveSessionRef.current = null;
     setIsLive(false);
+    // Drop the orb's inputs with the session: the analysers belong to audio
+    // contexts that are now closed.
+    setIsLiveConnected(false);
+    setIsAssistantSpeaking(false);
+    setLiveAnalysers({ mic: null, output: null });
     // If the model was mid-reply, treat stop as an interruption: `turn.acc` is
     // exactly what was *heard* (audio-synced release already dropped anything
     // unspoken), so finalise with the trailing `—` just like a barge-in.
@@ -1077,7 +1163,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
       history,
       // Rising two-note earcon the moment the socket ACKs setup + mic is hot —
       // i.e. the exact instant it's actually listening.
-      onOpen: () => playLiveChime('start'),
+      onOpen: () => {
+        playLiveChime('start');
+        // Socket ACKed and mic is hot: the orb reveals from here.
+        setIsLiveConnected(true);
+        const active = liveSessionRef.current;
+        setLiveAnalysers({
+          mic: active?.micAnalyser ?? null,
+          output: active?.outputAnalyser ?? null,
+        });
+      },
       onTurnStart: () => openLiveTurn(),
       onUserTranscript: (full) => {
         const turn = liveTurnRef.current;
@@ -1092,11 +1187,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const turn = liveTurnRef.current;
         if (!turn) return;
         // `chunk` is released by live.ts only when its audio is actually being
-        // spoken, so `turn.acc` == what the user has *heard* so far.
+        // spoken, so `turn.acc` == what the user has *heard* so far. That makes
+        // it the right signal for the orb's speaking state too.
         turn.acc += chunk;
+        setIsAssistantSpeaking(true);
         flushSync(() => setStreaming(turn.acc));
       },
-      onTurnComplete: ({ aborted }) => closeLiveTurn({ aborted }),
+      onTurnComplete: ({ aborted }) => {
+        setIsAssistantSpeaking(false);
+        closeLiveTurn({ aborted });
+      },
       onError: (err) => {
         // eslint-disable-next-line no-console
         console.error('[ChatView] live error', err);
@@ -1128,12 +1228,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }
         liveSessionRef.current = null;
         setIsLive(false);
+        setIsLiveConnected(false);
+        setIsAssistantSpeaking(false);
+        setLiveAnalysers({ mic: null, output: null });
       },
       onClose: () => {
         // onError (above) already handled the unhappy path; a clean close just
         // drops back to typed mode.
         liveSessionRef.current = null;
         setIsLive(false);
+        setIsLiveConnected(false);
+        setIsAssistantSpeaking(false);
+        setLiveAnalysers({ mic: null, output: null });
       },
     });
     liveSessionRef.current = session;
@@ -1262,6 +1368,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           - TARGET_VISUAL_OFFSET
           - messageElement.offsetHeight
           - MESSAGE_GAP
+          - THREAD_BOTTOM_PADDING
       );
 
       flushSync(() => {
@@ -1364,6 +1471,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         ref={chatScrollRef}
         className="gemini-chat-scrollbar min-h-0 flex-1 overflow-y-auto"
         style={{ scrollbarGutter: 'stable' }}
+        {...voiceFocusSurfaceAttributes}
       >
         <motion.div
           initial={shouldAnimateFirstPromptEntrance ? { y: 200 } : false}
@@ -1386,11 +1494,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
           )}
           {messages.map((msg, messageIndex) => {
             const previousMessage = messages[messageIndex - 1];
+            // Every message boundary is MESSAGE_GAP. Gemini's scroller applies
+            // its 52px row-gap to each `.conversation-container` uniformly, and
+            // once both real turn boundaries moved to 52 a same-role run left at
+            // THREAD_GAP was the only 32 left in the thread -- visibly tighter
+            // than every other gap around it. Same-role runs are reachable
+            // (a split/live turn, or a reload where the contentless message
+            // between two turns was dropped by hasSavedMessageContent), so they
+            // have to match. THREAD_GAP now covers the incognito banner only.
             const gapBefore = messageIndex === 0
               ? (isIncognito ? THREAD_GAP : 0)
               : previousMessage?.role === 'user' && msg.role === 'assistant'
                 ? (editingUserId === previousMessage.id ? 0 : MESSAGE_GAP)
-                : THREAD_GAP;
+                : MESSAGE_GAP;
 
             if (msg.role === 'user') {
               const isLastUser = msg.id === lastUserMessageId;
@@ -1663,6 +1779,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
             background: 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
           }}
         />
+        {/* Voice orb — Labs experiment, live sessions only. The focus surface is
+            fixed-positioned and owns its own placement, so it sits outside the
+            footer's flow. AnimatePresence lets the scale-out exit run before the
+            node unmounts. */}
+        <AnimatePresence>
+          {showVoiceOrb && (
+            <VoiceFocusSurface
+              connected={isLiveConnected}
+              isUserSpeaking={isUserSpeaking}
+              isAssistantSpeaking={isAssistantSpeaking}
+              analyser={liveAnalysers.mic}
+              assistantAnalyser={liveAnalysers.output}
+              mainContentRect={mainContentRect}
+            />
+          )}
+        </AnimatePresence>
         <div
           className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]"
         >

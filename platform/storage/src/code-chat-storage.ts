@@ -40,7 +40,7 @@ function parseMap(raw: string | null): CodeChatMap {
   }
 }
 
-function readCodeChats(scopeId: string): CodeChatMap {
+function scanCodeChats(scopeId: string): CodeChatMap {
   if (typeof window === 'undefined' || !scopeId) return {};
   const chats = parseMap(localStorage.getItem(snapshotKey(scopeId)));
   const prefix = statePrefix(scopeId);
@@ -56,6 +56,31 @@ function readCodeChats(scopeId: string): CodeChatMap {
       else delete chats[chatId];
     } catch {}
   }
+  return chats;
+}
+
+// A scan walks EVERY localStorage key, and there is one per Code-mode chat, so
+// its cost grows with the size of the whole registry. Callers ask per chat while
+// rendering a list, which made painting the sidebar O(chats x keys) — the reason
+// a large history froze the UI on every render. One scan is reused until
+// something actually changes it; writers below invalidate explicitly, and the
+// listener at the bottom covers changes made by another tab.
+let codeChatsCache: { scopeId: string; chats: CodeChatMap } | null = null;
+
+function invalidateCodeChatsCache(): void {
+  codeChatsCache = null;
+}
+
+/**
+ * Cached read of a scope's Code-mode chat map. The returned object is shared
+ * between callers and MUST NOT be mutated — writers use `scanCodeChats` for a
+ * private copy. Safe to call once per row in a render loop.
+ */
+export function readCodeChats(scopeId: string): CodeChatMap {
+  if (typeof window === 'undefined' || !scopeId) return {};
+  if (codeChatsCache?.scopeId === scopeId) return codeChatsCache.chats;
+  const chats = scanCodeChats(scopeId);
+  codeChatsCache = { scopeId, chats };
   return chats;
 }
 
@@ -96,7 +121,10 @@ function readLegacyCodeChats(): CodeChatMap {
 // still only consult their own records.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if (event.key?.startsWith(CODE_CHATS_KEY_PREFIX) || event.key?.startsWith(CODE_CHAT_STATE_PREFIX)) {
+    // A null key means the whole store was cleared, which invalidates the cache
+    // just as surely as a targeted write does.
+    if (event.key === null || event.key.startsWith(CODE_CHATS_KEY_PREFIX) || event.key.startsWith(CODE_CHAT_STATE_PREFIX)) {
+      invalidateCodeChatsCache();
       notifyCodeChatsUpdated('');
     }
   });
@@ -109,9 +137,10 @@ export function isCodeChat(scopeId: string, chatId: string): boolean {
 export function markCodeChat(scopeId: string, chatId: string): void {
   if (!scopeId || !chatId || isCodeChat(scopeId, chatId)) return;
   writeChatState(scopeId, chatId, true);
-  const chats = readCodeChats(scopeId);
+  const chats = scanCodeChats(scopeId);
   chats[chatId] = true;
   writeSnapshot(scopeId, chats);
+  invalidateCodeChatsCache();
   notifyCodeChatsUpdated(scopeId);
 }
 
@@ -119,9 +148,10 @@ export function unmarkCodeChat(scopeId: string, chatId: string): void {
   if (!scopeId || !chatId || !isCodeChat(scopeId, chatId)) return;
   // Keep a scope-owned tombstone so an older snapshot cannot resurrect it.
   writeChatState(scopeId, chatId, false);
-  const chats = readCodeChats(scopeId);
+  const chats = scanCodeChats(scopeId);
   delete chats[chatId];
   writeSnapshot(scopeId, chats);
+  invalidateCodeChatsCache();
   notifyCodeChatsUpdated(scopeId);
 }
 
@@ -129,13 +159,13 @@ export function renameCodeChat(scopeId: string, oldChatId: string, newChatId: st
   if (!scopeId || !oldChatId || !newChatId || oldChatId === newChatId || !isCodeChat(scopeId, oldChatId)) return;
   writeChatState(scopeId, newChatId, true);
   writeChatState(scopeId, oldChatId, false);
-  const chats = readCodeChats(scopeId);
+  const chats = scanCodeChats(scopeId);
   delete chats[oldChatId];
   chats[newChatId] = true;
   writeSnapshot(scopeId, chats);
+  invalidateCodeChatsCache();
   notifyCodeChatsUpdated(scopeId);
 }
-
 /**
  * Adopt a legacy marker only after the caller has independently verified the
  * current scope's chat body contains a Code-mode message. Legacy records have
@@ -146,4 +176,92 @@ export function migrateVerifiedLegacyCodeChat(scopeId: string, chatId: string): 
   if (!scopeId || !chatId || isCodeChat(scopeId, chatId) || readLegacyCodeChats()[chatId] !== true) return false;
   markCodeChat(scopeId, chatId);
   return true;
+}
+
+/* ------------------------- backfill scan bookkeeping ---------------------- */
+
+// Detecting a Code-mode chat that predates the Workbench's direct marking
+// requires reading the chat's BODY — an IndexedDB read plus a disk read plus a
+// parse, per chat. That is affordable exactly once per chat. It was previously
+// tracked in a React ref, so it reset on every launch and the whole history was
+// re-read from disk on every startup: the "app lags while chats load" symptom.
+//
+// One key per scope, holding the whole set. Deliberately NOT one key per chat —
+// `scanCodeChats` walks every localStorage key, so per-chat keys here would make
+// that scan proportional to history size all over again.
+//
+// The key must not collide with the prefixes `scanCodeChats`/`readLegacyCodeChats`
+// match on ('willow_code_chat_state:'), or those loops would misparse it.
+const CODE_CHAT_SCANNED_PREFIX = 'willow_code_chat_scanned:v1:';
+
+function scannedKey(scopeId: string): string {
+  return CODE_CHAT_SCANNED_PREFIX + scopeSuffix(scopeId);
+}
+
+let scannedCache: { scopeId: string; ids: Set<string> } | null = null;
+
+function readScanned(scopeId: string): Set<string> {
+  if (typeof window === 'undefined' || !scopeId) return new Set();
+  if (scannedCache?.scopeId === scopeId) return scannedCache.ids;
+  let ids = new Set<string>();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(scannedKey(scopeId)) || '[]');
+    if (Array.isArray(parsed)) ids = new Set(parsed.filter((v): v is string => typeof v === 'string'));
+  } catch {}
+  scannedCache = { scopeId, ids };
+  return ids;
+}
+
+/**
+ * Whether this chat's body has already been examined for a legacy Code-mode
+ * marker in this scope. Survives reloads, so the scan is once per chat ever
+ * rather than once per chat per launch.
+ */
+export function hasScannedCodeChat(scopeId: string, chatId: string): boolean {
+  return !!scopeId && !!chatId && readScanned(scopeId).has(chatId);
+}
+
+/**
+ * Record that a chat's body has been examined. Safe to call for a chat that
+ * turned out not to be Code-mode — that negative result is exactly what must
+ * not be recomputed on the next launch.
+ *
+ * A chat that BECOMES a Code chat later is marked directly by the Workbench
+ * (`markCodeChat`), so recording a negative here cannot strand it. The one thing
+ * this does not re-detect is a chat whose body is edited externally on disk to
+ * add Code-mode messages; that is deliberate, and cheap to fix by clearing the
+ * key if it ever matters.
+ */
+export function markScannedCodeChat(scopeId: string, chatId: string): void {
+  if (typeof window === 'undefined' || !scopeId || !chatId) return;
+  const ids = readScanned(scopeId);
+  if (ids.has(chatId)) return;
+  ids.add(chatId);
+  try {
+    localStorage.setItem(scannedKey(scopeId), JSON.stringify([...ids]));
+  } catch {
+    // A full/blocked localStorage must not break the scan; the worst case is
+    // that this chat is examined again next launch.
+  }
+}
+
+/** Drop scan bookkeeping for a chat that no longer exists. */
+export function forgetScannedCodeChat(scopeId: string, chatId: string): void {
+  if (typeof window === 'undefined' || !scopeId || !chatId) return;
+  const ids = readScanned(scopeId);
+  if (!ids.delete(chatId)) return;
+  try { localStorage.setItem(scannedKey(scopeId), JSON.stringify([...ids])); } catch {}
+}
+
+/**
+ * Move a chat's scan verdict to a new id. The chat id IS the on-disk filename,
+ * so a rename would otherwise look like a brand-new chat and get its body
+ * re-read on the next launch.
+ */
+export function renameScannedCodeChat(scopeId: string, oldChatId: string, newChatId: string): void {
+  if (typeof window === 'undefined' || !scopeId || !oldChatId || !newChatId || oldChatId === newChatId) return;
+  const ids = readScanned(scopeId);
+  if (!ids.delete(oldChatId)) return;
+  ids.add(newChatId);
+  try { localStorage.setItem(scannedKey(scopeId), JSON.stringify([...ids])); } catch {}
 }
