@@ -26,12 +26,10 @@ largest feature in the repo.
 | `src/workbench/collapsible-indicators.tsx` | The expand/collapse test and file indicators in the transcript (265 lines). |
 | `src/workbench/GlobalErrorToasts.tsx` | Error toast stack, portalled out of the sidebar's stacking context (135 lines). |
 | `src/workbench/attachment-files.ts` | Reads dropped files, slugifies and de-duplicates their upload paths. |
-| `src/workbench/inline-formatting.tsx` | Bold/inline-code rendering for transcript text. |
 | `src/workbench/message-text.ts` | Strips code blocks and indicator markers out of a message. |
 | `src/workbench/design-generation.ts` | The design system prompt plus its response parser. |
 | `src/workbench/sidebar-prompts.ts` | Session-title and follow-up-suggestion prompts. |
 | `src/workbench/model-labels.ts` | Flattens saved model config; shortens names for the composer button. |
-| `src/workbench/char-reveal-styles.ts` | Keyframes for the transcript's word-by-word reveal. |
 | `src/workbench/WorkbenchPreview.tsx` | The live preview iframe + its toolbar (1489 lines). |
 | `src/workbench/WorkbenchTopBar.tsx` | Run/preview/code toggles. |
 | `src/workbench/CodePanel.tsx` | The code editor pane. |
@@ -113,7 +111,7 @@ move was a relocation, not a rewrite.
 What is left is deliberately left. The sidebar still holds the chat thread, the
 file tree, the diff viewer, and the LLM request loop, and the big blocks inside it
 (`persistSessions` ~297 lines, `startAiGeneration` ~266, `startTestGeneration`
-~251, `renderTextContent`, `renderFormattedContent`, `handleSendMessage`) are not
+~251, `renderFormattedContent`, `handleSendMessage`) are not
 leaves: they read and write hook state and refs declared above them. Extracting
 one means designing a props or hook contract for it, which is its own change with
 its own review — not a side effect of something else.

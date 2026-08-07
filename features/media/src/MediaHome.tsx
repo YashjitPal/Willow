@@ -413,7 +413,7 @@ export const HeroSection: React.FC<{
   const mtClass = background === 'solid' && studioMode !== 'media' ? '-mt-20' : '';
 
   return (
-    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? (isIncognito ? 'willow-gemini-home-glow-gray' : 'willow-gemini-home-glow') : ''}`}>
+    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? `willow-gemini-home-glow${isIncognito ? ' willow-gemini-home-glow-gray' : ''}` : ''}`}>
       {studioMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}
@@ -804,43 +804,58 @@ export const HeroSection: React.FC<{
                 transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing extracted from gemini.html
               }}
             >
-              <h1 
-                className="text-[#e3e3e3] text-center"
-                style={{
-                  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                  fontSize: '36px',
-                  fontWeight: 320,
-                  lineHeight: '44px',
-                }}
+              {/*
+                Gemini plays ONE animation here — `_lm-fade-in-up`, 300ms of
+                translateY(40px)->0 plus opacity 0->1 on cubic-bezier(0.2,0,0,1)
+                — and varies only its delay: the temporary-chat card leads at 0s
+                while the normal greeting trails at 250ms. Both were read off
+                `getAnimations()` on the live app, so the numbers are measured
+                rather than matched by eye.
+
+                `key` is what makes it replay. Angular destroys and recreates
+                this subtree on every toggle (the captured nodes carry
+                `ng-star-inserted`), which is why the fade runs each time rather
+                than only on first paint; remounting on the mode reproduces that.
+                The glow deliberately does NOT participate — it keeps one class
+                across the toggle so `grow` never restarts, matching the capture
+                where `lm-background-grow` fired only on load and New chat.
+              */}
+              <div
+                key={isIncognito ? 'incognito' : 'normal'}
+                className="willow-lm-fade-in-up flex flex-col items-center w-full"
+                style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
               >
-                {getHeadingText()}
-              </h1>
-              
-              {/* Animated Disclaimer Container */}
-              <div 
-                className="w-full flex justify-center overflow-hidden"
-                style={{
-                  maxHeight: isIncognito ? '80px' : '0px',
-                  opacity: isIncognito ? 1 : 0,
-                  marginTop: isIncognito ? '12px' : '0px',
-                  transitionProperty: 'max-height, opacity, margin-top',
-                  transitionDuration: '300ms',
-                  transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing
-                }}
-              >
-                  <p 
+                <h1
+                  className="text-[#e3e3e3] text-center"
+                  style={{
+                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                    fontSize: '36px',
+                    fontWeight: 320,
+                    lineHeight: '44px',
+                  }}
+                >
+                  {getHeadingText()}
+                </h1>
+
+                {isIncognito && (
+                  <p
                     className="text-[#c4c7c5] text-center"
                     style={{
-                      fontFamily: '"Google Sans Text", "Google Sans", "Helvetica Neue", sans-serif',
-                      fontSize: '14px',
+                      // Gemini's `.gds-body-m.description` inside the temporary
+                      // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
+                      // its parent's `--gem-sys-spacing--m`.
+                      fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                      fontSize: '15px',
                       fontWeight: 400,
                       lineHeight: '20px',
-                      maxWidth: '480px'
+                      maxWidth: '620px',
+                      marginTop: '12px',
                     }}
                   >
                     Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
                   </p>
-                </div>
+                )}
+              </div>
               </div>
             </div>
 

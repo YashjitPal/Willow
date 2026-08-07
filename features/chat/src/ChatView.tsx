@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
-import { Glasses } from 'lucide-react';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
 import { HeroSection } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
@@ -17,7 +16,6 @@ import { ResponseInfoLine } from './ResponseInfoLine';
 import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
 import {
   GeminiLiveSession,
-  LIVE_MODEL_ID,
   LiveHistoryTurn,
   playLiveChime,
   primeLiveChimes,
@@ -27,7 +25,7 @@ import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContex
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
 import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, serializeChatMessage } from './chat-message';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
-import { CHAT_SYSTEM_PROMPT, resolveChatModel } from './chat-model';
+import { CHAT_SYSTEM_PROMPT, getShortModelName, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
 import { useStore } from '@nanostores/react';
 import { experimentsStore } from '@willow/core/experiments-store';
@@ -36,7 +34,8 @@ import { resolveFocusSurfaceAttributes } from './voice-orb/focus-surface-constan
 import type { WorkspaceColorName } from './voice-orb/orb-palette';
 import { VoiceSettingsButton } from './voice-settings/VoiceSettingsButton';
 import { VoiceSettingsDialog } from './voice-settings/VoiceSettingsDialog';
-import { findVoiceProvider } from './voice-settings/voice-providers';
+import { findVoiceProvider, listVoiceModels } from './voice-settings/voice-providers';
+import { liveModelStore } from './voice-settings/live-model-store';
 import {
   buildLiveVoiceOptions,
   getVoiceSelection,
@@ -494,8 +493,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // ── Live voice mode (Gemini Live API) ──────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const liveSessionRef = useRef<GeminiLiveSession | null>(null);
-  // Voice/language the running session was opened with, so a change can be
-  // detected without re-running the reconnect on unrelated store writes.
+  // Model, voice and language the running session was opened with, so a change
+  // can be detected without re-running the reconnect on unrelated store writes.
+  // The model is part of it because it rides the setup frame too — switching it
+  // needs the same teardown-and-reopen a voice change does.
   const liveSettingsSignatureRef = useRef('');
   // Voice-orb state. Behind the Labs experiment, so it stays inert by default.
   const { voiceOrb: isVoiceOrbEnabled } = useStore(experimentsStore);
@@ -542,7 +543,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // it draws the orb, so it should not exist while the orb does not.
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
   const voiceSettings = useStore(voiceSettingsStore);
-  const voiceProvider = useMemo(() => findVoiceProvider(LIVE_MODEL_ID), []);
+  // The live model the composer's picker has selected. Everything downstream —
+  // the provider lookup, the voice/language options, the socket, the error
+  // copy — reads this rather than the registry default, so adding a second live
+  // model needs no change here. With one registered model it *is* LIVE_MODEL_ID.
+  const liveModelId = useStore(liveModelStore);
+  const voiceProvider = useMemo(() => findVoiceProvider(liveModelId), [liveModelId]);
+  // Shortened the same way a text turn's snapshot label is, so the two read
+  // alike in saved history: "Gemini 3.1 Flash Live" → "3.1 Flash Live".
+  const liveModelLabel = useMemo(
+    () => getShortModelName(listVoiceModels().find((m) => m.id === liveModelId)?.name || liveModelId),
+    [liveModelId],
+  );
   const voiceSelection = useMemo(
     () => (voiceProvider ? getVoiceSelection(voiceProvider, voiceSettings) : null),
     [voiceProvider, voiceSettings],
@@ -1109,9 +1121,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
         isGenerating: true,
         isLive: true,
         modelSnapshot: {
-          provider: 'gemini',
-          modelId: LIVE_MODEL_ID,
-          label: '3.1 Flash Live',
+          provider: voiceProvider?.id ?? 'gemini',
+          modelId: liveModelId,
+          label: liveModelLabel,
           thinkingLevel: 0,
         },
       },
@@ -1239,8 +1251,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // Voice, and either a `languageCode` or a prompt directive depending on what
     // the provider accepts. With no provider match this returns the prompt
     // untouched and neither field set, i.e. exactly the pre-existing request.
-    const voiceOptions = buildLiveVoiceOptions(LIVE_MODEL_ID, CHAT_SYSTEM_PROMPT);
-    liveSettingsSignatureRef.current = voiceSettingsSignature(LIVE_MODEL_ID);
+    const voiceOptions = buildLiveVoiceOptions(liveModelId, CHAT_SYSTEM_PROMPT);
+    liveSettingsSignatureRef.current = `${liveModelId}|${voiceSettingsSignature(liveModelId)}`;
 
     // Every callback below is late-bound to the ref, so a session that has been
     // replaced goes quiet instead of tearing down its successor.
@@ -1248,7 +1260,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     const session = new GeminiLiveSession({
       apiKey,
-      model: LIVE_MODEL_ID,
+      model: liveModelId,
       systemPrompt: voiceOptions.systemPrompt,
       voiceName: voiceOptions.voiceName,
       languageCode: voiceOptions.languageCode,
@@ -1315,7 +1327,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               role: 'assistant',
               isError: true,
               content:
-                `Couldn't start live mode (\`${LIVE_MODEL_ID}\`).\n\n` +
+                `Couldn't start live mode (\`${liveModelId}\`).\n\n` +
                 `> ${err.message}\n\n` +
                 'Check that your Gemini key has **Live API** access and that ' +
                 'microphone permission was granted.',
@@ -1341,7 +1353,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
     liveSessionRef.current = session;
     void session.start();
-  }, [openLiveTurn, closeLiveTurn]);
+  }, [openLiveTurn, closeLiveTurn, liveModelId, liveModelLabel, voiceProvider]);
 
   const handleStartLive = useCallback(() => {
     if (isLive || isGenerating) return;
@@ -1360,7 +1372,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           role: 'assistant',
           content:
             'A **Gemini** API key is required for live voice mode ' +
-            `(\`${LIVE_MODEL_ID}\`). Add one in **Settings → Models**.`,
+            `(\`${liveModelId}\`). Add one in **Settings → Models**.`,
           isError: true,
         },
       ]);
@@ -1416,12 +1428,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [apiKeys, openLiveSession]);
 
   // A change while live reconnects; a change while idle just waits for the next
-  // session, which will read the store when it opens.
+  // session, which will read the stores when it opens. Picking a different live
+  // model from the composer lands here too — same setup frame, same reconnect.
   useEffect(() => {
     if (!isLive || !liveSessionRef.current) return;
-    if (voiceSettingsSignature(LIVE_MODEL_ID) === liveSettingsSignatureRef.current) return;
+    if (`${liveModelId}|${voiceSettingsSignature(liveModelId)}` === liveSettingsSignatureRef.current) return;
     restartLiveSession();
-  }, [isLive, restartLiveSession, voiceSettings]);
+  }, [isLive, liveModelId, restartLiveSession, voiceSettings]);
 
   // Tear down the socket + mic if the component unmounts mid-session.
   useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
@@ -1654,12 +1667,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
             thinkingMessage ? 'min-[1024px]:pl-9' : ''
           }`}
         >
-          {isIncognito && (
-            <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white/5 border border-white/5 text-zinc-400 text-[12px] font-medium rounded-full w-fit mx-auto select-none backdrop-blur-md">
-              <Glasses size={13} className="text-zinc-400" />
-              <span>Incognito Mode — Temporary Session</span>
-            </div>
-          )}
           {messages.map((msg, messageIndex) => {
             const previousMessage = messages[messageIndex - 1];
             // Every message boundary is MESSAGE_GAP. Gemini's scroller applies

@@ -357,33 +357,63 @@
         animation: willow-gemini-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
       }
 
-      .willow-gemini-home-glow-gray::before {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -45%);
-        z-index: -1;
-        margin: 0 auto;
-        width: 100%;
-        max-width: 792px;
-        height: 50%;
-        max-height: 300px;
+      /*
+       * Temporary-chat variant. A MODIFIER on the glow, never a replacement for
+       * it: the box, the blur and the grow animation are shared, and only the
+       * gradient's outer stop changes. That is how Gemini does it
+       * (`.show-lm-background.is-temporary-chat::before` overrides `background`
+       * alone), and the sharing is what makes toggling look right — a separate
+       * class would be a different `::before` rule, so every toggle would
+       * restart `grow` and visibly collapse the glow to scale(0) before
+       * regrowing it. Gemini's own capture shows `lm-background-grow` firing
+       * only on load and New chat, never on a toggle.
+       *
+       * The colour is Gemini's `--gem-sys-color--outline-variant` (#444746)
+       * against `--lumi-sys-color--surface` (#0f0f0f) — the same opaque radial
+       * as normal mode, not a translucent white haze.
+       */
+      .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
         background: radial-gradient(
           ellipse 100% 100% at center 8%,
-          rgba(255, 255, 255, 0.08) 0,
-          transparent 50%
+          rgb(15, 15, 15) 0,
+          rgb(68, 71, 70) 50%
         );
-        border-radius: 9999px;
-        filter: blur(100px);
-        pointer-events: none;
-        animation: willow-gemini-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
       }
 
       @media (prefers-reduced-motion: reduce) {
         .willow-gemini-home-glow::before,
         .willow-gemini-home-glow-gray::before {
           animation: none;
+        }
+      }
+
+      /*
+       * Gemini's `_lm-fade-in-up`, measured off the live app rather than eyeballed.
+       * One animation drives both the normal greeting and the temporary-chat
+       * card; they differ only in `--willow-fade-in-up-delay`, which is why the
+       * card leads and the heading follows it by 250ms.
+       */
+      @keyframes willow-lm-fade-in-up {
+        0% {
+          opacity: 0;
+          transform: translateY(40px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0px);
+        }
+      }
+
+      .willow-lm-fade-in-up {
+        opacity: 0;
+        animation: willow-lm-fade-in-up 0.3s cubic-bezier(0.2, 0, 0, 1)
+          var(--willow-fade-in-up-delay, 0s) forwards;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .willow-lm-fade-in-up {
+          animation-duration: 0.01ms;
+          animation-delay: 0s;
         }
       }
 

@@ -60,6 +60,11 @@ import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/chat/composer/Composer';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+// Chat mode's renderer, used verbatim so the two tabs format identically:
+// headings, bold/italic/strike, tables, lists, blockquotes, links, inline and
+// fenced code, math. It also owns the word reveal, so Code no longer reproduces
+// that separately -- the animation now IS Chat's rather than a copy of it.
+import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import logoG from '@willow/assets/brand/logo-glyph.png';
 import { ALL_TOOLS } from './WorkbenchTopBar';
 import '@willow/studio/settings/SettingsModal.css';
@@ -85,22 +90,11 @@ import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/co
 import { GeminiLogo, AnnotateIcon, VisualEditsIcon } from './sidebar-icons';
 import { CollapsibleFileIndicator, CollapsibleTestIndicator } from './collapsible-indicators';
 import { stripCodeAndIndicators } from './message-text';
-import { processBold } from './inline-formatting';
 import { DESIGN_SYSTEM_PROMPT, extractDesignCode, generateDesignFileName } from './design-generation';
-import { injectCharRevealStyles } from './char-reveal-styles';
 import { buildFollowUpSuggestionsPrompt, buildSessionTitlePrompt } from './sidebar-prompts';
 import { GlobalErrorToasts } from './GlobalErrorToasts';
 import { MAX_IMAGE_SIZE_BYTES, fileToBase64, getUniqueImagePath, readFileText } from './attachment-files';
 import { collectSavedModels, getShortName } from './model-labels';
-
-// The reveal is Chat mode's: a 400ms opacity fade per word, fired on arrival
-// rather than staggered. Both values mirror `--animation-duration` on
-// `.char-reveal` (features/code/src/workbench/char-reveal-styles.ts), which in
-// turn mirrors `.smd-streaming` in Chat's StreamingMarkdown stylesheet. The
-// timeout only flips bookkeeping to 'done' so a re-render stops re-animating a
-// word, so it has to outlast the CSS animation it is tracking.
-const WORD_REVEAL_DELAY = '0ms';
-const WORD_REVEAL_DURATION_MS = 400;
 
 interface SidebarProps {
   width: number;
@@ -1051,9 +1045,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         thinkingTimerRef.current = null;
       }
       
-      animatedContentRef.current.clear();
-      completedMessagesRef.current.clear();
-      introShownRef.current.clear();
     }
     
     setIsHistoryOpen(false);
@@ -1277,20 +1268,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     if (apiKeys.zhipuai?.[0]) prewarmClient('zhipuai', apiKeys.zhipuai[0]);
   }, [apiKeys]);
 
-  // Inject animation CSS once on mount to prevent animation restarts on re-render
-  useEffect(() => {
-    injectCharRevealStyles();
-  }, []);
-
-
-  // Track which content has been animated and their assigned delays
-  const animatedContentRef = useRef<Map<string, string>>(new Map());
-  
-  // Track message IDs that have fully completed generation (should never re-animate)
-  const completedMessagesRef = useRef<Set<string>>(new Set());
-  
-  // Track message IDs whose intro text has been shown (to prevent re-animation when indicator appears)
-  const introShownRef = useRef<Set<string>>(new Set());
 
   // New Chat — clears all chat context while preserving the codebase
   const handleNewChat = useCallback(() => {
@@ -1342,11 +1319,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     prevGeneratingRef.current = false;
     initialLoadCompleteRef.current = false;
 
-    // Clear animation tracking
-    animatedContentRef.current.clear();
-    completedMessagesRef.current.clear();
-    introShownRef.current.clear();
-
     // Clear file list expansion state
     setFileListExpanded(false);
 
@@ -1376,193 +1348,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     return unsub;
   }, [handleNewChat]);
 
-  // Helper to render plain text with word-by-word animation
-  // isAnimating: true for streaming content that should animate
-  // For completed messages (in completedMessagesRef), always render without animation
-  const renderTextContent = (text: string, isAnimating: boolean = false, contentKey?: string) => {
+  // Assistant prose. Chat mode's renderer is used as-is rather than mirrored,
+  // so every rule it supports lands here for free -- and the word reveal is now
+  // literally the same component rather than a reimplementation that has to be
+  // kept in step. isStreaming/animate both take the message's own generating
+  // flag, which is what ChatView passes; a settled message therefore renders
+  // without animating, exactly as before.
+  const renderTextContent = (text: string, isAnimating: boolean = false) => {
     if (!text) return null;
-    
-    // Extract messageId from contentKey (format: "messageId-suffix-...")
-    const messageId = contentKey?.split('-')[0];
-    const isCompletedMessage = messageId && completedMessagesRef.current.has(messageId);
-    
-    const blockLines = text.split('\n').filter(line => line.trim());
-
-    // Wrap words - animate new content, skip already-animated content
-    // For completed messages, always render plain (no animation)
-    // For test mode conclusions (not marked complete), animate genuinely new content
-    //
-    // One reveal unit = one word, which is what Chat does: StreamingMarkdown emits
-    // a <Word> per word and fades each as it arrives. Getting there means walking
-    // INTO the inline formatting, because processBold wraps even unformatted prose
-    // in a Fragment -- so a top-level `typeof node === 'string'` test never matched
-    // and every line fell through to the element branch below and faded as a single
-    // block. Measured: 29 streamed tokens produced exactly one animationstart.
-    const revealWord = (
-      content: React.ReactNode,
-      wordKey: string,
-      reactKey: React.Key,
-    ): React.ReactNode => {
-      // Completed messages NEVER animate - render plain immediately
-      if (isCompletedMessage) {
-        return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
-      }
-
-      const existingEntry = animatedContentRef.current.get(wordKey);
-
-      // Already fully animated - render as plain visible text
-      if (existingEntry === 'done') {
-        return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
-      }
-
-      // Currently animating - keep animation with saved delay
-      if (existingEntry) {
-        return (
-          <span key={reactKey} className="whitespace-pre-wrap char-reveal" style={{ animationDelay: existingEntry }}>
-            {content}
-          </span>
-        );
-      }
-
-      // NEW word - animate if we have a contentKey (streaming or test mode)
-      if (contentKey) {
-        // No per-word stagger: Chat fades each word the moment it arrives,
-        // so the reveal tracks the stream instead of trailing it. A 50ms
-        // cumulative delay put word 100 five seconds behind its own text.
-        const delay = WORD_REVEAL_DELAY;
-        animatedContentRef.current.set(wordKey, delay);
-
-        // Mark as done after animation completes
-        setTimeout(() => {
-          animatedContentRef.current.set(wordKey, 'done');
-        }, WORD_REVEAL_DURATION_MS);
-
-        return (
-          <span key={reactKey} className="whitespace-pre-wrap char-reveal" style={{ animationDelay: delay }}>
-            {content}
-          </span>
-        );
-      }
-
-      // No contentKey - render plain
-      return <span key={reactKey} className="whitespace-pre-wrap">{content}</span>;
-    };
-
-    // Identity of a word is its offset in the markdown source, which is what Chat
-    // keys <Word> on (`absoluteOffset = start + match.index`). An offset is stable
-    // for an append-only stream, where a per-part index is not: an unterminated
-    // `**bold` sits in part 0 until its closing marker lands, and then every part
-    // index after it shifts and that text animates a second time. Hence the marker
-    // widths added below -- the cursor tracks the source, not the rendered text.
-    const wrapWords = (
-      nodes: React.ReactNode[],
-      baseKey: string,
-      cursor: { offset: number },
-    ): React.ReactNode[] => {
-      return nodes.map((node) => {
-        if (typeof node === 'string' || typeof node === 'number') {
-          // Chat's exact tokenizer: renderAnimatedText scans /\S+/g, wraps each run,
-          // and pushes the whitespace between runs as a bare string. A space is never
-          // itself a reveal unit -- it has no ink to fade, and giving it one doubled
-          // the animation count for no visible difference.
-          const text = String(node);
-          const out: React.ReactNode[] = [];
-          const expression = /\S+/g;
-          let last = 0;
-          let match: RegExpExecArray | null;
-          while ((match = expression.exec(text))) {
-            if (match.index > last) out.push(text.slice(last, match.index));
-            const at = cursor.offset + match.index;
-            out.push(revealWord(match[0], `${baseKey}-o${at}`, at));
-            last = match.index + match[0].length;
-          }
-          if (last < text.length) out.push(text.slice(last));
-          cursor.offset += text.length;
-          return out;
-        }
-
-        if (!React.isValidElement(node)) return node;
-        const element = node as React.ReactElement<{ children?: React.ReactNode }>;
-        const children = React.Children.toArray(element.props.children);
-
-        // Inline code fades whole rather than word by word -- Chat renders a code
-        // span as a single .smd-w unit, so splitting it would animate at a
-        // granularity Chat never uses. Backticks counted so later words keep their
-        // source offsets.
-        if (element.type === 'code') {
-          const at = cursor.offset;
-          cursor.offset += 1 + children.reduce<number>(
-            (sum, child) => sum + (typeof child === 'string' ? child.length : 0), 0) + 1;
-          return revealWord(element, `${baseKey}-o${at}`, at);
-        }
-
-        if (children.length === 0) return node;
-        const marker = element.type === 'strong' ? 2 : 0;
-        const at = cursor.offset;
-        cursor.offset += marker;
-        // Recurse so <strong> keeps its styling while the words inside it are the
-        // things that fade -- Chat carries bold as a weight on the word itself.
-        const wrapped = wrapWords(children, baseKey, cursor);
-        cursor.offset += marker;
-        return React.cloneElement(element, { key: `e${at}` }, wrapped);
-      });
-    };
-    
-    return (
-      <>
-        {blockLines.map((line, idx) => {
-          const trimmedLine = line.trim();
-          if (!trimmedLine) return null;
-          
-          const lineBaseKey = contentKey ? `${contentKey}-l${idx}` : `raw-${idx}`;
-
-          if (trimmedLine.startsWith('#')) {
-            const headerMatch = trimmedLine.match(/^(#{1,6})\s+(.*)$/);
-            if (headerMatch) {
-              const level = headerMatch[1].length;
-              const headerText = headerMatch[2];
-              const baseHeaderClasses = {
-                1: "text-[22px] font-bold text-white mt-6 mb-2",
-                2: "text-[19px] font-bold text-white mt-5 mb-1",
-                3: "text-[17px] font-bold text-white mt-4 mb-1",
-                4: "text-[15px] font-bold text-white mt-3",
-                5: "text-[15px] font-bold text-white mt-3",
-                6: "text-[15px] font-bold text-white mt-3",
-              }[level as 1|2|3|4|5|6];
-              return (
-                <div key={idx} className={baseHeaderClasses}>
-                  {wrapWords(processBold(headerText), lineBaseKey, { offset: 0 })}
-                </div>
-              );
-            }
-          }
-
-          if ((trimmedLine.startsWith('*') && !trimmedLine.startsWith('**')) || trimmedLine.startsWith('-')) {
-            const bulletContent = trimmedLine.replace(/^[\*\-]\s*/, '');
-            return (
-              <div key={idx} className="flex gap-3 pl-4 items-start">
-                <div className="w-1.5 h-1.5 rounded-full bg-zinc-600 mt-[9px] shrink-0" />
-                <div className="text-gray-400 text-[15px] leading-relaxed">
-                  {wrapWords(processBold(bulletContent), lineBaseKey, { offset: 0 })}
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <p key={idx} className="text-gray-300 text-[15px] leading-[1.65]">
-              {wrapWords(processBold(line), lineBaseKey, { offset: 0 })}
-            </p>
-          );
-        })}
-      </>
-    );
+    return <StreamingMarkdown text={text} isStreaming={isAnimating} animate={isAnimating} />;
   };
 
   // Helper to render conversational AI content with file indicators
   // isStreaming: when true, applies fade animation to text
-  // messageId: unique message identifier for tracking animated content
-  const renderFormattedContent = (content: string, isStreaming: boolean = false, messageId?: string) => {
+  const renderFormattedContent = (content: string, isStreaming: boolean = false) => {
     // Check for <test-indicator> block (format: <test-indicator>{"actions":["A","B"],"current":"B"}</test-indicator>)
     if (content.includes('<test-indicator>')) {
       const match = content.match(/<test-indicator>([^<]+)<\/test-indicator>/);
@@ -1584,21 +1383,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const beforeText = parts[0] || '';
       const afterText = parts[1] || '';
       
-      // Create unique keys for each text section
-      // If intro was already shown before (plain text phase), don't animate it again
-      const introAlreadyShown = messageId ? introShownRef.current.has(messageId) : false;
-      const introKey = (messageId && !introAlreadyShown) ? `${messageId}-intro` : undefined;
-      const conclusionKey = messageId ? `${messageId}-conclusion` : undefined;
-      
-      // Mark intro as shown for future renders (content now has indicator)
-      if (messageId && beforeText.trim()) {
-        introShownRef.current.add(messageId);
-      }
-      
       return (
         <div className="space-y-4">
-          {/* Intro text - skip animation if already shown before indicator appeared */}
-          {beforeText.trim() && renderTextContent(beforeText.trim(), isStreaming, introKey)}
+          {/* Intro text */}
+          {beforeText.trim() && renderTextContent(beforeText.trim(), isStreaming)}
           
           {/* Test Action Indicator (matches file indicator exactly) */}
           <CollapsibleTestIndicator 
@@ -1609,7 +1397,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           />
           
           {/* Conclusion text (if any) */}
-          {afterText.trim() && renderTextContent(afterText.trim(), isStreaming, conclusionKey)}
+          {afterText.trim() && renderTextContent(afterText.trim(), isStreaming)}
         </div>
       );
     }
@@ -1624,16 +1412,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       console.log('[Render] Segments parsed:', segments.length, 'segments, types:', segments.map(s => s.type).join(', '));
       
       // If no segments found (plain text response), render normally
-      // Use "-intro" key to match the key used when test-indicator is present
-      // This prevents double animation when content transitions from plain text to having a test indicator
       if (!segments || segments.length === 0) {
         console.log('[Render] No segments, rendering as plain text');
-        const textKey = messageId ? `${messageId}-intro` : undefined;
-        // Mark intro as shown so it won't re-animate when test-indicator appears later
-        if (messageId) {
-          introShownRef.current.add(messageId);
-        }
-        return <div className="space-y-4">{renderTextContent(content, isStreaming, textKey)}</div>;
+        return <div className="space-y-4">{renderTextContent(content, isStreaming)}</div>;
       }
       
     // Group consecutive file indicators together
@@ -1660,10 +1441,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       <div className="space-y-4">
         {groupedSegments.map((segment, idx) => {
           if (segment.type === 'text') {
-            const textKey = messageId ? `${messageId}-text-${idx}` : undefined;
             return (
               <div key={idx} className="space-y-2">
-                {renderTextContent(segment.content, isStreaming, textKey)}
+                {renderTextContent(segment.content, isStreaming)}
               </div>
             );
           }
@@ -1768,9 +1548,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       testStore.reset();
 
       // Clear animation tracking refs
-      animatedContentRef.current.clear();
-      completedMessagesRef.current.clear();
-      introShownRef.current.clear();
 
       // Process initial attachments for display in user message
       const processInitialAttachments = async () => {
@@ -2013,8 +1790,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   };
 
   const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [], imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []) => {
-    // Clear previously animated content tracking to allow fresh animations
-    animatedContentRef.current.clear();
     generationAbortControllerRef.current?.abort();
     const abortController = new AbortController();
     generationAbortControllerRef.current = abortController;
@@ -2182,26 +1957,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         hasCodeChanges: responseHasCodeChanges(responseText),
         timestamp: Date.now()
       };
-
-      // Transfer animation state from 'streaming' keys to the new message ID
-      // This prevents re-animation when the final message renders
-      const newMessageId = assistantMessage.id;
-      const keysToTransfer: [string, string][] = [];
-      animatedContentRef.current.forEach((value, key) => {
-        if (key.startsWith('streaming-')) {
-          const newKey = key.replace('streaming-', `${newMessageId}-`);
-          keysToTransfer.push([newKey, 'done']); // Mark as done so it won't re-animate
-        }
-      });
-      keysToTransfer.forEach(([key, value]) => {
-        animatedContentRef.current.set(key, value);
-      });
-      // Clear streaming keys
-      const streamingKeys = Array.from(animatedContentRef.current.keys()).filter(k => k.startsWith('streaming-'));
-      streamingKeys.forEach(k => animatedContentRef.current.delete(k));
-      
-      // Mark this message as completed - it should NEVER re-animate
-      completedMessagesRef.current.add(newMessageId);
 
       setMessages(prev => [...prev, assistantMessage]);
       setCurrentStreamingResponse('');
@@ -2447,9 +2202,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   // === TEST MODE FUNCTIONS ===
   const startTestGeneration = async (testPrompt: string) => {
-    // Clear previously animated content tracking to allow fresh animations
-    animatedContentRef.current.clear();
-
     console.log('Starting Test Mode generation with:', testPrompt);
     const iframe = testStore.getIframeRef();
     if (!iframe) {
@@ -2547,14 +2299,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 currentAction = 'Analysis';
                 actionsLog.push('Analysis');
                 
-                // Mark all intro text as 'done' to prevent re-animation when indicator appears
-                // The DOM structure changes when indicator is added, which could cause React to remount elements
-                const introPrefix = `${messageId}-intro-`;
-                animatedContentRef.current.forEach((value, key) => {
-                  if (key.startsWith(introPrefix) && value !== 'done') {
-                    animatedContentRef.current.set(key, 'done');
-                  }
-                });
               }
               testStore.setStatus('capturing');
               currentAction = 'Capture';
@@ -2564,15 +2308,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               break;
               
             case 'action':
-              // If this is the first action, mark intro text as 'done' to prevent re-animation
-              if (!testingStarted) {
-                const introPrefix = `${messageId}-intro-`;
-                animatedContentRef.current.forEach((value, key) => {
-                  if (key.startsWith(introPrefix) && value !== 'done') {
-                    animatedContentRef.current.set(key, 'done');
-                  }
-                });
-              }
               testingStarted = true;
               testStore.setStatus('executing-action');
               testStore.setCurrentAction(update.actionName || update.message);
@@ -2638,12 +2373,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current, isGenerating: false, hasCodeChanges: false }
           : msg
       ));
-      
-      // Mark test message as completed after conclusion animation finishes
-      // This prevents re-animation if user sends new prompts
-      setTimeout(() => {
-        completedMessagesRef.current.add(messageId);
-      }, 2500); // Allow ~2.5s for conclusion animation to complete
       
       setCurrentStreamingResponse('');
       setIsCurrentlyGenerating(false);
@@ -3665,6 +3394,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
               const lastAssistantMinHeight = isLastAssistantMessage && responseAreaMinHeight !== undefined
                 ? responseAreaMinHeight
                 : undefined;
+              // Revert/Preview bar. Hoisted because the collapsed case has to cancel
+              // its own row gap as well as hide the bar.
+              const showSnapshotActions = !msg.isGenerating && !msg.designNodeId &&
+                msg.hasCodeChanges && msg.filesSnapshot && activeSnapshotId !== msg.id;
 
               return (
               <div
@@ -3746,7 +3479,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     ) : null}
 
                     <div className="text-gray-300 text-[15px] leading-[1.65]">
-                      {renderFormattedContent(msg.content, msg.isGenerating, msg.id)}
+                      {renderFormattedContent(msg.content, msg.isGenerating)}
                     </div>
 
                     {/* Design Indicator - clickable design card for design mode messages */}
@@ -3772,9 +3505,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     )}
 
                     {/* Snapshot Action Buttons - Only show when message is fully generated and has a snapshot AND is not the current active state */}
-                    <div className={`grid transition-[grid-template-rows,margin] duration-300 ease-in-out ${!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && msg.filesSnapshot && activeSnapshotId !== msg.id ? 'grid-rows-[1fr] mt-2 mb-2' : 'grid-rows-[0fr] mt-0 mb-0'}`}>
+                    {/*
+                      The wrapper is always in the tree so the bar can animate open, and
+                      space-y-4 gives every child a 16px row gap regardless of height --
+                      so while collapsed it contributed a second 16px on top of the action
+                      row's own, putting the divider 32px below the text but 16px above the
+                      buttons. Cancelling it inline because space-y's selector outranks any
+                      mt-* class here; margin is already in the transition, so it eases.
+                    */}
+                    <div
+                      className={`grid transition-[grid-template-rows,margin] duration-300 ease-in-out ${showSnapshotActions ? 'grid-rows-[1fr] mt-2 mb-2' : 'grid-rows-[0fr] mt-0 mb-0'}`}
+                      style={showSnapshotActions ? undefined : { marginTop: 0 }}
+                    >
                       <div className="overflow-hidden">
-                        <div className={`w-[95%] max-w-[420px] mx-auto px-5 py-2.5 bg-[#27272a] rounded-[12px] flex justify-center items-center gap-5 flex-wrap transition-[opacity,transform] duration-300 ease-in-out ${!msg.isGenerating && !msg.designNodeId && msg.hasCodeChanges && msg.filesSnapshot && activeSnapshotId !== msg.id ? 'opacity-100 translate-y-0 shadow-lg' : 'opacity-0 -translate-y-4 shadow-none'}`}>
+                        <div className={`w-[95%] max-w-[420px] mx-auto px-5 py-2.5 bg-[#27272a] rounded-[12px] flex justify-center items-center gap-5 flex-wrap transition-[opacity,transform] duration-300 ease-in-out ${showSnapshotActions ? 'opacity-100 translate-y-0 shadow-lg' : 'opacity-0 -translate-y-4 shadow-none'}`}>
                           <button 
                             onClick={() => {
                               if (msg.filesSnapshot) {
@@ -3893,7 +3637,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
                 {(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
-                    {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true, 'streaming')}
+                    {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true)}
                   </div>
                 )}
               </div>

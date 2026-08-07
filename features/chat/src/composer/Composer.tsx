@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useStore } from '@nanostores/react';
 import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
@@ -32,6 +33,8 @@ import {
 import { ModesMenu } from './ModesMenu';
 import { ThemesMenu } from './ThemesMenu';
 import { ModelsMenu } from './ModelsMenu';
+import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-store';
+import { listVoiceModels } from '../voice-settings/voice-providers';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerModels } from './use-composer-models';
 import { useComposerTextareaAutosize } from './use-composer-textarea-autosize';
@@ -174,8 +177,33 @@ export const InputBar: React.FC<{
     getShortName,
     activeModelDisplayLabel,
     activeEffortDisplayLabel,
-    activeModelAndEffortLabel,
   } = useComposerModels({ modelConfig, selectedModelId, setSelectedModelId });
+
+  /**
+   * While a live session is up, the pill edits the live model instead of the
+   * text one — roster, tick, label and target store all switch together.
+   *
+   * They are two separate selections on purpose: voice mode running does not
+   * mean the next typed message should go to a live model, so `selectedModelId`
+   * is left exactly as the user left it and restored the moment live ends.
+   *
+   * The roster comes from the voice-provider registry rather than the user's
+   * saved models because those are the ids voice mode actually opens a socket
+   * with; a live model can be absent from Settings → Models and still be the one
+   * that runs.
+   */
+  const voiceModels = useMemo(() => listVoiceModels(), []);
+  const liveModelId = useStore(liveModelStore);
+  const showVoiceModels = chatVariant && liveActive && voiceModels.length > 0;
+  const liveModel = voiceModels.find((m) => m.id === liveModelId) || voiceModels[0];
+  // Shortened the same way as a text model, so "Gemini 3.1 Flash Live" reads
+  // "3.1 Flash Live" and the pill keeps one naming convention.
+  const pillModelLabel = showVoiceModels
+    ? getShortName(liveModel?.name || '')
+    : activeModelDisplayLabel;
+  // No effort segment while live: a live model has no thinking levels.
+  const pillEffortLabel = showVoiceModels ? '' : activeEffortDisplayLabel;
+  const pillModelAndEffortLabel = [pillModelLabel, pillEffortLabel].filter(Boolean).join(' ');
 
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -356,7 +384,9 @@ export const InputBar: React.FC<{
     rightControlsRef,
     modelButtonRef,
     micButtonRef,
-    activeModelAndEffortLabel,
+    // The pill's label, not the text model's: entering live mode changes it, and
+    // with it the width the collapsed editor has to stop short of.
+    activeModelAndEffortLabel: pillModelAndEffortLabel,
     setCollapsedChatPaddingRight,
   });
 
@@ -501,15 +531,15 @@ export const InputBar: React.FC<{
                   <button
                     ref={modelButtonRef}
                     onClick={() => setIsModelsOpen(!isModelsOpen)}
-                    aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
+                    aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
                     aria-expanded={isModelsOpen}
                     className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
                     style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                   >
                     <span className="-mr-1 flex min-w-0 items-center">
-                      <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
-                      {activeEffortDisplayLabel && (
-                        <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                      <span className="text-[#e6e6e6]">{pillModelLabel}</span>
+                      {pillEffortLabel && (
+                        <span className="ml-1 text-white/55">{pillEffortLabel}</span>
                       )}
                     </span>
                     <MaterialSymbol
@@ -527,10 +557,11 @@ export const InputBar: React.FC<{
                       triggerRef={modelButtonRef}
                       onClose={() => setIsModelsOpen(false)}
                       modelConfig={modelConfig}
-                      selectedId={selectedModelId}
-                      onSelect={setSelectedModelId}
+                      selectedId={showVoiceModels ? liveModelId : selectedModelId}
+                      onSelect={showVoiceModels ? setLiveModelId : setSelectedModelId}
                       onAuthRequired={onAuthRequired}
                       geminiStyle
+                      voiceModels={showVoiceModels ? voiceModels : undefined}
                     />
                   )}
                 </div>
