@@ -33,6 +33,8 @@ import {
 import { ModesMenu } from './ModesMenu';
 import { ThemesMenu } from './ThemesMenu';
 import { ModelsMenu } from './ModelsMenu';
+import { MicMutedSlash } from './MicMutedSlash';
+import { playMicToggleEarcon } from './mic-earcon';
 import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-store';
 import { listVoiceModels } from '../voice-settings/voice-providers';
 import { useComposerDictation } from './use-composer-dictation';
@@ -78,11 +80,16 @@ export const InputBar: React.FC<{
   liveActive?: boolean;
   onStartLive?: () => void;
   onStopLive?: () => void;
+  /** Live mic mute. While `liveActive`, the dictation button becomes this toggle
+   *  — dictation and a live session both want the mic, so the two can never be
+   *  useful at the same time and the slot is free to be repurposed. */
+  liveMicMuted?: boolean;
+  onToggleLiveMicMute?: () => void;
   /** A reply is streaming. Gemini reuses the send slot as a stop control for the
    *  whole generation, so this outranks both the send and the live states. */
   isGenerating?: boolean;
   onStopGenerating?: () => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, isGenerating = false, onStopGenerating }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -204,6 +211,21 @@ export const InputBar: React.FC<{
   // No effort segment while live: a live model has no thinking levels.
   const pillEffortLabel = showVoiceModels ? '' : activeEffortDisplayLabel;
   const pillModelAndEffortLabel = [pillModelLabel, pillEffortLabel].filter(Boolean).join(' ');
+
+  /**
+   * While a live session is up the mic button mutes that session instead of
+   * starting dictation. Gated on `onToggleLiveMicMute` as well as `liveActive`
+   * so a caller that opts into live mode without wiring mute keeps the dictation
+   * behaviour rather than getting a dead button.
+   */
+  const isMicMuteToggle = chatVariant && liveActive && !!onToggleLiveMicMute;
+  const handleToggleLiveMicMute = useCallback(() => {
+    // Press earcon fires on pointerdown in ChatGPT, but the release tone depends
+    // on the direction we are moving in, so both are scheduled together here
+    // off the state we are leaving.
+    playMicToggleEarcon(!liveMicMuted);
+    onToggleLiveMicMute?.();
+  }, [liveMicMuted, onToggleLiveMicMute]);
 
   const themeButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -566,27 +588,50 @@ export const InputBar: React.FC<{
                   )}
                 </div>
               )}
-              <button 
+              <button
                 ref={micButtonRef}
-                onClick={handleToggleDictation}
-                disabled={isTranscribingDictation}
-                aria-label={isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
-                title={isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative transition-all duration-200 outline-none flex items-center justify-center w-8 h-8 rounded-full ${isTranscribingDictation ? 'cursor-default' : 'cursor-pointer'} ${
-                  isDictationActive && chatVariant
+                onClick={isMicMuteToggle ? handleToggleLiveMicMute : handleToggleDictation}
+                disabled={isTranscribingDictation && !isMicMuteToggle}
+                aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
+                aria-pressed={isMicMuteToggle ? liveMicMuted : undefined}
+                title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
+                className={`relative outline-none flex items-center justify-center w-8 h-8 rounded-full ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
+                  // ChatGPT transitions only the colour group, over 200ms on
+                  // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
+                  isMicMuteToggle
+                    ? 'transition-colors duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]'
+                    : 'transition-all duration-200'
+                } ${
+                  // Muted is the only state that recolours the button: ChatGPT's
+                  // ramp is #ff002a rest / #fa423e hover / #ba2623 active, with
+                  // the glyph white and dimming to #cdcdcd on hover. Unmuted it
+                  // is the ordinary composer mic, unchanged.
+                  isMicMuteToggle && liveMicMuted
+                    ? 'bg-[#ff002a] hover:bg-[#fa423e] active:bg-[#ba2623] text-white hover:text-[#cdcdcd]'
+                    : isDictationActive && chatVariant
                     ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
                     : isDictationActive
-                    ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse' 
+                    ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse'
                     : chatVariant ? 'text-[#e6e6e6] hover:bg-white/[0.08]' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
-                {isMicRippling && <span className="gemini-mic-ripple-effect" />}
-                {isDictationActive && chatVariant ? (
+                {isMicRippling && !isMicMuteToggle && <span className="gemini-mic-ripple-effect" />}
+                {isDictationActive && chatVariant && !isMicMuteToggle ? (
                   <span className="w-2.5 h-2.5 rounded-[1.5px] bg-[#e3e3e3]" aria-hidden="true" />
                 ) : chatVariant ? (
                   <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
                 ) : (
                   <Mic size={20} strokeWidth={1.8} />
+                )}
+                {/* Laid over the existing glyph rather than swapping the icon —
+                    same colour, so the two merge into one shape the way
+                    ChatGPT's purpose-drawn muted glyph does. Sized to the icon,
+                    not the button, since the slash spans the glyph's box. */}
+                {isMicMuteToggle && liveMicMuted && (
+                  <MicMutedSlash
+                    size={chatVariant ? 24 : 20}
+                    className="absolute inset-0 m-auto pointer-events-none"
+                  />
                 )}
               </button>
               <button

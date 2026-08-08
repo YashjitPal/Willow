@@ -236,7 +236,7 @@ export const PlusDropdownMenu: React.FC<{
           aria-haspopup="menu"
           aria-expanded={isMoreHovered}
           onClick={() => setIsMoreHovered(true)}
-          className={`${geminiStyle ? 'h-9 px-2 rounded-xl' : 'px-3 py-2 mx-1.5 mt-1 rounded-lg'} flex items-center justify-between cursor-pointer transition-colors ${isMoreHovered ? (geminiStyle ? 'bg-[#333537]' : 'bg-white/10') : (geminiStyle ? 'hover:bg-[#333537]' : 'hover:bg-white/10')}`}
+          className={`${geminiStyle ? 'h-9 w-full px-2 rounded-xl' : 'px-3 py-2 mx-1.5 mt-1 rounded-lg'} flex items-center justify-between cursor-pointer transition-colors ${isMoreHovered ? (geminiStyle ? 'bg-[#333537]' : 'bg-white/10') : (geminiStyle ? 'hover:bg-[#333537]' : 'hover:bg-white/10')}`}
         >
           <div className={`flex items-center ${geminiStyle ? 'gap-2' : 'gap-3'}`}>
             {geminiStyle

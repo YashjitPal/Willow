@@ -510,12 +510,23 @@ describe('live session wiring', () => {
     assert.match(chatViewSource, /session\.outputAnalyser \?\? null/);
   });
 
-  it('reconnects only on an actual voice or language change', () => {
-    assert.match(chatViewSource, /liveSettingsSignatureRef\.current = voiceSettingsSignature\(LIVE_MODEL_ID\)/);
+  it('reconnects only on an actual model, voice or language change', () => {
+    // The model is part of the signature, not just the voice settings: it rides
+    // the same setup frame, so picking a different live model from the composer's
+    // pill needs the same teardown-and-reopen a voice change does. The signature
+    // is read for the selected live model rather than a hardcoded id, which is
+    // what lets that pill switch models at all.
     assert.match(
       chatViewSource,
-      /voiceSettingsSignature\(LIVE_MODEL_ID\) === liveSettingsSignatureRef\.current\) return;/,
+      /liveSettingsSignatureRef\.current = `\$\{liveModelId\}\|\$\{voiceSettingsSignature\(liveModelId\)\}`/,
     );
+    assert.match(
+      chatViewSource,
+      /`\$\{liveModelId\}\|\$\{voiceSettingsSignature\(liveModelId\)\}` === liveSettingsSignatureRef\.current\) return;/,
+    );
+    // And the effect has to actually watch the model, or a switch never reaches
+    // the comparison above.
+    assert.match(chatViewSource, /\}, \[isLive, liveModelId, restartLiveSession, voiceSettings\]\);/);
   });
 
   it('rides the orb experiment and cannot outlive the session', () => {
