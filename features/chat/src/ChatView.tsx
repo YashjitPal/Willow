@@ -504,6 +504,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // before that it shows the pre-connection dot.
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
+  // Mic mute, owned here rather than read back off the session so the button stays
+  // correct across the reconnect a voice/model change does — the new session
+  // re-applies it from `setMicMuted` once its stream exists.
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  // Read by `openLiveSession` to seed a freshly built session. A ref, not the
+  // state, so toggling mute does not change that callback's identity — it feeds
+  // `restartLiveSession`, so a new identity would reconnect the socket on every
+  // mute press.
+  const micMutedRef = useRef(false);
+  // Propagating the mute lives here rather than in the toggle handler so the state
+  // updater stays pure — StrictMode double-invokes updaters, which would call
+  // `setMicMuted` twice per press. Reaching a null ref is the ordinary case: mute
+  // is allowed to lead a session, and `openLiveSession` seeds the next one.
+  useEffect(() => {
+    micMutedRef.current = isMicMuted;
+    liveSessionRef.current?.setMicMuted(isMicMuted);
+  }, [isMicMuted]);
   // Analysers are read off the session once its audio graph exists.
   const [liveAnalysers, setLiveAnalysers] = useState<{
     mic: AnalyserNode | null;
@@ -1203,6 +1220,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
     [stopThinking]
   );
 
+  /**
+   * Mic mute for the running live session.
+   *
+   * Mutes at the track (`track.enabled = false`), so the browser/OS mic indicator
+   * goes off and the orb stops reacting for free — its analyser is a leaf tap off
+   * the same source node. The socket stays open and keeps receiving silence, which
+   * keeps the model's turn-detection timeline continuous instead of looking like a
+   * dropped connection.
+   *
+   * Only flips the flag; the effect above is what reaches the session, so two
+   * presses inside one render still net out correctly.
+   */
+  const handleToggleMicMute = useCallback(() => {
+    setIsMicMuted((prev) => !prev);
+  }, []);
+
   const handleStopLive = useCallback(() => {
     // Falling two-note earcon = "done listening". Only on explicit user stop —
     // error closes stay silent.
@@ -1215,6 +1248,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setIsLiveConnected(false);
     setIsAssistantSpeaking(false);
     setLiveAnalysers({ mic: null, output: null });
+    // Mute is per-session, not a preference: re-entering voice mode should start
+    // listening, not come up silently muted from a session the user already ended.
+    setIsMicMuted(false);
     // If the model was mid-reply, treat stop as an interruption: `turn.acc` is
     // exactly what was *heard* (audio-synced release already dropped anything
     // unspoken), so finalise with the trailing `—` just like a barge-in.
@@ -1339,6 +1375,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setIsLiveConnected(false);
         setIsAssistantSpeaking(false);
         setLiveAnalysers({ mic: null, output: null });
+        setIsMicMuted(false);
       },
       onClose: () => {
         // onError (above) already handled the unhappy path; a clean close just
@@ -1349,9 +1386,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setIsLiveConnected(false);
         setIsAssistantSpeaking(false);
         setLiveAnalysers({ mic: null, output: null });
+        setIsMicMuted(false);
       },
     });
     liveSessionRef.current = session;
+    // Carry an active mute onto the new session: a voice/model change reconnects,
+    // and the fresh instance would otherwise come up with a live mic while the
+    // button still reads muted. Set before `start()` so it is in place whenever
+    // the mic is acquired.
+    session.setMicMuted(micMutedRef.current);
     void session.start();
   }, [openLiveTurn, closeLiveTurn, liveModelId, liveModelLabel, voiceProvider]);
 
@@ -2049,6 +2092,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               liveActive={isLive}
               onStartLive={handleStartLive}
               onStopLive={handleStopLive}
+              liveMicMuted={isMicMuted}
+              onToggleLiveMicMute={handleToggleMicMute}
               isGenerating={isGenerating}
               onStopGenerating={handleStopGenerating}
               modelConfig={modelConfig}

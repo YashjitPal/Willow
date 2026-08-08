@@ -11,6 +11,13 @@
  * imported as `data:` URLs; those cannot resolve relative specifiers, so a
  * module's own imports are transpiled first and their specifiers rewritten to the
  * resulting data URLs. Cyclic imports are not supported and throw.
+ *
+ * `@willow/*` specifiers are followed too, because a module that crosses a
+ * package boundary uses the alias rather than a `../../` path — refusing them
+ * would mean the only importable modules are the ones that happen to be
+ * self-contained. The alias map is parsed out of `apps/studio/vite.config.ts`
+ * rather than restated here, so a test cannot resolve a specifier differently
+ * from the build.
  */
 
 import fs from 'node:fs';
@@ -25,13 +32,48 @@ const ensureEsbuild = async () => {
   await initialized;
 };
 
-const RELATIVE_IMPORT = /(\bfrom\s*|\bimport\s*)(['"])(\.[^'"]*)\2/g;
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
+
+/**
+ * `{ find: "@willow/x", replacement: path.resolve(ROOT, "y/z") }` -> `{ "@willow/x": "<abs>/y/z" }`.
+ *
+ * Longest find first, so `@willow/agent-builder` is not shadowed by a shorter
+ * alias that happens to prefix it.
+ */
+const willowAliases = () => {
+  const config = fs.readFileSync(
+    path.join(REPO_ROOT, 'apps/studio/vite.config.ts'),
+    'utf8',
+  );
+  const entries = [
+    ...config.matchAll(
+      /\{\s*find:\s*["'](@willow\/[^"']+)["']\s*,\s*replacement:\s*path\.resolve\(\s*ROOT\s*,\s*["']([^"']+)["']\s*\)\s*\}/g,
+    ),
+  ].map(([, find, target]) => [find, path.resolve(REPO_ROOT, target)]);
+  if (entries.length === 0) throw new Error('no @willow aliases found in vite.config.ts');
+  return entries.sort(([a], [b]) => b.length - a.length);
+};
+
+let aliasCache = null;
+
+const IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*)(['"])((?:\.|@willow\/)[^'"]*)\2/g;
 
 const EXTENSIONS = ['.ts', '.tsx', '.mts', '/index.ts', '/index.tsx'];
 
-/** Resolve an extensionless relative specifier against the importing file. */
+/** Resolve an extensionless relative or `@willow/*` specifier. */
 const resolveSpecifier = (fromFile, specifier) => {
-  const base = path.resolve(path.dirname(fromFile), specifier);
+  let base;
+  if (specifier.startsWith('@willow/')) {
+    aliasCache ??= willowAliases();
+    const hit = aliasCache.find(
+      ([find]) => specifier === find || specifier.startsWith(`${find}/`),
+    );
+    if (!hit) throw new Error(`no @willow alias matches ${specifier}`);
+    const [find, target] = hit;
+    base = path.join(target, specifier.slice(find.length));
+  } else {
+    base = path.resolve(path.dirname(fromFile), specifier);
+  }
   if (fs.existsSync(base) && fs.statSync(base).isFile()) return base;
   for (const extension of EXTENSIONS) {
     const candidate = `${base}${extension}`;
@@ -62,7 +104,7 @@ const buildModule = async (file, cache, pending) => {
 
   const source = fs.readFileSync(absolute, 'utf8');
   const specifiers = new Map();
-  for (const [, , , specifier] of source.matchAll(RELATIVE_IMPORT)) {
+  for (const [, , , specifier] of source.matchAll(IMPORT_SPECIFIER)) {
     if (specifiers.has(specifier)) continue;
     const target = resolveSpecifier(absolute, specifier);
     specifiers.set(
@@ -72,7 +114,7 @@ const buildModule = async (file, cache, pending) => {
   }
 
   const rewritten = source.replace(
-    RELATIVE_IMPORT,
+    IMPORT_SPECIFIER,
     (match, keyword, quote, specifier) => {
       const url = specifiers.get(specifier);
       return url ? `${keyword}${quote}${url}${quote}` : match;

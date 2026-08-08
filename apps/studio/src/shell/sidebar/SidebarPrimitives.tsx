@@ -14,7 +14,7 @@ export const SidebarItem: React.FC<{
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
 }> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
-  <div className="px-1.5">
+  <div className="pl-1.5 pr-0">
     <div 
       role="button"
       tabIndex={0}

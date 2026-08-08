@@ -9,6 +9,7 @@ import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
+import { homeGlowAccent } from './home-glow';
 
 // @ts-ignore
 import willSmithVideo from '@willow/assets/media-samples/Will smith.mp4';
@@ -412,8 +413,21 @@ export const HeroSection: React.FC<{
   const pxClass = studioMode === 'media' ? 'px-8' : 'px-4';
   const mtClass = background === 'solid' && studioMode !== 'media' ? '-mt-20' : '';
 
+  /*
+   * The glow's accent stop, driven by the workspace colour. Declared on the
+   * glow host because `::before` inherits custom properties from its
+   * originating element, and set as a variable rather than by swapping classes
+   * so the `grow` animation is not restarted — same reason the temporary-chat
+   * variant is a modifier. A colour change is then a repaint of the existing
+   * gradient, with no collapse-and-regrow.
+   */
+  const glowAccent = homeGlowAccent(userProfile?.workspaceColor);
+
   return (
-    <div className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? `willow-gemini-home-glow${isIncognito ? ' willow-gemini-home-glow-gray' : ''}` : ''}`}>
+    <div
+      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? `willow-gemini-home-glow${isIncognito ? ' willow-gemini-home-glow-gray' : ''}` : ''}`}
+      style={{ '--willow-home-glow-accent': glowAccent } as React.CSSProperties}
+    >
       {studioMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}

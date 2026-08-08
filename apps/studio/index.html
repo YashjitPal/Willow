@@ -334,6 +334,14 @@
         }
       }
 
+      /*
+       * The accent stop is Gemini's `--lumi-sys-color--surface-accent`, the one
+       * token its own rule references. Willow drives it from the workspace
+       * colour: `MediaHome` sets `--willow-home-glow-accent` on the host, and
+       * the fallback here is the shipped green, so the glow still paints if the
+       * profile has not loaded yet. Blue resolves to Gemini's measured
+       * `#14204f` = rgb(20, 32, 79). See `features/media/src/home-glow.ts`.
+       */
       .willow-gemini-home-glow::before {
         content: "";
         position: absolute;
@@ -349,7 +357,7 @@
         background: radial-gradient(
           ellipse 100% 100% at center 8%,
           rgb(15, 15, 15) 0,
-          rgb(6, 78, 59) 50%
+          var(--willow-home-glow-accent, rgb(6, 78, 59)) 50%
         );
         border-radius: 9999px;
         filter: blur(100px);
@@ -371,6 +379,10 @@
        * The colour is Gemini's `--gem-sys-color--outline-variant` (#444746)
        * against `--lumi-sys-color--surface` (#0f0f0f) — the same opaque radial
        * as normal mode, not a translucent white haze.
+       *
+       * It is deliberately a literal, not `--willow-home-glow-accent`: Gemini's
+       * `is-temporary-chat` replaces the accent stop outright, so temporary
+       * chat is the same neutral gray at every workspace colour.
        */
       .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
         background: radial-gradient(
