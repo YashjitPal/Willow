@@ -102,3 +102,14 @@ export const CheckSmIcon = ({ size = 16, className }: IconProps) => (
   </svg>
 );
 
+/** Speaker / Volume icon for voice preview. */
+export const SpeakerIcon = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path
+      fill="currentColor"
+      d="M10.875 3.32a.75.75 0 0 1 .875.742v11.876a.75.75 0 0 1-1.256.551L6.168 12.83H3.25A1.25 1.25 0 0 1 2 11.58V8.42c0-.69.56-1.25 1.25-1.25h2.918l4.326-3.663a.75.75 0 0 1 .381-.187ZM14.78 6.22a.75.75 0 0 1 1.06 0 5.25 5.25 0 0 1 0 7.424.75.75 0 0 1-1.06-1.06 3.75 3.75 0 0 0 0-5.304.75.75 0 0 1 0-1.06Zm2.12-2.12a.75.75 0 0 1 1.06 0 8.25 8.25 0 0 1 0 11.668.75.75 0 1 1-1.06-1.061 6.75 6.75 0 0 0 0-9.546.75.75 0 0 1 0-1.061Z"
+    />
+  </svg>
+);
+
+

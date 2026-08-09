@@ -526,7 +526,32 @@ describe('live session wiring', () => {
     );
     // And the effect has to actually watch the model, or a switch never reaches
     // the comparison above.
-    assert.match(chatViewSource, /\}, \[isLive, liveModelId, restartLiveSession, voiceSettings\]\);/);
+    //
+    // `restartLiveSession` is deliberately absent: it is reached through a ref
+    // instead. It changes identity whenever `apiKeys` or the turn callbacks do,
+    // and as a dependency every such change would cancel and re-arm the debounce
+    // timer below for no reason.
+    assert.match(chatViewSource, /\}, \[isLive, liveModelId, voiceSettings\]\);/);
+    assert.match(chatViewSource, /restartLiveSessionRef\.current = restartLiveSession;/);
+    assert.match(chatViewSource, /restartLiveSessionRef\.current\(\)/);
+  });
+
+  /**
+   * Every dot in the panel is a store write, so the reconnect has to be debounced.
+   *
+   * Undebounced it tore the socket down and re-ran `getUserMedia` on every single
+   * press: the orb behind the panel reset, each choice landed on a fresh connect,
+   * and the row felt broken and laggy while you walked across it. One restart per
+   * burst reads instantly and reconnects once, with the final choice.
+   */
+  it('collects a burst of voice presses into one reconnect', () => {
+    assert.match(chatViewSource, /const LIVE_RESTART_DEBOUNCE_MS = 400;/);
+    assert.match(
+      chatViewSource,
+      /window\.setTimeout\(\(\) => restartLiveSessionRef\.current\(\), LIVE_RESTART_DEBOUNCE_MS\)/,
+    );
+    // The cleanup is what makes it a debounce rather than a delay.
+    assert.match(chatViewSource, /return \(\) => window\.clearTimeout\(id\);/);
   });
 
   it('rides the orb experiment and cannot outlive the session', () => {
@@ -579,9 +604,49 @@ describe('the panel orb leaves the session orb alone', () => {
   it('skips the scale-in for the orb the panel draws', () => {
     // The panel's orb appears mid-session, so the mount animation would fire on
     // every open. The session's own orb keeps it — that one is a real entrance.
-    assert.match(dialogSource, /<VoiceOrb \{\.\.\.orbProps\} animatePresence=\{false\} \/>/);
+    //
+    // Matched across lines because the call also hardcodes `connected`; see the
+    // inert-orb tests below for why that is not just formatting.
+    assert.match(dialogSource, /<VoiceOrb\s+\{\.\.\.orbProps\}\s+connected\s+animatePresence=\{false\}\s*\/>/);
     assert.match(orbSource, /initial=\{animatePresence \? \{ scale: ORB_SCALE_HIDDEN \} : false\}/);
     assert.match(orbSource, /exit=\{animatePresence \? \{ scale: ORB_SCALE_HIDDEN \} : undefined\}/);
+  });
+
+  /**
+   * The panel's orb mirrored the session's.
+   *
+   * It was handed `connected`, `isUserSpeaking`, `isAssistantSpeaking` and both
+   * analysers, so opening the panel mid-connect replayed the connect dot and
+   * speaking into the mic squeezed the picture of the voice you were choosing.
+   * Upstream's picker orb is inert by construction — it hardcodes `micLevel: 0,
+   * stateListen: 0, stateThink: 0, stateSpeak: 1, isLaunching: false` and never
+   * touches an analyser.
+   *
+   * The type is the fix rather than the call site: with the live fields out of
+   * scope, passing them again is a compile error and not a review miss.
+   */
+  it('gives the panel orb no way to see the session', () => {
+    assert.match(
+      dialogSource,
+      /orbProps: Pick<VoiceOrbProps, 'workspaceColor' \| 'palette' \| 'theme'>;/,
+    );
+    for (const live of [
+      'analyser',
+      'assistantAnalyser',
+      'isUserSpeaking',
+      'isAssistantSpeaking',
+    ]) {
+      assert.doesNotMatch(
+        dialogSource,
+        new RegExp(`${live}\\s*[:=]`),
+        `${live} must not reach the panel orb`,
+      );
+    }
+  });
+
+  it('passes the panel orb nothing but its colour', () => {
+    // The call site follows the type: one appearance prop, no session state.
+    assert.match(chatViewSource, /orbProps=\{\{ workspaceColor \}\}/);
   });
 });
 

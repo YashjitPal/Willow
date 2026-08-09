@@ -8,7 +8,7 @@ const getModelCategory = (id: string): 'text' | 'image' | 'video' | 'audio' => {
   if (['lyria-3-pro', 'grok-voice'].includes(lowercaseId)) return 'audio';
   if (lowercaseId.includes('imagine') || lowercaseId.includes('-image')) return 'image';
   if (lowercaseId.includes('veo') || lowercaseId.includes('video')) return 'video';
-  if (lowercaseId.includes('lyria') || lowercaseId.includes('voice') || lowercaseId.includes('audio')) return 'audio';
+  if (lowercaseId.includes('lyria') || lowercaseId.includes('voice') || lowercaseId.includes('audio') || lowercaseId.includes('live')) return 'audio';
   return 'text';
 };
 
@@ -94,6 +94,7 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'veo-3.1-fast': '$2.00/$8.00',
     'veo-3.1': '$3.00/$12.00',
     'veo-3.1-lite': '$1.00/$4.00',
+    'gemini-3.1-flash-live-preview': '$0.15/$0.60',
     // OpenAI
     'gpt-5.2-thinking': '$5.00/$25.00',
     'gpt-5.2-pro': '$5.00/$25.00',

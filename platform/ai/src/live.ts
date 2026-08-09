@@ -28,203 +28,18 @@
 export const LIVE_MODEL_ID = 'gemini-3.1-flash-live-preview';
 
 // ────────────────────────────────────────────────────────────────────────────
-// Live-mode earcons (pure synthesis, no assets)
+// Live-mode session cues
 //
-// Two deliberately different voices:
-//   • START — the richer cue: three-note FM-bell arpeggio (A3 · E4 · C#5) with
-//     detuned unison, triangle sub-layer, stereo spread and a 1.8 s convolver
-//     reverb. Lush "I'm listening" moment.
-//   • END   — the original minimal cue: two bare sines falling a fifth
-//     (A5 → D5) through a soft lowpass. Quick, unobtrusive "done".
+// The connect and end cues are reproduced from measurements of the sounds
+// ChatGPT plays, and live in their own module with the data they were built
+// from. Re-exported here because this is where callers already import them
+// from, and because they belong to a live session conceptually even though
+// nothing in this file plays them.
 //
-// Both share one lazy AudioContext; the FM bus + reverb IR are built once and
-// cached. `primeLiveChimes()` is called from the live-button click so the
-// context is created inside a user gesture (autoplay-safe).
+// `primeLiveSessionCues()` must be called from the live-button click: a context
+// created outside a user gesture starts suspended and the connect cue is lost.
 // ────────────────────────────────────────────────────────────────────────────
-let chimeCtx: AudioContext | null = null;
-let chimeBellBus: { dry: GainNode; wet: GainNode } | null = null;
-let chimeSimpleOut: GainNode | null = null;
-let reverbIR: AudioBuffer | null = null;
-
-function ensureChimeCtx(): AudioContext {
-  const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-  if (!chimeCtx || chimeCtx.state === 'closed') {
-    chimeCtx = new Ctx();
-    chimeBellBus = null;
-    chimeSimpleOut = null;
-    reverbIR = null;
-  }
-  void chimeCtx.resume?.();
-  return chimeCtx;
-}
-
-// ── START cue: FM-bell bus (dry/wet → high-shelf → master) ────────────────
-function ensureBellBus(ctx: AudioContext): { dry: GainNode; wet: GainNode } {
-  if (chimeBellBus) return chimeBellBus;
-
-  const master = ctx.createGain();
-  master.gain.value = 0.22;
-
-  const shelf = ctx.createBiquadFilter();
-  shelf.type = 'highshelf';
-  shelf.frequency.value = 5200;
-  shelf.gain.value = -8; // tame convolver hiss
-
-  const dry = ctx.createGain();
-  dry.gain.value = 0.85;
-  const wet = ctx.createGain();
-  wet.gain.value = 0.55;
-
-  const verb = ctx.createConvolver();
-  if (!reverbIR) {
-    const len = Math.floor(ctx.sampleRate * 1.8);
-    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = ir.getChannelData(ch);
-      for (let i = 0; i < len; i++) {
-        const t = i / len;
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.6 + ch * 0.15);
-      }
-    }
-    reverbIR = ir;
-  }
-  verb.buffer = reverbIR;
-
-  dry.connect(shelf);
-  wet.connect(verb).connect(shelf);
-  shelf.connect(master).connect(ctx.destination);
-
-  chimeBellBus = { dry, wet };
-  return chimeBellBus;
-}
-
-function bell(
-  ctx: AudioContext,
-  dry: GainNode,
-  wet: GainNode,
-  freq: number,
-  at: number,
-  dur: number,
-  pan: number,
-  peak: number
-): void {
-  const voice = ctx.createGain();
-  voice.gain.setValueAtTime(0, at);
-  voice.gain.linearRampToValueAtTime(peak, at + 0.012);            // soft strike
-  voice.gain.exponentialRampToValueAtTime(peak * 0.35, at + 0.09); // mallet body
-  voice.gain.exponentialRampToValueAtTime(0.0006, at + dur);       // natural tail
-
-  const panner = ctx.createStereoPanner();
-  panner.pan.value = pan;
-  voice.connect(panner);
-  panner.connect(dry);
-  panner.connect(wet);
-
-  // Triangle sub-octave for weight.
-  const sub = ctx.createOscillator();
-  sub.type = 'triangle';
-  sub.frequency.value = freq / 2;
-  const subG = ctx.createGain();
-  subG.gain.value = 0.18;
-  sub.connect(subG).connect(voice);
-  sub.start(at); sub.stop(at + dur + 0.1);
-
-  // Two ±4-cent FM voices → glassy bell + gentle chorus.
-  for (const cents of [-4, 4]) {
-    const car = ctx.createOscillator();
-    car.type = 'sine';
-    car.frequency.value = freq;
-    car.detune.value = cents;
-
-    const mod = ctx.createOscillator();
-    mod.type = 'sine';
-    mod.frequency.value = freq * 3.5; // inharmonic ratio → bell, not organ
-    const modG = ctx.createGain();
-    modG.gain.setValueAtTime(freq * 1.4, at);
-    modG.gain.exponentialRampToValueAtTime(freq * 0.08, at + 0.25);
-    mod.connect(modG).connect(car.frequency);
-
-    car.connect(voice);
-    car.start(at); mod.start(at);
-    car.stop(at + dur + 0.1); mod.stop(at + dur + 0.1);
-  }
-}
-
-// ── END cue: original two-sine chain (lowpass → quiet master) ─────────────
-function ensureSimpleOut(ctx: AudioContext): GainNode {
-  if (chimeSimpleOut) return chimeSimpleOut;
-  const master = ctx.createGain();
-  master.gain.value = 0.13;
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 3800;
-  lp.Q.value = 0.7;
-  master.connect(lp).connect(ctx.destination);
-  chimeSimpleOut = master;
-  return master;
-}
-
-function simpleTone(
-  ctx: AudioContext,
-  out: GainNode,
-  freq: number,
-  at: number,
-  dur: number,
-  peak: number
-): void {
-  const osc = ctx.createOscillator();
-  osc.type = 'sine';
-  osc.frequency.value = freq;
-  const shimmer = ctx.createOscillator();
-  shimmer.type = 'sine';
-  shimmer.frequency.value = freq * 2;
-
-  const g = ctx.createGain();
-  const sg = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, at);
-  g.gain.exponentialRampToValueAtTime(peak, at + 0.02);
-  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-  sg.gain.setValueAtTime(0.0001, at);
-  sg.gain.exponentialRampToValueAtTime(peak * 0.18, at + 0.02);
-  sg.gain.exponentialRampToValueAtTime(0.0001, at + dur * 0.8);
-
-  osc.connect(g).connect(out);
-  shimmer.connect(sg).connect(out);
-  osc.start(at); shimmer.start(at);
-  osc.stop(at + dur + 0.05); shimmer.stop(at + dur + 0.05);
-}
-
-/**
- * Call inside the live-button click so the shared AudioContext is created and
- * resumed under a user gesture (autoplay-safe). Also pre-builds the reverb IR
- * so the first `start` cue doesn't hitch.
- */
-export function primeLiveChimes(): void {
-  try {
-    const ctx = ensureChimeCtx();
-    ensureBellBus(ctx);
-  } catch { /* noop */ }
-}
-
-export function playLiveChime(kind: 'start' | 'end'): void {
-  try {
-    const ctx = ensureChimeCtx();
-    const t0 = ctx.currentTime + 0.02;
-
-    if (kind === 'start') {
-      const { dry, wet } = ensureBellBus(ctx);
-      // A3 · E4 · C#5 — open, suspended, resolves upward.
-      bell(ctx, dry, wet, 220.00, t0,         1.10, -0.35, 0.80);
-      bell(ctx, dry, wet, 329.63, t0 + 0.090, 1.05,  0.10, 0.95);
-      bell(ctx, dry, wet, 554.37, t0 + 0.200, 1.30,  0.35, 1.00);
-    } else {
-      const out = ensureSimpleOut(ctx);
-      // A5 → D5, slightly longer landing note.
-      simpleTone(ctx, out, 880.00, t0,        0.35, 0.85);
-      simpleTone(ctx, out, 587.33, t0 + 0.10, 0.70, 1.00);
-    }
-  } catch { /* Audio unsupported / blocked — stay silent. */ }
-}
+export { playLiveSessionCue, primeLiveSessionCues, LIVE_SESSION_CUES } from './live-session-cues';
 
 
 const LIVE_WSS_ENDPOINT =
@@ -354,6 +169,7 @@ export class GeminiLiveSession {
   private playGain: GainNode | null = null;
   private playCursor = 0; // AudioContext time at which the next chunk should start
   private activeSources = new Set<AudioBufferSourceNode>();
+  private lastAudioRate: number = OUTPUT_SAMPLE_RATE_DEFAULT;
   // Hidden <audio> sink — see initAudio() for why playback is routed through
   // an HTMLMediaElement instead of AudioContext.destination.
   private playSinkEl: HTMLAudioElement | null = null;
@@ -394,11 +210,25 @@ export class GeminiLiveSession {
       // friendly version, this is for diagnosing "site says Ask but no prompt".
       // eslint-disable-next-line no-console
       console.error('[GeminiLive] getUserMedia failed', e?.name, e?.message, e);
+      // getUserMedia is only the first step in here; a throw from anything after
+      // it leaves an acquired stream with no owner, and nothing else runs on this
+      // path. Null-safe throughout, so the common case of failing at the prompt
+      // itself is a no-op.
+      this.teardownAudio();
       this.opts.onError?.(new Error(describeMicError(e)));
       this.opts.onClose?.();
       return;
     }
-    if (this.disposed) return;
+    // `stop()` while `initAudio()` was awaiting the getUserMedia prompt: its
+    // teardown ran when there was still nothing to tear down, and the stream
+    // arrived afterwards. Releasing it here is the only chance — otherwise the
+    // mic stays hot and the tab indicator lit for the life of the page, once per
+    // abandoned connect. A voice change during the connect window does exactly
+    // this, which is how it accumulated.
+    if (this.disposed) {
+      this.teardownAudio();
+      return;
+    }
 
     // 2. Open the bidi socket.
     const url = `${LIVE_WSS_ENDPOINT}?key=${encodeURIComponent(this.opts.apiKey)}`;
@@ -498,6 +328,20 @@ export class GeminiLiveSession {
       try { this.ws.close(1000); } catch { /* noop */ }
     }
     this.ws = null;
+  }
+
+  /**
+   * Stop in-flight audio playback immediately and mark the current turn interrupted.
+   */
+  interrupt(): void {
+    this.flushPlayback();
+    this.textQueue = [];
+    this.pendingTurnComplete = false;
+    if (this.turnOpen) {
+      this.turnOpen = false;
+      this.userTranscriptAcc = '';
+      this.opts.onTurnComplete?.({ aborted: true });
+    }
   }
 
   /**
@@ -841,7 +685,8 @@ export class GeminiLiveSession {
     const gain = this.playGain;
     if (!ctx || !gain) return;
 
-    const rate = parseRate(mimeType) ?? OUTPUT_SAMPLE_RATE_DEFAULT;
+    const rate = parseRate(mimeType) ?? this.lastAudioRate;
+    this.lastAudioRate = rate;
     const float = base64PCM16ToFloat32(b64);
     if (float.length === 0) return;
 

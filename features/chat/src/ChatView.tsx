@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
-import { HeroSection } from '@willow/media/MediaHome';
+import { HeroSection, PinnedChatGreeting } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
@@ -17,8 +17,9 @@ import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } f
 import {
   GeminiLiveSession,
   LiveHistoryTurn,
-  playLiveChime,
-  primeLiveChimes,
+  LIVE_MODEL_ID,
+  playLiveSessionCue,
+  primeLiveSessionCues,
 } from '@willow/ai/live';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
@@ -28,7 +29,7 @@ import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { CHAT_SYSTEM_PROMPT, getShortModelName, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
 import { useStore } from '@nanostores/react';
-import { experimentsStore } from '@willow/core/experiments-store';
+
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
 import { resolveFocusSurfaceAttributes } from './voice-orb/focus-surface-constants';
 import type { WorkspaceColorName } from './voice-orb/orb-palette';
@@ -45,7 +46,44 @@ import {
   voiceSettingsStore,
 } from './voice-settings/voice-settings-store';
 
-const CHAT_COMPOSER_LAYOUT_ID = 'willow-chat-composer';
+/**
+ * How long a voice/language/model change waits before it reopens the socket.
+ *
+ * See the effect that uses it. A policy value, not a captured one — voice rides
+ * the Live API setup frame, so a change can only take effect on reconnect, and
+ * this is the window in which a burst of presses counts as one decision.
+ */
+const LIVE_RESTART_DEBOUNCE_MS = 400;
+
+/**
+ * Sampler for the app's emphasised curve, `cubic-bezier(0.2, 0, 0, 1)`.
+ *
+ * The new-turn entrance drives a transform AND a scrollTop off one timeline, so
+ * the easing has to be evaluated in JS instead of handed to CSS. Newton-Raphson
+ * to invert x(u), then evaluate y(u); the curve is steep early, so a handful of
+ * iterations from a linear guess lands well inside a pixel.
+ */
+const sampleEmphasisedEase = (t: number): number => {
+  const axis = (c1: number, c2: number, u: number) => {
+    const a = 3 * c1;
+    const b = 3 * (c2 - c1) - a;
+    const c = 1 - a - b;
+    return ((c * u + b) * u + a) * u;
+  };
+  const axisSlope = (c1: number, c2: number, u: number) => {
+    const a = 3 * c1;
+    const b = 3 * (c2 - c1) - a;
+    const c = 1 - a - b;
+    return (3 * c * u + 2 * b) * u + a;
+  };
+  let u = t;
+  for (let i = 0; i < 5; i += 1) {
+    const slope = axisSlope(0.2, 0, u);
+    if (Math.abs(slope) < 1e-6) break;
+    u -= (axis(0.2, 0, u) - t) / slope;
+  }
+  return axis(0, 1, Math.min(1, Math.max(0, u)));
+};
 
 interface ChatViewProps {
   modelConfig: any;
@@ -498,8 +536,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // The model is part of it because it rides the setup frame too — switching it
   // needs the same teardown-and-reopen a voice change does.
   const liveSettingsSignatureRef = useRef('');
-  // Voice-orb state. Behind the Labs experiment, so it stays inert by default.
-  const { voiceOrb: isVoiceOrbEnabled } = useStore(experimentsStore);
+  const isReconnectingRef = useRef(false);
+  // Voice-orb state. Always active during live sessions.
   // Connected flips on the socket ACK, which is when the orb reveals itself;
   // before that it shows the pre-connection dot.
   const [isLiveConnected, setIsLiveConnected] = useState(false);
@@ -553,11 +591,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // A live turn marks the user's bubble `isTranscribing` for exactly as long as
   // they are being listened to, which is the orb's listening signal.
   const isUserSpeaking = isLive && messages.some((message) => message.isTranscribing);
-  const showVoiceOrb = isVoiceOrbEnabled && isLive;
+  const showVoiceOrb = isLive;
+
+  // Whether the user has added a Gemini Live model to their saved models.
+  // Live mode is gated on this — users must explicitly add it from Settings → Models.
+  const hasLiveModel = useMemo(() => {
+    const savedModels = modelConfig?.gemini?.savedModels || [];
+    return savedModels.some((m: any) => {
+      const id = (m.modelId || m.id || '').toLowerCase();
+      return id.includes('gemini') && id.includes('live');
+    });
+  }, [modelConfig]);
+
+  // ...but a temporary chat never offers live voice, however the saved models
+  // are configured. Kept separate from `hasLiveModel` on purpose: that one is a
+  // statement about what the user has added, and `handleStartLive`'s "add it
+  // from Settings → Models" error would be wrong if a temporary chat folded
+  // into it.
+  //
+  // Downstream this is also what keeps the composer's empty-box slot empty:
+  // with no live button to occupy it, an empty draft renders no button at all,
+  // which is Gemini's own behaviour (see `showSubmitControl` in Composer.tsx).
+  // So in a temporary chat that rule holds permanently rather than only until a
+  // live model is added.
+  const liveAvailable = hasLiveModel && !isIncognito;
 
   // ── Voice + language for the live session ──────────────────────────────────
-  // The panel rides the same experiment as the orb: it is the orb's settings, and
-  // it draws the orb, so it should not exist while the orb does not.
+  // The panel is the orb's settings, and it draws the orb, so it should not
+  // exist while the orb does not.
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
   const voiceSettings = useStore(voiceSettingsStore);
   // The live model the composer's picker has selected. Everything downstream —
@@ -622,19 +683,196 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const lastScrolledUserId = useRef<string | null>(null);
   const isFirstScrollRef = useRef(false);
   const skipNextNativeScrollRef = useRef(false);
+  const turnEntranceRafRef = useRef<number | null>(null);
+  const turnEntranceCleanupRef = useRef<(() => void) | null>(null);
+
+  const stopTurnEntrance = useCallback(() => {
+    if (turnEntranceRafRef.current !== null) {
+      cancelAnimationFrame(turnEntranceRafRef.current);
+      turnEntranceRafRef.current = null;
+    }
+    turnEntranceCleanupRef.current?.();
+    turnEntranceCleanupRef.current = null;
+  }, []);
+
+  /**
+   * Glide the new turn up through the blank space the previous reply left behind.
+   *
+   * The reserve that keeps the thread scrollable only ever sits under the LAST
+   * assistant message, so sending hands it to the new placeholder and the old
+   * reply snaps back to its true height in the same commit. After a long reply
+   * that costs nothing — it had outgrown the reserve and was really that tall,
+   * so the new bubble still lands far below the fold and native smooth scrolling
+   * has a viewport of runway. After a SHORT one almost all of that height was
+   * the reserve, so it evaporates, and the bubble is inserted ~200px down with
+   * nowhere left to travel. Native smooth scrolling is distance-aware, so it
+   * finishes in a snap. That is the "no animation" case, and the animation was
+   * never the thing that differed.
+   *
+   * So we animate the distance the geometry no longer provides: the turn keeps
+   * its real position and is only DRAWN low, by however much blank space is
+   * showing beneath it, then eased home. Nothing is propped open and no layout
+   * is held, which is what makes a mid-flight scroll survivable — the offset is
+   * pure paint, so surrendering it costs one short settle and never a reflow.
+   *
+   * Transform and scroll ride ONE timeline rather than running back to back:
+   * split into "glide, then scroll" the bubble decelerates into the handover and
+   * re-accelerates out of it, which reads as a hitch precisely when both stages
+   * are long. Weighting them by distance keeps on-screen velocity continuous, so
+   * the turn covers the empty space and the thread's own travel as one ramp.
+   */
+  const runTurnEntrance = useCallback((
+    container: HTMLDivElement,
+    elements: HTMLElement[],
+    anchorEl: HTMLElement,
+    offset: number,
+  ) => {
+    stopTurnEntrance();
+    const startScrollTop = container.scrollTop;
+    // Re-derive the destination from LIVE geometry instead of trusting a value
+    // captured at send time.
+    //
+    // A scroll animation advances on wall-clock, so a long frame — a heavy
+    // Recents list re-rendering is the one that does it here — can take progress
+    // from a fraction straight past 1. The frame that lands after the stall then
+    // applies the animation's END state in one step. If that end state is a
+    // scrollTop computed before the reply existed, it is stale by exactly the
+    // layout the reply added, and applying it drags the thread visibly DOWN.
+    // Measured at 144px = TARGET_VISUAL_OFFSET + MESSAGE_GAP + THREAD_BOTTOM_PADDING,
+    // the constant in the reserve this target is derived from, on every occurrence.
+    //
+    // Recomputing per frame means a dropped frame costs smoothness, never
+    // correctness: however late the frame arrives, it targets where the anchor
+    // is NOW. Clamping to the live max matters for the same reason — the reserve
+    // is still settling while the first tokens arrive.
+    const liveTarget = () => Math.max(0, Math.min(
+      anchorEl.offsetTop - TARGET_VISUAL_OFFSET,
+      container.scrollHeight - container.clientHeight,
+    ));
+    const total = offset + Math.max(0, liveTarget() - startScrollTop);
+    // Distance-matched to the browser's own smooth-scroll pacing, so a turn that
+    // needs no glide still feels like the scroll it replaces.
+    const duration = Math.min(520, Math.max(240, 240 + total * 0.28));
+
+    for (const el of elements) el.style.transform = `translateY(${offset}px)`;
+
+    let currentOffset = offset;
+    let cancelled = false;
+    // The animation writes scrollTop, which fires `scroll` — so we listen for
+    // the INPUT instead. A wheel tick or a drag means the user has taken over.
+    const interrupt = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (turnEntranceRafRef.current !== null) {
+        cancelAnimationFrame(turnEntranceRafRef.current);
+        turnEntranceRafRef.current = null;
+      }
+      // Dropping the offset outright would teleport the turn up by whatever is
+      // left of it. Hand it back over a short settle instead, so an interrupt
+      // during a big glide resolves rather than cuts.
+      const handoverFrom = currentOffset;
+      const handoverStart = performance.now();
+      const HANDOVER_MS = 120;
+      const settle = (now: number) => {
+        const t = Math.min(1, (now - handoverStart) / HANDOVER_MS);
+        const value = handoverFrom * (1 - sampleEmphasisedEase(t));
+        for (const el of elements) {
+          el.style.transform = t >= 1 ? '' : `translateY(${value}px)`;
+        }
+        turnEntranceRafRef.current = t >= 1 ? null : requestAnimationFrame(settle);
+      };
+      turnEntranceRafRef.current = requestAnimationFrame(settle);
+      detach();
+    };
+    const detach = () => {
+      container.removeEventListener('wheel', interrupt);
+      container.removeEventListener('touchstart', interrupt);
+      container.removeEventListener('keydown', interrupt);
+    };
+    container.addEventListener('wheel', interrupt, { passive: true });
+    container.addEventListener('touchstart', interrupt, { passive: true });
+    container.addEventListener('keydown', interrupt);
+
+    const start = performance.now();
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = sampleEmphasisedEase(progress);
+      const travelled = total * eased;
+      // Spend the offset first, then the scroll: the bubble crosses the empty
+      // space and only pushes the thread once it has caught up to it.
+      currentOffset = Math.max(0, offset - travelled);
+      for (const el of elements) {
+        el.style.transform = progress >= 1 || currentOffset === 0
+          ? ''
+          : `translateY(${currentOffset}px)`;
+      }
+      // Fraction of the SCROLL leg completed, applied to the target as it stands
+      // this frame. `startScrollTop` is a floor, never a destination: the reserve
+      // shrinks as the reply fills it, so re-reading the target is what keeps a
+      // late frame from rewinding the thread.
+      const scrollLeg = Math.max(0, total - offset);
+      const scrollEased = scrollLeg === 0 ? 1 : Math.min(1, Math.max(0, travelled - offset) / scrollLeg);
+      const destination = liveTarget();
+      const next = destination <= startScrollTop
+        ? startScrollTop
+        : startScrollTop + (destination - startScrollTop) * scrollEased;
+      // Never rewind. This entrance only travels DOWN the document, so a frame
+      // that computes a SMALLER scrollTop than the one already on screen is wrong
+      // by definition — and that write is the teleport. The old line pinned
+      // scrollTop to `startScrollTop` for the whole glide phase, so any scroll
+      // layout had already applied (content inserted above the viewport, the
+      // reserve collapsing as the reply lands) was forced back on the next frame.
+      // A long frame makes it visible rather than causing it: the stall gives
+      // layout room to move first, then one write undoes it in a single step.
+      if (next > container.scrollTop) container.scrollTop = next;
+      if (progress < 1) {
+        turnEntranceRafRef.current = requestAnimationFrame(step);
+      } else {
+        turnEntranceRafRef.current = null;
+        detach();
+      }
+    };
+    turnEntranceCleanupRef.current = () => {
+      cancelled = true;
+      detach();
+      for (const el of elements) el.style.transform = '';
+    };
+    turnEntranceRafRef.current = requestAnimationFrame(step);
+  }, [stopTurnEntrance]);
 
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
   const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
 
-  // Main content rect for the voice focus surface — measured from the scroll container
-  const [mainContentRect, setMainContentRect] = useState({
-    top: 0,
-    left: 0,
-    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
-    height: typeof window !== 'undefined' ? window.innerHeight : 800,
-  });
+  /**
+   * Main content rect for the voice focus surface, measured from the scroll
+   * container.
+   *
+   * Null until the first measurement, and the surface is not rendered until it is.
+   * It used to initialise to a viewport-sized guess, which meant the orb mounted
+   * against the guess and then framer-motion *animated* `top`/`left` to the
+   * correction — the orb visibly slid in from the north-east (right by half the
+   * container's left inset, up by half the header/composer difference). Rendering
+   * nothing until there is a real measurement removes the wrong position rather
+   * than hiding it.
+   *
+   * The value deliberately survives the orb closing: `AnimatePresence` replays the
+   * last rendered surface on the way out, so clearing it here would be clearing a
+   * rect the exit is still using. A reopen therefore renders once against the
+   * previous session's rect before the layout effect below corrects it, which is
+   * the second half of the same slide — `VoiceFocusSurface` suppresses the
+   * transition for that first frame.
+   */
+  const [mainContentRect, setMainContentRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: this runs before the browser paints, so the
+  // first frame the orb appears in already has the measured rect. With useEffect
+  // the surface could paint once against a stale rect from a previous session.
+  useLayoutEffect(() => {
     if (!showVoiceOrb) return;
     const measure = () => {
       const container = chatScrollRef.current;
@@ -727,7 +965,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
       });
     };
     sync();
-    const ro = new ResizeObserver(sync);
+    // The composer is a SIBLING of this scroller, not a child, so every time it
+    // grows or shrinks — a line wraps, backspace unwraps one, the fullscreen
+    // toggle fires — this container's clientHeight changes by the same amount
+    // and the reserve has to move with it. The two cancel exactly: the viewport
+    // gains N px at the bottom, the spacer under the last response gains N px,
+    // scrollHeight and maxScrollTop both hold, nothing appears to move.
+    //
+    // They only cancel IF THEY LAND IN THE SAME FRAME. A bare setState from a
+    // ResizeObserver is batched and can paint after the resize, so for one frame
+    // the viewport is taller and the spacer is not: scrollHeight dips, the
+    // browser clamps scrollTop, and the whole thread above the composer jerks
+    // and settles back. Same failure the user-bubble collapse hits below, same
+    // cure — see the flushSync at the end of handleUserBubbleToggle.
+    const ro = new ResizeObserver(() => flushSync(sync));
     ro.observe(c);
     return () => ro.disconnect();
   }, [hasStarted, editingUserId]);
@@ -746,7 +997,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (streamingClearRafRef.current !== null) {
       cancelAnimationFrame(streamingClearRafRef.current);
     }
-  }, []);
+    stopTurnEntrance();
+  }, [stopTurnEntrance]);
 
   // ── Scroll-to-top animation on each new user turn ──────────────────────────
   // Gemini reserves the response area first, then lets the browser smoothly
@@ -761,6 +1013,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const lastUser = userMsgs[userMsgs.length - 1];
     if (!lastUser || lastUser.id === lastScrolledUserId.current) return;
     lastScrolledUserId.current = lastUser.id;
+    // A send landing mid-glide retargets everything; drop the previous turn's
+    // offset now so it can't outlive the geometry it was measured against.
+    stopTurnEntrance();
 
     requestAnimationFrame(() => {
       const msgEl = messageRefs.current[lastUser.id];
@@ -796,15 +1051,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
        if (skipNextNativeScrollRef.current) {
          skipNextNativeScrollRef.current = false;
          c.scrollTop = 0;
-       } else {
+         return;
+       }
+
+       const startTop = c.scrollTop;
+       // Blank viewport below the incoming bubble. A long previous reply is
+       // genuinely tall enough to push it past the bottom edge (offset <= 0),
+       // leaving nothing to glide through — that turn keeps native smooth
+       // scrolling, which already covers the full distance and is what the
+       // comment above is about. Only a turn that would otherwise barely move
+       // gets the glide, and it gets exactly the distance it was short by.
+       const entranceOffset = Math.round(c.clientHeight - (msgEl.offsetTop - startTop));
+
+       if (entranceOffset <= 0) {
          msgEl.scrollIntoView({
            behavior: 'smooth',
            block: 'start',
            inline: 'nearest',
          });
+         return;
        }
+
+       // The placeholder trails the bubble, so it has to carry the same offset —
+       // left behind, the bubble would slide down across it.
+       const enteringIndex = messages.findIndex((m) => m.id === lastUser.id);
+       const entering = messages
+         .slice(enteringIndex)
+         .map((m) => messageRefs.current[m.id])
+         .filter((el): el is HTMLDivElement => el !== null);
+
+       runTurnEntrance(c, entering, msgEl, entranceOffset);
      });
-  }, [messages]);
+  }, [messages, runTurnEntrance, stopTurnEntrance]);
 
   // ── Recalculate reserved height when the viewport OR footer height changes.
   //    Intentionally NOT keyed on `messages` — the scroll-to-top RAF is the
@@ -1207,6 +1485,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   isGenerating: false,
                   isError: !!opts?.error,
                   wasInterrupted: !!opts?.aborted,
+                  wasStopped: !!opts?.aborted,
                   thinkingTime: undefined,
                 }
               : m
@@ -1237,9 +1516,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, []);
 
   const handleStopLive = useCallback(() => {
-    // Falling two-note earcon = "done listening". Only on explicit user stop —
-    // error closes stay silent.
-    playLiveChime('end');
+    // Falling fifth into an A open fifth = "done listening". Only on explicit
+    // user stop — error closes stay silent.
+    playLiveSessionCue('end');
     liveSessionRef.current?.stop();
     liveSessionRef.current = null;
     setIsLive(false);
@@ -1264,7 +1543,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
    */
   const handleStopGenerating = useCallback(() => {
     generationAbortRef.current?.abort();
-  }, []);
+    if (isLiveRef.current || liveSessionRef.current) {
+      handleStopLive();
+    }
+    setIsGenerating(false);
+  }, [handleStopLive]);
 
   /**
    * Opens a live session against the current voice/language selection.
@@ -1301,11 +1584,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
       voiceName: voiceOptions.voiceName,
       languageCode: voiceOptions.languageCode,
       history,
-      // Rising two-note earcon the moment the socket ACKs setup + mic is hot —
-      // i.e. the exact instant it's actually listening.
+      // Rising fifth into a C#-minor fragment, the moment the socket ACKs setup
+      // + mic is hot — i.e. the exact instant it's actually listening. This is
+      // the "connected" event the cue was measured against, not the click.
       onOpen: () => {
         if (!isCurrentSession()) return;
-        playLiveChime('start');
+        if (!isReconnectingRef.current) {
+          playLiveSessionCue('connect');
+        }
+        isReconnectingRef.current = false;
         // Socket ACKed and mic is hot: the orb reveals from here.
         setIsLiveConnected(true);
         setLiveAnalysers({
@@ -1402,6 +1689,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (isLive || isGenerating) return;
     if (!isAuthenticated) { onAuthRequired?.(); return; }
 
+    // Temporary chats have no live voice. Silent rather than an inline error,
+    // because there is no control to reach this from — `liveAvailable` is false
+    // here, so the composer renders no live button — and an error message would
+    // be answering a question the user was never given a way to ask.
+    if (isIncognito) return;
+
+    // Gate on the user having added the live model from Settings → Models.
+    if (!hasLiveModel) {
+      const uId = newId();
+      const aId = newId();
+      setMessages((prev) => [
+        ...prev,
+        { id: uId, role: 'user', content: 'Start live voice chat', isNew: true },
+        {
+          id: aId,
+          role: 'assistant',
+          content:
+            'Live voice mode requires the **Gemini 3.1 Flash Live** model. ' +
+            'Add it from **Settings → Models → Google → Gemini 3.1 Flash Live** to enable live voice chat.',
+          isError: true,
+        },
+      ]);
+      return;
+    }
+
     const apiKey: string | undefined = apiKeys?.gemini?.[0];
     if (!apiKey) {
       // Surface the same friendly inline error style as typed chat.
@@ -1422,9 +1734,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       return;
     }
 
-    // Still inside the click gesture: create/resume the chime AudioContext and
-    // kick off both fetches so the start cue is decoded before onOpen fires.
-    primeLiveChimes();
+    // Still inside the click gesture: create/resume the cue AudioContext, so the
+    // connect cue is not swallowed as autoplay when onOpen fires later.
+    isReconnectingRef.current = false;
+    primeLiveSessionCues();
 
     setIsLive(true);
     openLiveSession(apiKey);
@@ -1433,6 +1746,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     isGenerating,
     isAuthenticated,
     onAuthRequired,
+    isIncognito,
+    hasLiveModel,
     apiKeys,
     openLiveSession,
   ]);
@@ -1463,6 +1778,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const apiKey: string | undefined = apiKeys?.gemini?.[0];
     if (!apiKey) return;
 
+    isReconnectingRef.current = true;
     liveSessionRef.current.stop();
     liveSessionRef.current = null;
     setIsAssistantSpeaking(false);
@@ -1473,11 +1789,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // A change while live reconnects; a change while idle just waits for the next
   // session, which will read the stores when it opens. Picking a different live
   // model from the composer lands here too — same setup frame, same reconnect.
+  //
+  // Debounced: this is on the voice-settings store, so every dot click in the
+  // settings panel lands here, and an immediate reconnect would tear the socket
+  // down and re-run getUserMedia for *every single press* — the panel visibly
+  // fought back: the orb behind it reset and the new choice was applied over a
+  // fresh connect, so it looked broken and felt laggy. Collecting a burst of
+  // presses into one restart makes the panel read instantly and reconnect once,
+  // with the user's final choice. 400ms is a policy value (no upstream to copy —
+  // the shipped app reconnects on an explicit commit, not a debounce): shorter
+  // than an arrow-press cadence, long enough to swallow the burst.
+  //
+  // `restartLiveSession` is deliberately reached through a ref: it changes
+  // identity whenever `apiKeys` or the turn callbacks do, and as a dependency it
+  // would cancel and re-arm the timer on every such change for no reason.
+  const restartLiveSessionRef = useRef(restartLiveSession);
+  restartLiveSessionRef.current = restartLiveSession;
   useEffect(() => {
     if (!isLive || !liveSessionRef.current) return;
     if (`${liveModelId}|${voiceSettingsSignature(liveModelId)}` === liveSettingsSignatureRef.current) return;
-    restartLiveSession();
-  }, [isLive, liveModelId, restartLiveSession, voiceSettings]);
+    const id = window.setTimeout(() => restartLiveSessionRef.current(), LIVE_RESTART_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [isLive, liveModelId, voiceSettings]);
 
   // Tear down the socket + mic if the component unmounts mid-session.
   useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
@@ -1624,37 +1957,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  // EMPTY STATE — render the *actual* HeroSection + BottomPanel so the layout
-  // is literally the same component tree as Develop mode (single source of
-  // truth for prompt-box position). Only `onPromptSubmit` differs: it starts
-  // an in-studio chat instead of navigating to the Workbench.
-  if (!hasStarted) {
-    return (
-      <LayoutGroup id="willow-chat-layout">
-        <div className="flex flex-col min-h-full">
-          <HeroSection
-            initialMode="chat"
-            onPromptSubmit={(prompt, _mode, attachments) => handleSend(prompt, undefined, attachments)}
-            onStartLive={handleStartLive}
-            modelConfig={modelConfig}
-            selectedModelId={selectedModelId}
-            setSelectedModelId={setSelectedModelId}
-            onAuthRequired={onAuthRequired}
-            isAuthenticated={isAuthenticated}
-            isIncognito={isIncognito}
-            composerLayoutId={CHAT_COMPOSER_LAYOUT_ID}
-          />
-          {isAuthenticated && (
-            <div className="pb-20">
-              <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
-            </div>
-          )}
-        </div>
-      </LayoutGroup>
-    );
-  }
-
-  // ACTIVE STATE — ChatGPT-style thread with bottom-docked input
+  // ONE tree for both states, and in particular one composer node.
+  //
+  // This used to early-return an entirely separate zero-state tree whose
+  // `HeroSection` rendered its own `<InputBar>`, bridged to the docked one by a
+  // shared `layoutId`. That meant two composers: on send React tore one down and
+  // built the other, and Framer papered over the seam by inverse-scaling a
+  // wrapper whose children are not themselves layout nodes — so for the length
+  // of the morph the text, the model pill and the icons visibly squashed.
+  //
+  // Gemini has exactly one `fieldset.input-area-container`, permanently in the
+  // bottom bar; its zero state only adds `position:absolute; bottom:50vh;
+  // transform:translateY(50%)`. Nothing is ever destroyed. Doing the same here
+  // means the composer's measured box differs between the two states in
+  // *position only*, so the projection degrades to a pure translate and there is
+  // no scale left to distort anything.
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
   const latestConversationMessageId = [...messages]
     .reverse()
@@ -1697,6 +2014,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
         style={{ scrollbarGutter: 'stable' }}
         {...voiceFocusSurfaceAttributes}
       >
+        {/* Zero state lives in the same scroller as the thread, so the two
+            states share one scroll container instead of the app shell's for one
+            and this for the other. The greeting scrolls with the recent-chats
+            list; only the composer is pinned, which is Gemini's behaviour — its
+            input never scrolls.
+
+            `h-full` gives the hero exactly one chat-area's worth of height, so
+            recent chats begin right below the fold as before. It resolves
+            because this scroller has a definite height (`flex-1` + `min-h-0`). */}
+        {!hasStarted && (
+          <>
+            <div className="h-full">
+              <HeroSection
+                initialMode="chat"
+                pinnedComposer
+                onPromptSubmit={(prompt, _mode, attachments) => handleSend(prompt, undefined, attachments)}
+                onStartLive={handleStartLive}
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                onAuthRequired={onAuthRequired}
+                isAuthenticated={isAuthenticated}
+                isIncognito={isIncognito}
+              />
+            </div>
+            {isAuthenticated && (
+              // `empty:pb-0` because BottomPanel renders nothing on a solid
+              // background (MediaShowcase: `background === 'solid' && !forceVisible`
+              // returns null). The old tree's `min-h-full` swallowed the stray
+              // padding; the hero is now exactly one column tall — it has to be,
+              // since the greeting anchors to 50% of it — so an empty wrapper
+              // would otherwise leave the zero state scrollable by 80px of nothing.
+              <div className="pb-20 empty:pb-0">
+                <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
+              </div>
+            )}
+          </>
+        )}
+        {hasStarted && (
         <motion.div
           initial={shouldAnimateFirstPromptEntrance ? { y: 200 } : false}
           animate={{ y: 0 }}
@@ -2004,28 +2360,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
             );
           })}
         </motion.div>
+        )}
       </div>
 
       {/* Bottom-docked input (footer). Position relative makes it a sibling in the
           flex column, ensuring the scroller above it terminates correctly instead
-          of spanning under it. */}
+          of spanning under it.
+
+          It drops to `static` in the zero state on purpose: the composer inside
+          is lifted out of flow and centred on the *chat area*, so it must resolve
+          its containing block against the column above, not against this 49px
+          strip. Nothing else here needs the positioning context — the orb and the
+          settings trigger are `fixed`, and the dialog is a top-layer `<dialog>`. */}
       <div
         ref={footerRef}
-        className="relative z-30 flex shrink-0 flex-col items-center"
+        className={`${hasStarted ? 'relative' : ''} z-30 flex shrink-0 flex-col items-center`}
       >
         {/* Gemini's native 28px fading gradient overlay that covers the bottom edge of the scroller */}
-        <div
-          className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
-          style={{
-            background: 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
-          }}
-        />
-        {/* Voice orb — Labs experiment, live sessions only. The focus surface is
+        {hasStarted && (
+          <div
+            className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
+            style={{
+              background: 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
+            }}
+          />
+        )}
+        {/* Voice orb — live sessions only. The focus surface is
             fixed-positioned and owns its own placement, so it sits outside the
             footer's flow. AnimatePresence lets the scale-out exit run before the
             node unmounts. */}
         <AnimatePresence>
-          {showVoiceOrb && (
+          {showVoiceOrb && mainContentRect && (
             <VoiceFocusSurface
               connected={isLiveConnected}
               isUserSpeaking={isUserSpeaking}
@@ -2037,9 +2402,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           )}
         </AnimatePresence>
-        {/* Voice settings — the trigger rides the same experiment and the same
-            live-session gate as the orb, and the panel draws the orb itself, so
-            neither exists outside a live session. */}
+        {/* Voice settings — the trigger rides the same live-session gate as
+            the orb, and the panel draws the orb itself, so neither exists
+            outside a live session. */}
         {showVoiceOrb && voiceProvider && voiceSelection && (
           <>
             <VoiceSettingsButton
@@ -2054,33 +2419,95 @@ export const ChatView: React.FC<ChatViewProps> = ({
               language={voiceSelection.language}
               onVoiceChange={(voiceId) => setVoice(voiceProvider, voiceId)}
               onLanguageChange={(code) => setLanguage(voiceProvider, code)}
-              orbProps={{
-                connected: isLiveConnected,
-                isUserSpeaking,
-                isAssistantSpeaking,
-                analyser: liveAnalysers.mic,
-                assistantAnalyser: liveAnalysers.output,
-                workspaceColor,
-              }}
+              orbProps={{ workspaceColor }}
             />
           </>
         )}
+        {/* The lift. This wrapper owns POSITION ONLY and never a transform:
+            Framer's projection writes `transform` on the node below, so putting
+            our own translate there would have the two fight and the animation
+            jump on frame one.
+
+            Zero state centres the composer on the chat area with `inset-0` +
+            `items-center` rather than Gemini's `bottom:50vh; translateY(50%)`.
+            The geometry is identical — Gemini's fieldset centre measures exactly
+            viewport/2 — but flex centring needs no transform on an ancestor of a
+            projection node, and it stays centred as the composer grows instead
+            of depending on a frozen half-height. `pointer-events-none` lets the
+            recent-chats list underneath stay clickable through the gap. */}
         <div
-          className="w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]"
+          className={hasStarted
+            ? 'w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]'
+            : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
         >
           <motion.div
-            layoutId={CHAT_COMPOSER_LAYOUT_ID}
+            layout
+            // One node now, so this is `layout` rather than a `layoutId` pair.
+            // The old shared-element morph existed only to fake continuity
+            // between two composers; with a single persistent node the two
+            // measured boxes differ in position and nothing else, so the
+            // projection resolves to a pure translate — no scale, so the text,
+            // the model pill and the icons no longer squash mid-flight.
+            //
+            // `layoutDependency` is still required, and for the original reason:
+            // `layout` turns the feature on (`motion/features/definitions`:
+            // `layout: ["layout", "layoutId"]`) and with it left undefined
+            // MeasureLayout hits the `layoutDependency === undefined` branch and
+            // snapshots the box on EVERY commit, animating any delta as an
+            // inverse scale eased back to identity. That is what made
+            // send-from-fullscreen squash: `handleSubmit` calls
+            // `setIsComposerMaximized(false)`, so the shell goes from
+            // `calc(100dvh - 114px)` to ~64px inside one React commit and Framer
+            // animates the whole drop. Same for adding an attachment.
+            //
+            // Binding it to `hasStarted` means the box is re-measured for the
+            // one transition that should animate — centre to dock — and for
+            // nothing else.
+            layoutDependency={hasStarted}
+            // The slide is ONE-DIRECTIONAL, because Gemini's is. Recorded at
+            // 55fps off the live app across four transitions:
+            //
+            //   zero -> docked (open a chat, or send): the fieldset animates
+            //     `bottom: 50vh -> 0` with `translateY(50%) -> translateY(-50%)`
+            //     over 250ms on cubic-bezier(0.2, 0, 0, 1). 14 sampled frames
+            //     spanning 253ms, y travelling 380.8 -> 712.6.
+            //
+            //   docked -> zero (New chat): the fieldset does NOT move. It reads
+            //     [582, 380.8, 660, 64] on the first frame of the segment and
+            //     on every frame after — position, bottom and transform all
+            //     constant. Only the greeting animates, and it does that with
+            //     its own `willow-lm-fade-in-up` (which already matches the
+            //     captured `lm-fade-in-up`: translateY(40px)->0, opacity 0->1,
+            //     300ms, 250ms delay, same curve).
+            //
+            // So the duration is read off the direction we are travelling.
+            // `hasStarted` is already false on the render that commits the
+            // move back to centre, which makes it snap — exactly Gemini.
             transition={{
-              layout: {
-                duration: 0.25,
-                ease: [0.2, 0, 0, 1] as const,
-              },
+              layout: hasStarted
+                ? { duration: 0.25, ease: [0.2, 0, 0, 1] as const }
+                : { duration: 0 },
             }}
-            className="w-full max-w-[660px]"
+            className="relative w-full max-w-[660px] pointer-events-auto"
           >
+            {/* The greeting hangs off this box rather than off the page, which
+                is what makes it rise as the composer wraps — Gemini's
+                `.top-section-container` is `justify-content: flex-end` with a
+                height Angular shrinks as the composer grows, and its bottom
+                edge measures 380.8 against a composer top of 381. Anchoring to
+                the box instead gets the same result with no measurement.
+
+                It is `absolute`, so it stays out of the measured box and the
+                centre-to-dock projection remains a pure translate. */}
+            {!hasStarted && (
+              <PinnedChatGreeting isIncognito={isIncognito} isAuthenticated={isAuthenticated} />
+            )}
             <InputBar
               chatVariant
-              showDisclaimer
+              // Zero state has no disclaimer, matching Gemini, which keeps its
+              // own in the bottom bar and out of the centred composer. It costs
+              // no layout either way — the line is `absolute top-full`.
+              showDisclaimer={hasStarted}
               currentMode="chat"
               onModeChange={() => {}}
               onSubmit={(prompt, _mode, attachments) => {
@@ -2101,6 +2528,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               setSelectedModelId={setSelectedModelId}
               onAuthRequired={onAuthRequired}
               isAuthenticated={isAuthenticated}
+              liveAvailable={liveAvailable}
             />
           </motion.div>
         </div>

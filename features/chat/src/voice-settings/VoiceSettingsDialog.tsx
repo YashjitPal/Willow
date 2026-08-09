@@ -30,7 +30,9 @@ import {
   ChevronRightIcon,
   CloseIcon,
   GlobeIcon,
+  SpeakerIcon,
 } from './voice-settings-icons';
+import { useVoicePreview } from './useVoicePreview';
 import type { LanguageOption, VoiceOption, VoiceProvider } from './voice-providers';
 import {
   ARROW_FADE_MS,
@@ -55,8 +57,18 @@ export type VoiceSettingsDialogProps = {
   language: LanguageOption;
   onVoiceChange: (voiceId: string) => void;
   onLanguageChange: (code: string) => void;
-  /** Passed straight through to the orb, so it lives in the panel too. */
-  orbProps: Omit<VoiceOrbProps, 'renderScale' | 'className'>;
+  /**
+   * Appearance-only props for the panel's orb.
+   *
+   * Deliberately narrow. Upstream's picker orb is inert by construction — it
+   * hardcodes `micLevel: 0, stateListen: 0, stateThink: 0, stateSpeak: 1,
+   * isLaunching: false` and never touches an analyser — so the only thing a caller
+   * has any business passing is what the orb *looks* like. Handing it the session's
+   * `connected` and analysers made the panel replay the connect animation on open
+   * and pulse along with the user's voice, and nothing about the type stopped it.
+   * Now the live fields are not in scope to pass.
+   */
+  orbProps: Pick<VoiceOrbProps, 'workspaceColor' | 'palette' | 'theme'>;
 };
 
 export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
@@ -73,6 +85,13 @@ export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
   const reduceMotion = useReducedMotion();
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  const { isPlaying: isPlayingPreview, playPreview } = useVoicePreview({
+    activeVoiceId: voice.id,
+    providerId: provider.id,
+    providerLabel: provider.label,
+    open,
+  });
+
   const voices = provider.voices;
   const voiceIndex = Math.max(
     voices.findIndex((v) => v.id === voice.id),
@@ -85,20 +104,53 @@ export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
    * Upstream draws one dot per voice because it has nine of them and nine fit the
    * measured `w-60` block. Gemini has thirty, which does not fit at the measured
    * size and gap — see DOT_WINDOW. So the row keeps the captured geometry and
-   * slides a window over the roster instead, clamped at both ends so it never
-   * renders fewer than the measured count once the roster is long enough. A
-   * provider with nine or fewer voices takes the whole list and this is a no-op.
+   * slides a window over the roster instead. A provider with nine or fewer voices
+   * takes the whole list and none of this applies.
+   *
+   * The window is edge-triggered: it holds still and the lit dot walks across it,
+   * and it only scrolls by one when the selection steps past an edge. This
+   * previously recentred the window on the selection instead, which made the
+   * indicator look dead — with thirty voices the lit dot pinned to the middle
+   * position and stayed there for the twenty-one presses between index 4 and index
+   * 25, while the roster slid underneath it. Pressing "next" moved everything
+   * except the one thing the user was watching.
    */
-  const windowedVoices = useMemo(() => {
-    const size = Math.min(DOT_WINDOW, voices.length);
-    const start = Math.min(
+  const size = Math.min(DOT_WINDOW, voices.length);
+  const maxWindowStart = Math.max(voices.length - size, 0);
+
+  /**
+   * Where the window currently sits. A ref, not state: it is a cache of a past
+   * render, not an input, and reading it during render is what keeps the dots and
+   * the selection in the same commit — via state they would paint one frame apart.
+   *
+   * Recomputing it during render is safe under StrictMode's double-invoke because
+   * the update is idempotent: the same `voiceIndex` against an already-adjusted
+   * start yields that same start.
+   */
+  const windowStartRef = useRef<number | null>(null);
+  if (windowStartRef.current === null) {
+    // Mount only. A stored voice from the middle of the roster should open with
+    // its neighbours visible on both sides rather than pinned to an edge; the
+    // edge-triggered rule below takes over from the first press.
+    windowStartRef.current = Math.min(
       Math.max(voiceIndex - Math.floor(size / 2), 0),
-      Math.max(voices.length - size, 0),
+      maxWindowStart,
     );
-    return voices
-      .slice(start, start + size)
-      .map((option, offset) => ({ option, index: start + offset }));
-  }, [voiceIndex, voices]);
+  }
+  // Clamped first so a provider swap to a shorter roster cannot leave the window
+  // hanging off the end.
+  let windowStart = Math.min(windowStartRef.current, maxWindowStart);
+  if (voiceIndex < windowStart) windowStart = voiceIndex;
+  else if (voiceIndex > windowStart + size - 1) windowStart = voiceIndex - size + 1;
+  windowStartRef.current = windowStart;
+
+  const windowedVoices = useMemo(
+    () =>
+      voices
+        .slice(windowStart, windowStart + size)
+        .map((option, offset) => ({ option, index: windowStart + offset })),
+    [size, voices, windowStart],
+  );
 
   /**
    * The arrows' 175ms opacity dip.
@@ -257,7 +309,16 @@ export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
                           className="flex h-36 min-h-[144px] w-36 min-w-[144px] items-center justify-center"
                           style={{ width: ORB_SLOT_SIZE, height: ORB_SLOT_SIZE }}
                         >
-                          <VoiceOrb {...orbProps} animatePresence={false} />
+                          {/* `connected` is hardcoded true and no analyser is
+                              passed: this orb is a picture of the voice, not a
+                              view of the session. It must not replay the connect
+                              dot when the panel opens, and it must not react to
+                              anyone speaking. */}
+                          <VoiceOrb
+                            {...orbProps}
+                            connected
+                            animatePresence={false}
+                          />
                         </div>
                       </div>
 
@@ -273,10 +334,15 @@ export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
                                   at its settled values, which is why the capture
                                   reads `opacity: 1; transform: none`. A plain div
                                   computes to exactly that. */}
-                              <div className="relative flex w-48 select-none flex-col items-center justify-center">
+                              <button
+                                type="button"
+                                className="group relative flex w-48 cursor-pointer select-none flex-col items-center justify-center rounded-lg p-1 transition-colors hover:bg-white/5 focus:outline-none"
+                                onClick={() => playPreview(voice.id)}
+                                title="Click to play voice preview"
+                              >
                                 <p className="text-xl font-semibold">{voice.name}</p>
                                 <p className="text-sm text-[#cdcdcd]">{voice.description}</p>
-                              </div>
+                              </button>
                             </div>
 
                             <div

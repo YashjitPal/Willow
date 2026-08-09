@@ -171,6 +171,38 @@ export const VoiceFocusSurface: React.FC<VoiceFocusSurfaceProps> = ({
   // What the shader shrinks to. The canvas stays at the focus size.
   const renderScale = visibleOrbSize / focusOrbSize;
 
+  /**
+   * Suppress the position transition until the orb has been placed once.
+   *
+   * `mainContentRect` is measured in a layout effect, so on a reopen the surface
+   * renders once against the rect the *previous* session left behind and is
+   * corrected before paint. That correction is a placement, not a state change the
+   * user asked for, and animating it sent the orb sliding in from the north-east:
+   * it moves right by half the container's left inset and up by half the
+   * header/composer difference.
+   *
+   * Only the first frame is skipped. Every later change — pressing the orb,
+   * resizing the window, the composer growing — still animates, because by then
+   * the previous position was one the user actually saw.
+   *
+   * No `hasPlaced` ref guarding this. There was one, and it was a bug: the guard
+   * was set before the frame was scheduled, so StrictMode's cancel-and-rerun left
+   * the second invoke returning early and the frame never rescheduled. `hasPlaced`
+   * then stayed false for the life of the orb, which pinned the wrapper at
+   * `duration: 0` — so collapsing snapped `top`/`left` straight to the composer
+   * strip while the shader's scale sprang smoothly, and the two halves of the
+   * transition came apart. Scheduling unconditionally is both simpler and correct
+   * under the double-invoke: the cleanup cancels, the rerun schedules again.
+   */
+  const [hasPlaced, setHasPlaced] = useState(false);
+  useEffect(() => {
+    // A frame later, so the browser paints the initial position before the
+    // transition is armed. Setting it synchronously would let React batch the
+    // two together and animate from the stale rect after all.
+    const id = requestAnimationFrame(() => setHasPlaced(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   // The extracted class is `z-49`. Upstream is on Tailwind v4, where bare
   // numerics resolve; Willow's v3 CDN build has no `z-49` in its scale and would
   // emit no z-index at all, dropping the surface behind the app's `z-50`
@@ -182,7 +214,7 @@ export const VoiceFocusSurface: React.FC<VoiceFocusSurfaceProps> = ({
         animate={{ top: orbRect.top, left: orbRect.left }}
         className="pointer-events-none fixed flex items-center justify-center will-change-[top,left]"
         initial={false}
-        transition={FOCUS_TRANSITION}
+        transition={hasPlaced ? FOCUS_TRANSITION : { duration: 0 }}
         style={{ width: focusOrbSize, height: focusOrbSize }}
       >
         <motion.div

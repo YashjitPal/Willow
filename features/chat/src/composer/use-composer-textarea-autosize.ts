@@ -15,8 +15,14 @@
  *    the editor, which can make `scrollHeight` claim one more wrapped line than
  *    the final, scrollbar-free textarea actually needs.
  *  - `transition` is disabled for the whole measurement and restored only after
- *    a forced reflow (`void offsetHeight`), so the Tailwind padding class is the
- *    "from" frame and the collapsed -> multiline transition still plays.
+ *    a forced reflow (`void offsetHeight`), so the Tailwind padding class — not
+ *    the inline padding this effect writes — is the "from" frame. That only has
+ *    anything left to animate in the NON-chat solid composer. The chat variant
+ *    has no size transition at all, because Gemini's composer has none: every
+ *    element in its size chain computes to `transition-duration: 0s`, so its box
+ *    snaps on wrap, unwrap, send and paste. Disabling is still load-bearing
+ *    wherever a transition does exist — a live padding transition would make the
+ *    `scrollHeight` reads land mid-animation and report the wrong wrap point.
  *  - Everything is throttled into a single `requestAnimationFrame`, and the
  *    cleanup cancels a pending frame, so fast typing cannot stack measurements.
  *
@@ -157,7 +163,9 @@ export const useComposerTextareaAutosize = ({
             // Clean up inline styles so Tailwind classes take over smoothly
             textareaRef.current.style.paddingLeft = '';
             textareaRef.current.style.paddingRight = '';
-            // Re-enable transition (reflow first so the class padding is the "from" frame)
+            // Re-enable transition (reflow first so the class padding is the "from"
+            // frame). Effectively a no-op in the chat variant, which carries no
+            // size transition to restore — see the header.
             void textareaRef.current.offsetHeight;
             textareaRef.current.style.transition = '';
           } else {

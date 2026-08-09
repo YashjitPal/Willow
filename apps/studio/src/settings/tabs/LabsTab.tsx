@@ -78,14 +78,6 @@ export const LabsTab: React.FC = () => {
           </div>
         </div>
 
-         {/* Voice Orb */}
-         <div className="py-6 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Voice Orb</h3>
-            <p className="text-[14px] text-zinc-400">Show an animated orb during live voice conversations.</p>
-          </div>
-          <ExperimentToggle id="voiceOrb" enabled={experiments.voiceOrb} label="Voice Orb" />
-        </div>
       </div>
     </div>
   );

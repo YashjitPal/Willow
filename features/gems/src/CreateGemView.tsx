@@ -263,7 +263,7 @@ export const CreateGemView: React.FC = () => {
                 }}
               />
             </div>
-            <div style={{ height: '20px', fontSize: '12px', flexShrink: 0 }}></div>
+            <div style={{ height: '10px', fontSize: '12px', flexShrink: 0 }}></div>
 
             <div style={{ display: 'flex', alignItems: 'center', height: '40px', margin: '0px', width: '100%', flexShrink: 0 }}>
               <label style={{ display: 'block', margin: '8px 0px', fontSize: '13px', fontWeight: 400, fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif', color: 'rgb(227, 227, 227)', width: 'auto' }}>

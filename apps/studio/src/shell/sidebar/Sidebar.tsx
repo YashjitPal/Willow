@@ -259,7 +259,14 @@ const SparkSidebarItem: React.FC<{
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
+      /*
+       * `title` routes the collapsed label through <GlobalTooltips>, i.e.
+       * Gemini's tooltip. `right` is measured: Gemini's bottom-left rail button
+       * put its pane at "top: 777.6px; left: 278px; transform: translateX(8px)"
+       * — left == anchor.right, so a left-edge icon button places right.
+       */
       title={isCollapsed ? label : undefined}
+      data-tooltip-position="right"
       className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
         active ? 'bg-[#171717] text-white font-medium' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
       }`}
@@ -276,14 +283,6 @@ const SparkSidebarItem: React.FC<{
       </div>
       {!isCollapsed && (
         <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'}`}>
-          {label}
-        </span>
-      )}
-      {isCollapsed && (
-        <span
-          role="tooltip"
-          className="pointer-events-none absolute left-[46px] z-[100] ml-2 whitespace-nowrap rounded-lg border border-white/5 bg-[#18181b] px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-2xl transition-opacity duration-150 group-hover/spark-item:opacity-100 group-focus-visible/spark-item:opacity-100"
-        >
           {label}
         </span>
       )}
@@ -681,6 +680,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={onToggleCollapse}
             aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            /*
+             * Collapsed, this is a row of the 52px rail, so it places `right`
+             * like every other rail row (measured on Gemini: surface x=284
+             * against a trigger ending at 276, gap 8, vertically centred).
+             * Inferred for this particular button rather than measured — Gemini
+             * shows no tooltip on its expanded sidebar at all, so the collapsed
+             * top button could not be sampled directly. Left `below` when
+             * expanded, where that is what was measured.
+             */
+            data-tooltip-position={isCollapsed ? 'right' : 'below'}
             className="w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 active:scale-95 cursor-pointer relative group/logo"
           >
             <div className={`transition-all duration-200 flex items-center justify-center
@@ -749,7 +758,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           compresses into the compact switch instead of swapping in place. */}
       <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5">
         <div
-          className="relative flex h-8 w-full items-center rounded-full bg-[#171717] p-[2px]"
+          className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${isCollapsed ? 'bg-transparent' : 'bg-[#171717]'}`}
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
           {/* Sliding active pill indicator - matches sidebar surface color (#1f1f1f) */}
@@ -816,6 +825,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-label={studioExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
             aria-pressed={studioExperience === 'spark'}
             title={studioExperience === 'chat' ? 'Switch to Spark' : 'Switch to Chat'}
+            /* Only reachable collapsed (opacity 0 + pointer-events-none when
+             * expanded), so it is always a rail row — placed `right` like the
+             * rest of the rail. See the expand button above for the evidence. */
+            data-tooltip-position="right"
             tabIndex={isCollapsed ? 0 : -1}
             className={`absolute left-1 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${isCollapsed ? '' : 'pointer-events-none'}`}
             style={{
@@ -940,6 +953,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="space-y-0">
             <SidebarItem 
+              flushRight
               icon={Terminal} 
               label="Code" 
               isCollapsed={isCollapsed} 
@@ -950,6 +964,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             />
             <SidebarItem 
+              flushRight
               icon={MediaIcon} 
               label="Media" 
               isCollapsed={isCollapsed} 
@@ -960,6 +975,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             />
             <SidebarItem
+              flushRight
               icon={AgentIcon}
               label="Agents"
               isCollapsed={isCollapsed}
@@ -987,6 +1003,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <div className="min-h-0 overflow-hidden space-y-0">
                 <SidebarItem 
+                  flushRight
                   icon={LayoutGrid} 
                   label="All projects" 
                   isCollapsed={isCollapsed} 
@@ -994,6 +1011,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => onViewChange('projects')}
                 />
                 <SidebarItem 
+                  flushRight
                   icon={Star} 
                   label="Starred" 
                   isCollapsed={isCollapsed} 
@@ -1001,6 +1019,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => onViewChange('starred')} 
                 />
                 <SidebarItem 
+                  flushRight
                   icon={Users} 
                   label="Shared with me" 
                   isCollapsed={isCollapsed} 
@@ -1057,6 +1076,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           return (
                             <SidebarItem 
                               key={chat}
+                              flushRight
                               label={displayName}
                               customLabel={
                                 editingChatId === chat ? (
@@ -1159,14 +1179,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div
         className="relative mt-auto shrink-0"
         style={{
-          height: isCollapsed ? '100px' : '52px',
+          height: isCollapsed ? '100px' : '46px',
           transition: `height ${GEMINI_SIDEBAR_POSITION_MOTION}`,
         }}
       >
         <div
           className="absolute left-1.5 flex h-10 items-center"
           style={{
-            top: isCollapsed ? 'auto' : '6px',
+            top: isCollapsed ? 'auto' : '0px',
             bottom: isCollapsed ? '4px' : 'auto',
             right: isCollapsed ? '6px' : '48px',
             transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}`,
@@ -1241,11 +1261,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           type="button"
           aria-label="Settings"
           title="Settings"
+          /*
+           * Measured on Gemini's bottom-left rail button — the direct analogue,
+           * same corner, same 32px box at x=246. Its pane read
+           * "top: 777.6px; left: 278px; transform: translateX(8px)" against an
+           * anchor at x=246 y=777.6 w=32, i.e. left == anchor.right and
+           * top == anchor.top: right placement, not below.
+           */
+          data-tooltip-position="right"
           onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
           className={`absolute flex h-9 w-9 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
           style={{
             right: isCollapsed ? '8px' : '6px',
-            top: isCollapsed ? '4px' : '8px',
+            top: isCollapsed ? '4px' : '2px',
             transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}, background-color 150ms ease`,
           }}
         >

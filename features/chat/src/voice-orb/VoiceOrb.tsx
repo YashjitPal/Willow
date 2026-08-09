@@ -25,6 +25,7 @@ import watercolorUrl from '@willow/assets/voice-orb/watercolor.webp';
 
 import {
   ASSISTANT_BAND_CONFIG,
+  AUDIO_DATA_LENGTH,
   AUDIO_UPDATE_INTERVAL_MS,
   MAX_TIMESTEP_SECONDS,
   MIC_BAND_CONFIG,
@@ -42,6 +43,7 @@ import {
   bandMaxBin,
   type PaletteName,
 } from './horizon-constants';
+import { integrateAudio, readAssistantBands } from './audio-bands';
 import {
   WORKSPACE_PALETTE_INDEX,
   type WorkspaceColorName,
@@ -102,6 +104,9 @@ export interface VoiceOrbProps {
   className?: string;
 }
 
+/** What the assistant reader yields with no analyser attached. */
+const SILENT_BANDS: readonly number[] = new Array<number>(AUDIO_DATA_LENGTH).fill(0);
+
 /** Mean magnitude across a frequency-bin range, normalised to 0..1. */
 const readBandLevel = (
   analyser: AnalyserNode,
@@ -115,28 +120,6 @@ const readBandLevel = (
   let total = 0;
   for (let i = minBin; i < end; i += 1) total += scratch[i];
   return total / (end - minBin) / 255;
-};
-
-/** Split a spectrum into N contiguous bands of mean magnitude. */
-const readBands = (
-  analyser: AnalyserNode,
-  scratch: Uint8Array,
-  bands: number,
-  minBin: number,
-  maxBin: number,
-): number[] => {
-  analyser.getByteFrequencyData(scratch);
-  const end = Math.min(maxBin, scratch.length);
-  const span = Math.max(1, Math.floor((end - minBin) / bands));
-  const out: number[] = [];
-  for (let band = 0; band < bands; band += 1) {
-    const start = minBin + band * span;
-    const stop = band === bands - 1 ? end : start + span;
-    let total = 0;
-    for (let i = start; i < stop; i += 1) total += scratch[i];
-    out.push(stop > start ? total / (stop - start) / 255 : 0);
-  }
-  return out;
 };
 
 export const VoiceOrb: React.FC<VoiceOrbProps> = ({
@@ -220,12 +203,26 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
     let surfaceScale = renderScaleRef.current;
     let surfaceVelocity = 0;
     let revealAmount = initialReveal;
-    const cumulativeAudio = [0, 0, 0, 0];
-    let lastCumulativeAt = 0;
+    /**
+     * The assistant's smoothed audio and its running integral, held across
+     * frames.
+     *
+     * Upstream keeps both in component state, updated by a fixed 16 ms interval
+     * and read by the render loop — so the render loop sees whatever the last
+     * tick produced rather than a fresh reading per frame. Reproduced here as two
+     * arrays plus the timestamp below, ticked from inside the frame at the same
+     * cadence.
+     */
+    const assistantAudio = new Array(AUDIO_DATA_LENGTH).fill(0) as number[];
+    const cumulativeAudio = new Array(AUDIO_DATA_LENGTH).fill(0) as number[];
+    let lastAudioTickAt = 0;
 
     const motionModel = new HorizonMotion();
     let micScratch: Uint8Array | null = null;
-    let assistantScratch: Uint8Array | null = null;
+    // Float, not byte: the band reader works in decibels. `getByteFrequencyData`
+    // would pre-clamp to the analyser's decibel window and quantise to 1/255,
+    // and the fold below has its own floor and ceiling to apply.
+    let assistantScratch: Float32Array | null = null;
 
     /**
      * Match the backing buffer to the CSS box at the current DPR.
@@ -256,9 +253,69 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
     observer?.observe(box);
     resize();
 
-    const buildSnapshot = (dt: number, now: number): VoiceSnapshot => {
-      const micAnalyser = analyserRef.current;
+    /**
+     * Sample the assistant's spectrum and fold it into the four values the motion
+     * model consumes.
+     *
+     * Driven by its own `setInterval` below rather than from the render loop, which
+     * is both what upstream does and load-bearing arithmetic. `integrateAudio`
+     * scales each sample by `dt * 60` *and* by an alpha of `1 - exp(-dt / 2)` ≈
+     * `dt / 2`, so a single tick contributes in proportion to dt², and a second's
+     * worth of accumulation comes out proportional to the tick interval itself.
+     * Gated inside rAF that would make the orb's motion a function of the display:
+     * a 144 Hz panel passes a 16 ms gate every third frame, i.e. every 20.8 ms, and
+     * would accumulate a quarter faster than a 60 Hz one. A real interval is
+     * refresh-rate blind, which is why upstream has two of them.
+     */
+    const sampleAssistantAudio = () => {
       const outAnalyser = assistantAnalyserRef.current;
+
+      let raw: readonly number[] = SILENT_BANDS;
+      if (outAnalyser) {
+        if (!assistantScratch || assistantScratch.length !== outAnalyser.frequencyBinCount) {
+          assistantScratch = new Float32Array(outAnalyser.frequencyBinCount);
+        }
+        outAnalyser.getFloatFrequencyData(assistantScratch);
+        raw = readAssistantBands(
+          assistantScratch,
+          ASSISTANT_BAND_CONFIG.minFrequencyBin,
+          // Upstream's bin 400 resolved against the playback rate, so the 240
+          // entries span the same 0–9375 Hz here as they do at 48 kHz. At 24 kHz
+          // the literal index 400 would reach only 4687.5 Hz and squeeze all three
+          // bands into the bottom of the spectrum.
+          bandMaxBin(
+            outAnalyser.context.sampleRate,
+            outAnalyser.fftSize,
+            outAnalyser.frequencyBinCount,
+          ),
+        );
+      }
+
+      const now = performance.now();
+      const elapsed = lastAudioTickAt === 0 ? 0 : (now - lastAudioTickAt) / 1000;
+      lastAudioTickAt = now;
+
+      // The first tick has no interval behind it and only starts the clock. The
+      // clamp is for a tab coming back from the background, where the interval has
+      // been throttled to seconds and one giant step would jolt the orb.
+      //
+      // Ticking with zeros when the analyser has gone lets the smoothed value decay
+      // to rest instead of freezing mid-syllable; the cumulative term is unaffected
+      // either way, having no decay upstream either.
+      if (elapsed > 0) {
+        integrateAudio(
+          assistantAudio,
+          cumulativeAudio,
+          raw,
+          Math.min(elapsed, MAX_TIMESTEP_SECONDS),
+        );
+      }
+    };
+
+    const audioTimer = window.setInterval(sampleAssistantAudio, AUDIO_UPDATE_INTERVAL_MS);
+
+    const buildSnapshot = (now: number): VoiceSnapshot => {
+      const micAnalyser = analyserRef.current;
 
       let micLevel = 0;
       if (micAnalyser) {
@@ -279,45 +336,6 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
             ),
           ) * MIC_LEVEL_SCALE,
         );
-      }
-
-      let assistantBands = [0, 0, 0, 0];
-      if (outAnalyser) {
-        if (!assistantScratch || assistantScratch.length !== outAnalyser.frequencyBinCount) {
-          assistantScratch = new Uint8Array(outAnalyser.frequencyBinCount);
-        }
-        // Same frequency band as the mic, resolved against the playback rate:
-        // at 24 kHz the reference index 400 would cover only 4687.5 Hz, which
-        // would concentrate all three bands on the low end of the spectrum.
-        const assistantMaxBin = bandMaxBin(
-          outAnalyser.context.sampleRate,
-          outAnalyser.fftSize,
-          outAnalyser.frequencyBinCount,
-        );
-        // Three band magnitudes plus one whole-spectrum magnitude, which is the
-        // four-value shape the shader's motion model consumes.
-        const bands = readBands(
-          outAnalyser,
-          assistantScratch,
-          ASSISTANT_BAND_CONFIG.bands,
-          ASSISTANT_BAND_CONFIG.minFrequencyBin,
-          assistantMaxBin,
-        );
-        const whole = readBandLevel(
-          outAnalyser,
-          assistantScratch,
-          ASSISTANT_BAND_CONFIG.minFrequencyBin,
-          assistantMaxBin,
-        );
-        assistantBands = [...bands, whole];
-      }
-
-      // Cumulative audio accumulates on a fixed interval, as upstream does.
-      if (now - lastCumulativeAt > AUDIO_UPDATE_INTERVAL_MS) {
-        lastCumulativeAt = now;
-        for (let i = 0; i < cumulativeAudio.length; i += 1) {
-          cumulativeAudio[i] += assistantBands[i] ?? 0;
-        }
       }
 
       // Upstream selects exactly one trigger by session type —
@@ -344,9 +362,13 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
       // transition and has no hold logic ahead of it.
       const userSpeakingRamp = userSpeakingRampState.update(userSpeaking ? 1 : 0, now);
 
+      // Both read the *smoothed* array, not the reading that produced it. The
+      // motion model's curves assume a value with the 2-second time constant
+      // already applied — fed the raw fold they twitch per FFT frame instead of
+      // swelling with the phrase.
       const assistantMean =
-        assistantBands.reduce((sum, value) => sum + value, 0) / assistantBands.length;
-      const assistantPeak = Math.max(...assistantBands.slice(0, 3));
+        assistantAudio.reduce((sum, value) => sum + value, 0) / assistantAudio.length;
+      const assistantPeak = Math.max(...assistantAudio.slice(0, ASSISTANT_BAND_CONFIG.bands));
 
       return {
         stateListen: listenRamp,
@@ -368,7 +390,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
           : Math.min((now - previousTime) / 1000, MAX_TIMESTEP_SECONDS);
       previousTime = now;
 
-      const snapshot = dt === 0 ? EMPTY_VOICE_SNAPSHOT : buildSnapshot(dt, now);
+      const snapshot = dt === 0 ? EMPTY_VOICE_SNAPSHOT : buildSnapshot(now);
       const output = dt === 0 ? motionModel.initialOutput() : motionModel.update(snapshot, dt);
 
       if (dt > 0) {
@@ -460,6 +482,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
       cancelled = true;
       disposed = true;
       cancelAnimationFrame(frame);
+      window.clearInterval(audioTimer);
       observer?.disconnect();
       renderer?.dispose();
     };

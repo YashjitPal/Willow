@@ -30,6 +30,56 @@
   animation: willow-transcription-spin 2s linear infinite;
 }
 
+/*
+ * The send button's entrance, read off Gemini's own Animation object rather
+ * than authored: `getAnimations()` on the send container the instant it mounts
+ * returns duration 250, delay 0, fill both, overall easing linear, and these
+ * three keyframes — opacity 0 at offset 0, opacity 0 again at offset 0.2 with
+ * easing cubic-bezier(0.2, 0, 0, 1), opacity 1 at offset 1.
+ *
+ * So the shape is a 50ms hold at zero and then a 200ms eased ramp, not a plain
+ * 250ms fade. Keep the hold; it is what stops the button flashing in under a
+ * fast typist's first keystroke. The per-keyframe timing function has the same
+ * meaning in CSS as in the Web Animations keyframe list — it governs the
+ * interval starting at its own keyframe — so 0.2 -> 1 gets the curve and the
+ * dead 0 -> 0.2 interval stays linear, exactly as captured.
+ *
+ * Opacity only. The 42px the mic slides left to make room is not animated in
+ * Gemini either: the captured frames show micWrap x jumping 1186 -> 1144 in a
+ * single frame with `transform: none` throughout, so the reflow is instant and
+ * only the new button fades.
+ */
+@keyframes willow-composer-send-enter {
+  0% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+  20% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.willow-composer-send-enter {
+  animation: willow-composer-send-enter 250ms linear both;
+}
+
+/*
+ * Both classes land on the same button while a dictation transcribes, and both
+ * set `animation` — equal specificity, so source order alone would decide and
+ * the spin would be dropped. Declare the pair explicitly instead: the two do
+ * not actually conflict, since the entrance drives opacity and the spinner
+ * drives transform.
+ */
+.willow-composer-send-enter.willow-transcription-spinner {
+  animation:
+    willow-composer-send-enter 250ms linear both,
+    willow-transcription-spin 2s linear infinite;
+}
+
 .willow-gemini-composer--fullscreen {
   height: calc(100dvh - 114px);
 }

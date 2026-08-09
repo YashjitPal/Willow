@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { InputBar, type Attachment } from '@willow/chat/composer/Composer';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
@@ -10,6 +9,37 @@ import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/regi
 import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { homeGlowAccent } from './home-glow';
+
+/**
+ * The gap between the greeting's baseline box and the composer's top edge, in
+ * the pinned (chat) zero state. Measured off Gemini, not chosen.
+ *
+ * Gemini's greeting is not positioned against the viewport at all — it is the
+ * last item in `.top-section-container`, a `flex-direction: column;
+ * justify-content: flex-end` box whose height Angular maintains inline as
+ * `--top-section-container-height`. Measured at 826px viewport: that height is
+ * 324.8px from a top of 56, so its bottom edge lands on 380.8 — exactly the
+ * composer's top edge of 381. The gap between the greeting *block* and the
+ * composer is therefore 0.
+ *
+ * The 40px below is the `padding-bottom: 40px` on Gemini's
+ * `.assistant-messages-primary-container`, which is what actually separates the
+ * h1 (36px/44px, weight 320, #e3e3e3) from the composer. It is a constant, so
+ * it holds however tall the composer grows.
+ *
+ * That flex-end construction is why Gemini's greeting rides *up* as the
+ * composer wraps to more lines: the composer's centre is pinned at 50vh
+ * (`bottom: 50vh; transform: translateY(50%)`), so growing it moves its top
+ * edge up, the maintained height shrinks, and the flex-end child follows.
+ * Willow reproduces the same behaviour without the JS-maintained variable by
+ * hanging the greeting off the composer's own box — see `ChatZeroStateGreeting`.
+ *
+ * The incognito value is Willow's own, pre-existing and unverified against
+ * Gemini's temporary-chat zero state; it is tighter to make room for the
+ * disclaimer paragraph that sits below the heading.
+ */
+const GREETING_GAP = 40;
+const INCOGNITO_GREETING_GAP = 32;
 
 // @ts-ignore
 import willSmithVideo from '@willow/assets/media-samples/Will smith.mp4';
@@ -25,6 +55,138 @@ import opaliteVideo from '@willow/assets/media-samples/Opalite.mp4';
 import iceCreamVideo from '@willow/assets/media-samples/Ice Cream.mp4';
 
 export type Mode = 'ship' | 'design' | 'proto' | 'chat';
+
+/**
+ * The zero-state greeting: the heading, plus incognito's disclaimer.
+ *
+ * It lives outside `HeroSection` because in the pinned (chat) zero state it has
+ * to be a *descendant of the composer's own positioned box* — that is the only
+ * way to reproduce Gemini's behaviour of the greeting rising as the composer
+ * wraps, without measuring the composer in JS. See `GREETING_GAP`.
+ */
+export const ChatZeroStateGreeting: React.FC<{
+  headingText: string;
+  isIncognito?: boolean;
+}> = ({ headingText, isIncognito = false }) => (
+  /*
+    Gemini plays ONE animation here — `_lm-fade-in-up`, 300ms of
+    translateY(40px)->0 plus opacity 0->1 on cubic-bezier(0.2,0,0,1)
+    — and varies only its delay: the temporary-chat card leads at 0s
+    while the normal greeting trails at 250ms. Both were read off
+    `getAnimations()` on the live app, so the numbers are measured
+    rather than matched by eye.
+
+    `key` is what makes it replay. Angular destroys and recreates
+    this subtree on every toggle (the captured nodes carry
+    `ng-star-inserted`), which is why the fade runs each time rather
+    than only on first paint; remounting on the mode reproduces that.
+    The glow deliberately does NOT participate — it keeps one class
+    across the toggle so `grow` never restarts, matching the capture
+    where `lm-background-grow` fired only on load and New chat.
+  */
+  <div
+    key={isIncognito ? 'incognito' : 'normal'}
+    className="willow-lm-fade-in-up flex flex-col items-center w-full"
+    style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
+  >
+    {isIncognito && (
+      /*
+       * Gemini's temporary-chat zero state leads with the incognito glyph above
+       * the heading — the same `gemini_chat_temp` symbol the header toggle uses
+       * (`StudioLayout.tsx`), so this is the app's existing asset rather than a
+       * new one. It sits inside the fade-in-up block so it rides the same 300ms
+       * entrance as the heading rather than popping in separately.
+       */
+      <span
+        aria-hidden="true"
+        className="lumi-symbols select-none text-[#e3e3e3] leading-none"
+        style={{
+          fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+          fontSize: '32px',
+          marginBottom: '16px',
+        }}
+      >
+        gemini_chat_temp
+      </span>
+    )}
+
+    <h1
+      className="text-[#e3e3e3] text-center"
+      style={{
+        fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+        fontSize: '36px',
+        fontWeight: 320,
+        lineHeight: '44px',
+      }}
+    >
+      {headingText}
+    </h1>
+
+    {isIncognito && (
+      <p
+        className="text-[#c4c7c5] text-center"
+        style={{
+          // Gemini's `.gds-body-m.description` inside the temporary
+          // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
+          // its parent's `--gem-sys-spacing--m`.
+          fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+          fontSize: '15px',
+          fontWeight: 400,
+          lineHeight: '20px',
+          maxWidth: '620px',
+          marginTop: '12px',
+        }}
+      >
+        Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
+      </p>
+    )}
+  </div>
+);
+
+/**
+ * The heading text for the chat zero state, so `ChatView` renders exactly the
+ * string `HeroSection` would have. Mirrors `getHeadingText`'s `'chat'` arm.
+ */
+export const chatGreetingText = (
+  firstName: string,
+  isAuthenticated: boolean,
+  isIncognito: boolean,
+): string => {
+  if (!isAuthenticated) return isIncognito ? 'Incognito chat' : "Let's chat";
+  return isIncognito ? `Incognito chat, ${firstName}` : `Let's chat, ${firstName}`;
+};
+
+/**
+ * The pinned greeting, hung off the composer's box.
+ *
+ * `bottom-full` puts its bottom edge on the composer's top edge — Gemini's
+ * measured relationship exactly (its `.top-section-container` bottom is 380.8
+ * against a composer top of 381) — and the margin below reproduces the 40px
+ * `padding-bottom` that separates the h1 from the composer. Because the anchor
+ * is the composer's own box rather than a fixed percentage of the page, growth
+ * is tracked for free: the composer's centre stays pinned, so wrapping moves
+ * its top edge up and the greeting comes with it, in the same frame and with no
+ * measurement.
+ */
+export const PinnedChatGreeting: React.FC<{
+  isIncognito?: boolean;
+  isAuthenticated?: boolean;
+}> = ({ isIncognito = false, isAuthenticated = false }) => {
+  const { userProfile } = useAuth();
+  const firstName = userProfile?.displayName?.split(' ')[0] || 'there';
+
+  return (
+    <div
+      className="absolute bottom-full left-0 right-0 flex flex-col items-center drop-shadow-sm"
+      style={{ marginBottom: `${isIncognito ? INCOGNITO_GREETING_GAP : GREETING_GAP}px` }}
+    >
+      <ChatZeroStateGreeting
+        headingText={chatGreetingText(firstName, isAuthenticated, isIncognito)}
+        isIncognito={isIncognito}
+      />
+    </div>
+  );
+};
 
 const isCoverVideo = (url: string): boolean => {
   if (!url) return false;
@@ -56,10 +218,20 @@ export const HeroSection: React.FC<{
   studioMode?: 'develop' | 'media';
   isIncognito?: boolean;
   isSidebarCollapsed?: boolean;
-  /** Shared-layout id used by ChatView to carry the zero-state composer
-   *  into its bottom-docked position as one continuous surface. */
-  composerLayoutId?: string;
-}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, composerLayoutId }) => {
+  /**
+   * ChatView owns the composer itself — one persistent node it slides between
+   * the centre and the bottom bar — so the hero must not build a second one.
+   *
+   * That also inverts how the greeting is placed. Normally it rides above the
+   * `InputBar` in this flex column, which is why the heading block is a fixed
+   * 36px spacer: the composer must not move when the text changes. With the
+   * composer lifted out of flow there is nothing left to ride, so the greeting
+   * anchors to the composer's pinned centre instead — the same construction
+   * Gemini uses, where the `h1` sits a fixed distance above the viewport
+   * centre rather than being centred with the input as a group.
+   */
+  pinnedComposer?: boolean;
+}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, pinnedComposer = false }) => {
   const { userProfile } = useAuth();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -409,9 +581,13 @@ export const HeroSection: React.FC<{
   const { background } = useBackground();
 
   const justifyClass = studioMode === 'media' ? 'justify-start pt-8 pb-0' : 'justify-center';
-  const minHeightClass = studioMode === 'media' ? 'min-h-[74vh]' : 'min-h-[85vh]';
+  // Pinned: the greeting is absolutely positioned against this root, so the root
+  // has to *be* the chat area rather than an 85vh block that centres its
+  // children — and the -80px nudge that used to lift the greeting/input group
+  // would now just drag the anchor off centre.
+  const minHeightClass = pinnedComposer ? 'h-full' : studioMode === 'media' ? 'min-h-[74vh]' : 'min-h-[85vh]';
   const pxClass = studioMode === 'media' ? 'px-8' : 'px-4';
-  const mtClass = background === 'solid' && studioMode !== 'media' ? '-mt-20' : '';
+  const mtClass = background === 'solid' && studioMode !== 'media' && !pinnedComposer ? '-mt-20' : '';
 
   /*
    * The glow's accent stop, driven by the workspace colour. Declared on the
@@ -806,10 +982,16 @@ export const HeroSection: React.FC<{
         </>
       ) : (
         <>
-          {/* Main Heading Container - Fixed strictly to its original layout dimensions (36px height + mb-10) so the InputBar NEVER moves */}
-          <div className={`relative w-full flex justify-center h-[36px] ${background === 'solid' ? 'mb-8' : 'mb-10'}`}>
-            <div 
-              className={`absolute flex flex-col items-center w-full drop-shadow-sm`}
+          {/* Main Heading Container - Fixed strictly to its original layout dimensions (36px height + mb-10) so the InputBar NEVER moves.
+              Omitted entirely when pinned: ChatView then renders the greeting
+              inside the composer's own box (`PinnedChatGreeting`) so it rides
+              the composer as it wraps, which a wrapper out here cannot do. */}
+          {!pinnedComposer && (
+          <div
+            className={`relative w-full flex justify-center h-[36px] ${background === 'solid' ? 'mb-8' : 'mb-10'}`}
+          >
+            <div
+              className="absolute flex flex-col items-center w-full drop-shadow-sm"
               style={{
                 bottom: background === 'solid' ? '-32px' : '-40px', // Anchor to the exact bottom of the margin (touching the InputBar)
                 transform: isIncognito ? 'translateY(-32px)' : 'translateY(-48px)', // In incognito, the wrapper's bottom rests 32px above the input to make room for the disclaimer, naturally pushing the h1 up slightly
@@ -818,87 +1000,13 @@ export const HeroSection: React.FC<{
                 transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing extracted from gemini.html
               }}
             >
-              {/*
-                Gemini plays ONE animation here — `_lm-fade-in-up`, 300ms of
-                translateY(40px)->0 plus opacity 0->1 on cubic-bezier(0.2,0,0,1)
-                — and varies only its delay: the temporary-chat card leads at 0s
-                while the normal greeting trails at 250ms. Both were read off
-                `getAnimations()` on the live app, so the numbers are measured
-                rather than matched by eye.
-
-                `key` is what makes it replay. Angular destroys and recreates
-                this subtree on every toggle (the captured nodes carry
-                `ng-star-inserted`), which is why the fade runs each time rather
-                than only on first paint; remounting on the mode reproduces that.
-                The glow deliberately does NOT participate — it keeps one class
-                across the toggle so `grow` never restarts, matching the capture
-                where `lm-background-grow` fired only on load and New chat.
-              */}
-              <div
-                key={isIncognito ? 'incognito' : 'normal'}
-                className="willow-lm-fade-in-up flex flex-col items-center w-full"
-                style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
-              >
-                <h1
-                  className="text-[#e3e3e3] text-center"
-                  style={{
-                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                    fontSize: '36px',
-                    fontWeight: 320,
-                    lineHeight: '44px',
-                  }}
-                >
-                  {getHeadingText()}
-                </h1>
-
-                {isIncognito && (
-                  <p
-                    className="text-[#c4c7c5] text-center"
-                    style={{
-                      // Gemini's `.gds-body-m.description` inside the temporary
-                      // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
-                      // its parent's `--gem-sys-spacing--m`.
-                      fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                      fontSize: '15px',
-                      fontWeight: 400,
-                      lineHeight: '20px',
-                      maxWidth: '620px',
-                      marginTop: '12px',
-                    }}
-                  >
-                    Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
-                  </p>
-                )}
-              </div>
+              <ChatZeroStateGreeting headingText={getHeadingText()} isIncognito={isIncognito} />
               </div>
             </div>
+          )}
 
-          {/* Input Component */}
-          {composerLayoutId ? (
-            <motion.div
-              layoutId={composerLayoutId}
-              transition={{
-                layout: {
-                  duration: 0.25,
-                  ease: [0.2, 0, 0, 1] as const,
-                },
-              }}
-              className="w-full max-w-[660px]"
-            >
-              <InputBar
-                currentMode={mode}
-                onModeChange={setMode}
-                onSubmit={onPromptSubmit}
-                modelConfig={modelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-                onAuthRequired={onAuthRequired}
-                isAuthenticated={isAuthenticated}
-                chatVariant={initialMode === 'chat'}
-                onStartLive={onStartLive}
-              />
-            </motion.div>
-          ) : (
+          {/* Input Component — omitted when ChatView owns the composer itself. */}
+          {!pinnedComposer && (
             <InputBar
               currentMode={mode}
               onModeChange={setMode}
