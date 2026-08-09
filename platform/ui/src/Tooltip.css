@@ -1,0 +1,228 @@
+/*
+ * Tooltip — Gemini's tooltip, reproduced from measurement.
+ *
+ * Every number here was read off gemini.google.com with getComputedStyle, not
+ * chosen. Gemini's tooltip is an Angular Material `mat-tooltip-component` in a
+ * CDK overlay with Gemini's own `gds-body-s gem-tooltip` classes layered on
+ * top, and its authored CSS is not readable from the page (4459 rules across 75
+ * sheets, none matching /tooltip/; one gstatic sheet is CORS-blocked). So the
+ * computed cascade IS the source of truth, and these declarations are that
+ * cascade written back out.
+ *
+ * DOM shape mirrors Gemini's, which matters because the three levels each carry
+ * different responsibilities:
+ *
+ *   .willow-tooltip-container    fixed, viewport-sized, pointer-events: none
+ *     .willow-tooltip-pane       absolutely positioned + the 8px offset
+ *       .willow-tooltip          transform-origin + the scale/opacity animation
+ *         .willow-tooltip-surface  the painted box
+ *
+ * Gemini splits the container into `.cdk-overlay-container` (fixed) wrapping a
+ * `.cdk-overlay-connected-position-bounding-box` (absolute, inset 0). Measured,
+ * that box is exactly the viewport (1536 x 825.6), so one fixed inset-0 element
+ * gives the pane an identical coordinate space and the second div earns nothing.
+ */
+
+.willow-tooltip-container {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/*
+ * The 8px gap is not padding or margin — measured, the pane sits flush against
+ * the anchor edge and a `translate` on the pane pushes it clear. Four samples,
+ * all four sides, all exactly 8px:
+ *   left   pane "top: 16px; right: 48px;    transform: translateX(-8px)"
+ *   right  pane "top: 777.6px; left: 278px; transform: translateX(8px)"
+ *   below  pane "top: 86px; left: 112px;    transform: translateY(8px)"
+ *   above  pane "bottom: 92px; left: 112px; transform: translateY(-8px)"
+ *
+ * These carry ONLY the axis offset — the cross-axis position is an absolute
+ * `left`/`top` written from JS, exactly as Gemini's CDK does it. It cannot be a
+ * `translate(-50%)` here: centring a box that would overrun a viewport edge has
+ * to clamp instead, and a percentage transform has no way to know that. Measured
+ * on Gemini, the pane's inline style never contains a cross-axis translate:
+ *   "top: 86px; left: 8px;        transform: translateY(8px)"   (clamped left)
+ *   "top: 86px; left: 1325px;     transform: translateY(8px)"   (clamped right)
+ *   "bottom: 68px; left: 578.006px; transform: translateY(-8px)" (unclamped)
+ * See `reposition()` in Tooltip.tsx for the clamp constants.
+ */
+.willow-tooltip-pane {
+  position: absolute;
+  z-index: 1000;
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: auto;
+}
+
+.willow-tooltip-pane--left {
+  transform: translateX(-8px);
+}
+
+.willow-tooltip-pane--right {
+  transform: translateX(8px);
+}
+
+.willow-tooltip-pane--below {
+  transform: translateY(8px);
+}
+
+.willow-tooltip-pane--above {
+  transform: translateY(-8px);
+}
+
+/*
+ * The animation host. `box-sizing: content-box` is measured and deliberate —
+ * Tailwind's preflight sets `border-box` on everything, so without this the
+ * wrapper would silently disagree with Gemini's. Padding is 0 so it changes no
+ * pixels today; it changes them the first time someone adds padding.
+ *
+ * The font block is inherited from Gemini's `gds-body-s gem-tooltip` and is
+ * overridden by the surface below. Kept because it is what was measured, and
+ * because it pins what any future child of the wrapper would inherit.
+ */
+.willow-tooltip {
+  display: inline-flex;
+  position: relative;
+  box-sizing: content-box;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  pointer-events: auto;
+  background-color: rgba(0, 0, 0, 0);
+  border-radius: 0;
+  box-shadow: none;
+  color: rgb(227, 227, 227);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  word-break: auto-phrase;
+  -webkit-font-smoothing: antialiased;
+
+  /*
+   * Pre-show state. Gemini's base `.mdc-tooltip` rule is in the unreadable
+   * sheet, but the first sampled frame of every show was opacity 0 / scale 0.8,
+   * and the show keyframes start there — so starting hidden reproduces the
+   * measurement and guarantees no flash between mount and the class flip.
+   */
+  opacity: 0;
+}
+
+/*
+ * Show: 150ms cubic-bezier(0, 0, 0.2, 1) forwards, opacity 0 -> 1, scale 0.8 -> 1.
+ * Verified against sampled frames rather than trusted: at t = 23ms of 150 the
+ * measured wrapper was opacity 0.33 / scale 0.866226, and 0.8 + 0.2 x 0.33 is
+ * 0.866 — the eased progress drives both properties off one curve.
+ */
+.willow-tooltip--show {
+  animation: 150ms cubic-bezier(0, 0, 0.2, 1) forwards willow-tooltip-show;
+}
+
+/* Hide: 75ms cubic-bezier(0.4, 0, 1, 1) forwards — half the show duration, and
+ * a decelerating curve reversed into an accelerating one. Measured detach came
+ * 92-105ms after mouseleave, i.e. the animation runs to its end and the overlay
+ * is torn down on animationend. */
+.willow-tooltip--hide {
+  animation: 75ms cubic-bezier(0.4, 0, 1, 1) forwards willow-tooltip-hide;
+}
+
+@keyframes willow-tooltip-show {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes willow-tooltip-hide {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+/*
+ * The painted box.
+ *
+ * `max-height` measured 330.24px against an 825.6px viewport — exactly 40%, so
+ * it is 40vh expressed in the px the viewport happened to be. Every other value
+ * is literal.
+ *
+ * `letter-spacing: 0.096px` is 0.008em at 12px; kept in px because px is what
+ * was measured and em would re-derive it if the size ever changed.
+ */
+.willow-tooltip-surface {
+  display: block;
+  position: static;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 16px;
+  border: 0 none;
+  border-radius: 12px;
+  background-color: rgb(230, 230, 230);
+  color: rgb(23, 23, 23);
+  box-shadow: none;
+
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-optical-sizing: auto;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  word-spacing: 0;
+  text-align: center;
+  text-transform: none;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+
+  min-width: 40px;
+  max-width: 200px;
+  min-height: 24px;
+  max-height: 40vh;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
+  text-overflow: clip;
+
+  will-change: transform, opacity;
+}
+
+/*
+ * The description node the trigger points at with aria-describedby. Gemini
+ * keeps these in a `.cdk-describedby-message-container.cdk-visually-hidden`
+ * off-screen div and marks the visible tooltip aria-hidden, so a screen reader
+ * reads the text once, from here.
+ */
+.willow-tooltip-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-tooltip--show,
+  .willow-tooltip--hide {
+    animation-duration: 1ms;
+  }
+}

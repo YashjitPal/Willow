@@ -108,8 +108,23 @@ says so too, but in short: `ALL_MODELS` is deliberately **not** memoised (the
 selection-sync effect is meant to run every render; its idempotence guard is what
 stops the loop), the autosize effect measures under *forced collapsed padding*
 with `overflowY` pinned hidden because a scrollbar makes `scrollHeight` claim an
-extra wrapped line, and it restores `transition` only after a forced reflow so
-the collapsed→multiline padding animation still plays.
+extra wrapped line, and it disables `transition` for the whole measurement so the
+`scrollHeight` reads cannot land mid-animation.
+
+That restore (`style.transition = ''` after a forced reflow) now only matters to
+the **non-chat** composer. The chat variant has no size transition at all: its
+box snaps on wrap, unwrap, send and paste, because Gemini's does — every element
+in Gemini's composer size chain computes to `transition-duration: 0s`, and its
+only authored height transitions are on `.pre-fullscreen` / `.fullscreen`, which
+are the near-fullscreen toggle rather than ordinary wrapping. Note that
+`.textarea-wrapper`'s padding **is** the composer's height (40px collapsed
+against 78px expanded), so putting any `transition` on it animates the whole box
+growing and shrinking. See `apps/studio/test/composer-size-snap.test.mjs`.
+
+The `layoutId` composer below is a separate mechanism and does **not** animate
+ordinary wrapping — measured frame by frame, no ancestor of the composer ever
+carries a transform during a wrap or a collapse. It is only the shared-element
+morph into the Home hero. Removing the size transitions did not touch it.
 
 What is left in `Composer.tsx` is `InputBar`'s two JSX return branches, each
 closing over ~40 values. Splitting those means writing a props contract, not
@@ -122,13 +137,92 @@ any.
 
 **Do not move a `motion.div` that is a direct child of `AnimatePresence`.** In
 `ChatView` that means the `ThinkingStepsSidebar` and `RichResourcePanel`
-wrappers, the thread-entrance div, and the `layoutId={CHAT_COMPOSER_LAYOUT_ID}`
-composer — the shared-layout transition into the Home hero runs through that ID.
-Extracting a wrapper puts a component boundary where Framer Motion tracks
-presence, and a broken exit animation is not something a typecheck would catch.
+wrappers and the thread-entrance div. Extracting a wrapper puts a component
+boundary where Framer Motion tracks presence, and a broken exit animation is not
+something a typecheck would catch.
 
-`ChatView.tsx` and the composer files are **LF**, unlike `ChatResponseChrome.tsx`
-(CRLF) and `composer/PlusDropdownMenu.tsx` (mixed). Match the file you are in.
+### There is exactly one composer
+
+`ChatView` renders **one** `InputBar`, in the footer, for both the zero state and
+an active thread. It used to render two — one inside Media's `HeroSection`, one
+in the footer — bridged by a shared `layoutId`. That was the bug, not the
+mechanism: on send React tore one down and built the other, and Framer covered
+the seam by inverse-scaling a wrapper whose children are not layout nodes, so the
+text, the model pill and the icons visibly squashed for the whole 250ms.
+
+Now the single node carries `layout` and slides. Measured, both states:
+`[574, 381, 660, 64]` centred and `[574, 713, 660, 64]` docked — same x, same
+width, same height, so the projection is a pure translate with no scale term.
+**Keep it that way.** Anything that changes the composer's size between the two
+states puts the squash back.
+
+The slide is **one-directional**, and that asymmetry is deliberate — do not
+"fix" it into a symmetric transition. Recorded off Gemini at 55fps: opening a
+chat animates the fieldset `bottom: 50vh -> 0` with
+`translateY(50%) -> translateY(-50%)` over 250ms on `cubic-bezier(0.2, 0, 0, 1)`
+(14 frames spanning 253ms, y travelling 380.8 -> 712.6), but pressing **New
+chat** does not move it at all: `[582, 380.8, 660, 64]` on the first frame of
+the segment and every frame after, with `position`, `bottom` and `transform`
+all constant. Only the greeting animates, via its own `willow-lm-fade-in-up`.
+So `transition.layout` reads its duration off `hasStarted`, which is already
+false on the render that commits the move back to centre.
+
+Verified on ours the same way, with a positive control — a probe element
+animating a known 250ms transform sampled by the same rAF loop. Control 16
+intermediate frames at 60fps, composer 0 intermediate `y` and 0 non-identity
+transform writes on the projection subtree. **Always run that control.** An
+occluded Chrome window stops producing frames even with focus emulation on, and
+the first attempt sampled at 3fps and reported a "snap" that meant nothing.
+
+Two invariants hold it together:
+
+- The lift wrapper owns **position only, never a transform**. Framer's projection
+  writes `transform` on the node below it; a transform on the wrapper makes the
+  two fight and the animation jumps on frame one.
+- `layoutDependency={hasStarted}` is **required**. `layout` alone leaves it
+  undefined, and `MeasureLayout` then snapshots on every commit and animates any
+  delta — which is what made send-from-fullscreen squash, since `handleSubmit`
+  collapses the shell from `calc(100dvh - 114px)` to ~64px in one commit.
+
+The zero state pins the composer to the chat area's centre and pins the greeting
+with it, so scrolling slides the recents list under a stationary composer. That
+is Gemini's behaviour, measured: its fieldset centre sits at exactly viewport/2
+and never scrolls. `HeroSection`'s `pinnedComposer` prop is what suppresses its
+own `InputBar` and its own greeting.
+
+### The greeting hangs off the composer, not off the page
+
+`PinnedChatGreeting` (exported from `MediaHome`) renders **inside** the
+composer's `motion.div`, `absolute bottom-full` with a 40px margin. That is
+deliberate and it is the only construction that reproduces Gemini, so do not
+"simplify" it back into `HeroSection`.
+
+Gemini's greeting is not positioned against the viewport at all. It is the last
+child of `.top-section-container`, a `flex-direction: column;
+justify-content: flex-end` box whose height Angular maintains inline as
+`--top-section-container-height`. At an 826px viewport that height is 324.8px
+from a top of 56, putting its bottom edge on 380.8 — the composer's top edge is
+381. So the gap between the greeting *block* and the composer is **zero**; the
+visible 40px is `padding-bottom: 40px` on `.assistant-messages-primary-container`,
+between the h1 and the composer.
+
+Because the composer's centre is pinned (`bottom: 50vh` +
+`transform: translateY(50%)`), growing it moves its *top* edge up, Angular
+shrinks that height, and the flex-end child rides up. Anchoring to the
+composer's own box gets the identical result with no measurement and no lag.
+Measured on ours: type until the box grows 182px and the greeting rises 91px —
+exactly half — with the gap still 40 and the centre still 413.
+
+The `--initial-input-half-height: 32px` that Gemini writes inline on the
+fieldset is a red herring. All 73 readable stylesheets were searched; **no rule
+consumes it**. Do not build anything on it.
+
+Incognito uses a tighter 32px gap. That value is Willow's own, pre-existing, and
+**not** verified against Gemini's temporary-chat zero state.
+
+`ChatView.tsx` is **LF**. The composer files are **CRLF** — `Composer.tsx` is
+1080 CRLF / 0 LF — as are `ChatResponseChrome.tsx` and `MediaHome.tsx`;
+`composer/PlusDropdownMenu.tsx` is mixed. Match the file you are in.
 
 ## Dependencies
 
@@ -137,9 +231,11 @@ Imports from 8 Willow packages: `@willow/ui` (10), `@willow/ai` (6),
 `@willow/media`, `@willow/code`, and `@willow/studio`.
 
 The last four are cross-feature and worth knowing about. `ChatView` renders
-Media's `HeroSection` and `BottomPanel` directly — the Home tab's hero *is* the
-chat composer, which is why the shared `layoutId` matters. The composer reaches
-into Code for `GithubImportDialog` and up into the Studio shell for
+Media's `HeroSection`, `BottomPanel` and `PinnedChatGreeting` directly — in the
+zero state `pinnedComposer` reduces the hero to the glow alone, suppressing both
+its `InputBar` (so the footer's composer stays the single one) and its greeting
+(which `ChatView` renders itself, inside the composer's box). The composer
+reaches into Code for `GithubImportDialog` and up into the Studio shell for
 `BackgroundContext`.
 
 Chats and their attachments persist through

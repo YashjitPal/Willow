@@ -867,6 +867,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         maxLevels: 0,
         hasNone: true,
         noneLabel: 'None'
+    },
+    { 
+        id: 'gemini-3.1-flash-live-preview', 
+        name: 'Gemini 3.1 Flash Live', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
     }
   ];
 

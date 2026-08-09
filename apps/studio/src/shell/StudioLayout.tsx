@@ -222,8 +222,12 @@ export const StudioLayout: React.FC<{
           resolves to the identical box (measured x 288 -> 1536 at a 1536px
           viewport) and follows the sidebar for free.
 
-          It stays mounted for the whole session, zero state and live thread
-          alike, which is the point — it is not part of the message flow.
+          It appears only once the conversation is under way. Gemini's temporary
+          chat opens with no header at all — the zero state carries the
+          `gemini_chat_temp` glyph and the "Incognito chat" card instead, and
+          the pinned label fades in with the thread. Hence the `isChatOngoing`
+          gate; without it the label sat above the zero-state card, which Gemini
+          never shows.
 
           `pointer-events-none` is the one deliberate departure. The measured
           header box fully contains the toggle button (x 1488-1524, y 14-50), so
@@ -231,7 +235,7 @@ export const StudioLayout: React.FC<{
           leave. The label has no interactive content, so this changes nothing
           visual.
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isIncognito && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isIncognito && isChatOngoing && (
           <div
             data-test-id="temporary-chat-header"
             className="absolute inset-x-0 top-0 z-20 flex items-center justify-center p-4 pointer-events-none select-none"
@@ -260,17 +264,24 @@ export const StudioLayout: React.FC<{
               }}
               title={isIncognito ? "Exit temporary chat" : "Temporary chat"}
               aria-label="Temporary chat"
-              className={`w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors ${
-                isIncognito 
-                  ? 'bg-[#e3e3e3]/[0.16] text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.24]' 
-                  : 'bg-transparent text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
-              }`}
+              /*
+               * No selected-state fill. Active is carried by the glyph swapping
+               * to `close`, so a pill on top of that would be saying it twice;
+               * hover is the only background this button ever shows.
+               */
+              className="w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors bg-transparent text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]"
             >
-              <span 
+              <span
                 className="lumi-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
                 style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
               >
-                gemini_chat_temp
+                {/*
+                  Active, this becomes the close glyph — Gemini swaps the symbol
+                  rather than relying on the filled pill alone, so the control
+                  reads as "leave temporary chat" instead of just "selected".
+                  The pill stays; it is the swap that was missing.
+                */}
+                {isIncognito ? 'close' : 'gemini_chat_temp'}
               </span>
             </button>
           </div>

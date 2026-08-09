@@ -13,11 +13,23 @@ export const SidebarItem: React.FC<{
   href?: string;
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
-}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible }) => (
-  <div className="pl-1.5 pr-0">
-    <div 
+  flushRight?: boolean;
+}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight }) => (
+  <div className={flushRight ? 'pl-1.5 pr-0' : 'px-1.5'}>
+    <div
       role="button"
       tabIndex={0}
+      /*
+       * Collapsed, the label is only readable as a tooltip. `title` routes it
+       * through <GlobalTooltips>, so the rail gets Gemini's tooltip rather than
+       * a second, hand-rolled one.
+       *
+       * `right` is measured, not chosen: hovering a Gemini sidebar row put the
+       * surface at x=284 against a trigger ending at 276 (gap 8) with its
+       * vertical centre on the trigger's, under `mat-mdc-tooltip-panel-right`.
+       */
+      title={isCollapsed ? label : undefined}
+      data-tooltip-position="right"
       onClick={href ? () => window.open(href, '_blank') : onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -66,11 +78,6 @@ export const SidebarItem: React.FC<{
         </div>
       )}
 
-      {isCollapsed && (
-        <div className="absolute left-[46px] ml-2 px-3 py-1.5 bg-[#18181b] text-white text-[12px] font-medium rounded-lg opacity-0 group-hover/item:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50 border border-white/5 shadow-2xl">
-          {label}
-        </div>
-      )}
     </div>
   </div>
 );

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { flushSync } from 'react-dom';
 import { useStore } from '@nanostores/react';
 import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
@@ -89,7 +90,10 @@ export const InputBar: React.FC<{
    *  whole generation, so this outranks both the send and the live states. */
   isGenerating?: boolean;
   onStopGenerating?: () => void;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating }) => {
+  /** Whether the user has added the Gemini Live model. When false and the
+   *  prompt is empty, a dulled send button is shown instead of the live icon. */
+  liveAvailable?: boolean;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -282,6 +286,26 @@ export const InputBar: React.FC<{
     // submit path rather than only on the button.
     if (isGenerating) return;
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
+      // Leave fullscreen in its OWN commit, before submitting.
+      //
+      // In the zero state, submitting flips `hasStarted`, which unmounts the
+      // centred composer and mounts the docked one. They share a `layoutId`,
+      // so Framer morphs between them — that morph is wanted. What it measures
+      // as the "from" box is not: batched into one commit with the submit, the
+      // outgoing composer is still the fullscreen rectangle, so the morph eases
+      // a full-viewport box down to a 64px bar and scales every child on the
+      // way. Collapsing first means it measures the ordinary composer instead,
+      // which is the morph that already ships from the non-fullscreen path.
+      //
+      // `flushSync` is the whole point: without it React batches this with the
+      // submit below and the separation is lost. Cheap — it only does work when
+      // fullscreen is actually open.
+      if (isComposerMaximized) {
+        flushSync(() => {
+          setIsComposerMaximized(false);
+          setCanMaximizeComposer(false);
+        });
+      }
       const submittedAttachments = attachments;
       onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments);
       setPromptText("");
@@ -371,6 +395,35 @@ export const InputBar: React.FC<{
   
   const hasContent = promptText.trim() || hasActiveAttachments || selectedTool;
 
+  // Gemini mounts its send button only when there is something to send. With an
+  // empty box the trailing cluster is [model pill][mic] and no send node exists
+  // in the DOM at all — not hidden, absent. Measured: on the first character
+  // `input-buttons-wrapper-bottom` gains
+  // `div.mat-mdc-tooltip-trigger.send-button-container`, and on the last delete
+  // it loses it again; 4 mount/unmount pairs in one capture, no exceptions.
+  //
+  // Willow's slot is dual-purpose, so this is not a straight copy. With a live
+  // model added the empty-box slot is the Live toggle and has to stay. It is
+  // only with no live model that an empty box leaves the slot with nothing to
+  // say — that is the case that used to render a dulled, inert send button, and
+  // the case Gemini renders as nothing.
+  //
+  // `isTranscribingDictation` is excluded deliberately: that state owns the
+  // slot as a progress spinner, and it is reached with the box still empty.
+  const showSubmitControl = !(
+    chatVariant
+    && !hasContent
+    && !liveAvailable
+    && !isGenerating
+    && !isTranscribingDictation
+  );
+
+  // True when this slot is the one that mounts and unmounts with the draft, so
+  // the entrance below applies only where Gemini actually plays it. With a live
+  // model the button is permanent and animating it on composer mount would be
+  // an entrance Gemini has no equivalent for.
+  const isSubmitControlContentGated = chatVariant && !liveAvailable;
+
   // Synchronous expand flag for the LEFT CLUSTER ONLY: when a tool is picked, the
   // chip mounts in the same render, so the left group's bottom/py must flip now
   // (not 1 frame later via useEffect) or the taller chip shoves Plus upward.
@@ -448,8 +501,33 @@ export const InputBar: React.FC<{
             </div>
           </div>
 
-          {/* Main Input Row */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? 'transition-[padding] duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+          {/*
+            * Main input row. This wrapper's padding IS the box height: it swings
+            * 40px (`py-[20px]`) to 78px (`pt-4 pb-[62px]`) on expand, so anything
+            * transitioning `padding` here animates the whole composer growing and
+            * shrinking.
+            *
+            * The chat variant does not transition it, because Gemini doesn't.
+            * Every element in Gemini's size chain computes to
+            * `transition-duration: 0s` — `.input-area`, `.text-input-field`,
+            * `.text-input-field_textarea-wrapper`, `rich-textarea`,
+            * `.leading-actions-wrapper`, `.trailing-actions-wrapper` are all
+            * `all / 0s`, and `.ql-editor` / `.text-input-field_textarea-inner`
+            * are `none / 0s`. The only authored height transitions in the whole
+            * composer are on `.text-input-field_textarea-wrapper.pre-fullscreen`
+            * and `.fullscreen` (`height 0.4s cubic-bezier(0.2,0,0,1)`), which
+            * govern the near-fullscreen toggle and not ordinary wrapping. There
+            * is a `.ui-improvements-phase-1 .text-input-field_textarea-inner
+            * { transition: height 0.25s }` in the cascade, but it is overridden
+            * and computes to `none`.
+            *
+            * So Gemini's box snaps to its new size on wrap, on unwrap, on send
+            * and on paste. Ours does too. Gemini's remaining composer transitions
+            * are opacity/transform only (send button, mic, placeholder,
+            * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
+            * `padding-inline 0.2s` on `input-container`; none of those is size.
+            */}
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -470,7 +548,15 @@ export const InputBar: React.FC<{
                 />
               </button>
             )}
-            <textarea 
+            {/*
+              * Collapsed `pl` tracks the plus button: Gemini's single-line row is a
+              * grid with `column-gap: 8px`, so its text sits 8px past the 32px icon
+              * — 20+32+8 = 60px from the box. Ours is 14 (box) + 46 = 60, which is
+              * why this moves with left-[6px] above and not independently of it.
+              * It also lands on the dictation waveform's own left-[46px], which the
+              * old 40px missed by the same 6px.
+              */}
+            <textarea
               ref={textareaRef}
               value={promptText}
               aria-hidden={chatVariant && isDictationActive ? true : undefined}
@@ -501,7 +587,7 @@ export const InputBar: React.FC<{
                 scrollbarGutter: solidExpanded ? 'auto' : 'stable',
                 fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
               }}
-              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto transition-[padding,opacity] ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)] text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `pl-[40px] ${chatVariant ? 'pr-[var(--chat-collapsed-right-padding)]' : 'pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -517,17 +603,61 @@ export const InputBar: React.FC<{
               ref={fileInputRef} 
               onChange={handleFileSelect} 
             />
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : 'bottom-[16px] left-[0px]'}`}>
+            {/*
+              * Leading actions. `left` is measured off Gemini's real composer,
+              * recorded while it was typed into a line at a time and held.
+              *
+              * Gemini's single-line offset is three authored pieces
+              * (@media min-width:768px):
+              *
+              *   .text-input-field                padding: 12px
+              *   .leading-actions-wrapper         margin-inline-start: 2px
+              *                                      — but only :where(.simplified-input-area)
+              *   .simplified-input-menu-container margin-inline-start: 6px
+              *
+              * = 20px. At two lines Gemini DROPS `simplified-input-area` (picking
+              * up `height-expanded-past-single-line with-toolbox-drawer`), so the
+              * 2px rule stops matching and the plus lands at 12+0+6 = 18px. Our
+              * box pads 14px where Gemini's pads 12, so those are left-[6px] and
+              * left-[4px]. Measured settled dwells: 20px @ h=64, 18px @ h=126 and
+              * h=150.
+              *
+              * MEASURING THIS IS DELICATE. Pasting a large block animates the
+              * height from 64px to ~208px in one sweep while Angular's class flip
+              * lags several frames; sampling during that reads 20px at heights it
+              * never actually rests at, which looks like "no horizontal movement".
+              * Type a line at a time and let it settle, or don't trust the number.
+              */}
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`}`}>
               <div className={`${chatVariant ? 'w-8' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? `w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537] ${isPlusMenuOpen ? 'bg-[#333537]' : ''}` : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none`}
+                  className={`${chatVariant ? 'w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537]' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none`}
                 >
                   {chatVariant
-                    ? <MaterialSymbol family="luminous" name="plus" size={24} weight={300} roundness={100} opticalSize={24} />
+                    ? (
+                      /*
+                       * Open turns the plus into a cross by rotating it, which
+                       * is what Gemini does — it is the same glyph, not a swap
+                       * to a `close` symbol. 45deg is exact rather than chosen:
+                       * a plus has 90deg rotational symmetry, so 45deg is the
+                       * unique angle that lands its arms on the diagonals.
+                       * Duration/easing reuse the app's Gemini-derived motion
+                       * token rather than being freshly measured.
+                       */
+                      <span
+                        className="flex items-center justify-center"
+                        style={{
+                          transform: isPlusMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms cubic-bezier(0.2, 0, 0, 1)',
+                        }}
+                      >
+                        <MaterialSymbol family="luminous" name="plus" size={24} weight={300} roundness={100} opticalSize={24} />
+                      </span>
+                    )
                     : <Plus size={22} strokeWidth={2.5} />}
                 </button>
                 <PlusDropdownMenu 
@@ -547,7 +677,15 @@ export const InputBar: React.FC<{
               )}
             </div>
             
-            <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 transition-all duration-[400ms] ease-[cubic-bezier(0.2,0,0,1)]' : 'gap-3 transition-all duration-200'} ${chatVariant ? `bottom-[12px] ${solidExpanded ? 'right-[1px]' : 'right-[0px]'}` : 'bottom-[10px] right-[0px]'}`}>
+            {/* The trailing controls are right-anchored to `.textarea-wrapper`,
+              * whose right edge never moves — the shell's `pr-[15px]` is constant
+              * and the wrapper is `w-full`. So this `right` value is the ONLY
+              * thing that can shift them horizontally, and it must not change
+              * with `solidExpanded`. It used to go 0 -> 1px on expand, which rode
+              * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
+              * have one) the same 1px became a visible sideways jerk on every
+              * wrap and unwrap. Keep it constant. */}
+            <div ref={rightControlsRef} className={`absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative flex items-center shrink-0">
                   <button
@@ -634,6 +772,7 @@ export const InputBar: React.FC<{
                   />
                 )}
               </button>
+              {showSubmitControl && (
               <button
                 onClick={() => {
                   if (isDictationActive) return;
@@ -642,6 +781,7 @@ export const InputBar: React.FC<{
                   if (isGenerating) return onStopGenerating?.();
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
+                  if (!liveAvailable) return;
                   if (isComposerMaximized) setIsComposerMaximized(false);
                   // Empty input in chat → the AudioLines button is the Live
                   // toggle. Same 34×34 circle so footer height is unchanged
@@ -655,30 +795,28 @@ export const InputBar: React.FC<{
                     : isTranscribingDictation
                     ? 'Transcribing voice'
                     : hasContent
-                    ? undefined
+                    ? // Measured, not inferred from the aria-label: Gemini's send
+                      // button is aria-label="Send message" but its tooltip reads
+                      // "Submit". Below-placed, gap 8 (trigger bottom 428.8 ->
+                      // surface 436.8), centred (surface centre 1210.05 vs
+                      // trigger centre 1210).
+                      'Submit'
                     : chatVariant
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
                 aria-label={isGenerating ? 'Stop response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
-                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
-                    ? isGenerating
-                      // Gemini swaps the accent fill for a neutral surface while
-                      // stopping is offered. #282828 is its MDC hover layer
-                      // (#e6e6e6 at 0.08) composited over #171717.
+                    ? isGenerating || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
                       ? 'bg-[#4a7c59]'
-                      : !hasContent && liveActive
-                      ? 'bg-[#4a7c59] hover:bg-[#3f694a] ring-2 ring-[#4a7c59]/40 animate-pulse'
                       : 'bg-[#4a7c59] hover:bg-[#3f694a]'
-                    : isGenerating
+                    : isGenerating || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
                       ? 'bg-white'
-                      : !hasContent && liveActive
-                      ? 'bg-white hover:bg-zinc-200 ring-2 ring-white/30 animate-pulse'
                       : 'bg-white hover:bg-zinc-200'
                 }`}
               >
@@ -710,6 +848,7 @@ export const InputBar: React.FC<{
                           </svg>
                 )}
               </button>
+              )}
             </div>
           </div>
           

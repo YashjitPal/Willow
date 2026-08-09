@@ -9,6 +9,7 @@ Committed static files served from `apps/studio/public/` at build time. No code.
 | `cursors/` | Custom mouse cursors (`.cur`, `.png`). |
 | `media-samples/` | Sample images and videos for the Media app's starter gallery. |
 | `prompt-suggestions/` | Cover images for the Code app's template cards. |
+| `voices/` | Voice preview audio files (`.mp3`, `.wav`) for voice settings. |
 
 All of it is imported via `@willow/assets/*` (`tsconfig.base.json` aliases it) and
 bundled into the app. To add a new asset, drop it here and import it as

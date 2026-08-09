@@ -145,7 +145,16 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           type="button"
           className={ACTION_BUTTON}
           aria-label="Report legal issue"
-          title="Unavailable in Willow"
+          /*
+           * The button's own label, as Gemini's action row shows it — not
+           * "Unavailable in Willow", which is what this used to say. That
+           * string was written when the native bubble's several-hundred-ms
+           * dwell delay kept it effectively unseen; <GlobalTooltips> shows
+           * every `title` instantly, so it became a visible non-Gemini string
+           * on an otherwise-matching row. `disabled` + `aria-disabled` carry
+           * the unavailability, the same split the three-dot menu rows use.
+           */
+          title="Report legal issue"
           disabled
           aria-disabled
         >
@@ -226,7 +235,15 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
                     role="menuitem"
                     disabled={unavailable}
                     aria-disabled={unavailable}
-                    title={unavailable ? 'Unavailable in Willow' : undefined}
+                    /*
+                     * No `title` here. A menu row already states what it does,
+                     * and hovering one must not raise a tooltip over the menu —
+                     * this used to carry title="Unavailable in Willow", which
+                     * was invisible behind the native bubble's dwell delay and
+                     * became an instant tooltip once <GlobalTooltips> took over
+                     * every `title` in the app. `disabled` + `aria-disabled`
+                     * already carry the unavailability, visually and to AT.
+                     */
                     className="flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-[13px] font-normal leading-[17px] text-[#e6e6e6] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.08] focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     onClick={() => runMenuAction(action)}
                   >

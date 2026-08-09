@@ -239,9 +239,14 @@ describe('focus state reset', () => {
   it('lets the exit run from either state', () => {
     // Both directions unmount through the same AnimatePresence, so neither may
     // depend on the atom being reset first.
+    //
+    // `mainContentRect` is in the condition because the rect starts null and the
+    // surface must not paint before it has been measured — see the rect suite
+    // below. It does not weaken this: the rect is never cleared, so once the orb
+    // has been shown, only `showVoiceOrb` decides the exit.
     assert.match(
       chatView,
-      /<AnimatePresence>\s*\{showVoiceOrb && \(/,
+      /<AnimatePresence>\s*\{showVoiceOrb && mainContentRect && \(/,
       'the surface should unmount through AnimatePresence',
     );
   });
@@ -296,5 +301,89 @@ describe('surface rect measurement', () => {
     assert.match(effect[0], /new ResizeObserver\(measure\)/);
     assert.match(effect[0], /observer\.observe\(chatScrollRef\.current\)/);
     assert.match(effect[0], /observer\.disconnect\(\)/, 'and be torn down with the effect');
+  });
+
+  it('measures before paint, so the first frame is never the wrong position', () => {
+    // A plain effect runs after the browser has painted, which is one visible
+    // frame at whatever the previous session left behind — the orb appears, then
+    // corrects. The correction is what read as the north-east slide.
+    assert.match(chatView, /useLayoutEffect\(\(\) => \{\s*if \(!showVoiceOrb\) return;/);
+  });
+
+  it('renders nothing until there is a real rect to render against', () => {
+    // The state used to initialise to a viewport-sized guess, so the orb mounted
+    // against the guess and framer-motion animated `top`/`left` to the correction:
+    // right by half the container's left inset, up by half the header/composer
+    // difference. North-east. Null plus a render guard removes the wrong position
+    // instead of hiding it.
+    assert.match(chatView, /\}\s*\| null>\(null\);/);
+  });
+});
+
+/**
+ * The one-frame placement snap, and the guard that must not skip more than that.
+ *
+ * `mainContentRect` survives the orb closing on purpose — AnimatePresence replays
+ * the last rendered surface on the way out, so clearing it would clear a rect the
+ * exit is still using. The cost is that a *reopen* renders once against the
+ * previous session's rect before the layout effect corrects it. `hasPlaced`
+ * suppresses the transition for that single frame so the correction snaps.
+ *
+ * This suite exists because the first attempt at that guard broke the collapse.
+ */
+describe('placement snap', () => {
+  it('arms the transition a frame after mount and not before', () => {
+    assert.match(
+      focusSurface,
+      /transition=\{hasPlaced \? FOCUS_TRANSITION : \{ duration: 0 \}\}/,
+      'the positioned wrapper is what carries the placement',
+    );
+    assert.match(
+      focusSurface,
+      /requestAnimationFrame\(\(\) => setHasPlaced\(true\)\)/,
+      'a frame later, so the initial position is painted before the transition arms',
+    );
+  });
+
+  it('schedules the frame unconditionally, so StrictMode cannot strand it', () => {
+    // The regression this file is here for. The guard was a ref set *before* the
+    // frame was requested:
+    //
+    //   if (hasPlacedRef.current) return;
+    //   hasPlacedRef.current = true;
+    //   const id = requestAnimationFrame(() => setHasPlaced(true));
+    //   return () => cancelAnimationFrame(id);
+    //
+    // Under StrictMode's double-invoke the cleanup cancels the frame and the
+    // rerun returns early, so nothing reschedules and `hasPlaced` stays false for
+    // the life of the orb. That pins the wrapper at `duration: 0` permanently:
+    // pressing the orb snapped `top`/`left` straight to the composer strip while
+    // the shader's scale still sprang over FOCUS_TRANSITION, and the two halves
+    // of the collapse came apart. Scheduling unconditionally is correct under the
+    // double-invoke — the cleanup cancels, the rerun schedules again.
+    const effect = focusSurface.match(
+      /const \[hasPlaced, setHasPlaced\] = useState\(false\);\s*useEffect\(\(\) => \{[\s\S]*?\}, \[\]\);/,
+    );
+    assert.ok(effect, 'hasPlaced should be plain state driven by a mount effect');
+    assert.doesNotMatch(
+      effect[0],
+      /hasPlacedRef/,
+      'a ref guard here strands the frame on the StrictMode rerun',
+    );
+    assert.doesNotMatch(
+      effect[0],
+      /\breturn;/,
+      'no early exit before requestAnimationFrame',
+    );
+    assert.match(effect[0], /return \(\) => cancelAnimationFrame\(id\);/);
+  });
+
+  it('leaves every later move animated', () => {
+    // Only the first frame is skipped. Pressing the orb, resizing the window and
+    // the composer growing all still animate, because by then the position being
+    // moved from is one the user actually saw. The inner wrapper never had a
+    // reason to skip anything.
+    const inner = focusSurface.slice(focusSurface.indexOf('<motion.div', focusSurface.indexOf('hasPlaced ? FOCUS_TRANSITION')));
+    assert.match(inner, /transition=\{FOCUS_TRANSITION\}/);
   });
 });

@@ -23,6 +23,7 @@ Willow-specific:
 | `src/Avatar.tsx` · `src/AgentIcon.tsx` · `src/CanvasIcon.tsx` | Iconography. |
 | `src/GeminiAttachmentCard.tsx` · `src/RichResourcePreview.tsx` | Attachment/link previews. |
 | `src/TopLoadingBar.tsx` | Route-transition progress bar. |
+| `src/Tooltip.tsx` + `.css` | Gemini's tooltip. Every value measured off gemini.google.com — see below. |
 | `src/hooks/use-auto-resize-textarea.ts` | Grows a textarea to fit its content. |
 
 Decorative / animated:
@@ -45,6 +46,66 @@ code fence, half a table row) and re-render without flickering as more text
 arrives. It also handles KaTeX math, GFM tables, and syntax highlighting. Read
 carefully before changing — most of its length is edge cases that were hit in
 practice.
+
+## Tooltip
+
+`Tooltip.tsx` + `Tooltip.css` reproduce Gemini's tooltip. Not "in the style of" —
+every value in the CSS was read off gemini.google.com with `getComputedStyle`.
+Gemini's authored tooltip CSS is unreachable (4459 rules across 75 sheets, none
+matching `/tooltip/`; one gstatic sheet is CORS-blocked), so the computed
+cascade is the only ground truth and the stylesheet is that cascade written
+back out. **Do not "clean up" the values.** `letter-spacing: 0.096px`,
+`min-width: 40px`, `box-sizing: content-box` on the wrapper and
+`max-height: 40vh` (measured 330.24px against an 825.6px viewport) are all real.
+
+```tsx
+<Tooltip content="Open sidebar" position="right">
+  <button aria-label="Open sidebar">…</button>
+</Tooltip>
+```
+
+The child must be a single element that forwards `ref` and DOM handlers. It
+receives `aria-describedby` plus enter/leave/focus handlers; the accessible name
+is a visually-hidden `role="tooltip"` node and the visible box is `aria-hidden`,
+which is Gemini's own arrangement.
+
+Behaviour, all measured: no show delay, no hide delay, 150ms
+`cubic-bezier(0, 0, 0.2, 1)` in, 75ms `cubic-bezier(0.4, 0, 1, 1)` out, 8px gap
+on every side, and a flip to the opposite side when there is no room.
+
+Edge clamping is deliberately asymmetric — `MARGIN_NEAR = 8`, `MARGIN_FAR = 15`,
+confirmed at three viewport widths. Do not average them; CDK compares overflow
+against the viewport's *width* rather than its right edge, which is where the
+difference comes from.
+
+### `title=` is the app-wide opt-in
+
+`<GlobalTooltips />` is mounted once in `apps/studio/src/main.tsx` and swaps the
+native bubble for this one at every `title=` site — around 230 of them — without
+touching any of them. It strips `title` to `data-willow-tooltip` on `mouseover`
+(capture phase, so it beats Chrome's dwell) and restores it on the way out,
+mirroring the text into `aria-label` only when the element has no name of its
+own.
+
+Two consequences, both of which have already been reported as bugs:
+
+- **No `title`, no tooltip, ever.** `GlobalTooltips` anchors solely on
+  `closest('[title]')`. A collapsed sidebar rail row needs
+  `title={isCollapsed ? label : undefined}` or it stays silent — and do not
+  hand-roll a bubble instead. The old ones sat at `left-[46px]` (x=64) inside a
+  52px rail and were clipped away entirely by the scroll wrapper's
+  `overflow: auto`. A portal cannot be clipped by an ancestor; that is the point.
+- **Any `title` tooltips instantly.** Attributes that were effectively invisible
+  behind the native dwell delay now show immediately. This is why the response
+  three-dot menu rows carry no `title`: `disabled` + `aria-disabled` already
+  carry unavailability, visually and to AT.
+
+Placement defaults to `below`; opt into another side with
+`data-tooltip-position="right"` on the trigger. The collapsed rail uses `right`,
+measured against Gemini's own rail (pane `left` == anchor `right`, gap 8,
+vertical centres equal).
+
+`apps/studio/test/tooltip-triggers.test.mjs` pins both directions.
 
 ## Dependency constraint
 

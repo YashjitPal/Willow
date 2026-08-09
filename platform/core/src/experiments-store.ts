@@ -12,15 +12,13 @@
 
 import { atom } from 'nanostores';
 
-export type ExperimentId = 'voiceOrb';
+export type ExperimentId = never;
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
 const STORAGE_KEY = 'willow:experiments';
 
-export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
-  voiceOrb: false,
-};
+export const EXPERIMENT_DEFAULTS: ExperimentFlags = {};
 
 /**
  * Read persisted flags, ignoring anything unrecognised.
@@ -33,11 +31,11 @@ const readStoredFlags = (): ExperimentFlags => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...EXPERIMENT_DEFAULTS };
     const parsed = JSON.parse(raw) as Partial<Record<string, unknown>>;
-    const next = { ...EXPERIMENT_DEFAULTS };
+    const next: Record<string, boolean> = { ...EXPERIMENT_DEFAULTS };
     for (const id of Object.keys(EXPERIMENT_DEFAULTS) as ExperimentId[]) {
-      if (typeof parsed?.[id] === 'boolean') next[id] = parsed[id] as boolean;
+      if (typeof parsed?.[id] === 'boolean') next[id as string] = parsed[id] as boolean;
     }
-    return next;
+    return next as unknown as ExperimentFlags;
   } catch {
     // Corrupt or unavailable storage must not stop the app booting.
     return { ...EXPERIMENT_DEFAULTS };

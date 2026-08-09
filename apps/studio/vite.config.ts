@@ -2,6 +2,21 @@ import path from "path";
 import { pathToFileURL } from "url";
 import http from "http";
 import https from "https";
+import { execSync } from "child_process";
+
+/**
+ * Resolve the WSL2 virtual NIC IP so the Vite dev proxy can reach services
+ * running inside WSL (e.g. Sub2API) that bind to 0.0.0.0 but are unreachable
+ * at 127.0.0.1 from the Windows host.
+ */
+function getWslIp(): string | null {
+  try {
+    return execSync('wsl hostname -I', { encoding: 'utf-8' }).trim().split(/\s+/)[0] || null;
+  } catch {
+    return null;
+  }
+}
+const WSL_IP = getWslIp();
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
@@ -116,9 +131,17 @@ function dynamicLlmProxy(): Plugin {
         const isHttps = parsed.protocol === 'https:';
         const transport = isHttps ? https : http;
 
+        // When the target points at 127.0.0.1 or localhost but we're on
+        // Windows with WSL, reroute to the WSL virtual NIC IP so the
+        // connection actually reaches the service inside WSL.
+        let connectHost = parsed.hostname;
+        if (WSL_IP && (connectHost === '127.0.0.1' || connectHost === 'localhost')) {
+          connectHost = WSL_IP;
+        }
+
         const proxyReq = transport.request(
           {
-            hostname: parsed.hostname,
+            hostname: connectHost,
             port: parsed.port || (isHttps ? 443 : 80),
             path: upstreamPath,
             method: req.method,
