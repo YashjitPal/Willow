@@ -55,9 +55,14 @@ const THREAD_BOTTOM_PADDING = constant('THREAD_BOTTOM_PADDING');
  *
  * Matching to the semicolon keeps the whole nested ternary, so every branch --
  * including the edit-mode collapse -- is the shipped one.
+ *
+ * The terminator is `;\r?\n`, not `;\n`: this repo is CRLF (core.autocrlf=true),
+ * so a bare `\n` matches nothing and the lazy quantifier runs past the end of
+ * the expression looking for one. This passed only while ChatView happened to
+ * be checked out with LF endings, which is not a state to depend on.
  */
 const gapExpression = (() => {
-  const match = source.match(/const gapBefore = ([\s\S]+?);\n/);
+  const match = source.match(/const gapBefore = ([\s\S]+?);\r?\n/);
   assert.ok(match, 'could not locate the gapBefore expression');
   return match[1];
 })();

@@ -288,14 +288,16 @@ export const InputBar: React.FC<{
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
       // Leave fullscreen in its OWN commit, before submitting.
       //
-      // In the zero state, submitting flips `hasStarted`, which unmounts the
-      // centred composer and mounts the docked one. They share a `layoutId`,
-      // so Framer morphs between them — that morph is wanted. What it measures
-      // as the "from" box is not: batched into one commit with the submit, the
-      // outgoing composer is still the fullscreen rectangle, so the morph eases
-      // a full-viewport box down to a 64px bar and scales every child on the
-      // way. Collapsing first means it measures the ordinary composer instead,
-      // which is the morph that already ships from the non-fullscreen path.
+      // The composer is now a single persistent node, so nothing unmounts here
+      // and there is no `layoutId` morph left to protect — but this call is
+      // still load-bearing, for the surviving half of the original reason.
+      // Submitting flips `isThreadDocked`, which is the composer's
+      // `layoutDependency`, so Framer re-measures the box on that commit.
+      // Batched into one commit with the submit, the "from" box it measures is
+      // still the fullscreen rectangle, and the slide would ease a
+      // full-viewport box down to a 64px bar — scaling every child on the way,
+      // which is exactly the squash the single-node rewrite removed.
+      // Collapsing first means it measures the ordinary composer instead.
       //
       // `flushSync` is the whole point: without it React batches this with the
       // submit below and the separation is lost. Cheap — it only does work when

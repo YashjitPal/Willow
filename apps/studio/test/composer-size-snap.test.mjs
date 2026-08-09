@@ -179,3 +179,74 @@ it('keeps the opacity and colour transitions Gemini also keeps', () => {
   assert.match(source, /transition-\[opacity,transform,background-color\] duration-\[300ms\]/,
     'the fullscreen toggle lost its fade, which is opacity/transform and not size');
 });
+
+// ── The wrap point is measured against the padding that actually renders ─────
+//
+// Reported symptom: typing near the model pill, characters stopped appearing —
+// then a space made them all show up at once in the expanded box.
+//
+// `use-composer-textarea-autosize` decides whether to expand by writing inline
+// padding, reading `scrollHeight`, then clearing the inline padding so the
+// Tailwind class takes over. The two have to agree. They drifted when the chat
+// textarea moved to `pl-[46px]` (aligning with the dictation waveform's
+// `left-[46px]`) while the measurement stayed at 40px, so the hypothetical box
+// was 6px wider than the real one. Text that genuinely wrapped still measured as
+// one line: `shouldExpand` stayed false, the editor stayed one row with
+// `overflowY: 'hidden'`, and the wrapped line was clipped and unreachable.
+
+const AUTOSIZE = () =>
+  fs.readFileSync(
+    path.join(repoRoot, 'features', 'chat', 'src', 'composer', 'use-composer-textarea-autosize.ts'),
+    'utf8',
+  );
+
+/** Both branches of a `chatVariant ? a : b` measurement constant. */
+const measuredPadding = (source, name) => {
+  const m = source.match(
+    new RegExp(`const ${name} = chatVariant \\? '(\\d+)px' : '(\\d+)px';`),
+  );
+  assert.ok(m, `could not locate ${name}`);
+  return { chat: m[1], other: m[2] };
+};
+
+it('measures the collapsed wrap point at the padding the textarea really has', () => {
+  const classes = textareaClasses(COMPOSER());
+
+  // The collapsed pair, straight out of the className ternary.
+  const chatCollapsed = classes.match(/'pl-\[(\d+)px\] pr-\[var\(--chat-collapsed-right-padding\)\]'/);
+  assert.ok(chatCollapsed, 'could not locate the chat collapsed padding class');
+  // Anchored past the chat collapsed class: the expanded `pl-[10px] pr-[24px]`
+  // pairs sit earlier in the same template and would otherwise match first.
+  const otherCollapsed = classes.match(
+    /--chat-collapsed-right-padding\)\]'[\s\S]*?'pl-\[(\d+)px\] pr-\[(\d+)px\]'/,
+  );
+  assert.ok(otherCollapsed, 'could not locate the non-chat collapsed padding class');
+
+  const measured = measuredPadding(AUTOSIZE(), 'collapsedPaddingLeftVal');
+
+  assert.equal(measured.chat, chatCollapsed[1],
+    'the chat collapsed left padding is measured at a different value than it renders — '
+    + 'a real wrap will measure as one line and the wrapped text will be clipped');
+  assert.equal(measured.other, otherCollapsed[1],
+    'the non-chat collapsed left padding drifted from its measurement');
+});
+
+it('measures the expanded wrap point at the padding the textarea really has', () => {
+  const classes = textareaClasses(COMPOSER());
+  assert.match(classes, /'pl-\[10px\] pr-\[24px\]'/,
+    'the chat expanded padding class changed — update the measurement with it');
+
+  const source = AUTOSIZE();
+  assert.equal(measuredPadding(source, 'expandedPaddingLeftVal').chat, '10');
+  assert.equal(measuredPadding(source, 'expandedPaddingRightVal').chat, '24');
+});
+
+it('never leaves the measurement padding on the painted box', () => {
+  // The inline values are scratch. Left behind, they would beat the class and
+  // the editor would render at the measurement geometry instead of its own.
+  const source = codeOnly(AUTOSIZE());
+  assert.match(source, /style\.paddingLeft = '';/,
+    'the measurement no longer clears its inline paddingLeft');
+  assert.match(source, /style\.paddingRight = '';/,
+    'the measurement no longer clears its inline paddingRight');
+});

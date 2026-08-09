@@ -15,6 +15,7 @@ import { Onboarding } from '@willow/onboarding/Onboarding';
 import { ChatView } from '@willow/chat/ChatView';
 import { CodeWorkspaceSkeleton } from '@willow/code/CodeHomeSkeleton';
 import { TopLoadingBar } from '@willow/ui/TopLoadingBar';
+import { topLoadingReasons } from '@willow/ui/top-loading-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
@@ -172,6 +173,23 @@ const App: React.FC = () => {
   React.useEffect(() => () => {
     if (topLoadingHideTimerRef.current) window.clearTimeout(topLoadingHideTimerRef.current);
   }, []);
+
+  // Mirror reasons raised from outside this tree (features/* cannot import from
+  // apps/*, so ChatView reaches the bar through a nanostore) into the refcount
+  // above. The store carries reasons only; the floor and the hide timer stay here
+  // so external callers and App's own call sites share one policy.
+  const externalTopLoadingReasons = useStore(topLoadingReasons);
+  const mirroredTopLoadingRef = React.useRef<readonly string[]>([]);
+  React.useEffect(() => {
+    const previous = mirroredTopLoadingRef.current;
+    mirroredTopLoadingRef.current = externalTopLoadingReasons;
+    for (const reason of externalTopLoadingReasons) {
+      if (!previous.includes(reason)) startTopLoading(reason);
+    }
+    for (const reason of previous) {
+      if (!externalTopLoadingReasons.includes(reason)) finishTopLoading(reason);
+    }
+  }, [externalTopLoadingReasons, startTopLoading, finishTopLoading]);
 
   // Model Config State - Lifted for synchronization.
   // Persisted to localStorage so saved model presets & selection survive reload

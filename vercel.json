@@ -1,0 +1,13 @@
+{
+  "//": "Vercel deployment. The app is a Vite SPA built from apps/studio; /api/image.js is picked up automatically as a serverless function and is NOT part of the Vite build. Set IMAGE_PROXY_HOSTS (comma-separated) and VITE_IMAGE_PROXY=/api/image in the project's environment variables, or leave both unset and images load directly with no referer. See api/image.js.",
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/studio/dist",
+  "framework": null,
+  "rewrites": [
+    {
+      "//": "SPA fallback. Everything that is not a real file and not /api/* renders the app, so client-side routes survive a hard refresh.",
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

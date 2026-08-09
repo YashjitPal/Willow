@@ -50,6 +50,7 @@ import {
 // shell Sidebar import isTempChatId from here.
 export { isTempChatId, parseTempIdTimestamp, sortChatsNewestToOldest } from './chat-metadata';
 import { generateChatTitleWith } from './chat-title';
+import { bumpChatSelectionEpoch } from './chat-selection-store';
 import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
 import { getSyncedFolders } from '../synced-folders';
 import { syncRegisteredFolder } from './synced-folder-driver';
@@ -247,6 +248,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
   const activateChatScope = useCallback(async (rootId: string): Promise<void> => {
     isSwitchingChatScopeRef.current = true;
+    // Nothing may outlive a scope change. `chatStorageScopeRef` is about to be
+    // reassigned, so a background chat turn settling afterwards would write into
+    // the next account's namespace under this one's chat name — and one settling
+    // mid-drain is silently discarded, because enqueueChatOperation no-ops while
+    // the flag is set. Announced before the drain so those turns are already
+    // gone when the queues are counted.
+    window.dispatchEvent(new CustomEvent('willow_chat_scope_changing'));
     try {
       while (chatOperationQueuesRef.current.size > 0 || chatReconcilePromiseRef.current) {
         const pending = [
@@ -1375,6 +1383,18 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       persistChatMetadata();
 
+      // The chat id has now actually moved (new body written, old one deleted).
+      // Announced so module-level owners of in-flight work can follow it — a
+      // background chat turn is registered under the id it started on, and the
+      // temp -> title adoption below happens mid-stream. `setActiveChatId`
+      // deliberately declines when the user is viewing another chat, so it is
+      // not a usable signal for this.
+      if (previousId) {
+        window.dispatchEvent(new CustomEvent('willow_chat_id_moved', {
+          detail: { from: previousId, to: chatId },
+        }));
+      }
+
       setActiveChatId((current) => current === null || current === previousId ? chatId : current);
       if (!chatsDir) return true;
 
@@ -1661,6 +1681,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * Select local inbox chat
    */
   const selectLocalFSInboxChat = useCallback((chatId: string | null) => {
+    // The ONLY user-initiated selection. Renames, temp-id adoption, deletes and
+    // scope switches all call setActiveChatId directly and must not bump this —
+    // ChatView blanks the conversation area on a bump, and blanking a chat the
+    // user is reading because it got renamed is a regression, not a load.
+    bumpChatSelectionEpoch();
     setActiveChatId(chatId);
   }, []);
 
@@ -2082,6 +2107,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
       delete chatTimestampsRef.current[chatId];
       persistChatMetadata();
+      // Announced BEFORE the body is removed, so an in-flight turn for this chat
+      // is aborted and discarded rather than saved. saveLocalFSChat clears the
+      // tombstone and re-adds the id to the chat list, so a completion landing
+      // after a delete would resurrect the chat in IndexedDB, in Recents and on
+      // disk — and it would survive the reconciler, because the record is no
+      // longer a tombstone.
+      window.dispatchEvent(new CustomEvent('willow_chat_deleted', { detail: { chatId } }));
       try { await deleteChatBody(chatId, chatStorageScopeRef.current); } catch {}
       setActiveChatId((current) => current === chatId ? null : current);
       const rootHandle = await getActiveHandle();
@@ -2240,6 +2272,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         return false;
       }
       persistChatMetadata();
+      // See the matching dispatch in saveLocalFSChat: a turn generating in this
+      // chat is keyed on the old id and has to follow the rename.
+      window.dispatchEvent(new CustomEvent('willow_chat_id_moved', {
+        detail: { from: oldChatId, to: newChatId },
+      }));
       setActiveChatId((current) => current === oldChatId ? newChatId : current);
       if (chatsDir) {
         try {

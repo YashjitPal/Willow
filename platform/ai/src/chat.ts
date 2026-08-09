@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport } from "./providers/endpoints";
+import { mergeCitations, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, type AnthropicCitedBlock, type MessageCitations } from "./grounding";
 
 export interface Attachment {
   type: 'image' | 'text' | 'file';
@@ -38,6 +39,14 @@ export interface AiOptions {
   baseUrl?: string;
   signal?: AbortSignal;
   maxToolIterations?: number;
+  /**
+   * Opt in to the media-agent harness: the generate_image / generate_video tool
+   * suite and its system instruction. Off by default, and it must stay that way.
+   * Normal chat has no executor for these tools, so offering them just makes the
+   * model announce generations that never happen. Only the media agent, which
+   * passes a real `onToolCall`, may turn this on.
+   */
+  enableMediaTools?: boolean;
 }
 
 export const isAbortError = (error: unknown): boolean =>
@@ -518,7 +527,8 @@ const streamChatImpl: any = async (
   systemPrompt?: string,
   onPhase?: (phase: StreamPhase) => void,
   onToolCall?: (name: string, args: any) => Promise<any>,
-  onThought?: (thought: string) => void
+  onThought?: (thought: string) => void,
+  onCitations?: (citations: MessageCitations) => void
 ) => {
   const { provider, model, apiKey } = options;
   const messagesList: any = messages;
@@ -564,8 +574,11 @@ const streamChatImpl: any = async (
       tools.push({ codeExecution: {} });
     }
 
-    // Register our 18 premium Agent Harness custom tools
-    tools.push({
+    // The media-agent harness tools, offered only when the caller can execute
+    // them. Chat mode leaves this off so the model reaches for search instead of
+    // announcing an image generation nothing is wired to perform.
+    const mediaToolsEnabled = options.enableMediaTools === true;
+    if (mediaToolsEnabled) tools.push({
       functionDeclarations: [
         {
           name: "generate_image",
@@ -829,10 +842,14 @@ Adhere to the following rules and guidelines:
 =========================================
 `;
 
-    // Fully re-engineer the prompt hierarchy: override the verbose user guidelines with a strict concise decorator
-    const combinedSystemPrompt = systemPrompt 
-      ? `${harnessSystemInstruction}\n\n[USER SYSTEM PROMPT (Note: You MUST enforce our professional emoji-free, concise tonality and override any verbose style patterns defined below)]:\n${systemPrompt}`
-      : harnessSystemInstruction;
+    // With the harness on, it prefixes the caller's prompt and overrides its
+    // style rules. With it off, the caller's prompt stands alone — chat mode's
+    // own instructions are not something the media harness should be rewriting.
+    const combinedSystemPrompt = mediaToolsEnabled
+      ? (systemPrompt
+          ? `${harnessSystemInstruction}\n\n[USER SYSTEM PROMPT (Note: You MUST enforce our professional emoji-free, concise tonality and override any verbose style patterns defined below)]:\n${systemPrompt}`
+          : harnessSystemInstruction)
+      : systemPrompt;
 
     const geminiModel: any = genAI.getGenerativeModel({
       model,
@@ -929,6 +946,17 @@ Adhere to the following rules and guidelines:
     let toolIterations = 0;
     let hasEmittedAnyThought = false;
 
+    // Grounding metadata -> inline source chips. Collected per tool-loop
+    // iteration: a support's `groundingChunkIndices` only mean anything within
+    // the response that produced them, so the iterations are merged (and their
+    // indices re-based) once at the end rather than accumulated in place.
+    const citationParts: MessageCitations[] = [];
+    let answerText = '';
+    const emitToken = (text: string) => {
+      answerText += text;
+      onToken(text);
+    };
+
     while (keepRunning) {
       throwIfAborted(signal);
       if (++toolIterations > maxToolIterations) {
@@ -950,12 +978,21 @@ Adhere to the following rules and guidelines:
       const rawResponseParts: any[] = [];
       let hasEmittedThoughtThisIteration = false;
 
+      // Segment offsets are relative to *this* response's own text, so the
+      // iteration's start in the combined answer is the shift to apply.
+      const iterationStart = answerText.length;
+      let iterationText = '';
+      const groundingSeen: any[] = [];
+
       for await (const chunk of result.stream) {
         throwIfAborted(signal);
         const cand: any = (chunk as any).candidates?.[0];
 
-        if (!hasEmittedText && cand?.groundingMetadata?.webSearchQueries?.length) {
-          setPhase('searching');
+        if (cand?.groundingMetadata) {
+          groundingSeen.push(cand.groundingMetadata);
+          if (!hasEmittedText && cand.groundingMetadata.webSearchQueries?.length) {
+            setPhase('searching');
+          }
         }
 
         const chunkParts: any[] = cand?.content?.parts ?? [];
@@ -1001,7 +1038,8 @@ Adhere to the following rules and guidelines:
               hasEmittedText = true;
               onPhase?.('responding');
             }
-            onToken(part.text);
+            iterationText += part.text;
+            emitToken(part.text);
           }
         }
       }
@@ -1012,6 +1050,19 @@ Adhere to the following rules and guidelines:
       const canonicalParts: any[] = rawResponseParts.length > 0
         ? rawResponseParts
         : fullResponse?.candidates?.[0]?.content?.parts ?? [];
+
+      // The aggregated response carries the completed grounding metadata; the
+      // streamed chunks sometimes carry a more complete one. `pickGroundingMetadata`
+      // takes whichever has the most supports rather than merging, because a
+      // support's chunk indices are only valid inside its own metadata object.
+      const grounding = pickGroundingMetadata([
+        ...groundingSeen,
+        fullResponse?.candidates?.[0]?.groundingMetadata,
+      ]);
+      if (grounding) {
+        const resolved = resolveCitations(grounding, iterationText, iterationStart);
+        if (resolved.citations.length) citationParts.push(resolved);
+      }
 
       // Record the model's actual response parts (including functionCall and thought_signature) verbatim in the conversation history
       historyContents.push({
@@ -1031,7 +1082,13 @@ Adhere to the following rules and guidelines:
             if (onToolCall) {
               toolResult = await onToolCall(call.name, call.args);
             } else {
-              toolResult = mockExecuteTool(call.name, call.args);
+              // No executor. Say so rather than falling back to mockExecuteTool,
+              // whose canned success payloads let the model report media it never
+              // produced. A caller that wants the mock passes it in explicitly.
+              toolResult = {
+                status: 'error',
+                error: `The tool "${call.name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
+              };
             }
             throwIfAborted(signal);
             
@@ -1053,25 +1110,25 @@ Adhere to the following rules and guidelines:
               for (const mediaId of toolResult.media_ids) {
                 if (mediaId && !emittedMedia.has(mediaId)) {
                   emittedMedia.add(mediaId);
-                  onToken(`\n\n![Generated Media](media-id:${mediaId})\n\n`);
+                  emitToken(`\n\n![Generated Media](media-id:${mediaId})\n\n`);
                 }
               }
             } else if (toolResult?.media_id) {
               if (!emittedMedia.has(toolResult.media_id)) {
                 emittedMedia.add(toolResult.media_id);
-                onToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
+                emitToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
               }
             } else if (toolResult && typeof toolResult === 'object' && Array.isArray(toolResult.urls)) {
               for (const url of toolResult.urls) {
                 if (url && !emittedMedia.has(url)) {
                   emittedMedia.add(url);
-                  onToken(`\n\n![Generated Media](${url})\n\n`);
+                  emitToken(`\n\n![Generated Media](${url})\n\n`);
                 }
               }
             } else if (toolResult?.url) {
               if (!emittedMedia.has(toolResult.url)) {
                 emittedMedia.add(toolResult.url);
-                onToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
+                emitToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
               }
             }
             
@@ -1095,6 +1152,11 @@ Adhere to the following rules and guidelines:
       } else {
         keepRunning = false;
       }
+    }
+
+    if (citationParts.length) {
+      const merged = mergeCitations(citationParts);
+      if (merged.citations.length) onCitations?.(merged);
     }
     return historyContents;
   } else if (provider === 'openai') {
@@ -1302,24 +1364,76 @@ Adhere to the following rules and guidelines:
         return { role: m.role, content: contentParts };
     });
 
+    // Anthropic runs search server-side, like Gemini's `googleSearch`, so the
+    // same `enableSearch` toggle governs both and no key or endpoint is needed.
+    //
+    // `web_search_20250305` rather than a newer version on purpose: from
+    // `web_search_20260209` onward `allowed_callers` defaults to
+    // `["code_execution_20260120"]`, which routes the search through the code
+    // execution tool (dynamic filtering) and returns a 400 on models that cannot
+    // call tools programmatically. This version calls directly on every model
+    // that supports the tool at all, which is what a chat turn wants.
+    const anthropicSearchEnabled = options.enableSearch !== false;
+    const anthropicTools = anthropicSearchEnabled
+      ? [{ type: 'web_search_20250305', name: 'web_search' }]
+      : [];
+
     const stream = await anthropic.messages.create({
       model,
       max_tokens: 4096,
       ...(systemPrompt ? { system: systemPrompt } : {}),
       // @ts-ignore
       messages: formattedMessages,
+      ...(anthropicTools.length ? { tools: anthropicTools as any } : {}),
       stream: true,
     }, signal ? { signal } : undefined);
 
+    // Citations arrive per content block and carry no offsets into the answer,
+    // so the span each block occupies has to be tracked as it streams. See
+    // `AnthropicCitedBlock`.
+    const anthropicSearchResults: any[] = [];
+    const anthropicBlocks: AnthropicCitedBlock[] = [];
+    let anthropicTextLength = 0;
+    let currentBlock: AnthropicCitedBlock | null = null;
+
     for await (const messageStreamEvent of stream) {
       throwIfAborted(signal);
-      if (messageStreamEvent.type === 'content_block_delta') {
-        if (messageStreamEvent.delta.type === 'text_delta') {
-          onToken(messageStreamEvent.delta.text);
-        } else if ((messageStreamEvent.delta as any).type === 'thinking_delta') {
-          onThought?.((messageStreamEvent.delta as any).thinking);
+      const event = messageStreamEvent as any;
+
+      if (event.type === 'content_block_start') {
+        const block = event.content_block;
+        if (block?.type === 'text') {
+          currentBlock = { start: anthropicTextLength, end: anthropicTextLength, citations: [] };
+          // A non-streaming path can deliver a whole block's citations here
+          // rather than as deltas.
+          if (Array.isArray(block.citations)) currentBlock.citations.push(...block.citations);
+        } else if (block?.type === 'web_search_tool_result') {
+          // `content` is the result list on success and a single error object
+          // when the search failed (rate limits, `max_uses_exceeded`); the API
+          // still returns HTTP 200 either way, so the shape is the only signal.
+          if (Array.isArray(block.content)) anthropicSearchResults.push(...block.content);
         }
+      } else if (event.type === 'content_block_delta') {
+        const delta = event.delta;
+        if (delta?.type === 'text_delta') {
+          onToken(delta.text);
+          anthropicTextLength += delta.text.length;
+          if (currentBlock) currentBlock.end = anthropicTextLength;
+        } else if (delta?.type === 'thinking_delta') {
+          onThought?.(delta.thinking);
+        } else if (delta?.type === 'citations_delta' && delta.citation) {
+          if (currentBlock) currentBlock.citations.push(delta.citation);
+        }
+      } else if (event.type === 'content_block_stop') {
+        if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
+        currentBlock = null;
       }
+    }
+    if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
+
+    if (anthropicBlocks.length || anthropicSearchResults.length) {
+      const resolved = resolveAnthropicCitations(anthropicSearchResults, anthropicBlocks);
+      if (resolved.citations.length) onCitations?.(resolved);
     }
   } else if (provider === 'moonshot' || provider === 'spacexai' || provider === 'zhipuai') {
     // OpenAI-compatible providers (Moonshot/Kimi, SpaceXAI/Grok, Zhipu AI/GLM)

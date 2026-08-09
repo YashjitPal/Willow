@@ -119,8 +119,15 @@ test('a chat loaded on a temp id can still be named later', () => {
   // Self-heals chats already stranded unnamed by the old gate: the load path
   // must leave chatTitle null for a temp id, or the `!chatTitle` gate closes
   // permanently and the skeleton shimmers for the rest of the session.
-  const loads = chatView.match(/setChatTitle\(isTempChatId\(activeChatId\) \? null : activeChatId\)/g) ?? [];
-  assert.equal(loads.length, 2, 'both load branches must leave a temp id unnamed');
+  //
+  // Both load branches (disk had messages / disk had nothing) now go through the
+  // one commit helper, so there is a single site rather than two — and the
+  // empty branch must still route through it, since a chat whose first turn is
+  // generating in the background has nothing on disk yet.
+  const commits = chatView.match(/setChatTitle\(isTempChatId\(chatId\) \? null : chatId\)/g) ?? [];
+  assert.equal(commits.length, 1, 'the load commit must leave a temp id unnamed');
+  const branches = chatView.match(/commitLoadedChat\(activeChatId, /g) ?? [];
+  assert.equal(branches.length, 2, 'both load branches must go through the commit helper');
 });
 
 test('the title save credits the exact array it wrote', () => {
@@ -129,11 +136,24 @@ test('the title save credits the exact array it wrote', () => {
   // newer array as saved and the autosave effect would dedup away the write
   // carrying the reply.
   assert.match(titleEffect, /const snapshot = messagesRef\.current;/);
-  assert.match(titleEffect, /const latest = snapshot[\s\S]{0,80}?\.map\(serializeChatMessage\)/);
-  assert.match(titleEffect, /lastSavedMessagesRef\.current = snapshot;/);
+  assert.match(titleEffect, /const latest = source[\s\S]{0,80}?\.map\(serializeChatMessage\)/);
+  assert.match(titleEffect, /if \(!runningTurn\) lastSavedMessagesRef\.current = snapshot;/);
   assert.ok(
     !titleEffectCode.includes('lastSavedMessagesRef.current = messagesRef.current'),
     'the dedup marker must not be re-read from the live ref after the await',
+  );
+});
+
+test('the title save prefers the live turn over a frozen messagesRef', () => {
+  // Naming has no cancellation, so it outlives unmount — and messagesRef is
+  // frozen at whatever the dead component last saw, which for a backgrounded
+  // turn is the empty placeholder. hasSavedMessageContent drops that, so the
+  // save would be the user message ALONE; landing after the runner's save, it
+  // erases the reply.
+  assert.match(titleEffect, /const runningTurn = getChatTurnByChatId\(/);
+  assert.match(
+    titleEffect,
+    /runningTurn\?\.status === 'running'[\s\S]{0,120}?runningTurn\.historyBefore, runningTurn\.userMessage/,
   );
 });
 

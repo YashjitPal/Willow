@@ -212,7 +212,9 @@ it('reads the Code-mode map once per render, not once per row', () => {
     'the per-render memo is gone — the sidebar is rescanning storage per row again');
 
   // The Recents row must index the resolved map, not call the per-chat helper.
-  const rowLookup = source.indexOf('const startedInCode =');
+  // The row moved into RecentChatRow, so the lookup is now the prop the list
+  // passes down rather than a local in the map callback.
+  const rowLookup = source.indexOf('startedInCode=');
   assert.notEqual(rowLookup, -1, 'could not locate the Recents row Code-mode lookup');
   const rowLine = source.slice(rowLookup, source.indexOf('\n', rowLookup));
   assert.match(rowLine, /codeChats\[/,
@@ -222,11 +224,13 @@ it('reads the Code-mode map once per render, not once per row', () => {
 it('keeps the migration-scan effect off the memoized map', () => {
   const source = fs.readFileSync(SIDEBAR_SOURCE, 'utf8');
 
-  const pending = source.indexOf('const pending = localChats.filter(');
+  // Scoped to the visible window rather than the whole history: this reads full
+  // chat bodies on the same per-chat queue a user's own chat open waits on.
+  const pending = source.indexOf('const pending = scanCandidates.filter(');
   assert.notEqual(pending, -1, 'could not locate the migration-scan filter');
   // The whole filter expression, not its first line. The predicate spans four
   // lines, so slicing to the first newline captured only
-  // `const pending = localChats.filter((chatId) =>` — which contains neither
+  // `const pending = scanCandidates.filter((chatId) =>` — which contains neither
   // name this test is about, so the isCodeChat assertion could never pass.
   const filterEnd = source.indexOf(');', pending);
   assert.notEqual(filterEnd, -1, 'could not find the end of the migration-scan filter');

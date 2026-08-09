@@ -101,7 +101,13 @@ export const useComposerTextareaAutosize = ({
             // one more wrapped line than the final, scrollbar-free textarea uses.
             textareaRef.current.style.overflowY = 'hidden';
 
-            const collapsedPaddingLeftVal = '40px';
+            // Must match the collapsed `pl-` class on the textarea exactly, per
+            // variant — the chat one is 46px to align with the dictation
+            // waveform's `left-[46px]`. Measuring 6px wider than the box really
+            // is hides a genuine wrap: `shouldExpand` stays false, the editor
+            // stays one row with `overflowY: hidden`, and the wrapped line is
+            // clipped until the next keystroke pushes past the gap.
+            const collapsedPaddingLeftVal = chatVariant ? '46px' : '40px';
             const collapsedPaddingRightVal = chatVariant ? `${collapsedChatPaddingRight}px` : '76px';
             // Gemini's multiline editor begins 24px inside the prompt shell.
             // Willow's shell already contributes 14px left / 15px right, so
