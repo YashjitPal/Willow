@@ -7,16 +7,78 @@ import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import 'katex/dist/katex.min.css';
+import { BentoCardGroup } from './GeminiBentoCard';
+import { GeminiInlineImage } from './GeminiInlineImage';
+import { GeminiSingleImage } from './GeminiSingleImage';
+import { isBentoFence, parseBentoCards } from './gemini-cards';
 import { MaterialSymbol } from './MaterialSymbol';
 import {
   RichResource,
   RichResourceGroup,
   resourceFromUrl,
 } from './RichResourcePreview';
+import { SourceChip, type SourceChipItem } from './SourceChip';
 
 import { useInjectStyles } from './streaming-markdown-styles';
 
 const STREAM_FADE_MS = 400;
+
+/** Mirrors `MessageCitations` from @willow/ai/grounding, declared structurally
+ *  so this component keeps no dependency on the AI layer. */
+export interface SourceCitations {
+  sources: SourceChipItem[];
+  citations: { startIndex: number; endIndex: number; sourceIndices: number[] }[];
+}
+
+interface ChipGroup {
+  start: number;
+  end: number;
+  sources: SourceChipItem[];
+}
+
+/**
+ * Flattens citations into one entry per cited run, in document order.
+ *
+ * Grouping into blocks happens later, in `chipSourcesForRange`, because only the
+ * renderer knows where a block starts and ends.
+ */
+function buildChipGroups(citations?: SourceCitations): ChipGroup[] {
+  if (!citations?.citations?.length || !citations.sources?.length) return [];
+  const groups: ChipGroup[] = [];
+  for (const citation of citations.citations) {
+    const sources = citation.sourceIndices
+      .map((index) => citations.sources[index])
+      .filter((source): source is SourceChipItem => !!source && !!source.uri);
+    if (!sources.length) continue;
+    groups.push({ start: citation.startIndex, end: citation.endIndex, sources });
+  }
+  return groups.sort((a, b) => a.end - b.end);
+}
+
+/**
+ * Every source cited anywhere inside `[start, end)`, de-duplicated by URL and
+ * kept in first-cited order.
+ *
+ * A run is claimed by the block its *end* falls in, so a citation spanning a
+ * block boundary attributes to where it finishes — the same place Gemini puts
+ * the chip. Duplicate URLs collapse; duplicate titles do not, which is why one
+ * measured chip reads "NDTV +1" for two different NDTV pages.
+ */
+function chipSourcesForRange(context: RenderContext, start: number, end: number): SourceChipItem[] {
+  const groups = context.chipGroups;
+  if (!groups?.length || end <= start) return [];
+  const seen = new Set<string>();
+  const sources: SourceChipItem[] = [];
+  for (const group of groups) {
+    if (group.end <= start || group.end > end) continue;
+    for (const source of group.sources) {
+      if (seen.has(source.uri)) continue;
+      seen.add(source.uri);
+      sources.push(source);
+    }
+  }
+  return sources;
+}
 
 interface WordProps {
   children: string;
@@ -479,6 +541,18 @@ interface RenderContext {
   strong?: boolean;
   em?: boolean;
   strike?: boolean;
+  /** Source chips to place, each keyed by the character offset it follows. */
+  chipGroups?: ChipGroup[];
+  /**
+   * Running count of chips emitted this render, used to stagger their entrance.
+   *
+   * A holder object rather than a number because the context is spread
+   * (`{...context}`) when descending into strong/em/list children -- a plain
+   * field would be copied and each branch would restart its own count. Spreading
+   * copies the reference, so every branch shares one counter and the ordinals
+   * follow document order.
+   */
+  chipOrder?: { next: number };
 }
 
 function renderAnimatedText(value: string, start: number, context: RenderContext): React.ReactNode[] {
@@ -1020,12 +1094,43 @@ function isDisplayDelimitedMath(node: any, context: RenderContext): boolean {
   );
 }
 
+/**
+ * An image written *into* prose, which Gemini's markdown emitter renders as
+ * `.inline-image-container` — a floated block, not an inline `<img>`.
+ *
+ * It has to be hoisted out of the `<p>`, and that is not a stylistic choice.
+ * Gemini's host writes its markdown as an HTML string, so the parser gets the
+ * last word, and the parser hoists: `<p>before<div>…</div>after</p>` parses as
+ * `<p>before</p>` + `<div>…</div>` + `"after"` (verified against Chrome's own
+ * parser; a `<span>` in the same position stays nested, so it is the block
+ * display that causes it). React builds via the DOM API and would happily nest
+ * the div inside the p instead, producing a tree Gemini never has — so the
+ * hoist is reproduced explicitly here.
+ *
+ * `media-id:` images are excluded for the same reason as in
+ * `standaloneInlineImage`: they are Willow's own canvas media and belong to
+ * `MediaGallery`, which carries their status and ratio.
+ */
+function hoistableInlineImage(node: any, context: RenderContext) {
+  if (node.type !== 'image' && node.type !== 'imageReference') return null;
+  const definition = node.type === 'imageReference' ? definitionFor(node, context) : undefined;
+  const url = node.url || definition?.url || '';
+  if (!url || url.startsWith('media-id:')) return null;
+  const src = safeHref(url);
+  if (!src) return null;
+  return { src, alt: node.alt || '', credit: node.title || definition?.title || '' };
+}
+
 function renderParagraphNode(node: any, context: RenderContext, key: string): React.ReactNode {
   const children = node.children || [];
   const blocks: React.ReactNode[] = [];
   const richResources = richResourcesInNode(node, context);
   let inlineNodes: any[] = [];
   let skipLeadingWhitespace = false;
+  // Gemini renders exactly one chip per block, as its last child, aggregating
+  // every source cited anywhere in that block (measured: 6 chips over 6
+  // paragraphs, never two in one block, 8 citation spans collapsing into 6).
+  const chipSources = chipSourcesForRange(context, offsetOf(node), endOffsetOf(node, offsetOf(node)));
 
   const flushInline = () => {
     while (inlineNodes.length && isWhitespaceText(inlineNodes[inlineNodes.length - 1])) {
@@ -1057,12 +1162,55 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
       return;
     }
 
+    const hoisted = hoistableInlineImage(child, context);
+    if (hoisted) {
+      flushInline();
+      const imageStart = offsetOf(child, offsetOf(node) + childIndex);
+      blocks.push(
+        <GeminiInlineImage
+          key={'inline-image-' + imageStart}
+          src={hoisted.src}
+          alt={hoisted.alt}
+          credit={hoisted.credit}
+        />
+      );
+      skipLeadingWhitespace = true;
+      return;
+    }
+
     if (skipLeadingWhitespace && isWhitespaceText(child)) return;
     skipLeadingWhitespace = false;
     inlineNodes.push(child);
   });
 
   flushInline();
+  // The chip is the last child of the block's final paragraph, so it sits on the
+  // same line as the closing text and wraps with it. A block whose last element
+  // is display math gets the chip appended as its own trailing paragraph.
+  if (chipSources.length > 0) {
+    const lastIndex = blocks.length - 1;
+    const last = lastIndex >= 0 ? blocks[lastIndex] : null;
+    const chip = (
+      <SourceChip
+        key="source-chip"
+        sources={chipSources}
+        ordinal={context.chipOrder ? context.chipOrder.next++ : 0}
+      />
+    );
+    if (React.isValidElement(last) && last.type === 'p') {
+      const existing = (last.props as any).children;
+      blocks[lastIndex] = React.cloneElement(
+        last as React.ReactElement<any>,
+        undefined,
+        existing,
+        chip,
+      );
+    } else {
+      blocks.push(
+        <p key={'paragraph-chip-' + offsetOf(node)} className="smd-paragraph">{chip}</p>
+      );
+    }
+  }
   const paragraph = blocks.length === 1
     ? blocks[0]
     : <React.Fragment key={key}>{blocks}</React.Fragment>;
@@ -1165,7 +1313,15 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
           )}
         </blockquote>
       );
-    case 'code':
+    case 'code': {
+      // A card fence carries JSON, not source. While the block is still
+      // arriving the JSON does not parse, and `parseBentoCards` returns null —
+      // we render nothing at all rather than flashing a code block that turns
+      // into cards a token later.
+      if (isBentoFence(node.lang)) {
+        const cards = parseBentoCards(node.value || '');
+        return cards ? <BentoCardGroup key={key} cards={cards} /> : null;
+      }
       return (
         <CodeBlock
           key={key}
@@ -1174,6 +1330,7 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
           settled={start < context.settledBefore}
         />
       );
+    }
     case 'math':
       return (
         <MathExpression
@@ -1306,6 +1463,35 @@ function renderFootnotes(tree: any, context: RenderContext): React.ReactNode | n
   );
 }
 
+/**
+ * A paragraph holding one image and nothing else, where that image is an
+ * ordinary URL rather than a `media-id:` reference.
+ *
+ * The split is deliberate. `media-id:` images are Willow's own generated canvas
+ * media — they carry a status, a ratio and a fullscreen action, which is what
+ * `MediaGallery` exists to render. An image the model merely *cites* has none of
+ * that, and it is exactly the case Gemini renders with `.inline-image-container`.
+ *
+ * Gemini's own emitter takes `alt` and a separate credit field. Markdown has no
+ * credit field, so the title (`![alt](url "title")`) is mapped onto it — that
+ * mapping is ours; everything downstream of it is Gemini's.
+ */
+function standaloneInlineImage(node: any, context: RenderContext) {
+  if (node.type !== 'paragraph') return null;
+  const meaningful = (node.children || []).filter(
+    (child: any) => child.type !== 'text' || /\S/.test(child.value || '')
+  );
+  if (meaningful.length !== 1) return null;
+  const child = meaningful[0];
+  if (child.type !== 'image' && child.type !== 'imageReference') return null;
+  const definition = child.type === 'imageReference' ? definitionFor(child, context) : undefined;
+  const url = child.url || definition?.url || '';
+  if (!url || url.startsWith('media-id:')) return null;
+  const src = safeHref(url);
+  if (!src) return null;
+  return { src, alt: child.alt || '', credit: child.title || definition?.title || '' };
+}
+
 function renderRoot(tree: any, context: RenderContext): React.ReactNode[] {
   const rendered: React.ReactNode[] = [];
   let pendingMedia: MediaDescriptor[] = [];
@@ -1326,6 +1512,20 @@ function renderRoot(tree: any, context: RenderContext): React.ReactNode[] {
 
   (tree.children || []).forEach((node: any, index: number) => {
     if (node.type === 'definition' || node.type === 'footnoteDefinition') return;
+    const inlineImage = standaloneInlineImage(node, context);
+    if (inlineImage) {
+      flushMedia();
+      rendered.push(
+        <GeminiSingleImage
+          key={'inline-image-' + offsetOf(node, index)}
+          src={inlineImage.src}
+          alt={inlineImage.alt}
+          caption={inlineImage.alt}
+          captionSource={inlineImage.credit}
+        />
+      );
+      return;
+    }
     const media = standaloneMedia(node, context);
     if (media) {
       pendingMedia.push(...media);
@@ -1550,6 +1750,8 @@ export interface StreamingMarkdownProps {
   className?: string;
   mediaItems?: any[];
   onOpenResource?: (resource: RichResource) => void;
+  /** Grounded web sources indexed against `text`, rendered as inline chips. */
+  citations?: SourceCitations;
 }
 
 export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
@@ -1560,6 +1762,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     className = '',
     mediaItems,
     onOpenResource,
+    citations,
   }) {
     useInjectStyles();
 
@@ -1605,6 +1808,12 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
 
     const definitions = useMemo(() => collectDefinitions(tree), [tree]);
     const footnoteNumbers = useMemo(() => collectFootnoteNumbers(tree), [tree]);
+    // Chips only appear once the turn is complete: the citation offsets describe
+    // the finished answer, and Gemini likewise shows none while text streams.
+    const chipGroups = useMemo(
+      () => (isStreaming ? [] : buildChipGroups(citations)),
+      [isStreaming, citations],
+    );
     const context: RenderContext = {
       source: shown,
       settledBefore,
@@ -1616,6 +1825,10 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       weight: 400,
       width: 92,
       roundness: 0,
+      chipGroups,
+      // Fresh each render, so ordinals are recomputed from zero in document order
+      // and stay stable for a given tree instead of drifting upward on re-render.
+      chipOrder: { next: 0 },
     };
     const rendered = renderRoot(tree, context);
 

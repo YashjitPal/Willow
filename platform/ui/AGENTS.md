@@ -22,6 +22,8 @@ Willow-specific:
 | `src/MaterialSymbol.tsx` | Material Symbols icon by name. |
 | `src/Avatar.tsx` · `src/AgentIcon.tsx` · `src/CanvasIcon.tsx` | Iconography. |
 | `src/GeminiAttachmentCard.tsx` · `src/RichResourcePreview.tsx` | Attachment/link previews. |
+| `src/GeminiBentoCard.tsx` + `src/gemini-cards.ts` | Gemini's `bento-card` tiles and the flex packing that lays them out. Every value measured — see below. |
+| `src/GeminiInlineImage.tsx` | Gemini's markdown `.inline-image-container`: floated image plus a credit/alt caption. |
 | `src/TopLoadingBar.tsx` | Route-transition progress bar. |
 | `src/Tooltip.tsx` + `.css` | Gemini's tooltip. Every value measured off gemini.google.com — see below. |
 | `src/hooks/use-auto-resize-textarea.ts` | Grows a textarea to fit its content. |
@@ -106,6 +108,72 @@ measured against Gemini's own rail (pane `left` == anchor `right`, gap 8,
 vertical centres equal).
 
 `apps/studio/test/tooltip-triggers.test.mjs` pins both directions.
+
+## Cards and inline images
+
+Both are transcribed from the running Gemini app, not designed. The header
+comment in each file records where every number came from; the reasoning lives
+there rather than here, so it stays next to the code it constrains.
+
+**There are two image hosts, and they are different Gemini components.** Sending
+one down the other's path is the mistake to avoid:
+
+- `GeminiSingleImage` — Gemini's `single-image`, the centred hero. Emitted for an
+  image *attachment* on the response; live, it hangs off
+  `div.attachment-container.search-images`, a block-level sibling of the prose,
+  which is what an "images of …" answer actually produces. Centred, capped at
+  580px landscape / 400px portrait, caption beside it. `StreamingMarkdown` routes
+  an image alone in its own paragraph here.
+- `GeminiInlineImage` — the markdown renderer's `.inline-image-container`, for an
+  image written *into* prose. Floated right, capped at 362px.
+
+Five things worth knowing before touching them:
+
+- **An in-prose image is hoisted out of its paragraph, and that is a parser fact
+  rather than a style choice.** Gemini's host writes markdown as an HTML string,
+  so `<p>before<div>…</div>after</p>` parses as `<p>before</p>` + the div +
+  `"after"` — verified against Chrome's parser, and a `<span>` in the same slot
+  stays nested, so it is the block display that causes it. React builds via the
+  DOM API and would nest instead, so `hoistableInlineImage` reproduces the hoist
+  explicitly.
+- **The hero button is 384px around a 380px image, and the 4px is a line-box
+  descender.** The `<img>` computes `display: inline` / `vertical-align:
+  baseline`; adding `display: block` silently eats those 4px. Confirming this
+  cost seven probes that all read 0 — because `about:blank` is **quirks mode**,
+  where the strut is dropped. Measure line-box geometry inside a doctyped
+  iframe or the number is a lie. Height arithmetic: 384 + 8 + 40 = 432.
+- **The hero caption is two nodes, not one.** Live it is a bare text node
+  holding the description, then a `<span>` holding only the source — the
+  surrounding spaces are the separator, so they are written as explicit string
+  literals that JSX will not strip. Markdown's `alt` supplies the first half and
+  its title the second.
+- **Source order is load-bearing in the inline-image CSS.** The authored sheet
+  puts the `@media (min-width: 768px)` float block *before* the
+  `.landscape`/`.portrait` caps, so the orientation cap overrides the block's
+  `max-width: 40%`. A probe in the live 708px panel measured 362px, not 283px.
+  Reordering those rules silently changes the width.
+- **A `@media (max-width: 959.98px)` rule that undoes the float exists in the
+  captured CSS and is deliberately not reproduced.** It targets
+  `.hero-overlay-container` / `.hero-image`, which belong to the separate
+  `single-image` component. Copying it would kill the float at every width the
+  panel actually renders at.
+- **Cards arrive as a fenced block**, language `bento-cards`, carrying a JSON
+  array. There is no field on `ChatMsg` for them and the public Gemini API does
+  not expose the app's bento payload, so the fence is a Willow convention. It is
+  taught to Gemini only, via `chatSystemPromptFor` in `features/chat/src/chat-model.ts`.
+  While the JSON is still streaming it does not parse and nothing renders — that
+  is deliberate, so a half-arrived block never flashes as a code block.
+- **Cards are rigid, and the bento layout is a recursive tree.** Gemini authors
+  it server-side: nested flex rows and columns, `flex-grow: 0`, width equal to
+  `min-width`, `flex-wrap: nowrap` throughout. So the tiling is
+  count-dependent — two cards are not three cards minus one — and it is built by
+  splitting a tree in `gemini-cards.ts`, not by a packing heuristic. A card's
+  picture is a CSS `background-image`, which fires no error event, so a broken
+  URL is detected with an off-DOM `new Image()` probe and filled with the same
+  `#35383b` placeholder token the hero uses.
+
+`apps/studio/test/gemini-cards.test.mjs` pins the measured geometry, the
+attribution rules, the packing arithmetic, the type scales and the wiring.
 
 ## Dependency constraint
 

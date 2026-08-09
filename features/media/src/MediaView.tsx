@@ -3267,7 +3267,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           apiKey: apiKey,
           thinkingLevel: 1,
           enableSearch: true,
-          enableCodeExecution: true
+          enableCodeExecution: true,
+          // The media agent is the one caller with a real tool executor, so it is
+          // the one caller that may request the generation harness.
+          enableMediaTools: true
         },
         (token) => {
           setIsAgentThinking(false);

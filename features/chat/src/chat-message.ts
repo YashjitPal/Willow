@@ -9,6 +9,7 @@ import {
   detectAttachmentKind,
   toPersistedChatAttachment,
 } from '@willow/core/attachments';
+import type { MessageCitations } from '@willow/ai/grounding';
 
 export interface ChatMsg {
   id: string;
@@ -38,6 +39,8 @@ export interface ChatMsg {
   isNew?: boolean;
   /** Locally owned file metadata; bytes live in WillowDB's attachment store. */
   attachments?: ChatAttachment[];
+  /** Grounded web sources, indexed against `content`, driving the inline chips. */
+  citations?: MessageCitations;
 }
 
 /**
@@ -70,6 +73,46 @@ export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerat
       ? { attachments: attachments.map(toPersistedChatAttachment) }
       : {}),
   };
+};
+
+/**
+ * Read grounded citations back off disk.
+ *
+ * Every field is re-checked for the same reason attachments are: the chat file
+ * is user-editable and may predate the field. A malformed entry is dropped
+ * rather than repaired — a chip pointing at the wrong sentence is worse than no
+ * chip. Source indices are validated against the array they index into, so a
+ * truncated `sources` list cannot produce an undefined chip label.
+ */
+export const sanitizeSavedCitations = (value: any): MessageCitations | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const rawSources = Array.isArray(value.sources) ? value.sources : [];
+  const rawCitations = Array.isArray(value.citations) ? value.citations : [];
+  if (!rawSources.length || !rawCitations.length) return undefined;
+
+  const sources = rawSources.map((source: any) => ({
+    uri: typeof source?.uri === 'string' ? source.uri : '',
+    title: typeof source?.title === 'string' ? source.title : '',
+    domain: typeof source?.domain === 'string' ? source.domain : '',
+  }));
+
+  const citations = rawCitations
+    .filter((citation: any) =>
+      citation
+      && Number.isFinite(citation.startIndex)
+      && Number.isFinite(citation.endIndex)
+      && citation.endIndex > citation.startIndex
+      && Array.isArray(citation.sourceIndices))
+    .map((citation: any) => ({
+      startIndex: Number(citation.startIndex),
+      endIndex: Number(citation.endIndex),
+      sourceIndices: citation.sourceIndices.filter(
+        (index: unknown) => Number.isInteger(index) && (index as number) >= 0 && (index as number) < sources.length,
+      ),
+    }))
+    .filter((citation: any) => citation.sourceIndices.length > 0);
+
+  return citations.length ? { sources, citations } : undefined;
 };
 
 /**

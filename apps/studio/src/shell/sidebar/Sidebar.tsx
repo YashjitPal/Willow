@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useStore } from '@nanostores/react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -13,7 +13,6 @@ import {
   ArrowUpRight,
   LogIn,
   Terminal,
-  MoreVertical,
   Share2,
   Pin,
   Pencil,
@@ -45,9 +44,36 @@ import type { StudioExperience } from '@willow/core/types';
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
 // the whole app to a black screen. '/index' forces the folder to resolve.
-import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu } from './index';
+import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+
+// Recents renders a window over the chat list rather than the whole thing, and
+// grows it as you scroll. The full id list is already in memory (localStorage),
+// so this is purely a render budget — nothing is fetched on scroll.
+const RECENTS_INITIAL_COUNT = 30;
+const RECENTS_CHUNK_SIZE = 25;
+// Grow before the user reaches the floor, so the next rows are usually already
+// there. The scroller also holds Projects and the fixed nav items above Recents.
+const RECENTS_GROW_THRESHOLD_PX = 240;
+// How long the "loading more" spinner stays up. The rows are already in memory,
+// so this is presentation, not work — it exists so the indicator is legible
+// rather than a one-frame flash. Mirrors the top progress bar's 280ms floor.
+const RECENTS_SPINNER_MIN_MS = 280;
+
+// Stable identity for the "no pins yet" case, so the memos below don't churn
+// during the effect-sized window after a scope switch.
+const NO_PINNED_CHATS: string[] = [];
+
+// Returns a function whose identity never changes but which always invokes the
+// latest render's implementation. Lets the memoized Recents rows receive stable
+// handler props (so React.memo actually holds) without freezing any state they
+// read. Same helper as MediaView's, for the same reason.
+function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = useRef(fn);
+  useLayoutEffect(() => { ref.current = fn; });
+  return useMemo(() => ((...args: any[]) => ref.current(...args)) as T, []);
+}
 
 // ── Inline menus (used once, kept here) ──────────────────────────────────────
 
@@ -370,50 +396,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     codeChatScannedRef.current.clear();
   }, [chatScopeId]);
-  useEffect(() => {
-    if (isInitializingLocalFS) return;
-    let cancelled = false;
-    let timer: number | undefined;
-    // Deliberately NOT the memoized `codeChats`. This effect marks chats, which
-    // invalidates that memo — depending on it would restart the scan on every
-    // mark, cancelling an in-flight body read for a chat already recorded in
-    // `codeChatScannedRef` and permanently losing its Code-mode marker. The
-    // module-level cache makes this per-chat call O(1) anyway.
-    const pending = localChats.filter((chatId) =>
-      !isCodeChat(chatScopeId, chatId) &&
-      !codeChatScannedRef.current.has(chatId) &&
-      !hasScannedCodeChat(chatScopeId, chatId)
-    );
-    const scanNext = async () => {
-      // Legacy marker migration is intentionally lazy and bounded: never load
-      // every full chat body concurrently just to paint the sidebar.
-      for (const chatId of pending.splice(0, 2)) {
-        codeChatScannedRef.current.add(chatId);
-        const messages = await loadLocalFSChat(chatId);
-        if (cancelled) return;
-        if (messages?.some((message: any) => message?.willowMode === 'code')) {
-          // Old marker keys had no owner. The body check is the ownership
-          // proof that makes adopting a matching legacy marker safe.
-          if (!migrateVerifiedLegacyCodeChat(chatScopeId, chatId)) markCodeChat(chatScopeId, chatId);
-        }
-        // Record only AFTER the body was actually read. Marking before the await
-        // would persist "scanned" for a chat whose read was cancelled mid-flight,
-        // and its Code-mode marker would then never be recovered.
-        markScannedCodeChat(chatScopeId, chatId);
-      }
-      if (!cancelled && pending.length > 0) timer = window.setTimeout(() => { void scanNext(); }, 100);
-    };
-    timer = window.setTimeout(() => { void scanNext(); }, 250);
-    return () => {
-      cancelled = true;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [localChats, loadLocalFSChat, isInitializingLocalFS, chatScopeId]);
   const [isAtScrollEnd, setIsAtScrollEnd] = useState(true);
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     setIsScrolled(target.scrollTop > 5);
     setIsAtScrollEnd(target.scrollTop + target.clientHeight >= target.scrollHeight - 4);
+    // Grow Recents as the floor comes into view. `growRecents` is declared below
+    // but only ever invoked from a real scroll event, which is long after this
+    // component has finished its first render.
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (distanceToBottom <= RECENTS_GROW_THRESHOLD_PX) growRecents();
   };
 
   // Pinned chats persistence
@@ -424,7 +416,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }));
   // Never render the previous scope's pins during the effect-sized window
   // between a user/root/workspace switch and loading the new scoped key.
-  const pinnedChats = pinnedChatState.scopeId === chatScopeId ? pinnedChatState.chats : [];
+  const pinnedChats = pinnedChatState.scopeId === chatScopeId ? pinnedChatState.chats : NO_PINNED_CHATS;
+  // A Set because the partition below tests membership once per chat, and the
+  // rows test it again — O(n) `.includes()` per row made that quadratic.
+  const pinnedChatSet = useMemo(() => new Set(pinnedChats), [pinnedChats]);
   useEffect(() => {
     try {
       const stored = localStorage.getItem(pinnedChatsKey);
@@ -587,6 +582,147 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [recentsExpanded, setRecentsExpanded] = useState(true);
+
+  // ── Recents windowing ──────────────────────────────────────────────────────
+  // The context owns the deterministic newest-first order. Pinning is a stable
+  // partition only; the sidebar must not independently reinterpret mtimes.
+  const sortedChats = useMemo(() => {
+    const pinned: string[] = [];
+    const rest: string[] = [];
+    for (const chat of localChats) (pinnedChatSet.has(chat) ? pinned : rest).push(chat);
+    return [...pinned, ...rest];
+  }, [localChats, pinnedChatSet]);
+
+  const [recentsLimit, setRecentsLimit] = useState(RECENTS_INITIAL_COUNT);
+  const [isGrowingRecents, setIsGrowingRecents] = useState(false);
+  const growRecentsTimerRef = useRef<number | undefined>(undefined);
+
+  // Reset the window when the list identity changes underneath us — a scope
+  // switch shows a different user's chats, and leaving it grown would render
+  // hundreds of rows on the first paint of the new scope. Deliberately NOT reset
+  // on `localChats`: a rename or a new chat would collapse a list the user had
+  // scrolled open.
+  useEffect(() => {
+    setRecentsLimit(RECENTS_INITIAL_COUNT);
+  }, [chatScopeId]);
+
+  // Pins are all hoisted to the front, so a user with 40 pins would otherwise see
+  // a first window made entirely of pins and no actual recents.
+  const effectiveRecentsLimit = recentsLimit + pinnedChatSet.size;
+  const hasMoreRecents = effectiveRecentsLimit < sortedChats.length;
+
+  const windowedChats = useMemo(() => {
+    if (!hasMoreRecents) return sortedChats;
+    // Rows that must stay mounted regardless of where they sort:
+    //   editingChatId  — the rename <input> lives inside the row, and React does
+    //                    not fire blur on unmount, so windowing it away would
+    //                    silently discard the rename and strand `editingChatId`.
+    //   menuActiveChat — the menu is NOT a portal but it IS rendered outside the
+    //                    map, so it would survive as a menu floating next to
+    //                    nothing.
+    //   activeChatId   — otherwise the open chat loses its active highlight.
+    const forced = new Set(
+      [editingChatId, menuActiveChat, activeChatId].filter((id): id is string => !!id)
+    );
+    // filter, not slice+concat: it preserves the context-owned order with no re-sort.
+    return sortedChats.filter((chat, index) => index < effectiveRecentsLimit || forced.has(chat));
+  }, [sortedChats, effectiveRecentsLimit, hasMoreRecents, editingChatId, menuActiveChat, activeChatId]);
+
+  const growRecents = useEventCallback(() => {
+    if (!hasMoreRecents || growRecentsTimerRef.current !== undefined) return;
+    setIsGrowingRecents(true);
+    // Appending is synchronous — the rows are already in memory, so there is
+    // nothing to await. The delay is what makes the indicator legible: without
+    // it the spinner would mount and unmount inside one frame and never be seen.
+    // Same reasoning as the top progress bar's 280ms floor. The 240px threshold
+    // above means the next chunk is requested well before the user reaches it.
+    growRecentsTimerRef.current = window.setTimeout(() => {
+      growRecentsTimerRef.current = undefined;
+      setRecentsLimit((limit) => limit + RECENTS_CHUNK_SIZE);
+      setIsGrowingRecents(false);
+    }, RECENTS_SPINNER_MIN_MS);
+  });
+  useEffect(() => () => {
+    if (growRecentsTimerRef.current !== undefined) window.clearTimeout(growRecentsTimerRef.current);
+  }, []);
+
+  // Stable handler identities for the memoized rows. Every one of these closes
+  // over state that changes, so a plain arrow would defeat React.memo on the
+  // whole list — which is the entire point of extracting RecentChatRow.
+  const handleSelectChat = useEventCallback((chatId: string) => {
+    onViewChange('home');
+    onModeChange?.('chat');
+    selectLocalFSInboxChat(chatId);
+  });
+  const handleRenameSaveStable = useEventCallback(() => { void handleRenameSave(); });
+  const handleRenameCancel = useEventCallback(() => setEditingChatId(null));
+  const handleMenuClickStable = useEventCallback(handleMenuClick);
+
+  // Legacy Code-mode marker backfill.
+  //
+  // This reads FULL chat bodies, so it is scoped to the rows actually on screen
+  // (plus the active chat) and grows with the window. It used to walk the entire
+  // history: on the same per-chat operation queue the user's own click waits on,
+  // that meant a large workspace spent minutes reading bodies nobody asked for,
+  // and every chat open queued behind it. Chats below the fold are scanned when
+  // the user scrolls to them.
+  const scanCandidates = useMemo(() => {
+    const visible = sortedChats.slice(0, effectiveRecentsLimit);
+    if (activeChatId && !visible.includes(activeChatId) && sortedChats.includes(activeChatId)) {
+      visible.push(activeChatId);
+    }
+    return visible;
+  }, [sortedChats, effectiveRecentsLimit, activeChatId]);
+
+  useEffect(() => {
+    if (isInitializingLocalFS) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    // The id whose body read is in flight. On cancellation it is rolled back out
+    // of `codeChatScannedRef` below — without that, a restart would filter it out
+    // as "already scanned" while localStorage never recorded it, and its
+    // Code-mode marker would be lost for the rest of the session. That matters
+    // now in a way it did not before, because this effect legitimately restarts
+    // whenever the window grows.
+    let inFlight: string | null = null;
+    // Deliberately NOT the memoized `codeChats`. This effect marks chats, which
+    // invalidates that memo — depending on it would restart the scan on every
+    // mark. The module-level cache makes this per-chat call O(1) anyway.
+    const pending = scanCandidates.filter((chatId) =>
+      !isCodeChat(chatScopeId, chatId) &&
+      !codeChatScannedRef.current.has(chatId) &&
+      !hasScannedCodeChat(chatScopeId, chatId)
+    );
+    const scanNext = async () => {
+      // Legacy marker migration is intentionally lazy and bounded: never load
+      // every full chat body concurrently just to paint the sidebar.
+      for (const chatId of pending.splice(0, 2)) {
+        codeChatScannedRef.current.add(chatId);
+        inFlight = chatId;
+        const messages = await loadLocalFSChat(chatId);
+        if (cancelled) return;
+        inFlight = null;
+        if (messages?.some((message: any) => message?.willowMode === 'code')) {
+          // Old marker keys had no owner. The body check is the ownership
+          // proof that makes adopting a matching legacy marker safe.
+          if (!migrateVerifiedLegacyCodeChat(chatScopeId, chatId)) markCodeChat(chatScopeId, chatId);
+        }
+        // Record only AFTER the body was actually read. Marking before the await
+        // would persist "scanned" for a chat whose read was cancelled mid-flight,
+        // and its Code-mode marker would then never be recovered.
+        markScannedCodeChat(chatScopeId, chatId);
+      }
+      if (!cancelled && pending.length > 0) timer = window.setTimeout(() => { void scanNext(); }, 100);
+    };
+    // Longer than the old 250ms: a chat opened right after mount should reach the
+    // shared operation queue before any background body read does.
+    timer = window.setTimeout(() => { void scanNext(); }, 1000);
+    return () => {
+      cancelled = true;
+      if (inFlight) codeChatScannedRef.current.delete(inFlight);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [scanCandidates, loadLocalFSChat, isInitializingLocalFS, chatScopeId]);
 
   const handleUserMenuToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1040,6 +1176,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         if (expanded) {
                           if (shouldRenderMenu) triggerCloseMenu();
                           if (editingChatId) handleRenameSave();
+                        } else {
+                          // Re-opening the section is a fresh start, so don't
+                          // re-mount however many rows were grown before it was
+                          // collapsed.
+                          setRecentsLimit(RECENTS_INITIAL_COUNT);
                         }
                         return !expanded;
                       });
@@ -1057,85 +1198,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <div className="min-h-0 overflow-hidden space-y-0">
                     {!isCollapsed && recentsExpanded && localChats.length > 0 ? (
-                      (() => {
-                        // The context owns the deterministic newest-first
-                        // order. Pinning is a stable partition only; the
-                        // sidebar must not independently reinterpret mtimes.
-                        const sortedChats = [
-                          ...localChats.filter((chat) => pinnedChats.includes(chat)),
-                          ...localChats.filter((chat) => !pinnedChats.includes(chat)),
-                        ];
-                        return sortedChats.map((chat) => {
+                      <>
+                        {windowedChats.map((chat) => {
                           const isTemp = isTempChatId(chat);
                           if (isTemp && activeChatId === chat) {
                             return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
                           }
-                          const displayName = isTemp ? 'Untitled' : chat;
-                          const startedInCode = codeChats[chat] === true;
-
                           return (
-                            <SidebarItem 
+                            <RecentChatRow
                               key={chat}
-                              flushRight
-                              label={displayName}
-                              customLabel={
-                                editingChatId === chat ? (
-                                  <input
-                                    value={editValue}
-                                    onChange={(e) => setEditValue(e.target.value)}
-                                    onBlur={handleRenameSave}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') handleRenameSave();
-                                      if (e.key === 'Escape') setEditingChatId(null);
-                                    }}
-                                    autoFocus
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="w-full bg-transparent border-b border-white/20 text-white font-medium text-[13.5px] outline-none px-1 py-0.5 min-w-0"
-                                  />
-                                ) : (
-                                  <div className="flex items-center gap-1.5 min-w-0 w-full">
-                                     <span className="truncate flex-1">{displayName}</span>
-                                     {pinnedChats.includes(chat) && (
-                                       <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />
-                                     )}
-                                  </div>
-                                )
-                              }
-                              isCollapsed={isCollapsed} 
-                              active={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
-                              onClick={() => {
-                                onViewChange('home');
-                                onModeChange?.('chat');
-                                selectLocalFSInboxChat(chat);
-                              }}
-                              keepActionsVisible={menuActiveChat === chat || startedInCode}
-                              actions={
-                                <button
-                                  onClick={(e) => handleMenuClick(e, chat)}
-                                  aria-label={`More options for ${displayName}`}
-                                  className={`relative flex h-[22px] w-[22px] items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white transition-colors shrink-0 ${
-                                    menuActiveChat === chat || startedInCode ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
-                                  }`}
-                                >
-                                  {startedInCode && menuActiveChat !== chat && (
-                                    <span
-                                      title="Started in Code mode"
-                                      className="absolute inset-0 flex items-center justify-center rounded-md bg-white/10 group-hover/item:opacity-0 group-hover/item:pointer-events-none transition-opacity"
-                                    >
-                                      <Terminal size={14} strokeWidth={2} aria-hidden="true" />
-                                    </span>
-                                  )}
-                                  <MoreVertical
-                                    size={14}
-                                    aria-hidden="true"
-                                    className={startedInCode && menuActiveChat !== chat ? 'opacity-0 group-hover/item:opacity-100 transition-opacity' : undefined}
-                                  />
-                                </button>
-                              }
+                              chatId={chat}
+                              displayName={isTemp ? 'Untitled' : chat}
+                              isCollapsed={isCollapsed}
+                              isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
+                              isPinned={pinnedChatSet.has(chat)}
+                              startedInCode={codeChats[chat] === true}
+                              isEditing={editingChatId === chat}
+                              isMenuOpen={menuActiveChat === chat}
+                              editValue={editValue}
+                              onSelect={handleSelectChat}
+                              onMenuClick={handleMenuClickStable}
+                              onEditValueChange={setEditValue}
+                              onEditCommit={handleRenameSaveStable}
+                              onEditCancel={handleRenameCancel}
                             />
                           );
-                        });
-                      })()
+                        })}
+                        {/* Gemini shows a small indeterminate spinner under the
+                            list while the next chunk arrives. Ours is gated on a
+                            transition, because appending rows is synchronous —
+                            a plain flag would mount and unmount inside one frame
+                            and never actually be seen. */}
+                        {isGrowingRecents && hasMoreRecents && (
+                          <div className="flex items-center justify-center py-2.5" aria-hidden="true">
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-white/55" />
+                          </div>
+                        )}
+                      </>
                     ) : null}
                     </div>
                   </div>

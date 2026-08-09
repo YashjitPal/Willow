@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Menu, Edit, X, Plus, ArrowRight, ArrowLeft, ChevronDown, Trash2, Check, FileText, Lightbulb, Search, Terminal, ThumbsUp, ThumbsDown, Copy, AudioLines } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
-import { streamChat, ChatMessage, StreamPhase, generateSessionTitle } from '@willow/ai/chat';
+import { ChatMessage, StreamPhase } from '@willow/ai/chat';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import type { ImageAttachment } from './types';

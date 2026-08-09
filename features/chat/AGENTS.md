@@ -17,6 +17,8 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/chat-model.ts` | The system prompt and provider/model/key resolution for a send. |
 | `src/chat-timing.ts` | `waitForBrowserPaint()` — yields one frame so an intermediate render is actually seen. |
 | `src/chat-store.ts` | Nanostore. The `newChatSignal` "New Chat" broadcast. |
+| `src/chat-turn-store.ts` | Module-level registry of in-flight turns, so a response outlives ChatView. |
+| `src/chat-turn-runner.ts` | Drives one turn to completion, independent of React. Owns finalisation and checkpointing. |
 | `src/composer/Composer.tsx` | `InputBar`, the prompt box (885 lines). Attachments, tool chips, send, and the two JSX branches. Re-exports `ModelsMenu` so its public surface is unchanged. |
 | `src/composer/composer-options.tsx` | The composer's static option tables: `TOOLS`, `TOOL_SYMBOLS`, `THEMES`, `MODES` and their types. |
 | `src/composer/composer-icons.tsx` | `SpotifyIcon` and `ModelIcon` — inline SVG/provider glyphs. |
@@ -121,10 +123,10 @@ are the near-fullscreen toggle rather than ordinary wrapping. Note that
 against 78px expanded), so putting any `transition` on it animates the whole box
 growing and shrinking. See `apps/studio/test/composer-size-snap.test.mjs`.
 
-The `layoutId` composer below is a separate mechanism and does **not** animate
-ordinary wrapping — measured frame by frame, no ancestor of the composer ever
-carries a transform during a wrap or a collapse. It is only the shared-element
-morph into the Home hero. Removing the size transitions did not touch it.
+The composer's zero-state → docked slide (below) is a separate mechanism and does
+**not** animate ordinary wrapping — measured frame by frame, no ancestor of the
+composer ever carries a transform during a wrap or a collapse. Removing the size
+transitions did not touch it.
 
 What is left in `Composer.tsx` is `InputBar`'s two JSX return branches, each
 closing over ~40 values. Splitting those means writing a props contract, not
@@ -220,9 +222,122 @@ consumes it**. Do not build anything on it.
 Incognito uses a tighter 32px gap. That value is Willow's own, pre-existing, and
 **not** verified against Gemini's temporary-chat zero state.
 
-`ChatView.tsx` is **LF**. The composer files are **CRLF** — `Composer.tsx` is
-1080 CRLF / 0 LF — as are `ChatResponseChrome.tsx` and `MediaHome.tsx`;
-`composer/PlusDropdownMenu.tsx` is mixed. Match the file you are in.
+**Line endings: read the worktree, not this list.** `core.autocrlf=true` and there
+is no `.gitattributes`, so every blob is stored LF and checked out CRLF. On disk
+today `ChatView.tsx` (2769), `Composer.tsx` (1139), `ChatResponseChrome.tsx` (470)
+and `MediaHome.tsx` (1027) are pure CRLF with zero bare LF;
+`composer/PlusDropdownMenu.tsx` is genuinely mixed (168 CRLF / 104 LF) in the blob
+itself. Match the file you are in, and check it rather than trusting these counts.
+
+Two consequences that have each already cost a debugging session:
+
+- Git Bash `sed`/`awk` silently rewrite a file to LF. Re-normalise after any
+  scripted line-addressed edit.
+- A source-text test anchored on `;\n` matches nothing here. Use `;\r?\n`.
+  `chat-turn-gap.test.mjs` passed only while its target happened to be checked
+  out LF, which is not a state to depend on.
+
+## Opening a chat
+
+The load effect keyed on `activeChatId` has three guards that all exist for a
+recorded failure. None are optional.
+
+**A generation counter, not a cleanup.** `loadGenerationRef` is bumped on *entry*
+and re-checked after each await. It cannot be an effect cleanup: the effect's deps
+include `chatTitle` and `chatSessionId`, which `loadChat` itself writes, so a
+cleanup would make every load cancel itself. Two checks are required, one per
+await — attachment hydration awaits one IndexedDB read *per attachment*, so a
+lighter chat clicked afterwards can overtake a heavier one mid-hydration.
+Check 1 must precede `revokeAllAttachmentObjectUrls()`, or a superseded load
+revokes the *winner's* object URLs and every image in the fresh thread goes blank.
+The `setMessages`/`setChatTitle`/`setChatSessionId` block must sit behind one
+check with no await between: autosave persists under `chatTitle || chatSessionId`,
+so a stale winner writes one chat's messages into another chat's file on disk.
+
+**A third render state, not `hasStarted === false`.** `showBlankThread` empties
+the conversation area while a body loads; `isThreadDocked = hasStarted ||
+showBlankThread` keeps the composer where it is. Forcing `hasStarted` false would
+also drive the composer's docked-vs-centred layout, and that direction is a
+deliberate 0-duration snap — the composer would teleport to screen centre and
+slide back on every chat open. `layoutDependency` and `transition.layout` must
+both track `isThreadDocked`; splitting them re-introduces the squash.
+
+**A selection epoch, because `activeChatId` moves for reasons that are not a user
+selection.** Only `selectLocalFSInboxChat` bumps `chatSelectionEpoch`; rename,
+temp-id adoption, delete and scope switches all call `setActiveChatId` directly.
+Consume the epoch *before* the identity guard's early return — consuming after it
+leaves a bump unclaimed, and the next internal id move reads as a user selection.
+The raise also requires `!forceReload`: that flag deliberately bypasses the
+identity guard and means "same chat, background disk sync", so blanking on it
+wipes a live conversation every time the 3s poll finds a change.
+
+Release is in a `finally`, and again on unmount. The top-loading reason lives in a
+module-level store that outlives `key={chatResetKey}`, so a dropped reason leaves
+the green progress bar running forever.
+
+**Chunked reveal.** A loaded thread paints its newest `REVEAL_INITIAL_COUNT`
+messages, then walks backwards a chunk per frame. Keep the first chunk ≥ 8: the
+open-scroll jump targets `messages[length - 1 - 4]`, and if that element is not
+mounted the jump silently no-ops and the chat opens scrolled to the *top*. Derive
+`messageIndex` from the full array (`revealOffset + visibleIndex`) or slice-index
+0 takes the `messageIndex === 0` branch and every chunk shifts the thread by 52px.
+Each chunk mounts *above* the viewport, so it must `flushSync` and then correct
+`scrollTop` by the height delta inside the same frame — the same cure the
+ResizeObservers use for the same class of jerk. The reveal is inert during
+generation, and `handleSend` materialises the whole thread first.
+
+## Background turns
+
+A response keeps running when the user leaves the chat, and resumes live when
+they come back. It has to survive an unmount, not just a chat switch: the
+Code/Media tabs, New Chat and Incognito all tear ChatView down outright.
+
+So the turn is not component state. `chat-turn-store.ts` holds a record; the
+component is a *listener* on it. Leaving detaches; it does not stop the turn.
+
+**Keyed by `turnId`, never by chat id.** A chat is renamed out from under a
+running turn (temp id → real title) mid-stream. `saveLocalFSChat` and
+`renameLocalFSChat` announce the move as `willow_chat_id_moved` and the store
+rebinds; `chatIdHistory` is the fallback so a missed event degrades to
+stale-but-findable. `setActiveChatId` is *not* a usable signal — it deliberately
+declines when the user is viewing another chat, which is exactly this case.
+
+**Exactly one writer.** `claimChatTurnSettlement` decides synchronously, with no
+await, whether the attached view or the runner persists the result. An attached
+view finalises through its own state and the autosave effect writes; otherwise
+the runner writes. `saveLocalFSChat` is a whole-file replace, so two writers
+means the loser's array wins outright — and zero writers means the turn is lost.
+That is why **`detachTurn` on unmount is load-bearing**: a dead listener left
+attached makes the runner claim `'view'`, call into an unmounted tree, and drop
+the record without saving.
+
+**Only the attached listener touches React.** An unwatched turn just grows
+`record.content`. `streaming` is one component-wide value, so this is what stops
+a background chat painting over the displayed one. For the same reason the
+settle path compare-and-clears `generationAbortRef` and `streamingClearRafRef` —
+a turn finishing in another chat must not kill the displayed chat's stop button.
+
+**Abort on:** delete, scope/workspace/account switch, sign-out, incognito
+unmount, and the stop button (attached turn only). **Never on** unmount or chat
+switch. Delete is the sharp one: `saveLocalFSChat` clears the tombstone and
+re-adds the id, so a completion landing after a delete *resurrects* the chat in
+IndexedDB, in Recents and on disk, and it survives the reconciler. Hence
+`willow_chat_deleted`, dispatched before the body is removed.
+
+**Reload.** Nothing survives a tab close mid-request, so the runner checkpoints
+the partial response every `CHECKPOINT_INTERVAL_MS` as `wasStopped: true` — the
+existing "ended early but keep it" shape, which `hasSavedMessageContent` retains
+even when empty and the thread renders with the divider. Do **not** try to save
+from `beforeunload`/`pagehide`: an IndexedDB transaction started during unload
+routinely never commits, so it only appears to work. The 2s floor is deliberate
+too — every save bumps the chat timestamp, and Recents sorts newest-first, so a
+tighter cadence re-shoves the chat to the top of the sidebar on every tick.
+
+**Naming.** `fetchTitle` has no cancellation and outlives unmount, and
+`messagesRef` is frozen at whatever the dead component last saw — for a
+backgrounded turn, the empty placeholder, which `hasSavedMessageContent` drops.
+Landing after the runner's save, that would write the user message alone and
+*erase the reply*. It therefore prefers the live record when one is running.
 
 ## Dependencies
 

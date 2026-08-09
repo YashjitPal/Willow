@@ -3,8 +3,11 @@
 // Kept as a string array rather than a .css file because this component ships as
 // a self-contained unit: consumers import the component and get its styles with
 // it, without a separate CSS import that a bundler might tree-shake or reorder.
-// `useInjectStyles` is idempotent — it no-ops if the <style> tag already exists,
-// so multiple StreamingMarkdown instances share one injection.
+// `useInjectStyles` writes only when the content differs, so multiple mounts
+// share one injection while an HMR edit still reaches an already-open tab. It
+// deliberately does NOT no-op on "tag exists": that left a long-lived tab running
+// new component code against the old stylesheet, which put the source hover pane
+// 190px off its chip.
 import { useInsertionEffect } from 'react';
 
 const STYLE_ID = 'streaming-markdown-styles';
@@ -476,6 +479,343 @@ const STYLE_CSS = [
   '  object-fit: cover;',
   '  vertical-align: middle;',
   '}',
+  // ── Gemini's bento-card ────────────────────────────────────────────────────
+  // Transcribed from the live `ng-c4026281530` sheet. Token values resolved:
+  // --gem-sys-shape--corner-extra-large-max 40px, --lumi-sys-color--surface-dim
+  // #171717, spacing xs/s/l/xl = 4/8/16/20px, on-surface rgb(227,227,227).
+  // The root hugs its content — it is NOT `width: 100%`. Measured live: a group
+  // of four sat at 708px in a 708px column, but squeezing the containing block to
+  // 420px and then 300px left every card at its declared 350/171. Cards are rigid;
+  // the container never stretches or shrinks them.
+  '.smd-bento-root { display: flex; flex-direction: row; width: fit-content; max-width: 100%; }',
+  '.smd-bento-column { display: flex; flex-direction: column; flex: 0 0 auto; }',
+  '.smd-bento-row { display: flex; flex-direction: row; flex-grow: 1; }',
+  '.smd-bento-slot { flex: 0 0 auto; }',
+  '.smd-bento-card {',
+  '  position: relative;',
+  '  box-sizing: border-box;',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  background-color: rgb(23, 23, 23);',
+  '  background-position: 50%;',
+  '  background-repeat: no-repeat;',
+  '  background-size: cover;',
+  '  border-radius: 40px;',
+  '  overflow: hidden;',
+  '  text-align: center;',
+  '  color: rgb(227, 227, 227);',
+  '  padding: 16px;',
+  '}',
+  // The picture. Gemini paints it as this host's own `background-image`; we paint
+  // an `<img>` instead, for a reason recorded in `GeminiBentoCard.tsx` — CSS has
+  // no error event and no per-element referrer policy, and we need both.
+  //
+  // These four declarations reproduce the used box of the background exactly.
+  // `background-size: cover` + `background-position: 50%` against the padding box
+  // is the same fit as `object-fit: cover` + `object-position: 50%` against a
+  // layer stretched to `inset: 0`; both scale the source by
+  // max(boxW/srcW, boxH/srcH) and centre the overflow. `inset` is used rather
+  // than `width/height: 100%` so the box is the host's, not the content box the
+  // host's 16-32px padding would otherwise impose.
+  //
+  // `z-index: 0` is what keeps it a background. The scrim (`::after`) is also
+  // `z-index: 0` but comes later in paint order, so it lands on top; the text is
+  // `z-index: 1` via `.smd-bento-card > *` and lands above both. Written
+  // explicitly because that selector would otherwise catch this layer too and
+  // lift the picture over its own scrim.
+  //
+  // `border-radius: inherit` because `overflow: hidden` on the host clips a
+  // background to the border box automatically but only clips a child's box —
+  // the corners have to be asked for.
+  '.smd-bento-image {',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  z-index: 0;',
+  '  width: 100%;',
+  '  height: 100%;',
+  '  object-fit: cover;',
+  '  object-position: 50%;',
+  '  border-radius: inherit;',
+  '  pointer-events: none;',
+  '  user-select: none;',
+  '}',
+  // A card whose background image failed and which has no text would otherwise
+  // be an empty box — the blank card in the report. It gets the same
+  // `--bard-color-image-placeholder-background` (#35383b) fill the hero
+  // placeholder uses, so the two failure states read alike. Absolute inset
+  // rather than a background on the host, because the host's own
+  // `background-color` is the card surface and stays visible behind the text
+  // when a card does have text to show.
+  '.smd-bento-broken {',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  background-color: #35383b;',
+  '}',
+  // Size and padding together, one rule per size, mirroring how the live sheet
+  // authors them: `.large{padding:…;justify-content:flex-end;height:350px;min-width:350px}`.
+  // `min-width` is a floor, and because nothing grows the card its resolved width
+  // equals that floor — verified at container widths 708/420/300px and at emulated
+  // viewports 1536/1100/900/760/700/600/480px, with every box unchanged.
+  '.smd-bento-small { min-width: 171px; width: 171px; height: 171px; }',
+  '.smd-bento-medium { min-width: 350px; width: 350px; height: 171px; padding: 16px 32px; }',
+  '.smd-bento-large {',
+  '  min-width: 350px;',
+  '  width: 350px;',
+  '  height: 350px;',
+  '  padding: 20px;',
+  '  justify-content: flex-end;',
+  '}',
+  '.smd-bento-card[role="button"] { cursor: pointer; }',
+  '.smd-bento-card > * { z-index: 1; }',
+  '.smd-bento-has-image { color: #fff; }',
+  // The scrim, and it is gated on `has-text` as well as on the image:
+  // `.has-background-image.has-text:after`. An image-only card gets no gradient,
+  // because the gradient exists to make text legible.
+  '.smd-bento-has-image.smd-bento-has-text::after {',
+  '  content: "";',
+  '  position: absolute;',
+  '  inset: 0;',
+  '  z-index: 0;',
+  '  background: linear-gradient(0deg in oklab, rgba(0, 0, 0, 0.82) 3%, transparent 60%);',
+  '  border-radius: inherit;',
+  '  pointer-events: none;',
+  '}',
+  '.smd-bento-small.smd-bento-has-image { justify-content: flex-end; }',
+  '.smd-bento-large.smd-bento-has-image.smd-bento-has-text::after {',
+  '  background: linear-gradient(0deg in oklab, rgba(0, 0, 0, 0.82) 3%, transparent 50%);',
+  '}',
+  '.smd-bento-text { display: flex; flex-direction: column; gap: 4px; }',
+  '.smd-bento-attribution {',
+  '  box-sizing: border-box;',
+  '  position: absolute;',
+  '  top: 0;',
+  '  inset-inline-end: 0;',
+  '  z-index: 1;',
+  '  max-width: max(70%, 120px);',
+  '  background-color: rgba(0, 0, 0, 0.5);',
+  '  backdrop-filter: blur(17px);',
+  '  color: #fff;',
+  '  padding: 4px 21px 4px 8px;',
+  '  border-start-start-radius: 0;',
+  '  border-start-end-radius: 14px;',
+  '  border-end-start-radius: 14px;',
+  '  border-end-end-radius: 0;',
+  '  cursor: default;',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  white-space: nowrap;',
+  '  font-size: 13px;',
+  '  line-height: 17px;',
+  '  font-weight: 400;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '}',
+  // The five `gds-*` type scales the card's own bindings select between.
+  '.smd-bento-card .gds-emphasized-headline-l {',
+  '  font-size: 28px; line-height: 36px; font-weight: 350;',
+  '  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;',
+  '}',
+  '.smd-bento-card .gds-headline-s {',
+  '  font-size: 20px; line-height: 24px; font-weight: 470;',
+  '  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;',
+  '}',
+  '.smd-bento-card .gds-body-l {',
+  '  font-size: 17px; line-height: 24px; font-weight: 400;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '}',
+  '.smd-bento-card .gds-body-m {',
+  '  font-size: 15px; line-height: 20px; font-weight: 400;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '}',
+  '.smd-bento-card .gds-body-s {',
+  '  font-size: 13px; line-height: 17px; font-weight: 400;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '}',
+  // ── Gemini's markdown inline image ─────────────────────────────────────────
+  // From the markdown component's own sheet (`ng-c3833238931`). rem values are
+  // resolved at the measured 16px root: 1.75rem = 28px, 1.5rem = 24px.
+  '.smd-inline-image-container { overflow: hidden; }',
+  // The float sits HERE, before the orientation caps, because that is where the
+  // authored sheet puts it — and the order decides the width. `max-width: 40%`
+  // would be 283px in a 708px panel, but `.landscape` comes later and wins, so
+  // the box measures 362px. Probed live: rect [688, 688, 362, 567].
+  '@media only screen and (min-width: 768px) {',
+  '  .smd-inline-image-container { float: right; margin-inline-start: 16px; max-width: 40%; }',
+  '}',
+  '.smd-inline-landscape { max-width: 362px; }',
+  '.smd-inline-portrait { max-width: 300px; }',
+  '.smd-inline-image-wrapper {',
+  '  position: relative;',
+  '  overflow: hidden;',
+  '  border-radius: 28px;',
+  '  margin-block-start: 24px;',
+  '  cursor: pointer;',
+  '}',
+  '.smd-inline-img { display: block; width: 100%; height: auto; }',
+  '.smd-inline-image-caption {',
+  '  display: block;',
+  '  padding-block: 8px 24px;',
+  '  padding-inline-start: 16px;',
+  '  color: rgb(227, 227, 227);',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  white-space: nowrap;',
+  // .gds-extended-caption, read live off the class itself.
+  '  font-family: "Google Sans Code", monospace;',
+  '  font-size: 13px;',
+  '  line-height: 20px;',
+  '  font-style: italic;',
+  '  font-weight: 400;',
+  '  letter-spacing: 0;',
+  '  font-variation-settings: "MONO" 0, "wght" 400;',
+  '}',
+  // ── Gemini's `single-image`, the centred hero host ─────────────────────────
+  // A different component from `.inline-image-container` above: Gemini emits
+  // this one for an image *attachment*, which is what an "images of …" answer
+  // returns. Rules transcribed from the captured component sheet; the geometry
+  // comments cite the live capture that confirmed each one.
+  //
+  // Live tree, viewport 1536x826: container 263x432 -> overlay 263x432 ->
+  // button 263x384 -> img 263x380, caption row 263x40. 384 + 8 + 40 = 432.
+  '.smd-single-image { display: block; }',
+  // `.spark-licensed-center`. The sheet declares margin-block: 12px, but the
+  // live node computed 0px top and bottom — the measurement wins.
+  '.smd-image-container {',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  align-items: center;',
+  '  text-align: center;',
+  '}',
+  // `.hero-overlay-container` — hugs the image and caps against the declared
+  // width, which is the image's own intrinsic width (263px measured = the
+  // `width` attribute = naturalWidth).
+  '.smd-hero-overlay-container {',
+  '  position: relative;',
+  '  width: fit-content;',
+  '  max-width: min(var(--hero-declared-width, 100%), 25rem);',
+  '  align-self: stretch;',
+  '}',
+  '@media screen and (min-width: 600px) {',
+  '  .smd-hero-overlay-container { max-width: min(var(--hero-declared-width, 100%), 36.25rem); }',
+  '}',
+  '@media screen and (max-width: 959.98px) {',
+  '  .smd-hero-overlay-container { max-width: 100%; }',
+  '}',
+  // Portrait and square cap at 25rem even on a wide viewport; only landscape
+  // gets the 36.25rem cap. Straight from the `:has()` rules in the sheet.
+  '.smd-hero-overlay-container:has(.smd-spark-licensed-portrait),',
+  '.smd-hero-overlay-container:has(.smd-spark-licensed-square) {',
+  '  max-width: min(var(--hero-declared-width, 100%), 25rem);',
+  '}',
+  // `.image-button` — a real button, so it is focusable; the underline is the
+  // sheet's own and is why `text-decoration: underline` appears on a wrapper
+  // that shows no text.
+  '.smd-image-button {',
+  '  background: none;',
+  '  border: none;',
+  '  margin: 0;',
+  '  padding: 0;',
+  '  display: block;',
+  '  width: fit-content;',
+  '  max-width: 100%;',
+  '  overflow: hidden;',
+  '  cursor: pointer;',
+  '  color: inherit;',
+  '}',
+  // The img stays `display: inline` on purpose. Measured live: the button is
+  // 384px around a 380px image because an inline image sits on a baseline and
+  // leaves a 4px descender gap. `display: block` would remove those 4px.
+  '.smd-hero-image {',
+  '  width: auto;',
+  '  height: auto;',
+  '  max-width: min(var(--hero-declared-width, 100%), 25rem);',
+  '  border-radius: 40px;',
+  '}',
+  '@media screen and (min-width: 600px) {',
+  '  .smd-hero-image:not(.smd-spark-licensed-portrait):not(.smd-spark-licensed-square) {',
+  '    max-width: min(var(--hero-declared-width, 100%), 36.25rem);',
+  '  }',
+  '}',
+  '@media screen and (max-width: 959.98px) {',
+  '  .smd-hero-image { max-width: 100%; }',
+  '}',
+  // 2.5rem = the 40px radius measured on the live hero image.
+  '.smd-spark-licensed-portrait, .smd-spark-licensed-landscape, .smd-spark-licensed-square {',
+  '  width: 100%;',
+  '  height: auto;',
+  '  border-radius: 2.5rem;',
+  '}',
+  // `.image.animate.loaded` — a 200ms zoom-in on the curve the sheet names.
+  '.smd-hero-image.loaded {',
+  '  animation: smd-hero-zoom-load 0.2s cubic-bezier(0.2, 0, 0, 1) forwards;',
+  '}',
+  '@keyframes smd-hero-zoom-load {',
+  '  0% { opacity: 0; transform: scale(1.15); }',
+  '  to { opacity: 1; transform: scale(1); }',
+  '}',
+  // `.hero-caption-row`, measured 263x40 with margin-top 8px.
+  '.smd-hero-caption-row {',
+  '  display: flex;',
+  '  align-items: flex-start;',
+  '  justify-content: space-between;',
+  '  position: relative;',
+  '  margin-top: 8px;',
+  '  flex-wrap: wrap;',
+  '}',
+  // `.caption.hero-caption`, read live: 13px/20px Google Sans Code, MONO 0 /
+  // wght 400, colour rgb(227,227,227), margin-inline 16px, flex 1 1 0, and
+  // `white-space: normal` — it wraps, unlike the inline-image caption above.
+  '.smd-hero-caption {',
+  '  flex: 1 1 0%;',
+  '  min-width: 0;',
+  '  margin-top: 0;',
+  '  margin-bottom: 0;',
+  '  margin-inline: 16px;',
+  '  text-align: start;',
+  '  color: rgb(227, 227, 227);',
+  '  font-family: "Google Sans Code", monospace;',
+  '  font-size: 13px;',
+  '  line-height: 20px;',
+  '  font-weight: 400;',
+  '  font-variation-settings: "MONO" 0, "wght" 400;',
+  '  white-space: normal;',
+  '  overflow: visible;',
+  '  text-overflow: unset;',
+  '}',
+  // The failed-image state. Gemini's `.placeholder` is a 200px flex row with a
+  // centred message; this is the hole the report showed as a blank card.
+  // Values below are resolved from the live page, not from the raw sheet: the
+  // base rule says `border-radius: 16px`, but `.luminous-layout:host
+  // .placeholder` overrides it with `--gem-sys-shape--corner-extra-large-max`,
+  // which computes to 40px — matching the hero image it stands in for. The
+  // background is `--bard-color-image-placeholder-background` = #35383b, a
+  // lighter grey than the surface, so a failed image reads as a distinct slot
+  // rather than a hole in the page.
+  '.smd-hero-placeholder {',
+  '  display: flex;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  height: 200px;',
+  '  width: 100%;',
+  '  max-width: 100%;',
+  '  border-radius: 40px;',
+  '  background-color: #35383b;',
+  '  color: rgb(196, 199, 197);',
+  '}',
+  '.smd-hero-message { flex: 1; text-align: center; padding: 10%; }',
+  '.smd-hero-icon { width: 24px; height: 24px; margin-bottom: 8px; opacity: 0.8; }',
+  '.smd-hero-message-text { font-size: 13px; line-height: 20px; }',
+  // Gemini pulses a still-loading placeholder: `.placeholder.loading` runs
+  // `pulse 1.5s linear infinite`, captured from the live keyframes.
+  '.smd-hero-placeholder.smd-hero-loading {',
+  '  animation: smd-hero-pulse 1.5s linear infinite;',
+  '}',
+  '@keyframes smd-hero-pulse {',
+  '  0% { opacity: 1; }',
+  '  33% { opacity: 0.65; }',
+  '  100% { opacity: 1; }',
+  '}',
   '.smd-footnotes {',
   '  display: flex;',
   '  flex-direction: column;',
@@ -495,6 +835,10 @@ const STYLE_CSS = [
   '.smd-scroll:hover::-webkit-scrollbar-thumb { background-color: #333537; background-clip: content-box; }',
   '.smd-scroll::-webkit-scrollbar-thumb:hover, .smd-scroll::-webkit-scrollbar-thumb:active { background-color: #444746; background-clip: content-box; }',
   '.smd-scroll::-webkit-scrollbar-button { width: 0; height: 0; }',
+  // No responsive reflow, and this is measured rather than assumed: emulating
+  // viewports of 1536, 1100, 900, 760, 700, 600 and 480px left `flex-wrap` at
+  // `nowrap` and every card at its declared 350/171 in all seven cases. Gemini
+  // lets the tiling overflow a narrow panel; it does not wrap or shrink it.
   '@media (max-width: 640px) {',
   '  .smd-code-block { margin: 8px 0 0; border-radius: 28px; padding: 20px 0 24px 20px; }',
   '  .smd-code-pre code { padding-right: 20px; }',
@@ -506,12 +850,246 @@ const STYLE_CSS = [
   '  .smd-streaming .smd-w, .smd-streaming .smd-h, .smd-streaming .smd-code-block,',
   '  .smd-streaming .smd-table-block, .smd-streaming .smd-media-gallery, .smd-streaming .smd-math-display { animation: none !important; }',
   '  .smd-media-loading::before, .smd-media-loading::after { animation: none !important; }',
+  // `animation: none` also drops the fill mode, so the chip returns to its
+  // default opacity 1 rather than being stranded at the keyframe's 0.
+  '  .smd-src-chip-enter { animation: none !important; }',
+  '}',
+
+  // ── Inline source chips ────────────────────────────────────────────────────
+  // Transcribed from Gemini's `.source-inline-chip-container.luminous-sources`
+  // rules with its design tokens resolved to the values measured live:
+  //   --gem-sys-spacing--xs 4px  --s 8px  --m 12px  --xl 20px
+  //   --gem-sys-shape--corner-small 8px  --medium 12px  --large 16px  --full 9999px
+  //   --lumi-sys-color--surface-dim #171717  --surface-bright #1f1f1f
+  //   --lumi-sys-color--on-surface-variant rgba(255,255,255,0.55)
+  //   --lumi-sys-color--on-surface-low rgba(255,255,255,0.12)
+  //   --gem-sys-color--on-surface #e3e3e3  --on-surface-variant #c4c7c5
+  // Body-s is 13px/17px, body-m 15px/20px.
+  '.smd-src { white-space: pre-wrap; }',
+  // Staggered entrance. NOT extracted from Gemini -- Gemini shows its chips with
+  // no entrance animation at all (getAnimations() returned [] on a live capture).
+  // This is a deliberate local divergence, requested to be tried.
+  //
+  // The numbers are anchored to the text fade rather than picked freely: one chip
+  // takes 180ms, and each subsequent chip starts 70ms after the one before, so a
+  // four-chip answer finishes in 180 + 3x70 = 390ms -- about the same 400ms a
+  // single word fade already takes. The cascade therefore reads as quick relative
+  // to everything else on screen instead of as a new, slower thing.
+  '@keyframes smd-src-chip-in {',
+  '  from { opacity: 0; }',
+  '  to { opacity: 1; }',
+  '}',
+  '.smd-src-chip-enter {',
+  '  animation-name: smd-src-chip-in;',
+  '  animation-duration: 180ms;',
+  '  animation-timing-function: var(--fade-animation-function);',
+  '  animation-fill-mode: both;',
+  '  animation-iteration-count: 1;',
+  '}',
+  // inline-flex + the -8px block margin is Gemini's trick to keep a 21px chip
+  // inside a 24px line box: 21 - 8 - 8 = 5px of contributed height.
+  '.smd-src-chip {',
+  '  position: relative;',
+  '  display: inline-flex;',
+  '  flex-direction: column;',
+  '  white-space: nowrap;',
+  '  vertical-align: baseline;',
+  '  margin-block: -8px;',
+  '  margin-inline-start: 0;',
+  '}',
+  '.smd-src-btn {',
+  '  display: flex;',
+  '  align-items: baseline;',
+  '  justify-content: center;',
+  '  width: fit-content;',
+  '  height: auto;',
+  '  margin: 0;',
+  '  padding-block: 2px;',   // calc(--xs * .5)
+  '  padding-inline: 6px;',  // calc(--xs * 1.5)
+  '  border: 0;',
+  '  border-radius: 9999px;',
+  '  background: #171717;',
+  '  color: rgba(255, 255, 255, 0.55);',
+  '  cursor: pointer;',
+  '  box-sizing: border-box;',
+  '  font: inherit;',
+  '  -webkit-appearance: none;',
+  '  appearance: none;',
+  '}',
+  // Measured: the button has no hover, no active and no open state. Only
+  // aria-expanded changes. Focus-visible is ours — Gemini relies on the UA ring.
+  '.smd-src-btn:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.55); outline-offset: 2px; }',
+  '.smd-src-label {',
+  '  display: flex;',
+  '  align-items: baseline;',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 13px;',
+  '  font-weight: 400;',
+  '  line-height: 17px;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '}',
+  // max-width is an inline style on Gemini's span; 20ch measured to 168.61px.
+  '.smd-src-title {',
+  '  display: inline-block;',
+  '  max-width: 20ch;',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  white-space: nowrap;',
+  '  vertical-align: middle;',
+  '}',
+  '.smd-src-count { margin-inline-start: 0.25em; flex-shrink: 0; white-space: nowrap; }',
+
+  // ── Hover card ─────────────────────────────────────────────────────────────
+  // Pane top is flush with the chip's bottom (measured anchorBottomToPaneTop: 0)
+  // and the 12px padding is a live hover bridge, so the pointer can cross the
+  // visual gap without closing the card.
+  '.smd-src-pane {',
+  // Fixed, and portalled to <body>, because the pane must escape the chat
+  // scroller's stacking context: `main` is z-10 and the composer inside it is
+  // z-20, so ANY z-index here loses -- the pane is trapped in an ancestor
+  // context and paints under the composer.
+  //
+  // There is deliberately no `left`/`top`/`transform` here. SourceChip computes
+  // the final viewport coordinates itself and writes them inline; a `left: 50%`
+  // or `translateX(-50%)` in this rule would be applied ON TOP of an already
+  // absolute left edge and put the pane half its own width off-target.
+  '  position: fixed;',
+  '  z-index: 1000;',
+  '  padding: 12px 0;',
+  '  filter: drop-shadow(0 0 28px rgba(255, 255, 255, 0.12));',
+  '  cursor: default;',
+  '  white-space: normal;',
+  '}',
+  '.smd-src-card-shell {',
+  '  position: relative;',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  width: 23.75rem;',  // 380px
+  '  max-width: calc(100vw - 20px);',
+  '  box-sizing: border-box;',
+  '  border-radius: 16px;',
+  '  background-color: #1f1f1f;',
+  '}',
+  // 28x12 notch, offset by half its width, mirrored when the card flips above.
+  '.smd-src-pointer {',
+  '  position: absolute;',
+  '  top: -12px;',
+  '  left: 50%;',
+  '  width: 28px;',
+  '  height: 12px;',
+  '  transform: translateX(-50%) translateX(calc(var(--smd-src-shift, 0px) * -1));',
+  '  fill: #1f1f1f;',
+  '  overflow: visible;',
+  '}',
+  '.smd-src-pane-above .smd-src-pointer {',
+  '  top: auto;',
+  '  bottom: -12px;',
+  '  transform: translateX(-50%) translateX(calc(var(--smd-src-shift, 0px) * -1)) scaleY(-1);',
+  '}',
+  '.smd-src-stack {',
+  '  position: relative;',
+  '  z-index: 1;',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  margin: 8px;',
+  '  gap: 8px;',
+  '  border-radius: 12px;',
+  '  overflow-y: auto;',
+  '  max-height: 18.75rem;',  // 300px
+  '}',
+  '.smd-src-card { text-decoration: none; color: inherit; display: block; }',
+  '.smd-src-card-inner {',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  align-items: flex-start;',
+  '  padding: 8px;',
+  '  border-radius: 8px;',
+  // The font stack lives here, not on each row, because the card renders in two
+  // places and one of them inherits from the wrong ancestor. `.smd-src-pane` is
+  // portalled to <body>, so it is OUTSIDE `.smd-root` and never sees the
+  // font-family that rule sets -- measured on Willow, a probe element carrying
+  // `.smd-src-card-title` in <body> computed `Inter, sans-serif` at 16/24, the
+  // page default. Gemini's own rows measured "Google Sans Flex" with
+  // `wdth` 92 / `wght` 400 and `word-break: auto-phrase`. Declaring it on the
+  // shared container fixes both mount points at once and mirrors Gemini, where
+  // every row inherits these from an ancestor rather than restating them.
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-weight: 400;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '  word-break: auto-phrase;',
+  '}',
+  // Measured hover: background #171717 and the radius grows 8px -> 12px.
+  '.smd-src-card:hover .smd-src-card-inner { background-color: #171717; border-radius: 12px; }',
+  '.smd-src-card-header { display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; }',
+  '.smd-src-card-icon { display: inline-flex; align-items: center; justify-content: center; height: 24px; }',
+  // 9x9 image inside 1.5px padding = a 12x12 box, from a 32px source.
+  '.smd-src-card-img { height: 9px; width: 9px; padding: 1.5px; box-sizing: content-box; border-radius: 50%; }',
+  '.smd-src-card-img-fallback { background: rgba(255, 255, 255, 0.24); }',
+  '.smd-src-card-path {',
+  '  font-size: 13px;',
+  '  line-height: 17px;',
+  '  color: #c4c7c5;',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  white-space: nowrap;',
+  '}',
+  '.smd-src-card-title {',
+  '  display: -webkit-box;',
+  '  -webkit-box-orient: vertical;',
+  '  -webkit-line-clamp: 1;',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  overflow-wrap: anywhere;',
+  '  padding-top: 2px;',
+  '  font-size: 15px;',
+  '  line-height: 20px;',
+  '  color: #e3e3e3;',
+  '}',
+  // Row 3, measured off Gemini's live `div.snippet.gds-body-s` with the card
+  // mounted -- the values could not be read before, because Angular injects
+  // `inline-source-card`'s stylesheet on first mount and nothing had mounted one
+  // (4,657 rules walked, zero card rules). Hovering a source chip mounts it.
+  //
+  // Measured: padding `8px 0 0`, 13/17, #c4c7c5, clamp 2, `overflow-wrap:
+  // anywhere`. The 8px padding-top IS the gap between the title and the snippet;
+  // there is no `gap` or `margin` involved, so it is expressed the same way here.
+  //
+  // No width or `align-self`: the measured 348px is simply the container's content
+  // box (364 - 8 - 8), which a flex item with long text fills on its own. The
+  // title above it measured 209.25px from the same rules because its text is
+  // short. Declaring a width would break that.
+  //
+  // `display: -webkit-box` is authored; Chrome reports `flow-root` back for a
+  // clamped box, which is its readout and not a dropped declaration.
+  '.smd-src-card-snippet {',
+  '  display: -webkit-box;',
+  '  -webkit-box-orient: vertical;',
+  '  -webkit-line-clamp: 2;',
+  '  overflow: hidden;',
+  '  text-overflow: ellipsis;',
+  '  overflow-wrap: anywhere;',
+  '  padding-top: 8px;',
+  '  font-size: 13px;',
+  '  line-height: 17px;',
+  '  color: #c4c7c5;',
   '}',
 ].join('\n');
 
 function useInjectStyles() {
   useInsertionEffect(() => {
-    if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
+    if (typeof document === 'undefined') return;
+    const existing = document.getElementById(STYLE_ID);
+    if (existing) {
+      // Refresh when the content differs instead of no-oping unconditionally.
+      // Multiple mounts still write nothing (the string is identical), but an
+      // HMR edit to this file used to leave a long-lived tab running the NEW
+      // component against the OLD stylesheet. That combination is not merely
+      // stale, it is incoherent: the pane's position moved from CSS
+      // (`left: 50%` + `translateX(-50%)`) into JS, so old CSS plus new JS
+      // applied the -50% twice and put the pane 190px to the left of its chip.
+      if (existing.textContent !== STYLE_CSS) existing.textContent = STYLE_CSS;
+      return;
+    }
     const element = document.createElement('style');
     element.id = STYLE_ID;
     element.textContent = STYLE_CSS;

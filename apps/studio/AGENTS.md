@@ -90,7 +90,7 @@ boundary mocks so mock specifiers still win.
 ## Sidebar Recents: the one hot render path
 
 The Recents list renders one row per chat, so **anything done per row is done
-hundreds of times per redraw** — and the sidebar redraws often, including on
+once per visible row per redraw** — and the sidebar redraws often, including on
 scroll (`handleScroll` sets `isScrolled`/`isAtScrollEnd`), on hover-driven menu
 state, and on every keystroke while renaming.
 
@@ -103,22 +103,39 @@ Rules:
   made a large history lock up the UI on every render.
 - **The lazy Code-mode migration effect must NOT depend on `codeChats`.** That
   effect calls `markCodeChat`, which invalidates the memo. Depending on it
-  restarts the scan on every mark, cancelling an in-flight body read for a chat
-  already recorded in `codeChatScannedRef` — permanently losing that chat's
-  Code-mode marker. It deliberately calls `isCodeChat()` instead, which the
-  module-level cache makes O(1). There is a comment saying so; leave it.
-- `pinnedChats` is an array and the render does `.includes()` per row. Fine at
-  current sizes, but it is the next thing to make a `Set` if the list grows.
+  restarts the scan on every mark, cancelling an in-flight body read. It
+  deliberately calls `isCodeChat()` instead, which the module-level cache makes
+  O(1). There is a comment saying so; leave it.
+- **That effect reads full chat bodies, so it is scoped to `scanCandidates`** —
+  the visible window plus the active chat — not the whole history. It shares
+  `enqueueChatOperation`'s per-chat queue with the user's own chat open, so an
+  unbounded scan puts every click behind minutes of background reads. Because it
+  now legitimately restarts whenever the window grows, a cancelled read **rolls
+  its id back out of `codeChatScannedRef`** (`inFlight` in the cleanup). Without
+  that rollback a restart skips the chat as "already scanned" while localStorage
+  never recorded it, and the marker is lost for the session.
+- Rows are windowed (`RECENTS_INITIAL_COUNT`, +`RECENTS_CHUNK_SIZE` on scroll)
+  and live in a memoized `RecentChatRow`. **Every prop it takes must be a
+  primitive or an identity-stable callback** — the handlers go through
+  `useEventCallback` for this reason. Adding an inline arrow or object prop
+  silently un-memoizes the entire list.
+- **Three rows must never be windowed away**, via the `forced` set: the row being
+  renamed (React does not fire `blur` on unmount, so the rename is silently
+  discarded and `editingChatId` is stranded), the row with an open menu (the menu
+  renders outside the map and would float next to nothing), and the active chat
+  (it would lose its highlight).
+- The window resets on `chatScopeId` and on re-expanding Recents, **never on
+  `localChats`** — a rename or a new chat would collapse a list the user had
+  scrolled open.
+- The window is `recentsLimit + pinnedChatSet.size`, because pins are all hoisted
+  ahead of the recents and would otherwise fill the whole first page.
+- The "loading more" spinner has a deliberate `RECENTS_SPINNER_MIN_MS` floor. The
+  rows are already in memory, so appending is synchronous — without the floor the
+  spinner would mount and unmount inside one frame and never be seen.
 
-**Still outstanding (deliberately):** rows are neither memoized nor virtualized,
-so all rows exist in the DOM and redraw together. This is a *linear* cost, not the
-quadratic one above, and only matters at thousands of chats. Note that memoizing
-`SidebarItem` alone does nothing — each row's `actions`, `onClick` and
-`customLabel` are built inline in `Sidebar.tsx`, so React sees new props every
-render regardless. The prerequisite is extracting a row component that takes
-stable primitives and callbacks keyed by chat id. If you virtualize, the row being
-renamed and the row with an open menu must stay mounted even when scrolled out of
-view, or unmounting the input drops the pending rename.
+**Still outstanding (deliberately):** rows are windowed but not virtualized, so
+everything scrolled past stays in the DOM. Growth is bounded by what the user
+actually scrolls to, which is the case that mattered.
 
 <!-- related-packages -->
 

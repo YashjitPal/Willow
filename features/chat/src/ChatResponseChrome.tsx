@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { SourceCard, type SourceChipItem } from '@willow/ui/SourceChip';
+import { useInjectStyles } from '@willow/ui/streaming-markdown-styles';
 
 type Reaction = 'like' | 'dislike' | null;
 
@@ -11,6 +13,9 @@ interface ResponseActionsProps {
   listening: boolean;
   canRedo: boolean;
   canShowThinking: boolean;
+  /** Whether the turn was grounded. Gemini only offers "View sources" on a
+   *  response that actually used search. */
+  canShowSources: boolean;
   /**
    * Turn the user stopped. Gemini drops most of the row for these: rating a
    * reply it never finished writing is meaningless, and there is no complete
@@ -30,6 +35,7 @@ interface ResponseActionsProps {
   onCopy: () => void;
   onListen: () => void;
   onShowThinking: () => void;
+  onShowSources: () => void;
 }
 
 interface MenuPosition {
@@ -55,6 +61,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   listening,
   canRedo,
   canShowThinking,
+  canShowSources,
   isStopped = false,
   onLike,
   onDislike,
@@ -62,18 +69,38 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   onCopy,
   onListen,
   onShowThinking,
+  onShowSources,
 }) => {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition>({ left: 0, bottom: 0 });
 
+  /*
+   * Row order is Gemini's, measured from the open menu: "View sources" sits
+   * between "Report legal issue" and "Show thinking steps", not at the end.
+   * Both trailing rows are conditional and compose in that order.
+   */
+  const menuItems = [
+    { label: 'Branch in new chat', symbol: 'arrow_split' },
+    { label: listening ? 'Stop listening' : 'Listen', symbol: listening ? 'stop_circle' : 'tts', action: onListen },
+    { label: 'Export to Docs', symbol: 'docs' },
+    { label: 'Draft in Gmail', symbol: 'gmail' },
+    { label: 'Report legal issue', symbol: 'flag' },
+    ...(canShowSources ? [{ label: 'View sources', symbol: 'link_2', action: onShowSources }] : []),
+    ...(canShowThinking ? [{ label: 'Show thinking steps', symbol: 'route', action: onShowThinking }] : []),
+  ];
+
   const openMenu = () => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
     const menuWidth = 208;
-    const menuHeight = canShowThinking ? 232 : 196;
+    // Derived rather than tabulated: each row is h-9 (36px, Gemini's measured
+    // row height) inside the pane's p-2. The two constants this replaces (196
+    // and 232) are what the formula returns for 5 and 6 rows, and a third
+    // conditional row made the table the wrong shape.
+    const menuHeight = menuItems.length * 36 + 16;
     const left = Math.min(Math.max(8, rect.left), window.innerWidth - menuWidth - 8);
     const opensAbove = rect.top > menuHeight + 16;
 
@@ -114,15 +141,6 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
     setMenuOpen(false);
     action?.();
   };
-
-  const menuItems = [
-    { label: 'Branch in new chat', symbol: 'arrow_split' },
-    { label: listening ? 'Stop listening' : 'Listen', symbol: listening ? 'stop_circle' : 'tts', action: onListen },
-    { label: 'Export to Docs', symbol: 'docs' },
-    { label: 'Draft in Gmail', symbol: 'gmail' },
-    { label: 'Report legal issue', symbol: 'flag' },
-    ...(canShowThinking ? [{ label: 'Show thinking steps', symbol: 'route', action: onShowThinking }] : []),
-  ];
 
   const rowStyle = {
     '--response-action-size': '2rem',
@@ -318,20 +336,22 @@ const parseThoughtBlocks = (text: string): ThoughtBlock[] => {
   return blocks;
 };
 
-interface ThinkingStepsSidebarProps {
-  thinkingText: string;
-  modelLabel: string;
+/**
+ * The right-hand context panel, shared by "Show thinking steps" and "View
+ * sources".
+ *
+ * Shared because Gemini shares it: both are the same `context-sidebar` element
+ * with a different child (`side-bar-thoughts` / `side-bar-sources`), so the
+ * measurements below describe one surface, not two that happen to match —
+ * 400x793.6 at (1120, 16), 16px radius, 0.8px rgba(255,255,255,0.12) border,
+ * a 64px header padded `12px 12px 12px 24px`, a 20/24 470-weight title and a
+ * 40px `close` button in #c4c7c5 with aria-label "Close sidebar".
+ */
+const ContextSidebar: React.FC<{
+  title: string;
   onClose: () => void;
-}
-
-export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
-  thinkingText,
-  modelLabel,
-  onClose,
-}) => {
-  const blocks = parseThoughtBlocks(thinkingText);
-  const isProModel = /\bpro\b/i.test(modelLabel);
-
+  children: React.ReactNode;
+}> = ({ title, onClose, children }) => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -344,7 +364,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
     <>
       <motion.button
         type="button"
-        aria-label="Close thinking steps"
+        aria-label={`Close ${title.toLowerCase()}`}
         className="absolute inset-0 z-40 bg-black/55 min-[1024px]:hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -353,7 +373,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
         onClick={onClose}
       />
       <motion.aside
-        aria-label="Thinking steps"
+        aria-label={title}
         initial={{ opacity: 0, x: 424 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 424 }}
@@ -368,7 +388,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
             className="text-[20px] font-[470] leading-6"
             style={{ fontVariationSettings: '"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470' }}
           >
-            Thinking steps
+            {title}
           </h2>
           <button
             type="button"
@@ -387,8 +407,64 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
             />
           </button>
         </header>
+        {children}
+      </motion.aside>
+    </>
+  );
+};
 
-        <div className="gemini-chat-scrollbar my-2 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-4">
+/**
+ * "View sources". Gemini's `side-bar-sources` is padded `0 12px` and holds
+ * `.all-sources` — a 12px-gap flex column with `0 0 12px` padding — of
+ * `inline-source-card`, the same component its inline hover pane uses. Willow
+ * renders that same component too (`SourceCard`), so the card itself needs no
+ * rules here.
+ *
+ * Gemini's card carries a third row -- a 2-line clamped snippet -- which is why
+ * its card measures 98.4px against our 56.4px. `SourceCard` renders that row
+ * whenever `GroundingSource.snippet` is set, so this panel gains it for free on
+ * the providers that send one (Anthropic's `cited_text`) and keeps the shorter
+ * card on the ones that do not (Gemini, OpenAI, xAI). Nothing to decide here:
+ * the card owns that choice for both call sites.
+ */
+export const SourcesSidebar: React.FC<{
+  sources: SourceChipItem[];
+  onClose: () => void;
+}> = ({ sources, onClose }) => {
+  // SourceCard's rules live in the streaming-markdown stylesheet, which is
+  // injected by StreamingMarkdown. That is already mounted behind this panel,
+  // but the call is idempotent and makes the dependency explicit rather than
+  // relying on a sibling having rendered first.
+  useInjectStyles();
+
+  return (
+    <ContextSidebar title="Sources" onClose={onClose}>
+      <div className="gemini-chat-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
+        {sources.map((source, index) => (
+          <SourceCard key={`${source.uri}-${index}`} source={source} />
+        ))}
+      </div>
+    </ContextSidebar>
+  );
+};
+
+interface ThinkingStepsSidebarProps {
+  thinkingText: string;
+  modelLabel: string;
+  onClose: () => void;
+}
+
+export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
+  thinkingText,
+  modelLabel,
+  onClose,
+}) => {
+  const blocks = parseThoughtBlocks(thinkingText);
+  const isProModel = /\bpro\b/i.test(modelLabel);
+
+  return (
+    <ContextSidebar title="Thinking steps" onClose={onClose}>
+      <div className="gemini-chat-scrollbar my-2 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-4">
           <div
             className="ml-[7px] flex flex-col gap-2 pl-[25px]"
             style={{
@@ -463,8 +539,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               <span>Used {modelLabel}</span>
             </div>
           </div>
-        </div>
-      </motion.aside>
-    </>
+      </div>
+    </ContextSidebar>
   );
 };

@@ -9,11 +9,13 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
-import { ResponseActions, ThinkingStepsSidebar } from './ChatResponseChrome';
+import { ResponseActions, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
+import { ThoughtSummaryLine, latestThoughtHeading } from './ThoughtSummaryLine';
 import { UserMessageBubble } from './UserMessageBubble';
 import { ResponseInfoLine } from './ResponseInfoLine';
 import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
+import type { MessageCitations } from '@willow/ai/grounding';
 import {
   GeminiLiveSession,
   LiveHistoryTurn,
@@ -23,10 +25,26 @@ import {
 } from '@willow/ai/live';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
+import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-store';
+import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
-import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, serializeChatMessage } from './chat-message';
+import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, serializeChatMessage } from './chat-message';
+import {
+  attachChatTurnListener,
+  countRunningChatTurns,
+  detachChatTurnListener,
+  getChatTurn,
+  getChatTurnByChatId,
+  hasRunningTurnForChat,
+  registerChatTurn,
+  rebindChatTurnChatId,
+  removeChatTurn,
+  type ChatTurnListener,
+  type ChatTurnRecord,
+} from './chat-turn-store';
+import { runChatTurn } from './chat-turn-runner';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
-import { CHAT_SYSTEM_PROMPT, getShortModelName, resolveChatModel } from './chat-model';
+import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
 import { useStore } from '@nanostores/react';
 
@@ -54,6 +72,44 @@ import {
  * this is the window in which a burst of presses counts as one decision.
  */
 const LIVE_RESTART_DEBOUNCE_MS = 400;
+
+/**
+ * Ceiling on simultaneous background turns.
+ *
+ * Not a memory bound — it is a provider one. Each turn holds an SSE connection,
+ * and browsers cap concurrent connections per host; exhausting the pool would
+ * stall unrelated requests, including the chat saves these very turns depend on.
+ */
+const MAX_CONCURRENT_CHAT_TURNS = 4;
+
+/**
+ * Strip blob URLs from a message before it is stored on a turn record.
+ *
+ * `createAttachmentObjectUrl` ties each URL to the ChatView that made it and
+ * revokes it on unmount. A record outliving that unmount would hold URLs that
+ * render as broken images, so it keeps metadata only — exactly what the load
+ * path already expects, since a chat read from disk arrives without URLs too.
+ */
+const stripAttachmentObjectUrls = (message: ChatMsg): ChatMsg => {
+  if (!message.attachments?.length) return message;
+  return {
+    ...message,
+    attachments: message.attachments.map(({ url, ...rest }) => rest),
+  };
+};
+
+/**
+ * A function whose identity never changes but which always runs the latest
+ * render's body. Lets the load effect call into logic that reads a lot of state
+ * without that state joining the effect's dep array — which matters here because
+ * the load effect's deps are load-bearing and adding to them re-runs chat loads.
+ * Same helper as MediaView's and the Sidebar's.
+ */
+function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = useRef(fn);
+  useLayoutEffect(() => { ref.current = fn; });
+  return useMemo(() => ((...args: any[]) => ref.current(...args)) as T, []);
+}
 
 /**
  * Sampler for the app's emphasised curve, `cubic-bezier(0.2, 0, 0, 1)`.
@@ -126,7 +182,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
     activeChatId,
     loadLocalFSChat,
     localChats,
+    chatScopeId,
   } = useLocalFS();
+
+  // A background turn outlives this component, so the runner cannot call through
+  // the context — by the time it saves, this ChatView may be gone. Both are safe
+  // to capture: `saveLocalFSChat` reads all its state through refs, and the scope
+  // is re-read at write time so a turn whose scope changed declines to write.
+  const saveLocalFSChatRef = useRef(saveLocalFSChat);
+  useEffect(() => { saveLocalFSChatRef.current = saveLocalFSChat; }, [saveLocalFSChat]);
+  const chatScopeIdRef = useRef(chatScopeId);
+  useEffect(() => { chatScopeIdRef.current = chatScopeId; }, [chatScopeId]);
 
   // Unique session ID for auto-saving chats locally
   const [chatSessionId, setChatSessionId] = useState(() => {
@@ -144,6 +210,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [externalReloadVersion, setExternalReloadVersion] = useState(0);
   const forceExternalReloadRef = useRef(false);
   const pendingExternalReloadRef = useRef<string | null>(null);
+  // Bumped on entry to every chat load. A load that finds its generation
+  // superseded must not touch state: clicking A -> B -> C runs three loads that
+  // are NOT mutually ordered (enqueueChatOperation serialises per chat id, so
+  // each id has its own queue), and whichever resolves last used to win. That
+  // lost race also corrupted disk, because autosave keys on
+  // `chatTitle || chatSessionId` — a stale winner set those to its own id and
+  // the next save wrote the CURRENT chat's messages under it.
+  const loadGenerationRef = useRef(0);
+  // True while a user-selected chat's body is being read. The conversation area
+  // renders nothing in this window (the composer stays pinned) instead of leaving
+  // the PREVIOUS chat painted, which is what it used to do for the whole
+  // lock + IndexedDB + disk + JSON.parse + per-attachment-read round trip.
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const selectionEpoch = useStore(chatSelectionEpoch);
+  const consumedSelectionEpochRef = useRef(selectionEpoch);
+  // The reason string currently held on the shared top-loading store, so it can
+  // be released from a `finally`, from a superseded load, and on unmount. The
+  // store is module-level and survives ChatView's `key={chatResetKey}` remount:
+  // dropping a reason leaves the green bar running forever.
+  const topLoadingReasonRef = useRef<string | null>(null);
+  const releaseChatLoading = useCallback(() => {
+    if (topLoadingReasonRef.current) {
+      finishTopLoadingReason(topLoadingReasonRef.current);
+      topLoadingReasonRef.current = null;
+    }
+    setIsChatLoading(false);
+  }, []);
+  useEffect(() => () => {
+    if (topLoadingReasonRef.current) finishTopLoadingReason(topLoadingReasonRef.current);
+  }, []);
 
   const createAttachmentObjectUrl = useCallback((blob: Blob): string => {
     const url = URL.createObjectURL(blob);
@@ -191,8 +287,131 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return () => window.removeEventListener('willow_chat_body_updated', handleBodyUpdate);
   }, [activeChatId]);
 
+  /**
+   * Stop mirroring whatever turn this view was showing.
+   *
+   * Load-bearing on unmount. A detached record has no listener, so the runner
+   * claims settlement as `'runner'` and writes the result to disk itself. Leave
+   * a dead listener attached and it claims `'view'` instead, calls into an
+   * unmounted tree, and drops the turn without ever saving it.
+   */
+  const detachTurn = useEventCallback(() => {
+    const turnId = attachedTurnIdRef.current;
+    const listener = attachedListenerRef.current;
+    if (turnId && listener) detachChatTurnListener(turnId, listener);
+    attachedListenerRef.current = null;
+    attachedTurnIdRef.current = null;
+  });
+
+  const attachTurn = useEventCallback((turnId: string) => {
+    detachTurn();
+    const listener = buildTurnListener(turnId);
+    attachedListenerRef.current = listener;
+    attachedTurnIdRef.current = turnId;
+    setAttachedTurnId(turnId);
+    attachChatTurnListener(turnId, listener);
+  });
+
+  useEffect(() => () => { detachTurn(); }, [detachTurn]);
+
+  /**
+   * Adopt a freshly-loaded chat, resuming its turn if one is still running.
+   *
+   * Returns true when a live turn was picked back up, which the caller uses to
+   * decide whether the "nothing on disk" bookkeeping applies.
+   *
+   * The resume has to happen in the SAME commit as the messages. Split across
+   * two effects, React would paint the saved thread with no generating row, and
+   * a turn that settled in between would land its result into a listener that
+   * had not been attached yet — the tokens would be on the record but never on
+   * screen, which is exactly the bug this whole change exists to remove.
+   */
+  const commitLoadedChat = useEventCallback((chatId: string, saved: ChatMsg[]): boolean => {
+    const record = getChatTurnByChatId(chatId);
+    // Whatever we were mirroring belongs to the chat we are leaving. Detaching
+    // before the commit means that turn falls back to the runner for its save.
+    detachTurn();
+    setAttachedTurnId(null);
+
+    // Same commit as the messages, never a separate effect: any commit that
+    // paired a full thread with a stale count would paint the whole thread and
+    // defeat the chunked reveal.
+    setRevealCount(REVEAL_INITIAL_COUNT);
+    // `chatTitle` means "the human name this chat is saved under" — a temp id is
+    // not one. Writing a temp id here would close the title-effect's `!chatTitle`
+    // gate permanently, so the chat could never be named and the sidebar
+    // skeleton would shimmer forever. chatSessionId still adopts the id, which
+    // is what keeps the already-active guard above sound.
+    setChatTitle(isTempChatId(chatId) ? null : chatId);
+    setChatSessionId(chatId);
+
+    if (!record) {
+      setMessages(saved);
+      return false;
+    }
+
+    // The turn's own messages are not on disk: the user message may predate the
+    // first save, and the placeholder is filtered out of every save by
+    // `hasSavedMessageContent` because its content is still empty. So append
+    // whatever the saved thread does not already carry.
+    const assistant: ChatMsg = {
+      id: record.assistantId,
+      role: 'assistant',
+      content: record.status === 'settled' ? record.finalContent : '',
+      isGenerating: record.status === 'running',
+      thinkingText: record.thinkingText || undefined,
+      thinkingTime: record.isError ? undefined : record.thinkSeconds || undefined,
+      modelSnapshot: record.modelSnapshot,
+      isError: record.isError,
+      wasStopped: record.status === 'settled' ? record.wasStopped : undefined,
+      citations: record.status === 'settled' ? record.citations : undefined,
+    };
+    const carried = [record.userMessage, assistant].filter(
+      (message) => !saved.some((savedMessage) => savedMessage.id === message.id),
+    );
+    setMessages([...saved, ...carried]);
+
+    if (record.status === 'settled') {
+      // Settled while we were away, and the runner could not persist it (or we
+      // beat its save). Committing it here without advancing
+      // `lastSavedMessagesRef` lets the normal autosave effect write it.
+      removeChatTurn(record.turnId);
+      return true;
+    }
+
+    // Still running. Re-point every piece of component state the stop button and
+    // the shimmer row read, then attach so subsequent deltas land here.
+    //
+    // MAX, never REVEAL_INITIAL_COUNT: the reveal effect force-collapses its
+    // window the instant `isGenerating` is true, and that path has no scroll
+    // compensation — a small window here would mount the whole history above the
+    // viewport in one uncompensated commit and shove the thread down.
+    setRevealCount(Number.MAX_SAFE_INTEGER);
+    // The turn started minutes ago; it must not run the new-turn entrance glide.
+    skipNextNativeScrollRef.current = true;
+    setIsGenerating(true);
+    setStreaming(record.content);
+    setThinkingPhase(record.phase);
+    setIsThinking(record.isThinking);
+    isThinkingRef.current = record.isThinking;
+    setThinkSeconds(record.thinkSeconds);
+    thinkSecondsRef.current = record.thinkSeconds;
+    generationAbortRef.current = record.abort;
+    sendInFlightRef.current = true;
+    attachTurn(record.turnId);
+    return true;
+  });
+
   // Listen to activeChatId and load the chat when it changes
   useEffect(() => {
+    // Consume the selection epoch FIRST, before any early return. This effect
+    // also runs for internal id moves (rename, temp-id adoption) and for a
+    // repeat click on the chat already open, both of which bail at the identity
+    // guard below. Consuming after the guard would leave a bump unclaimed and
+    // the NEXT internal move would read as a user selection and blank the thread.
+    const isUserSelection = selectionEpoch !== consumedSelectionEpochRef.current;
+    consumedSelectionEpochRef.current = selectionEpoch;
+
     if (isLocalFolderConnected && activeChatId) {
       // Prevent reloading and overwriting if the selected chat is already active in memory
       const forceReload = forceExternalReloadRef.current;
@@ -203,9 +422,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
       isFirstScrollRef.current = true;
       initialLoadRef.current = true; // Block auto-save on load when switching chats
 
+      // Bump on ENTRY only — never in an effect cleanup. This effect's deps
+      // include `chatTitle`/`chatSessionId`, which `loadChat` itself writes
+      // below, so a cleanup-based invalidation would make every load cancel
+      // itself. Re-entry for unrelated deps is already a no-op via the
+      // identity guard above.
+      const generation = ++loadGenerationRef.current;
+      const isCurrent = () => generation === loadGenerationRef.current;
+
+      // Blank the conversation area only for a real user selection.
+      //
+      // `!forceReload` is the load-bearing term. forceExternalReloadRef
+      // deliberately bypasses the identity guard above and is set by the
+      // `willow_chat_body_updated` listener, which already filters to the chat
+      // you are on — so forceReload means "same chat, background disk sync".
+      // Blanking there would wipe a live conversation every time the 3s poll
+      // finds a change. The epoch covers the other direction: rename and temp-id
+      // adoption move `activeChatId` without the user asking for a new chat.
+      if (isUserSelection && !forceReload && !isGeneratingRef.current && !isLiveRef.current) {
+        const reason = `chat-load:${activeChatId}`;
+        if (topLoadingReasonRef.current && topLoadingReasonRef.current !== reason) {
+          finishTopLoadingReason(topLoadingReasonRef.current);
+        }
+        topLoadingReasonRef.current = reason;
+        startTopLoadingReason(reason);
+        setIsChatLoading(true);
+      }
+
       const loadChat = async () => {
         try {
           const msgs = await loadLocalFSChat(activeChatId);
+          // Must come BEFORE revokeAllAttachmentObjectUrls(): a superseded load
+          // reaching that call revokes the WINNER's object URLs and every image
+          // in the freshly-loaded thread goes blank.
+          if (!isCurrent()) return;
           if (msgs && msgs.length > 0) {
             revokeAllAttachmentObjectUrls();
             // Strip runtime-only flags that should never be persisted.
@@ -235,17 +485,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 isLive: false,
                 wasInterrupted: m.wasInterrupted,
                 wasStopped: m.wasStopped,
+                citations: sanitizeSavedCitations(m.citations),
               })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
+            // Attachment hydration awaits one IndexedDB read per attachment, so
+            // a faster chat can overtake us here. These three setters must
+            // commit together behind ONE check — `chatTitle`/`chatSessionId`
+            // are what autosave persists under.
+            if (!isCurrent()) return;
             if (sanitized.length > 0) {
-              setMessages(sanitized);
-              // `chatTitle` means "the human name this chat is saved under" —
-              // a temp id is not one. Writing it here closes the title-effect's
-              // `!chatTitle` gate permanently, so the chat can never be named
-              // and the sidebar skeleton shimmers forever. chatSessionId still
-              // adopts the id, which is what keeps the guard at ~line 153 sound.
-              setChatTitle(isTempChatId(activeChatId) ? null : activeChatId);
-              setChatSessionId(activeChatId);
+              commitLoadedChat(activeChatId, sanitized);
               return;
             }
           }
@@ -253,17 +502,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // messages on screen under the newly-selected id — adopt the id
           // with an empty thread instead (and release the load guard so the
           // first real message saves normally).
-          setMessages([]);
+          if (!isCurrent()) return;
           revokeAllAttachmentObjectUrls();
-          setChatTitle(isTempChatId(activeChatId) ? null : activeChatId);
-          setChatSessionId(activeChatId);
-          lastSavedMessagesRef.current = [];
-          initialLoadRef.current = false;
-        } catch {}
+          // Still route through the commit: a brand-new chat whose very first
+          // turn is generating in the background has nothing on disk yet, and
+          // dropping to an empty thread here would erase it from view.
+          if (!commitLoadedChat(activeChatId, [])) {
+            lastSavedMessagesRef.current = [];
+            initialLoadRef.current = false;
+          }
+        } catch {
+          // Swallowed as before, but the release below is now unconditional. A
+          // corrupt blob or a revoked directory handle used to leave the thread
+          // blank and the progress bar spinning with no way back.
+        } finally {
+          if (isCurrent()) releaseChatLoading();
+        }
       };
       void loadChat();
+
     }
-  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion, hydrateSavedAttachments, revokeAllAttachmentObjectUrls]);
+  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion, hydrateSavedAttachments, revokeAllAttachmentObjectUrls, selectionEpoch, releaseChatLoading]);
 
   // Handle the case where the currently active chat is deselected/deleted.
   // We must ONLY clear when an EXISTING active chat goes away (a non-null ->
@@ -371,6 +630,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
             suffix++;
           }
           setChatTitle(uniqueTitle);
+          // Follow the id move immediately, ahead of the storage-layer event.
+          // `chatTitle` is already the new id on the very next render, so the
+          // autosave key has moved too; a turn still registered under the temp id
+          // would be unfindable in that window. The rebind is idempotent, so the
+          // event firing later is harmless.
+          rebindChatTurnChatId(chatSessionId, uniqueTitle);
           // NOTE: deliberately do NOT setChatSessionId(uniqueTitle) here.
           // The load effect short-circuits on `activeChatId === chatSessionId`;
           // during the async temp→title rename there's a render where
@@ -393,13 +658,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // post-finalize array would make the autosave effect dedup away the
           // save that carries the reply.
           const snapshot = messagesRef.current;
-          const latest = snapshot
+          // `messagesRef` is frozen at unmount, and naming outlives unmount (it
+          // has no cancellation). If this view is gone, the ref still holds the
+          // empty placeholder, which `hasSavedMessageContent` drops — so the save
+          // would be the user message alone. Landing after the runner's save,
+          // that ERASES the reply. The turn record is the live source in that
+          // case, so prefer it whenever one is running for this chat.
+          const runningTurn = getChatTurnByChatId(uniqueTitle) ?? getChatTurnByChatId(chatSessionId);
+          const source = runningTurn?.status === 'running'
+            ? [...runningTurn.historyBefore, runningTurn.userMessage]
+            : snapshot;
+          const latest = source
             .map(serializeChatMessage)
             .filter((message) => hasSavedMessageContent(message));
           if (latest.length > 0) {
             const saved = await saveLocalFSChat(uniqueTitle, latest, chatSessionId);
             if (saved) {
-              lastSavedMessagesRef.current = snapshot;
+              // Only credit the array we actually wrote. Crediting the record's
+              // reconstruction would make the autosave effect dedup away the
+              // save that carries the reply.
+              if (!runningTurn) lastSavedMessagesRef.current = snapshot;
             } else {
               // A cross-tab or on-disk collision may have appeared after our
               // optimistic uniqueness check. Keep the temp chat intact and let
@@ -417,6 +695,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const sendInFlightRef = useRef(false);
+  // The turn this view is currently mirroring, if any. Set both when this view
+  // starts a turn and when it re-attaches to one already running in the chat it
+  // just opened.
+  const [attachedTurnId, setAttachedTurnId] = useState<string | null>(null);
+  const attachedTurnIdRef = useRef<string | null>(null);
+  useEffect(() => { attachedTurnIdRef.current = attachedTurnId; }, [attachedTurnId]);
+  // The exact listener object handed to the store, so detach can compare-and-clear
+  // rather than blindly nulling one a later attach may have installed.
+  const attachedListenerRef = useRef<ChatTurnListener | null>(null);
   // Aborts the in-flight typed turn when the composer's stop button is pressed.
   const generationAbortRef = useRef<AbortController | null>(null);
   // React 19 may batch rapid SDK stream callbacks with the completion cleanup.
@@ -432,6 +719,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
+  const [openSourcesMessageId, setOpenSourcesMessageId] = useState<string | null>(null);
   const [openResource, setOpenResource] = useState<RichResource | null>(null);
   const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -468,18 +756,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   useEffect(() => {
     setOpenThinkingMessageId(null);
+    setOpenSourcesMessageId(null);
     setOpenResource(null);
   }, [activeChatId]);
 
+  // The three right-hand panels share one slot, so opening any one closes the
+  // other two. Gemini's `context-sidebar` is a single host for the same reason.
   const handleOpenResource = useCallback((resource: RichResource) => {
     if (!isSidebarCollapsed) onCollapseSidebar?.();
     setOpenThinkingMessageId(null);
+    setOpenSourcesMessageId(null);
     setOpenResource(resource);
   }, [isSidebarCollapsed, onCollapseSidebar]);
 
   const handleOpenThinking = useCallback((messageId: string) => {
     setOpenResource(null);
+    setOpenSourcesMessageId(null);
     setOpenThinkingMessageId(messageId);
+  }, []);
+
+  const handleOpenSources = useCallback((messageId: string) => {
+    setOpenResource(null);
+    setOpenThinkingMessageId(null);
+    setOpenSourcesMessageId(messageId);
   }, []);
 
   // Auto-save chat history locally in real-time when messages change.
@@ -587,6 +886,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const liveTurnRef = useRef<{ userId: string; assistantId: string; acc: string } | null>(null);
 
   const hasStarted = messages.length > 0 || isGenerating || isLive;
+  // The third state: a user-selected chat whose body has not arrived yet. The
+  // thread area renders nothing, but the composer must stay exactly where it is.
+  //
+  // This is why `hasStarted` is NOT forced false to blank the view — it also
+  // drives the composer's docked-vs-centred layout, and the docked->zero
+  // direction is a deliberate 0-duration snap, so flipping it would teleport the
+  // composer to screen centre and slide it back on every chat open.
+  const showBlankThread = isChatLoading;
+  const isThreadDocked = hasStarted || showBlankThread;
   const lastUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id;
   // A live turn marks the user's bubble `isTranscribing` for exactly as long as
   // they are being listened to, which is the orb's listening signal.
@@ -682,6 +990,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const lastAssistantContentRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledUserId = useRef<string | null>(null);
   const isFirstScrollRef = useRef(false);
+  // ── Chunked thread reveal ──────────────────────────────────────────────────
+  // A freshly-opened chat paints its newest messages first, then walks backwards
+  // over the rest a chunk per frame. Every message costs a remark parse, a
+  // highlight.js pass and a per-word span tree, and the list is not virtualized,
+  // so a long thread used to land as one synchronous commit.
+  //
+  // The first chunk must stay >= 8: the open-scroll jump below targets
+  // `messages[length - 1 - 4]`, and if that element is not mounted the jump
+  // silently no-ops and the chat opens scrolled to the TOP of the thread.
+  const REVEAL_INITIAL_COUNT = 12;
+  const REVEAL_CHUNK_SIZE = 10;
+  const [revealCount, setRevealCount] = useState(Number.MAX_SAFE_INTEGER);
+  const revealRafRef = useRef<number | null>(null);
   const skipNextNativeScrollRef = useRef(false);
   const turnEntranceRafRef = useRef<number | null>(null);
   const turnEntranceCleanupRef = useRef<(() => void) | null>(null);
@@ -939,6 +1260,46 @@ export const ChatView: React.FC<ChatViewProps> = ({
     userBubbleCollapsePinnedToBottomRef.current = false;
   }, []);
 
+  // Walk the reveal window backwards over the remaining history, one chunk per
+  // frame, compensating scroll as we go.
+  //
+  // Mounting older messages ABOVE the viewport grows scrollHeight at the top, so
+  // without the compensation every chunk shoves the conversation down. This is
+  // the same class of jerk the ResizeObservers below fight, and it needs the same
+  // cure: measure, commit synchronously via flushSync, then correct scrollTop
+  // inside the one frame. A batched setState would paint the taller content
+  // before the correction landed.
+  useEffect(() => {
+    if (revealCount >= messages.length) return;
+    // Never compete with a live stream for frames.
+    if (isGenerating || isLive) {
+      setRevealCount(messages.length);
+      return;
+    }
+    revealRafRef.current = requestAnimationFrame(() => {
+      revealRafRef.current = null;
+      const container = chatScrollRef.current;
+      if (!container) {
+        setRevealCount((count) => count + REVEAL_CHUNK_SIZE);
+        return;
+      }
+      const before = container.scrollHeight;
+      flushSync(() => setRevealCount((count) => count + REVEAL_CHUNK_SIZE));
+      container.scrollTop += container.scrollHeight - before;
+    });
+    return () => {
+      if (revealRafRef.current !== null) {
+        cancelAnimationFrame(revealRafRef.current);
+        revealRafRef.current = null;
+      }
+    };
+  }, [revealCount, messages.length, isGenerating, isLive]);
+
+  // `messages` shrinks on regenerate and on editing an earlier turn, so the
+  // window is clamped at read time rather than trusted.
+  const revealOffset = Math.max(0, messages.length - Math.min(revealCount, messages.length));
+  const visibleMessages = revealOffset > 0 ? messages.slice(revealOffset) : messages;
+
   // Mirror messages in a ref so resize-driven recomputes can read the latest
   // list without re-running (and racing) on every setMessages.
   const messagesRef = useRef(messages);
@@ -984,8 +1345,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [hasStarted, editingUserId]);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const thinkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const thinkStart = useRef<number>(0);
+  // The elapsed-seconds ticker itself lives on the turn record, driven by the
+  // runner, so it survives this component and cannot be shared by two turns.
+  // These mirror the DISPLAYED turn's thinking state for the render path.
   const isThinkingRef = useRef(false);
   const thinkSecondsRef = useRef(0);
 
@@ -993,7 +1355,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => { thinkSecondsRef.current = thinkSeconds; }, [thinkSeconds]);
 
   useEffect(() => () => {
-    if (thinkTimer.current) clearInterval(thinkTimer.current);
     if (streamingClearRafRef.current !== null) {
       cancelAnimationFrame(streamingClearRafRef.current);
     }
@@ -1151,7 +1512,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const stopThinking = useCallback(() => {
-    if (thinkTimer.current) { clearInterval(thinkTimer.current); thinkTimer.current = null; }
     isThinkingRef.current = false;
     setIsThinking(false);
   }, []);
@@ -1168,16 +1528,96 @@ export const ChatView: React.FC<ChatViewProps> = ({
     content: string,
     thinkingTime?: number,
     isError = false,
-    wasStopped = false
+    wasStopped = false,
+    citations?: MessageCitations
   ) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations }
           : m
       )
     );
   };
+
+  /**
+   * Mirror one turn into this view's state.
+   *
+   * Only an attached listener touches React — an unwatched turn just grows its
+   * accumulators. That is what keeps two concurrent turns from fighting over
+   * `streaming`, which is a single component-wide value: at most one record can
+   * be attached, and it is always the displayed chat's.
+   */
+  const buildTurnListener = useCallback((turnId: string): ChatTurnListener => ({
+    onText: (content) => {
+      if (attachedTurnIdRef.current !== turnId) return;
+      if (isThinkingRef.current) {
+        const record = getChatTurn(turnId);
+        if (record) {
+          thinkSecondsRef.current = record.thinkSeconds;
+          setThinkSeconds(record.thinkSeconds);
+        }
+        stopThinking();
+      }
+      // Provider callbacks can drain an already-buffered SSE response in a tight
+      // microtask chain. Force each accumulated value into React before the
+      // final message/cleanup updates can absorb it.
+      flushSync(() => setStreaming(content));
+    },
+    onThinking: (record) => {
+      if (attachedTurnIdRef.current !== turnId) return;
+      setMessages((prev) => prev.map((message) =>
+        message.id === record.assistantId
+          ? { ...message, thinkingText: record.thinkingText }
+          : message
+      ));
+    },
+    onPhase: (record) => {
+      if (attachedTurnIdRef.current !== turnId) return;
+      // Keep the shimmer row live with the right label until real text streams.
+      // 'responding' is handled by the onText branch above.
+      if (record.phase !== 'responding') setThinkingPhase(record.phase);
+      if (record.isThinking) {
+        thinkSecondsRef.current = record.thinkSeconds;
+        setThinkSeconds(record.thinkSeconds);
+      }
+    },
+    onSettled: (record) => {
+      if (attachedTurnIdRef.current !== turnId) return;
+      // Give the browser one generating-state paint after the final delta. If
+      // finalisation happens in the same task, React can otherwise replace the
+      // streaming buffer with the completed message before it was ever shown.
+      void waitForBrowserPaint().then(() => {
+        if (attachedTurnIdRef.current !== turnId) return;
+        finalizeAssistant(
+          record.assistantId,
+          record.finalContent,
+          record.isError ? undefined : record.thinkSeconds,
+          record.isError,
+          record.wasStopped,
+          record.citations,
+        );
+        setAttachedTurnId(null);
+        attachedTurnIdRef.current = null;
+        attachedListenerRef.current = null;
+        // Compare-and-clear throughout: a turn settling in ANOTHER chat must not
+        // null the controller behind the displayed chat's stop button, nor clear
+        // its streaming buffer mid-response.
+        if (generationAbortRef.current === record.abort) generationAbortRef.current = null;
+        sendInFlightRef.current = false;
+        stopThinking();
+        // Keep the final streaming value alive through the completion commit.
+        // The completed message now owns the same text, so clearing next frame
+        // is visually lossless and cannot erase the last delta before paint.
+        if (streamingClearRafRef.current !== null) cancelAnimationFrame(streamingClearRafRef.current);
+        streamingClearRafRef.current = requestAnimationFrame(() => {
+          streamingClearRafRef.current = null;
+          setStreaming('');
+        });
+        setIsGenerating(false);
+      });
+    },
+  }), [stopThinking]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const buildAiHistory = useCallback(
@@ -1196,11 +1636,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
       attachmentSources: Array<ComposerAttachment | ChatAttachment> = [],
     ) => {
       const trimmed = text.trim();
-      if ((!trimmed && attachmentSources.length === 0) || isGenerating || sendInFlightRef.current) return;
+      // Re-entrancy is per chat, not per component: a turn may still be running
+      // in ANOTHER chat, and blocking the foreground on it would make
+      // "background" pointless. Within one chat a second turn is meaningless.
+      if (!trimmed && attachmentSources.length === 0) return;
+      if (hasRunningTurnForChat(chatTitle || chatSessionId) || sendInFlightRef.current) return;
       if (!isAuthenticated) { onAuthRequired?.(); return; }
+      if (countRunningChatTurns() >= MAX_CONCURRENT_CHAT_TURNS) return;
 
       const { provider, model, thinkingLevel, apiKey, modelLabel } = resolveModel();
       sendInFlightRef.current = true;
+      // A send lands at the bottom of the thread, so anything still hidden by a
+      // mid-flight reveal must be materialised now — otherwise the reply streams
+      // into a thread that is visibly missing its older half.
+      setRevealCount(Number.MAX_SAFE_INTEGER);
       if (streamingClearRafRef.current !== null) {
         cancelAnimationFrame(streamingClearRafRef.current);
         streamingClearRafRef.current = null;
@@ -1270,13 +1719,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setThinkSeconds(0);
       thinkSecondsRef.current = 0;
       setStreaming('');
-      thinkStart.current = Date.now();
-      if (thinkTimer.current) clearInterval(thinkTimer.current);
-      thinkTimer.current = setInterval(() => {
-        const s = Math.ceil((Date.now() - thinkStart.current) / 1000);
-        thinkSecondsRef.current = s;
-        setThinkSeconds(s);
-      }, 1000);
+      // The elapsed-seconds ticker lives on the turn record now, driven by the
+      // runner: two concurrent turns would otherwise share one interval handle,
+      // and stopping either would kill the other's thinking row.
 
       if (!apiKey) {
         sendInFlightRef.current = false;
@@ -1291,100 +1736,64 @@ export const ChatView: React.FC<ChatViewProps> = ({
         return;
       }
 
-      let acc = '';
-      let thoughtAcc = '';
-      const abort = new AbortController();
-      generationAbortRef.current = abort;
+      const chatKey = chatTitle || chatSessionId;
+      const record: ChatTurnRecord = {
+        turnId: assistantId,
+        chatId: chatKey,
+        chatIdHistory: [],
+        scopeId: chatScopeId,
+        isIncognito,
+        // Blob URLs belong to this ChatView instance and are revoked on its
+        // unmount, so the record keeps metadata only. A resumed thread reloads
+        // its attachments from disk like any other chat open.
+        historyBefore: prevMessages.map(stripAttachmentObjectUrls),
+        userMessage: stripAttachmentObjectUrls(userMsg),
+        assistantId,
+        modelSnapshot: assistantPlaceholder.modelSnapshot,
+        content: '',
+        thinkingText: '',
+        citations: undefined,
+        phase: 'thinking',
+        isThinking: true,
+        thinkStartedAt: Date.now(),
+        thinkSeconds: 0,
+        abort: new AbortController(),
+        status: 'running',
+        settledBy: null,
+        wasStopped: false,
+        isError: false,
+        finalContent: '',
+        persisted: false,
+        lastCheckpointAt: Date.now(),
+        listener: null,
+      };
+      generationAbortRef.current = record.abort;
+      registerChatTurn(record);
+      attachTurn(record.turnId);
+
+      let history: AiChatMessage[] = [];
       try {
-        await attachmentPersistence;
-        const history = await buildAiHistory([...prevMessages, userMsg]);
-        await streamChat(
-          history,
-          // Chat mode: search grounding + native code execution both offered.
-          {
-            provider,
-            model,
-            apiKey,
-            thinkingLevel,
-            includeThoughts: thinkingLevel > 0,
-            enableSearch: true,
-            enableCodeExecution: true,
-            baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
-            signal: abort.signal,
-          },
-          (token) => {
-            if (isThinkingRef.current) {
-              const elapsed = Math.max(1, Math.ceil((Date.now() - thinkStart.current) / 1000));
-              thinkSecondsRef.current = elapsed;
-              setThinkSeconds(elapsed);
-              stopThinking();
-            }
-            acc += token;
-            // The provider callbacks can be drained from an already-buffered SSE
-            // response in a tight microtask chain. Force each accumulated value
-            // into React before the final message/cleanup updates can absorb it.
-            flushSync(() => setStreaming(acc));
-          },
-          () => {},
-          CHAT_SYSTEM_PROMPT,
-          (phase) => {
-            // Keep the shimmer row live with the right label until real text
-            // streams. 'responding' is handled by the onToken branch above.
-            if (phase !== 'responding') setThinkingPhase(phase);
-          },
-          undefined,
-          (thoughtChunk) => {
-            thoughtAcc += thoughtChunk;
-            setMessages((prev) => prev.map((message) =>
-              message.id === assistantId
-                ? { ...message, thinkingText: thoughtAcc }
-                : message
-            ));
-          },
-        );
-        // Give the browser one generating-state paint after the final delta. If
-        // finalisation happens in the same task, React can otherwise replace the
-        // streaming buffer with the completed message before it was ever shown.
-        await waitForBrowserPaint();
-        // Some SDKs swallow the abort and return normally instead of throwing,
-        // so a clean return is not proof the turn ran to completion.
-        finalizeAssistant(assistantId, acc, thinkSecondsRef.current, false, abort.signal.aborted);
-      } catch (e: any) {
-        // A stop is not a failure. Gemini keeps whatever streamed before the
-        // press and marks the turn, so the partial text is the final content
-        // rather than being replaced by an error.
-        //
-        // The signal is the test, not the error's shape: providers rewrap an
-        // abort into their own type, losing the AbortError name and code. The
-        // Gemini SDK reports "[GoogleGenerativeAI Error]: Error reading from
-        // the stream", which isAbortError alone cannot recognise. Checking the
-        // signal we own works the same way for every provider.
-        if (abort.signal.aborted || isAbortError(e)) {
-          await waitForBrowserPaint();
-          finalizeAssistant(assistantId, acc, thinkSecondsRef.current, false, true);
-        } else {
-          finalizeAssistant(
-            assistantId,
-            `Something went wrong: ${e?.message || 'Unknown error.'}`,
-            undefined,
-            true
-          );
-        }
-      } finally {
-        generationAbortRef.current = null;
-        sendInFlightRef.current = false;
-        stopThinking();
-        // Keep the final streaming value alive through the completion commit.
-        // The completed message now owns the same text, so clearing next frame is
-        // visually lossless and cannot erase the last delta before paint.
-        streamingClearRafRef.current = requestAnimationFrame(() => {
-          streamingClearRafRef.current = null;
-          setStreaming('');
-        });
-        setIsGenerating(false);
+        history = await buildAiHistory([...prevMessages, userMsg]);
+      } catch {
+        history = [];
       }
+
+      await runChatTurn(record, {
+        options: {
+          provider,
+          model,
+          apiKey,
+          thinkingLevel,
+          baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
+        },
+        systemPrompt: chatSystemPromptFor(provider),
+        history,
+        attachmentPersistence,
+        currentScopeId: () => chatScopeIdRef.current,
+        saveChat: saveLocalFSChatRef.current,
+      });
     },
-    [messages, isGenerating, isAuthenticated, onAuthRequired, resolveModel, stopThinking, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, modelConfig, buildAiHistory, createAttachmentObjectUrl]
+    [messages, isAuthenticated, onAuthRequired, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener]
   );
 
   // ── Live mode ──────────────────────────────────────────────────────────────
@@ -1570,7 +1979,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // Voice, and either a `languageCode` or a prompt directive depending on what
     // the provider accepts. With no provider match this returns the prompt
     // untouched and neither field set, i.e. exactly the pre-existing request.
-    const voiceOptions = buildLiveVoiceOptions(liveModelId, CHAT_SYSTEM_PROMPT);
+    const voiceOptions = buildLiveVoiceOptions(liveModelId, liveSystemPrompt());
     liveSettingsSignatureRef.current = `${liveModelId}|${voiceSettingsSignature(liveModelId)}`;
 
     // Every callback below is late-bound to the ref, so a session that has been
@@ -1979,6 +2388,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const thinkingMessage = openThinkingMessageId
     ? messages.find((message) => message.id === openThinkingMessageId && message.role === 'assistant')
     : undefined;
+  const sourcesMessage = openSourcesMessageId
+    ? messages.find((message) => message.id === openSourcesMessageId && message.role === 'assistant')
+    : undefined;
+  // Both panels occupy the same 428px slot, so the layout gates on either.
+  const contextSidebarOpen = !!thinkingMessage || !!sourcesMessage;
   const shouldAnimateFirstPromptEntrance =
     messages.length === 2 &&
     messages[0]?.role === 'user' &&
@@ -2000,9 +2414,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     >
       <div
         className={`relative flex h-full min-h-0 min-w-0 w-full ${
-          thinkingMessage ? 'min-[1024px]:w-[calc(100%_-_428px)]' : ''
+          contextSidebarOpen ? 'min-[1024px]:w-[calc(100%_-_428px)]' : ''
         } flex-col transition-[margin-right,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
-          thinkingMessage ? 'min-[1024px]:mr-[428px]' : 'mr-0'
+          contextSidebarOpen ? 'min-[1024px]:mr-[428px]' : 'mr-0'
         }`}
       >
       {/* Scrollable message thread
@@ -2023,7 +2437,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             `h-full` gives the hero exactly one chat-area's worth of height, so
             recent chats begin right below the fold as before. It resolves
             because this scroller has a definite height (`flex-1` + `min-h-0`). */}
-        {!hasStarted && (
+        {!hasStarted && !showBlankThread && (
           <>
             <div className="h-full">
               <HeroSection
@@ -2052,7 +2466,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
           </>
         )}
-        {hasStarted && (
+        {hasStarted && !showBlankThread && (
         <motion.div
           initial={shouldAnimateFirstPromptEntrance ? { y: 200 } : false}
           animate={{ y: 0 }}
@@ -2063,10 +2477,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
             if (isFirstTurnEntranceActive) setIsFirstTurnEntranceActive(false);
           }}
           className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-[72px] pb-[20px] transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
-            thinkingMessage ? 'min-[1024px]:pl-9' : ''
+            contextSidebarOpen ? 'min-[1024px]:pl-9' : ''
           }`}
         >
-          {messages.map((msg, messageIndex) => {
+          {visibleMessages.map((msg, visibleIndex) => {
+            // Index into the FULL array, not the slice. Reading `gapBefore` off
+            // the slice would make slice-index 0 take the `messageIndex === 0`
+            // branch below and lose its 52px top gap, so every revealed chunk
+            // would shift the thread by 52px.
+            const messageIndex = revealOffset + visibleIndex;
             const previousMessage = messages[messageIndex - 1];
             // Every message boundary is MESSAGE_GAP. Gemini's scroller applies
             // its 52px row-gap to each `.conversation-container` uniformly, and
@@ -2269,20 +2688,49 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     thinkingPhase === 'searching' ? 'Searching'
                     : thinkingPhase === 'executing' ? 'Running code'
                     : 'Thinking';
+                  // Gemini replaces the label with the newest section heading of
+                  // its own thought stream. Only a stream that actually arrives
+                  // sectioned can do that, so a provider emitting bare prose
+                  // (Grok, Claude — measured) keeps the shimmering label.
+                  const summaryHeading = active && thinkingPhase === 'thinking'
+                    ? latestThoughtHeading(msg.thinkingText || '')
+                    : null;
+                  // Gemini shows no generic label at any point: its row is the
+                  // dots alone until the first heading arrives, then the heading.
+                  // Keyed off the turn's own recorded provider rather than off
+                  // "no heading yet", because those two differ precisely in the
+                  // window this controls — a Gemini stream that has not emitted
+                  // its first heading is indistinguishable from a Grok one.
+                  // Scoped to the thinking phase: `Searching` and `Running code`
+                  // report real distinct states, not a placeholder for silence.
+                  const suppressLabel =
+                    msg.modelSnapshot?.provider === 'gemini' && thinkingPhase === 'thinking';
                   return (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
-                      className="flex items-center gap-2.5"
-                      style={{ color: '#81888f' }}
+                      className="flex items-center"
+                      style={{
+                        color: '#81888f',
+                        // Gemini's row: 12px (--gem-sys-spacing--m) after the
+                        // dots, 24px min-height (body-l line-height). Its dots
+                        // sit at x=550 and its text at x=586 — a 36px delta that
+                        // is 24px of dots plus that 12px.
+                        gap: summaryHeading ? '12px' : '10px',
+                        // Held for the whole Gemini row, not just once a heading
+                        // exists, so the dots do not shift when one arrives.
+                        minHeight: summaryHeading || suppressLabel ? 24 : undefined,
+                      }}
                     >
                       {thinkingPhase === 'thinking' ? (
                         <GeminiThinkingVisualizer />
                       ) : (
                         <MaterialSymbol name={phaseSymbol} size={18} opticalSize={20} />
                       )}
-                      {active ? (
+                      {summaryHeading ? (
+                        <ThoughtSummaryLine heading={summaryHeading} />
+                      ) : suppressLabel ? null : active ? (
                         <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
                           {phaseLabel}
                         </TextShimmer>
@@ -2299,6 +2747,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     isStreaming={generating}
                     animate={generating && !msg.isError}
                     onOpenResource={handleOpenResource}
+                    citations={msg.citations}
                   />
                 )}
 
@@ -2340,6 +2789,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     listening={listeningId === msg.id}
                     canRedo={isLastAssistant}
                     canShowThinking={!msg.isError}
+                    canShowSources={!!msg.citations?.sources?.length}
                     isStopped={!!msg.wasStopped}
                     onLike={() => setReactions((current) => ({
                       ...current,
@@ -2353,6 +2803,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     onCopy={() => handleCopy(msg)}
                     onListen={() => handleListen(msg)}
                     onShowThinking={() => handleOpenThinking(msg.id)}
+                    onShowSources={() => handleOpenSources(msg.id)}
                   />
                 </motion.div>
                 </div>
@@ -2374,10 +2825,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           settings trigger are `fixed`, and the dialog is a top-layer `<dialog>`. */}
       <div
         ref={footerRef}
-        className={`${hasStarted ? 'relative' : ''} z-30 flex shrink-0 flex-col items-center`}
+        className={`${isThreadDocked ? 'relative' : ''} z-30 flex shrink-0 flex-col items-center`}
       >
         {/* Gemini's native 28px fading gradient overlay that covers the bottom edge of the scroller */}
-        {hasStarted && (
+        {isThreadDocked && (
           <div
             className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
             style={{
@@ -2436,7 +2887,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             of depending on a frozen half-height. `pointer-events-none` lets the
             recent-chats list underneath stay clickable through the gap. */}
         <div
-          className={hasStarted
+          className={isThreadDocked
             ? 'w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]'
             : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
         >
@@ -2460,10 +2911,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // `calc(100dvh - 114px)` to ~64px inside one React commit and Framer
             // animates the whole drop. Same for adding an attachment.
             //
-            // Binding it to `hasStarted` means the box is re-measured for the
-            // one transition that should animate — centre to dock — and for
-            // nothing else.
-            layoutDependency={hasStarted}
+            // Binding it to `isThreadDocked` means the box is re-measured for
+            // the one transition that should animate — centre to dock — and for
+            // nothing else. It tracks `hasStarted` except that opening a chat
+            // docks the composer when the load STARTS rather than when the
+            // messages land, so the slide runs once, up front, instead of
+            // waiting on disk and then competing with the thread's own reveal.
+            layoutDependency={isThreadDocked}
             // The slide is ONE-DIRECTIONAL, because Gemini's is. Recorded at
             // 55fps off the live app across four transitions:
             //
@@ -2481,10 +2935,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             //     300ms, 250ms delay, same curve).
             //
             // So the duration is read off the direction we are travelling.
-            // `hasStarted` is already false on the render that commits the
-            // move back to centre, which makes it snap — exactly Gemini.
+            // `isThreadDocked` is already false on the render that commits the
+            // move back to centre, which makes it snap — exactly Gemini. It must
+            // stay paired with `layoutDependency` above; binding one to
+            // `hasStarted` and the other to `isThreadDocked` re-introduces the
+            // squash, because the box would be re-measured on a commit whose
+            // transition says "animate".
             transition={{
-              layout: hasStarted
+              layout: isThreadDocked
                 ? { duration: 0.25, ease: [0.2, 0, 0, 1] as const }
                 : { duration: 0 },
             }}
@@ -2499,7 +2957,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 It is `absolute`, so it stays out of the measured box and the
                 centre-to-dock projection remains a pure translate. */}
-            {!hasStarted && (
+            {!isThreadDocked && (
               <PinnedChatGreeting isIncognito={isIncognito} isAuthenticated={isAuthenticated} />
             )}
             <InputBar
@@ -2507,7 +2965,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               // Zero state has no disclaimer, matching Gemini, which keeps its
               // own in the bottom bar and out of the centred composer. It costs
               // no layout either way — the line is `absolute top-full`.
-              showDisclaimer={hasStarted}
+              showDisclaimer={isThreadDocked}
               currentMode="chat"
               onModeChange={() => {}}
               onSubmit={(prompt, _mode, attachments) => {
@@ -2542,6 +3000,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
             thinkingText={thinkingMessage.thinkingText || ''}
             modelLabel={thinkingMessage.modelSnapshot?.label || 'Model'}
             onClose={() => setOpenThinkingMessageId(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {sourcesMessage && (
+          <SourcesSidebar
+            key={sourcesMessage.id}
+            sources={sourcesMessage.citations?.sources || []}
+            onClose={() => setOpenSourcesMessageId(null)}
           />
         )}
       </AnimatePresence>

@@ -18,6 +18,10 @@ const read = (p) => readFileSync(join(root, p), 'utf8');
 const composer = read('features/chat/src/composer/Composer.tsx');
 const infoLine = read('features/chat/src/ResponseInfoLine.tsx');
 const chatView = read('features/chat/src/ChatView.tsx');
+// The turn lifecycle (stream, abort classification, finalisation) moved out of
+// ChatView so a response can outlive the component — see chat-turn-store.ts.
+// ChatView still owns the stop BUTTON and the rendering of a stopped turn.
+const chatTurnRunner = read('features/chat/src/chat-turn-runner.ts');
 const chatMessage = read('features/chat/src/chat-message.ts');
 const aiChat = read('platform/ai/src/chat.ts');
 const chrome = read('features/chat/src/ChatResponseChrome.tsx');
@@ -103,17 +107,22 @@ test('stopped turn keeps its notice across reload', () => {
 test('stop aborts the live stream rather than just flipping UI state', () => {
   assert.match(chatView, /generationAbortRef\.current\?\.abort\(\)/);
   assert.match(chatView, /onStopGenerating=\{handleStopGenerating\}/);
-  assert.match(chatView, /signal: abort\.signal,/);
+  // The controller lives on the turn record now, so the stop button reaches a
+  // turn it did not start — including one resumed after leaving and returning.
+  assert.match(chatTurnRunner, /signal: record\.abort\.signal,/);
 });
 
 test('a stop keeps the partial text instead of replacing it with an error', () => {
-  // The abort branch routes to a normal finalisation carrying `acc`; only real
+  // The abort branch keeps whatever streamed as the final content; only real
   // failures get the "Something went wrong" body.
-  assert.match(chatView, /if \(abort\.signal\.aborted \|\| isAbortError\(e\)\) \{/);
-  assert.match(
-    chatView,
-    /finalizeAssistant\(assistantId, acc, thinkSecondsRef\.current, false, true\)/,
+  assert.match(chatTurnRunner, /if \(record\.abort\.signal\.aborted \|\| isAbortError\(error\)\) \{/);
+  const abortBranch = chatTurnRunner.match(
+    /if \(record\.abort\.signal\.aborted \|\| isAbortError\(error\)\) \{([\s\S]*?)\} else \{/,
   );
+  assert.ok(abortBranch, 'abort branch not found');
+  assert.match(abortBranch[1], /record\.wasStopped = true;/);
+  assert.match(abortBranch[1], /record\.finalContent = record\.content;/);
+  assert.doesNotMatch(abortBranch[1], /Something went wrong/);
 });
 
 // --- Stopping works on every provider, not just the ones that throw tidily ---
@@ -156,16 +165,14 @@ test('a genuine failure racing an abort stays debuggable', () => {
 });
 
 test('ChatView classifies a stop by the signal it owns, not the error shape', () => {
-  assert.match(chatView, /if \(abort\.signal\.aborted \|\| isAbortError\(e\)\) \{/);
+  assert.match(chatTurnRunner, /if \(record\.abort\.signal\.aborted \|\| isAbortError\(error\)\) \{/);
 });
 
 test('a swallowed abort still marks the turn stopped', () => {
   // Some SDKs resolve normally after an abort rather than throwing, so a clean
-  // return is not proof the turn finished.
-  assert.match(
-    chatView,
-    /finalizeAssistant\(assistantId, acc, thinkSecondsRef\.current, false, abort\.signal\.aborted\)/,
-  );
+  // return is not proof the turn finished. The success path therefore reads the
+  // signal too, rather than assuming completion.
+  assert.match(chatTurnRunner, /record\.wasStopped = record\.abort\.signal\.aborted;/);
 });
 
 // --- A stopped turn survives the next turn, and a reload -------------------

@@ -1,0 +1,120 @@
+/*
+ * Gemini's live "line of thought" summary — the one-line label that sits beside
+ * the thinking dots while a response is generating.
+ *
+ * Every value below was measured off the running Gemini app over CDP, not
+ * chosen. Provenance for each, so the next person can re-verify rather than
+ * trust:
+ *
+ *   Typography, read via getComputedStyle on the live
+ *   `div.animated-thinking-content` (Gemini's own class name):
+ *     font-size 17px / line-height 24px / weight 400 / letter-spacing normal
+ *     color rgb(227,227,227) — this is --gem-sys-color--on-surface (#E3E3E3),
+ *     the same value independently confirmed as the thinking dots' fill.
+ *     display inline-flex; align-items center; white-space normal; and
+ *     flex-wrap wrap, from its `.animated-thinking-content` rule.
+ *
+ *   The wipe. Gemini animates a CSS mask, not opacity or transform. The live
+ *   computed style on that node is exactly:
+ *     mask-image: linear-gradient(90deg, rgb(0,0,0) 50%, rgba(0,0,0,0) calc(50% + 80px))
+ *     mask-size: 300% 100%
+ *     mask-position: 100% 0px
+ *     mask-repeat: no-repeat
+ *     animation: 0.35s linear forwards <scoped>_swipe-in-animation
+ *   and getAnimations() on it reports keyframes
+ *     {offset:0, webkitMaskPositionX:"100%", webkitMaskPositionY:"0px"} ->
+ *     {offset:1, webkitMaskPositionX:"0px",  webkitMaskPositionY:"0px"}
+ *     duration 350, delay 0, iterations 1, easing linear, fill forwards.
+ *   So only the X position animates, linearly, over 350ms. A 240-frame rAF
+ *   capture of the real thing confirms it: mask-position stepped
+ *   100% -> 95.26% -> 90.49% -> ... -> 0.03% at a flat ~4.77%/frame, with no
+ *   easing curvature anywhere in the ramp.
+ *
+ *   The 300% mask-size with a 50%..calc(50%+80px) stop is what makes this read
+ *   as a soft-edged wipe rather than a slide: the gradient is three times the
+ *   element's width, so travelling its position from 100% to 0% drags the
+ *   80px-wide soft edge across the text exactly once.
+ *
+ *   Swap direction. A line change is TWO halves, not one. Measured from the
+ *   MutationObserver record of five real transitions: the node gains
+ *   `animated-content-off` (which flips the gradient so the mask *hides*),
+ *   waits, then loses it again as the text swaps. Observed gaps between the
+ *   two class flips: 346, 346, 378, 363, 363 ms — i.e. the 350ms animation
+ *   plus a frame of scheduler latency. The first line of a generation has no
+ *   out-wipe; it only wipes in.
+ *
+ *   Spacing. The thinking row's dots sit at x=550 and the text at x=586. The
+ *   36px delta is 24px of dots plus Gemini's
+ *   `margin-inline-end: var(--gem-sys-spacing--m)` = 12px. Row min-height is
+ *   var(--gem-sys-typography-type-scale--body-l-line-height) = 1.5rem = 24px.
+ *
+ * Gemini's own reduced-motion branch sets `animation: none; mask-image: none`,
+ * mirrored verbatim at the bottom of this file.
+ */
+
+.thought-summary-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: rgb(227, 227, 227);
+  white-space: normal;
+
+  -webkit-mask-image: linear-gradient(90deg, rgb(0, 0, 0) 50%, rgba(0, 0, 0, 0) calc(50% + 80px));
+  mask-image: linear-gradient(90deg, rgb(0, 0, 0) 50%, rgba(0, 0, 0, 0) calc(50% + 80px));
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+
+  animation: 0.35s linear forwards thought-summary-swipe-in;
+}
+
+/*
+ * The out-wipe. Same 100% -> 0% travel, but the gradient is inverted so the
+ * opaque half trails the soft edge: the text is progressively hidden instead
+ * of revealed, and the edge still sweeps left-to-right. Taken from Gemini's
+ * `.animated-content-off` rule as read out of its stylesheet over CDP.
+ */
+.thought-summary-line--out {
+  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 50%, rgb(0, 0, 0) calc(50% + 80px));
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 50%, rgb(0, 0, 0) calc(50% + 80px));
+  animation: 0.35s linear forwards thought-summary-swipe-out;
+}
+
+@keyframes thought-summary-swipe-in {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@keyframes thought-summary-swipe-out {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thought-summary-line,
+  .thought-summary-line--out {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
