@@ -27,6 +27,25 @@ generation (consistent-character storyboards). The "create" tab of Willow Studio
 | `src/music/MusicPlayerSidebar.tsx` | Player UI while generating/listening. |
 | `src/characters/CharactersView.tsx` | Consistent-character generation. |
 
+## The media agent owns the generation tools
+
+`MediaView.tsx` builds its own `systemPrompt` and is the **one caller in the repo
+that passes `enableMediaTools: true`** to `streamChat`. Chat and Code both leave
+it off, so `generate_image` / `generate_video` are never declared to their turns.
+That is the invariant behind the three-agent split: Chat, Code and Media are
+separate agents, and a chat turn told it can generate video announces a render
+that never lands.
+
+Because of that, the deferred **media capability self-description** block — the
+prompt text describing image / video / music generation, recovered from the
+source prompt Chat's was adapted from — is parked as a comment directly above
+`systemPrompt` here, not in `features/chat`. It is paste-ready but needs one
+reconciling pass first: it hardcodes the source's model names, while the live
+ones are resolved just above it into `activeImageModelName` /
+`activeVideoModelName` from the user's picker. Prefer the variables, or the
+prompt drifts from the UI. See `features/chat/AGENTS.md` for the other three
+blocks and the rule they are all held under.
+
 ## The big one
 
 `MediaView.tsx` (6966 lines) is still the largest file in the repo. It covers

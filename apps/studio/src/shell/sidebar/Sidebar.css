@@ -177,3 +177,35 @@
   }
 }
 
+/*
+ * Gemini's menu-open animation, from its authored keyframes:
+ *
+ *   @keyframes expand-in { 0% { opacity:.25; transform:scale(.5) } to { opacity:1; transform:scale(1) } }
+ *   .card-container { animation: expand-in .1s ease-in-out }
+ *
+ * It starts at HALF SCALE and QUARTER opacity rather than from zero, which is what makes
+ * it read as a quick pop instead of a fade. Captured live on the plus menu and both of
+ * its submenus by sampling getAnimations() the frame each pane appeared.
+ *
+ * Duplicated here rather than shared with the composer on purpose: Gemini does the same,
+ * defining the animation independently per component (_ngcontent-ng-c3600954668_expand-in
+ * for the plus menu, _ngcontent-ng-c3777966446_expand-in for the toolbox drawer), and it
+ * keeps the sidebar from depending on a composer stylesheet that need not be mounted.
+ *
+ * APPLIED BY ANALOGY, not from an individual capture of the settings menu. Gemini's card
+ * rule lists .mat-mdc-menu-panel.lm-menu-theme in the same selector group as the
+ * plus-menu cards, so they share a surface; the settings pane's own animation was not
+ * sampled, because the tab was occluded by the time that capture was attempted.
+ */
+@keyframes willow-gem-menu-in {
+  0% { opacity: 0.25; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.willow-gem-menu-in {
+  animation: willow-gem-menu-in 0.1s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-gem-menu-in { animation: none; }
+}

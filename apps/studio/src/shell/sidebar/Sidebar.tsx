@@ -220,10 +220,14 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       ref={menuRef}
       role="menu"
       aria-label="Settings"
-      className="absolute z-[100] w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e3e3e3] shadow-[0_0_20px_rgba(0,0,0,0.28)]"
+      className="willow-gem-menu-in absolute z-[100] w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]"
       style={{
         left: isCollapsed ? '52px' : 'calc(100% - 44px)',
         bottom: isCollapsed ? '94px' : '50px',
+        // Anchored bottom-left, so it grows up and to the right from the gear — the
+        // same relationship Gemini's plus menu has to its own trigger, where the
+        // measured transform-origin was `0px <height>`.
+        transformOrigin: '0 100%',
       }}
     >
       {GEMINI_SETTINGS_ITEMS.map((item) => (
@@ -233,7 +237,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           role="menuitem"
           aria-label={item.label}
           onClick={() => handleItemClick(item)}
-          className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal text-[#e3e3e3] transition-colors hover:bg-white/[0.08]"
+          className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal text-[#e6e6e6] transition-colors hover:bg-[rgba(230,230,230,0.08)]"
         >
           <GeminiSettingsItemIcon item={item} />
           <span className="ml-2 min-w-0 flex-1 truncate">{item.label}</span>
@@ -1075,14 +1079,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Scrollable lower navigation wrapper with bottom fade gradient mask */}
-      <div 
-        className="flex-1 relative min-h-0"
-        style={{
-          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 10px), rgba(0, 0, 0, 0.2) 100%)',
-          maskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 10px), rgba(0, 0, 0, 0.2) 100%)'
-        }}
-      >
+      {/*
+        * Scrollable lower navigation. The soft lower edge is the `.bottom-gradient`
+        * overlay below, NOT a mask here — Gemini fades the list with a sticky gradient
+        * element and leaves the scroller itself unmasked. This carried both, so the last
+        * row was dimmed twice: once by a mask fading it to 20% over the final 10px, and
+        * again by the overlay.
+        */}
+      <div className="flex-1 relative min-h-0">
         <div
           onScroll={handleScroll}
           className="h-full overflow-y-auto pt-0 pb-0 gemini-chat-scrollbar"
@@ -1259,14 +1263,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         </div>
 
-        {/* Gemini keeps the lower edge visually soft instead of exposing a
-            hard scrollbar or a sharp content boundary. */}
+        {/*
+          * Gemini's `.bottom-gradient`, from its authored rule:
+          *
+          *   .bottom-gradient-container { position: sticky; height: 0; opacity: 0;
+          *     pointer-events: none; z-index: 1; transition: opacity .15s linear }
+          *   .bottom-gradient-container.visible { opacity: 1 }
+          *   .bottom-gradient { height: var(--bottom-gradient-height, 16px); bottom: 0;
+          *     background: linear-gradient(to top, var(--bottom-gradient-color), transparent) }
+          *
+          * `--bottom-gradient-color` is `--lumi-sys-color--surface-bright` on the
+          * sidenav, which resolves to #1f1f1f — the sidebar's own background, so the
+          * fade reads as the list dissolving into the panel rather than as a scrim.
+          *
+          * 16px and 150ms linear, both measured. This was 56px on a 200ms default ease,
+          * which is why the fade looked like a much heavier wash than Gemini's.
+          */}
         <div
           aria-hidden="true"
-          className="absolute bottom-0 left-0 right-0 h-14 pointer-events-none z-10 transition-opacity duration-200"
+          className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-4"
           style={{
             opacity: isAtScrollEnd ? 0 : 1,
-            background: `linear-gradient(to bottom, transparent, ${isCollapsed ? 'var(--studio-surface)' : '#1f1f1f'})`,
+            transition: 'opacity 150ms linear',
+            background: `linear-gradient(to top, ${isCollapsed ? 'var(--studio-surface)' : '#1f1f1f'}, transparent)`,
           }}
         />
       </div>
@@ -1320,7 +1339,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
                 <span
                   aria-hidden={isCollapsed}
-                  className="min-w-0 flex-1 overflow-hidden truncate text-left text-[13px] text-white/80"
+                  className="min-w-0 flex-1 overflow-hidden truncate text-left text-[13px] text-[#e6e6e6]"
                   style={{
                     maxWidth: isCollapsed ? '0px' : '180px',
                     marginLeft: isCollapsed ? '0px' : '8px',
@@ -1366,10 +1385,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
            * "top: 777.6px; left: 278px; transform: translateX(8px)" against an
            * anchor at x=246 y=777.6 w=32, i.e. left == anchor.right and
            * top == anchor.top: right placement, not below.
+           *
+           * The box is 32px (h-8), not 36 — Gemini's authored rule is
+           * `.mavatar-settings-button { height: 32px; width: 32px; color:
+           * var(--lumi-sys-color--on-surface) }`, and on-surface resolves to
+           * #e6e6e6 in the dark theme. This carried `h-9` and `#e3e3e3` for a
+           * while, contradicting the measurement the comment above already recorded.
            */
           data-tooltip-position="right"
           onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-          className={`absolute flex h-9 w-9 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
+          className={`absolute flex h-8 w-8 items-center justify-center rounded-full text-[#e6e6e6] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
           style={{
             right: isCollapsed ? '8px' : '6px',
             top: isCollapsed ? '4px' : '2px',

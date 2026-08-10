@@ -901,29 +901,55 @@ it('keeps the Code agent out of the chat prompt', async () => {
   }
 });
 
-it('parks the deferred blocks instead of losing them', async () => {
-  // The four blocks above are held out of the prompt because no tool backs them,
-  // not because they are unwanted — each is the spec half of an unbuilt feature
-  // and gets pasted back the day its tool is declared. They only survive as a
-  // file, so this asserts the file exists and still holds all four. Without it
-  // the parked text reads as an orphan doc and gets deleted in a tidy-up, and it
-  // is not recoverable: the source it came from was never committed.
-  const parked = fs.readFileSync(
-    path.join(repoRoot, 'features', 'chat', 'deferred-prompt-blocks.md'),
+it('keeps the deferred blocks as comments rather than losing them', async () => {
+  // Four blocks from the source prompt are held out of the shipped prompt
+  // because no tool backs them — not because they are unwanted. Each is the
+  // spec half of an unbuilt feature and gets pasted back the day its tool is
+  // declared, so they are kept verbatim as comments at the prompt they slot
+  // into. The source they came from was never committed, so if these go, the
+  // text is gone; that is what this test is really protecting.
+  const chatModel = fs.readFileSync(chatSrc('chat-model.ts'), 'utf8');
+  const mediaView = fs.readFileSync(
+    path.join(repoRoot, 'features', 'media', 'src', 'MediaView.tsx'),
     'utf8',
   );
-  for (const block of [/GenerateWidget/, /<Image of X>/, /MASTER RULE/, /Lyria/]) {
-    assert.match(parked, block, `a deferred block went missing: ${block}`);
+
+  // The three chat-surface blocks live at Chat's prompt.
+  for (const block of [/<Image of X>/, /MASTER RULE/, /Interactive Widget Architect/]) {
+    assert.match(chatModel, block, `a deferred chat block went missing: ${block}`);
   }
-  // Parked already converted, so pasting one back does not silently reintroduce
-  // the tier language or the other product's name into the shipped prompt.
+  // The media block lives at the media agent's prompt instead, because that is
+  // the one surface with `enableMediaTools` on — a chat turn carrying it would
+  // announce a render that never lands, which is the whole reason for the split.
+  assert.match(mediaView, /music_generation/, 'the deferred media block went missing');
+  assert.match(mediaView, /enableMediaTools: true/, 'the media block lost its executor');
+
+  // Comments, not code. `codeOnly` strips block comments, so if a block ever
+  // becomes a live string constant it shows up here — which matters because a
+  // stray constant is one concatenation away from reaching a real prompt.
+  const chatCode = codeOnly(chatModel);
+  for (const block of [/<Image of X>/, /MASTER RULE/, /GenerateWidget/]) {
+    assert.ok(!block.test(chatCode), `a deferred block became live code: ${block}`);
+  }
+  assert.ok(
+    !/music_generation/.test(codeOnly(mediaView)),
+    'the deferred media block became live code',
+  );
+
+  // Stored already converted, so pasting one back cannot silently reintroduce
+  // the source's plan tiers into a shipped prompt.
   for (const dead of [/\bAI Plus\b/, /\bUltra\b/, /subscriber/i, /\bQuota:/]) {
-    assert.ok(!dead.test(parked), `parked text still carries tier language: ${dead}`);
+    for (const [name, source] of [['chat-model.ts', chatModel], ['MediaView.tsx', mediaView]]) {
+      assert.ok(!dead.test(source), `${name} still carries tier language: ${dead}`);
+    }
   }
-  // The prompt source has to point at the file, or the next person to read the
-  // docstring learns what was removed and not that it is a paste away.
-  const source = fs.readFileSync(chatSrc('chat-model.ts'), 'utf8');
-  assert.match(source, /deferred-prompt-blocks\.md/);
+
+  // The temp file these were recovered from must not come back as a stray copy
+  // at the repo root; the comments above are the one home for this text.
+  assert.ok(
+    !fs.existsSync(path.join(repoRoot, 'gemini-system-prompt.md')),
+    'the scratch prompt file is back — fold it into the comments and delete it',
+  );
 });
 
 it('does not reach into another feature for the composer dialog', () => {

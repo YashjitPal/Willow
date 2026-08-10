@@ -124,6 +124,12 @@ export const InputBar: React.FC<{
     setIsPlusMenuOpen,
   });
   const [isSolidExpanded, setIsSolidExpanded] = useState(false);
+  // Gemini shows Personal Intelligence as a Labs toggle inside the plus menu's
+  // "More tools" submenu. Willow has a Personal Intelligence settings tab but no
+  // app-level state behind it yet, so this holds the toggle locally: the row renders
+  // and flips exactly as Gemini's does, and gains persistence the moment there is a
+  // setting to bind it to.
+  const [personalIntelligence, setPersonalIntelligence] = useState(false);
   const [isGithubImportOpen, setIsGithubImportOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
   const solidPlusRef = useRef<HTMLButtonElement>(null);
@@ -693,6 +699,9 @@ export const InputBar: React.FC<{
                   onImportCode={() => setIsGithubImportOpen(true)}
                   buttonRef={solidPlusRef} 
                   onToolSelect={(id) => setSelectedTool(id as ToolId)}
+                  selectedTool={selectedTool}
+                  personalIntelligence={personalIntelligence}
+                  onTogglePersonalIntelligence={setPersonalIntelligence}
                   geminiStyle={chatVariant}
                 />
               </div>
@@ -966,6 +975,9 @@ export const InputBar: React.FC<{
                 onImportCode={() => setIsGithubImportOpen(true)}
                 buttonRef={normalPlusRef} 
                 onToolSelect={(id) => setSelectedTool(id as ToolId)}
+                  selectedTool={selectedTool}
+                  personalIntelligence={personalIntelligence}
+                  onTogglePersonalIntelligence={setPersonalIntelligence}
               />
               {selectedTool && (
                 <div className="ml-2">
