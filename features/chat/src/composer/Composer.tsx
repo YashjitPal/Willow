@@ -4,7 +4,7 @@ import { useStore } from '@nanostores/react';
 import { PlusDropdownMenu } from './PlusDropdownMenu';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
-import { GithubImportDialog } from '@willow/code/github/GithubImportDialog';
+import { GithubImportDialog } from '@willow/ui/github/GithubImportDialog';
 import './Composer.css';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
 import {
@@ -33,7 +33,7 @@ import {
 } from './composer-options';
 import { ModesMenu } from './ModesMenu';
 import { ThemesMenu } from './ThemesMenu';
-import { ModelsMenu } from './ModelsMenu';
+import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { MicMutedSlash } from './MicMutedSlash';
 import { playMicToggleEarcon } from './mic-earcon';
 import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-store';
@@ -42,10 +42,6 @@ import { useComposerDictation } from './use-composer-dictation';
 import { useComposerModels } from './use-composer-models';
 import { useComposerTextareaAutosize } from './use-composer-textarea-autosize';
 import { useCollapsedChatPaddingRight, useFullscreenShellCentering } from './use-composer-chat-layout';
-
-// Re-exported so this module's public surface is unchanged: CodeHome and
-// WorkbenchSidebar import ModelsMenu from here.
-export { ModelsMenu };
 
 /**
  * Stop glyph, measured off the live Gemini composer during generation.
@@ -136,8 +132,7 @@ export const InputBar: React.FC<{
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const attachmentsRef = useRef<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
-  const hasActiveAttachments = attachments.length > 0 && !attachments.every(att => removingIds.has(att.id));
+  const hasActiveAttachments = attachments.length > 0;
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (files.length === 0) return;
@@ -151,20 +146,20 @@ export const InputBar: React.FC<{
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Gemini detaches instantly. Measured on the live app: every element in the strip —
+  // `uploader-file-preview`, `.file-preview-container`, the tile, `.attachment-preview-wrapper`
+  // and `.text-input-field` — computes `transition: all 0s`, there are no `@keyframes`
+  // matching /attach|chip|preview/, and the strip carries no `ng-trigger-*` class, so there
+  // is no Angular runtime animation either. The tile is removed and the flex row reflows.
+  //
+  // So there is no fade-out to wait for, and `removingIds` no longer gates rendering — it
+  // is kept only so `hasActiveAttachments` stays correct within the same tick.
   const removeAttachment = (id: string) => {
-    setRemovingIds(prev => new Set(prev).add(id));
-    setTimeout(() => {
-      setAttachments(prev => {
-        const removed = prev.find(att => att.id === id);
-        if (removed?.url) URL.revokeObjectURL(removed.url);
-        return prev.filter(att => att.id !== id);
-      });
-      setRemovingIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }, 200);
+    setAttachments(prev => {
+      const removed = prev.find(att => att.id === id);
+      if (removed?.url) URL.revokeObjectURL(removed.url);
+      return prev.filter(att => att.id !== id);
+    });
   };
 
   useEffect(() => {
@@ -381,6 +376,7 @@ export const InputBar: React.FC<{
     textareaRef,
     promptText,
     selectedTool,
+    hasAttachments: hasActiveAttachments,
     chatVariant,
     effectiveBackground,
     isComposerMaximized,
@@ -429,12 +425,13 @@ export const InputBar: React.FC<{
   // Synchronous expand flag for the LEFT CLUSTER ONLY: when a tool is picked, the
   // chip mounts in the same render, so the left group's bottom/py must flip now
   // (not 1 frame later via useEffect) or the taller chip shoves Plus upward.
+  // An attachment is the same case — the tile row mounts in the same render.
   // Container pb + textarea padding intentionally stay on isSolidExpanded so the
   // RAF sets them next frame and the collapsed→multiline padding transition
   // still plays without disturbing the attachment-row expansion.
   const solidExpanded = isDictationActive
     ? false
-    : isSolidExpanded || !!selectedTool || (chatVariant && isComposerMaximized);
+    : isSolidExpanded || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
   const composerPaddingExpanded = isDictationActive ? false : isSolidExpanded;
   const showComposerMaximizeToggle = chatVariant
     && !isDictationActive
@@ -486,22 +483,49 @@ export const InputBar: React.FC<{
         {githubImportDialog}
         <div className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : 'justify-center'}` : 'transition-all duration-200 justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
           
-          {/* Attachments Area */}
-          <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${hasActiveAttachments ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-            <div className="overflow-hidden">
-              <div className="flex max-h-[168px] gap-2 overflow-x-auto px-3 pb-2 pt-3 pr-[54px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {attachments.map((att) => (
-                  <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                    <GeminiAttachmentCard
-                      attachment={att}
-                      variant="composer"
-                      onRemove={() => removeAttachment(att.id)}
-                    />
-                  </div>
-                ))}
-              </div>
+          {/*
+            * Attachment strip.
+            *
+            * The negative inline margin is not decoration — it is what puts the first tile
+            * 12px from the composer's outer edge. Measured on Gemini: fieldset x=582, first
+            * tile x=594. It gets there because `.attachment-preview-wrapper` carries
+            * `margin-inline: -12px` to cancel `.text-input-field`'s own `padding: 12px`,
+            * then `padding-inline: 12px` to place the tile. Ours cancels this shell's
+            * `pl-[14px]`/`pr-[15px]` the same way; without it tiles sat at 26px, which is
+            * the extra left gap that was reported.
+            *
+            * Spanning the full shell width also puts the mask's 12px fade exactly on the
+            * tile edge, which is the other thing the negative margin buys.
+            *
+            * Rendered conditionally rather than collapsed with `grid-rows-[0fr]` inside an
+            * `overflow-hidden` wrapper. That wrapper existed only to animate the height,
+            * and once the animation went (Gemini has none) it was left clipping the strip
+            * at its own narrower box — 588.4 against the strip's 574.4 — which sliced 2.4px
+            * off the first tile's left edge and showed as a dark strip under the corner
+            * radius. Gemini renders no such wrapper either: its `row-gap` rule keys off
+            * `:has(.attachment-preview-wrapper)`, which only means anything if the wrapper
+            * is absent when nothing is attached.
+            *
+            * `pr-[54px]` is ours, not Gemini's: the maximize toggle below is absolutely
+            * positioned at `right-[-7px] top-[8px]` at 40x40, so tiles must clear it.
+            * Gemini has no control there and uses a symmetric 12px.
+            *
+            * Vertical rhythm matches by construction: pt-3 + 112 + pb-2 == Gemini's
+            * `padding-top: 12px` + 112 tile + `row-gap: 8px`.
+            */}
+          {hasActiveAttachments && (
+            <div className="-ml-[14px] -mr-[15px] flex max-h-[168px] gap-2 overflow-x-auto pb-2 pl-3 pr-[54px] pt-3 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent_0,#000_12px,#000_calc(100%_-_12px),transparent_100%)] [&::-webkit-scrollbar]:hidden">
+              {attachments.map((att) => (
+                <div key={att.id} className="group relative flex-shrink-0">
+                  <GeminiAttachmentCard
+                    attachment={att}
+                    variant="composer"
+                    onRemove={() => removeAttachment(att.id)}
+                  />
+                </div>
+              ))}
             </div>
-          </div>
+          )}
 
           {/*
             * Main input row. This wrapper's padding IS the box height: it swings
@@ -871,22 +895,21 @@ export const InputBar: React.FC<{
     <div className="w-full max-w-2xl mx-auto relative z-20">
       {githubImportDialog}
       <div className={`${promptBoxBg} backdrop-blur-2xl border border-white/5 rounded-[1.75rem] p-2 shadow-2xl flex flex-col gap-1 ring-1 ring-white/5`}>
-        {/* Attachments Area */}
-        <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-          <div className="overflow-hidden">
-            <div className="flex max-h-[168px] gap-2 overflow-x-auto px-3 pb-2 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {attachments.map((att) => (
-                <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                  <GeminiAttachmentCard
-                    attachment={att}
-                    variant="composer"
-                    onRemove={() => removeAttachment(att.id)}
-                  />
-                </div>
-              ))}
-            </div>
+        {/* Attachments Area. Same construction as the chat variant above; this shell pads
+            with `p-2`, so that is what the negative margin cancels before the 12px inset. */}
+        {attachments.length > 0 && (
+          <div className="-mx-2 flex max-h-[168px] gap-2 overflow-x-auto px-3 pb-2 pt-3 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent_0,#000_12px,#000_calc(100%_-_12px),transparent_100%)] [&::-webkit-scrollbar]:hidden">
+            {attachments.map((att) => (
+              <div key={att.id} className="group relative flex-shrink-0">
+                <GeminiAttachmentCard
+                  attachment={att}
+                  variant="composer"
+                  onRemove={() => removeAttachment(att.id)}
+                />
+              </div>
+            ))}
           </div>
-        </div>
+        )}
 
         <textarea
           ref={textareaRef}

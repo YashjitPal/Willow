@@ -86,6 +86,25 @@ const toDataUrl = (code) =>
   `data:text/javascript;base64,${Buffer.from(code, 'utf8').toString('base64')}`;
 
 /**
+ * Asset extensions Vite resolves to a URL string rather than a module.
+ *
+ * A module that imports one (`platform/core/src/file-type-icons.ts` imports 30 PNGs)
+ * would otherwise be read as UTF-8 and handed to esbuild, which fails on the first
+ * non-text byte. Vite's own behaviour is to hand back a URL string, so these stub to
+ * the file path — enough for a test to assert an icon resolved without embedding bytes.
+ *
+ * Only extensions imported for their URL are listed. `.glsl` is deliberately absent:
+ * this repo imports shaders as `?raw`, where Vite hands back the file's text instead,
+ * and a URL stub would be quietly wrong.
+ */
+const ASSET_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.bmp',
+  '.svg', '.mp3', '.wav', '.woff', '.woff2', '.cur',
+]);
+
+const isAsset = (file) => ASSET_EXTENSIONS.has(path.extname(file).toLowerCase());
+
+/**
  * Transpile `file` and every relative module it reaches, returning a data URL.
  *
  * `cache` keys absolute paths to data URLs so a module imported twice is
@@ -100,6 +119,14 @@ const buildModule = async (file, cache, pending) => {
   if (pending.includes(absolute)) {
     const cycle = [...pending, absolute].map((entry) => path.basename(entry)).join(' -> ');
     throw new Error(`import cycle: ${cycle}`);
+  }
+
+  // An asset is a URL string to Vite, not a module. Stand one up rather than reading
+  // binary through esbuild.
+  if (isAsset(absolute)) {
+    const url = toDataUrl(`export default ${JSON.stringify(absolute)};`);
+    cache.set(absolute, url);
+    return url;
   }
 
   const source = fs.readFileSync(absolute, 'utf8');

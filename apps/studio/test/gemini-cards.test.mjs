@@ -888,6 +888,56 @@ it('presents the assistant as Willow', async () => {
   assert.ok(!/\bGemini\b/.test(CHAT_SYSTEM_PROMPT), 'Gemini survived in the prompt body');
 });
 
+it('keeps the Code agent out of the chat prompt', async () => {
+  // Chat, Code and Media are three agents with three prompts. This one used to
+  // carry `Do not wrap responses in boltArtifact or any XML tags` — a negative
+  // instruction naming Code's artifact envelope, which taught the tag to the one
+  // agent that must not emit it. A chat model never shown that grammar cannot
+  // fall into it, and nothing in features/chat parses an artifact, so a leaked
+  // envelope would render as literal text rather than a workbench.
+  const { CHAT_SYSTEM_PROMPT, CARD_SYSTEM_PROMPT } = await importTs(chatSrc('chat-model.ts'));
+  for (const prompt of [CHAT_SYSTEM_PROMPT, CARD_SYSTEM_PROMPT]) {
+    assert.ok(!/boltArtifact|boltAction/i.test(prompt), "Code's artifact envelope leaked into a chat prompt");
+  }
+});
+
+it('parks the deferred blocks instead of losing them', async () => {
+  // The four blocks above are held out of the prompt because no tool backs them,
+  // not because they are unwanted — each is the spec half of an unbuilt feature
+  // and gets pasted back the day its tool is declared. They only survive as a
+  // file, so this asserts the file exists and still holds all four. Without it
+  // the parked text reads as an orphan doc and gets deleted in a tidy-up, and it
+  // is not recoverable: the source it came from was never committed.
+  const parked = fs.readFileSync(
+    path.join(repoRoot, 'features', 'chat', 'deferred-prompt-blocks.md'),
+    'utf8',
+  );
+  for (const block of [/GenerateWidget/, /<Image of X>/, /MASTER RULE/, /Lyria/]) {
+    assert.match(parked, block, `a deferred block went missing: ${block}`);
+  }
+  // Parked already converted, so pasting one back does not silently reintroduce
+  // the tier language or the other product's name into the shipped prompt.
+  for (const dead of [/\bAI Plus\b/, /\bUltra\b/, /subscriber/i, /\bQuota:/]) {
+    assert.ok(!dead.test(parked), `parked text still carries tier language: ${dead}`);
+  }
+  // The prompt source has to point at the file, or the next person to read the
+  // docstring learns what was removed and not that it is a paste away.
+  const source = fs.readFileSync(chatSrc('chat-model.ts'), 'utf8');
+  assert.match(source, /deferred-prompt-blocks\.md/);
+});
+
+it('does not reach into another feature for the composer dialog', () => {
+  // The composer's GitHub import lived in features/code and was imported from
+  // chat, which was the whole of Chat's dependency on Code — Code never used it.
+  // It now sits in platform/ui, so this asserts the edge stays gone.
+  const composer = fs.readFileSync(chatSrc('composer/Composer.tsx'), 'utf8');
+  assert.match(composer, /from '@willow\/ui\/github\/GithubImportDialog'/);
+  assert.ok(
+    !/@willow\/code/.test(codeOnly(composer)),
+    'the composer imports from features/code again',
+  );
+});
+
 it('gates the card prompt on the capability set rather than on a provider name', () => {
   // The gate used to read `provider === 'gemini'`, which made "enable cards for
   // grok" a code change in a function instead of a one-line data change. The

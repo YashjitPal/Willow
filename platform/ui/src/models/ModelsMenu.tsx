@@ -5,10 +5,14 @@
  * exposes a submenu of thinking-effort levels per model. Self-contained: props
  * in, no shared closure with the composer.
  *
- * Rendered in two places with different chrome — the composer passes
- * `geminiStyle` to flip the anchoring and default side. Moved out of
- * Composer.tsx verbatim; Composer re-exports it so the two outside importers
- * (CodeHome, WorkbenchSidebar) are unaffected.
+ * Rendered in several places with different chrome — the caller passes
+ * `geminiStyle` to flip the anchoring and default side.
+ *
+ * Lives here, not in Chat, because Chat and Code both render it: Code used to
+ * import it *through* `@willow/chat/composer/Composer`, which made a shared
+ * picker look like Code depending on Chat. It takes props and holds no chat
+ * state, so `platform/ui` is where it belongs; both features now import it
+ * sideways from here and neither owns it.
  *
  * The close animation is CSS (`animate-dropdown*`, declared app-wide in
  * apps/studio/index.html), so `handleClose` waits 150ms before calling
@@ -25,7 +29,22 @@ import {
   modelSupportsNoThinking,
   sortModelEfforts,
 } from '@willow/ai/models/efforts';
-import type { VoiceModelListing } from '../voice-settings/voice-providers';
+
+/**
+ * The voice roster this picker can display.
+ *
+ * Declared structurally rather than imported: the picker lives in
+ * `platform/ui`, which must never import from `features/`, and Chat's
+ * `VoiceModelListing` (features/chat/src/voice-settings/voice-providers.ts) is
+ * assignable to it field-for-field. Chat passes its own listings straight in;
+ * this is the seam, and it is the reason the picker could move down here at all.
+ */
+export type ModelsMenuVoiceListing = {
+  id: string;
+  name: string;
+  providerId: string;
+  providerLabel: string;
+};
 
 type PickerModel = ModelEffortRecord;
 
@@ -43,7 +62,7 @@ export const ModelsMenu: React.FC<{
    * outside importers (CodeHome, WorkbenchSidebar), which know nothing about
    * voice mode, keep their current behaviour by simply not passing it.
    */
-  voiceModels?: VoiceModelListing[];
+  voiceModels?: ModelsMenuVoiceListing[];
 }> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels }) => {
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 

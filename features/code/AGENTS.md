@@ -42,7 +42,6 @@ largest feature in the repo.
 | `src/visual-editing/element-family.ts` | `findSimilarElements` — the set selected together with a click. |
 | `src/visual-editing/prompt-box-position.ts` | Keeps the floating edit prompt inside the preview viewport. |
 | `src/visual-editing/view-code.ts` | Element → source jump, incl. the end-line estimate heuristic. |
-| `src/github/` | Import a repo. |
 | `src/local-companion.ts` | Client for the optional `services/local-companion` daemon. |
 | `src/use-auto-save.ts` | Debounced project autosave. |
 
@@ -169,9 +168,12 @@ it, it orphans it, so these keep their legacy names permanently.
 **Imported by:**
 
 - [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
-- [`features/chat`](../chat/AGENTS.md) — the standalone chat surface
 - [`features/design`](../design/AGENTS.md) — the design surface
 - [`features/spark`](../spark/AGENTS.md) — scheduling / background-task agent
+
+Chat is deliberately absent from that list: the three agent surfaces stay
+independent, and the composer's GitHub import — the one thing Chat used to reach
+in here for — now lives in the platform layer.
 
 Repo-wide conventions, the layering rule and the full package table live in
 [the root `AGENTS.md`](../../AGENTS.md).

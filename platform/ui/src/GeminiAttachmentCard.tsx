@@ -1,155 +1,128 @@
 import React from 'react';
+import type { ComposerAttachment } from '@willow/core/attachments';
+import { fileTypeIcon } from '@willow/core/gemini-file-icon';
 import {
-  ChatAttachment,
-  getAttachmentFormatLabel,
-} from '@willow/core/attachments';
+  fileTypeOf,
+  formatLabel,
+  showsExtensionLabel,
+  tileDisplayName,
+  tileShape,
+} from '@willow/core/gemini-file-info';
 import { MaterialSymbol } from './MaterialSymbol';
 
 interface GeminiAttachmentCardProps {
-  attachment: ChatAttachment;
+  attachment: ComposerAttachment;
   variant?: 'composer' | 'message';
   onRemove?: () => void;
   onOpen?: () => void;
 }
 
-const KIND_VISUALS: Record<ChatAttachment['kind'], { symbol: string; color: string }> = {
-  github: { symbol: 'code', color: '#c4eed0' },
-  image: { symbol: 'image', color: '#a8c7fa' },
-  pdf: { symbol: 'picture_as_pdf', color: '#f2b8b5' },
-  audio: { symbol: 'audio_file', color: '#c4eed0' },
-  video: { symbol: 'video_file', color: '#c2e7ff' },
-  document: { symbol: 'description', color: '#a8c7fa' },
-  spreadsheet: { symbol: 'table', color: '#c4eed0' },
-  presentation: { symbol: 'slideshow', color: '#fdd663' },
-  archive: { symbol: 'folder_zip', color: '#d7b5ff' },
-  code: { symbol: 'code', color: '#c2e7ff' },
-  text: { symbol: 'draft', color: '#c4c7c5' },
-  generic: { symbol: 'draft', color: '#c4c7c5' },
+/** Tile geometry is identical in the composer strip and the sent-message block. */
+const TILE_FONT: React.CSSProperties = {
+  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+  fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
 };
 
+/** 112x112, 20px corners, 12% white surface. Children inherit the tile font. */
+const TILE_CLASS = 'group/tile relative h-28 w-28 shrink-0 overflow-hidden rounded-[20px] bg-[rgba(255,255,255,0.12)]';
+
+/**
+ * An attachment tile, matching Gemini's composer and prompt-bubble spec.
+ *
+ * Which shape a file gets is decided by its EXTENSION through `tileShape`, never by mime
+ * alone — a PNG served as `application/octet-stream` still gets a cover-cropped thumbnail,
+ * and an `image/png` named `report` does not. Everything else routes to the generic tile,
+ * which shows either a format label or a vendored Drive icon depending on the file type.
+ *
+ * The full filename (extension included) is the `title`, so `GlobalTooltips` renders it in
+ * Gemini's tooltip style. The visible label is truncated; the tooltip is not.
+ */
 export const GeminiAttachmentCard: React.FC<GeminiAttachmentCardProps> = ({
   attachment,
   variant = 'composer',
   onRemove,
   onOpen,
 }) => {
-  const visual = KIND_VISUALS[attachment.kind];
-  const isThumbnail = attachment.kind === 'image' || attachment.kind === 'video';
-  const isMessage = variant === 'message';
-  const squareSize = isMessage ? 'h-28 w-28' : 'h-20 w-20';
-  const cornerRadius = isMessage ? 'rounded-[20px]' : 'rounded-2xl';
-  const formatLabel = getAttachmentFormatLabel(attachment);
+  const shape = tileShape(attachment.name);
+  const fileType = fileTypeOf(attachment.mimeType, attachment.name);
+  const displayName = tileDisplayName(attachment.name, fileType);
+  const interactive = onOpen ? { onClick: onOpen, role: 'button', tabIndex: 0 } : {};
 
-  const githubCard = attachment.kind === 'github' ? (
-    <div
-      className={`flex ${isMessage ? 'h-24 w-[292px] rounded-[20px] px-4' : 'h-20 w-[232px] rounded-2xl px-3'} min-w-0 items-center gap-3 overflow-hidden bg-[#2a2a2a] text-left font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+  // White 20x20 pill, black 16px Luminous `close` glyph.
+  //
+  // Its corner offset is NOT the tile's corner: Gemini nests the button inside
+  // `.gem-attachment-content`, whose inset differs by shape — 8px over a thumbnail, 12px on
+  // a generic tile. Measured: image tile 594+112-20-8 = 678, generic 834+112-20-12 = 914.
+  //
+  // Hidden by `visibility` and revealed on tile hover with `transition: all 0s` — Gemini
+  // snaps it in, so a fade here would be wrong. Sent messages can't be edited, so the
+  // message variant has no button at all.
+  const closeButton = variant === 'composer' && onRemove ? (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onRemove();
+      }}
+      className={`invisible absolute ${
+        shape === 'image' || shape === 'video' ? 'right-2 top-2' : 'right-3 top-3'
+      } flex h-5 w-5 items-center justify-center rounded-full bg-white text-black group-focus-within/tile:visible group-hover/tile:visible`}
+      aria-label={`Remove ${attachment.name}`}
     >
-      <span className={`${isMessage ? 'h-12 w-12 rounded-[14px]' : 'h-11 w-11 rounded-xl'} flex shrink-0 items-center justify-center bg-[#1e1f20] text-[#c4eed0]`}>
-        <MaterialSymbol family="luminous" name="code" size={isMessage ? 26 : 24} weight={320} roundness={100} opticalSize={24} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span
-          className={`${isMessage ? 'text-[15px] leading-5' : 'text-[14px] leading-[18px]'} block truncate font-normal text-[#e3e3e3]`}
-          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-          title={attachment.name}
-        >
-          {attachment.name}
-        </span>
-        <span className="block truncate text-[12px] font-normal leading-4 text-[#c4c7c5]">
-          GitHub{attachment.sourceRef ? ` · ${attachment.sourceRef}` : ''}
-        </span>
-        {!!attachment.sourceFileCount && (
-          <span className="block truncate text-[11px] font-normal leading-[14px] text-[#8e918f]">
-            {attachment.sourceFileCount} files imported
-          </span>
-        )}
-      </span>
-      {isMessage && (
-        <MaterialSymbol family="luminous" name="open_in_new" size={18} weight={320} roundness={100} opticalSize={18} className="shrink-0 text-[#c4c7c5]" />
-      )}
-    </div>
+      <MaterialSymbol family="luminous" name="close" size={16} weight={330} />
+    </button>
   ) : null;
 
-  const card = githubCard || (isThumbnail ? (
-    <div className={`relative ${squareSize} ${cornerRadius} overflow-hidden bg-[#2a2a2a]`}>
-      {attachment.url ? (
-        attachment.kind === 'video' ? (
+  // Image and video both fill the tile edge to edge, cropped to cover. Gemini defines a
+  // bottom scrim for this variant but does not emit it on live tiles, so it is omitted.
+  if ((shape === 'image' || shape === 'video') && attachment.url) {
+    return (
+      <div className={TILE_CLASS} style={TILE_FONT} title={attachment.name} {...interactive}>
+        {shape === 'image' ? (
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            className="absolute inset-0 h-full w-full object-cover object-center"
+          />
+        ) : (
           <video
             src={attachment.url}
-            className="h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-center"
             muted
             playsInline
             preload="metadata"
           />
-        ) : (
-          <img src={attachment.url} alt={attachment.name} className="h-full w-full object-cover" />
-        )
-      ) : (
-        <div className="flex h-full w-full items-center justify-center" style={{ color: visual.color }}>
-          <MaterialSymbol family="luminous" name={visual.symbol} size={24} weight={320} roundness={100} />
-        </div>
-      )}
-      {attachment.kind === 'video' && (
-        <>
-          <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60" />
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-black">
-            <span className={`flex items-center justify-center rounded-full bg-white ${isMessage ? 'h-8 w-8' : 'h-7 w-7'}`}>
-              <MaterialSymbol family="luminous" name="play_arrow" size={isMessage ? 24 : 21} weight={500} roundness={100} fill />
-            </span>
-          </span>
-        </>
-      )}
-    </div>
-  ) : (
-    <div
-      className={`relative flex ${squareSize} ${cornerRadius} min-w-0 flex-col justify-between overflow-hidden bg-[#2a2a2a] text-left font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isMessage ? 'p-3' : 'p-2.5'}`}
-    >
-      <span className="block max-w-full truncate text-[12px] font-normal uppercase leading-4 text-[#c4c7c5]">
-        {formatLabel}
-      </span>
-      <span className="flex items-center" style={{ color: visual.color }}>
-        <MaterialSymbol family="luminous" name={visual.symbol} size={20} weight={320} roundness={100} opticalSize={20} />
-      </span>
-      <span
-        className={`${isMessage ? 'line-clamp-3 text-[14px] leading-[18px]' : 'line-clamp-2 text-[12px] leading-4'} block max-w-full overflow-hidden font-normal text-[#e3e3e3] [overflow-wrap:anywhere]`}
-        title={attachment.name}
-        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-      >
-        {attachment.name}
-      </span>
-    </div>
-  ));
+        )}
+        {closeButton}
+      </div>
+    );
+  }
+
+  // Generic tile: a 12px-inset content box with the name bottom-anchored, and either the
+  // format label or a 24px file-type icon in the box's top-left corner. Gemini shows the
+  // label only for the four types whose icon says no more than the word does.
+  const showLabel = showsExtensionLabel(fileType);
 
   return (
-    <div
-      className={`group/attachment relative shrink-0 ${isMessage ? 'cursor-pointer' : ''}`}
-      title={isMessage ? `Open ${attachment.name}` : attachment.name}
-    >
-      {onOpen ? (
-        <button
-          type="button"
-          onClick={onOpen}
-          className={`block ${cornerRadius} text-left outline-none focus-visible:ring-2 focus-visible:ring-[#a8c7fa]/60`}
-          aria-label={`Open ${attachment.name}`}
-        >
-          {card}
-        </button>
-      ) : card}
-
-      {onRemove && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-          className="absolute -right-1 -top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#1e1f20] text-[#c4c7c5] shadow-[0_1px_3px_rgba(0,0,0,0.55)] transition-colors hover:bg-[#333537] hover:text-[#e3e3e3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-          aria-label={`Remove ${attachment.name}`}
-          title="Remove"
-        >
-          <MaterialSymbol family="luminous" name="close" size={16} weight={400} roundness={100} opticalSize={16} />
-        </button>
+    <div className={TILE_CLASS} style={TILE_FONT} title={attachment.name} {...interactive}>
+      {showLabel ? (
+        <span className="absolute left-3 right-9 top-3 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-[17px] text-[rgb(196,199,197)]">
+          {formatLabel({ name: attachment.name, mimeType: attachment.mimeType, fileType })}
+        </span>
+      ) : (
+        <img
+          src={fileTypeIcon({ name: attachment.name, mimeType: attachment.mimeType, fileType })}
+          alt=""
+          className="absolute left-3 top-3 h-6 w-6"
+        />
       )}
+      <span
+        className="absolute inset-x-3 bottom-3 line-clamp-3 text-[13px] leading-[17px] text-[rgb(227,227,227)]"
+        style={{ whiteSpace: 'pre-wrap', textOverflow: 'ellipsis', wordBreak: 'auto-phrase' } as React.CSSProperties}
+      >
+        {displayName}
+      </span>
+      {closeButton}
     </div>
   );
 };

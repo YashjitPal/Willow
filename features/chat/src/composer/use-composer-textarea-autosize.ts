@@ -40,6 +40,8 @@ export interface UseComposerTextareaAutosizeOptions {
   /** Re-measure triggers, in the effect's original dependency order. */
   promptText: string;
   selectedTool: ToolId | null;
+  /** Attachments expand the box exactly as a tool chip does — see `shouldExpand`. */
+  hasAttachments: boolean;
   chatVariant: boolean;
   effectiveBackground: BackgroundType;
   isComposerMaximized: boolean;
@@ -58,6 +60,7 @@ export const useComposerTextareaAutosize = ({
   textareaRef,
   promptText,
   selectedTool,
+  hasAttachments,
   chatVariant,
   effectiveBackground,
   isComposerMaximized,
@@ -125,9 +128,16 @@ export const useComposerTextareaAutosize = ({
             textareaRef.current.style.height = `${baseHeight}px`;
             
             const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
+            // An attachment expands the box for the same reason a tool chip does.
+            // Gemini's composer puts the editor on its own grid row and the controls on
+            // the row below whenever anything is attached — its `text-input` and
+            // `leading-actions`/`trailing-actions` areas are separate rows, measured
+            // 112px / 40px / 38px with 8px row gaps against a 12px padding. Willow already
+            // had that two-row arrangement; it simply was not reachable from an attachment.
             const shouldExpand = (chatVariant && isComposerMaximized)
               || (hypotheticalScrollHeight > baseHeight)
-              || !!selectedTool;
+              || !!selectedTool
+              || hasAttachments;
             
             setIsSolidExpanded(shouldExpand);
             textareaRef.current.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
@@ -192,5 +202,5 @@ export const useComposerTextareaAutosize = ({
         cancelAnimationFrame(textareaResizeRafRef.current);
       }
     };
-  }, [promptText, selectedTool, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
+  }, [promptText, selectedTool, hasAttachments, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
 };

@@ -13,7 +13,7 @@ import { workbenchStore } from './runtime/sandpack/index';
 import { getCachedFirstName, cacheFirstName } from '@willow/core/display-name';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { MessageLoading } from '@willow/ui/message-loading';
-import { ModelsMenu } from '@willow/chat/composer/Composer';
+import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { BottomPanel } from '@willow/media/MediaShowcase';

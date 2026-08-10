@@ -83,18 +83,31 @@ export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerat
  * rather than repaired — a chip pointing at the wrong sentence is worse than no
  * chip. Source indices are validated against the array they index into, so a
  * truncated `sources` list cannot produce an undefined chip label.
+ *
+ * Sources are kept even when no citation survives, because for some providers a
+ * bare source list is all there ever was: xAI returns a flat array of URLs and
+ * Zhipu a `web_search` array, neither with character offsets. Those turns render
+ * the sources panel and no inline chips, which is the same way an ungrounded
+ * Gemini turn already behaves. Requiring both arrays here would have thrown that
+ * away on the next load, so the turn would show sources until it was reopened.
  */
 export const sanitizeSavedCitations = (value: any): MessageCitations | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const rawSources = Array.isArray(value.sources) ? value.sources : [];
   const rawCitations = Array.isArray(value.citations) ? value.citations : [];
-  if (!rawSources.length || !rawCitations.length) return undefined;
+  if (!rawSources.length) return undefined;
 
-  const sources = rawSources.map((source: any) => ({
-    uri: typeof source?.uri === 'string' ? source.uri : '',
-    title: typeof source?.title === 'string' ? source.title : '',
-    domain: typeof source?.domain === 'string' ? source.domain : '',
-  }));
+  const sources = rawSources.map((source: any) => {
+    const source_: any = {
+      uri: typeof source?.uri === 'string' ? source.uri : '',
+      title: typeof source?.title === 'string' ? source.title : '',
+      domain: typeof source?.domain === 'string' ? source.domain : '',
+    };
+    // The snippet is the second line of the card, so dropping it here used to
+    // make a reloaded turn's sources visibly plainer than the live ones.
+    if (typeof source?.snippet === 'string' && source.snippet) source_.snippet = source.snippet;
+    return source_;
+  });
 
   const citations = rawCitations
     .filter((citation: any) =>
@@ -112,7 +125,7 @@ export const sanitizeSavedCitations = (value: any): MessageCitations | undefined
     }))
     .filter((citation: any) => citation.sourceIndices.length > 0);
 
-  return citations.length ? { sources, citations } : undefined;
+  return sources.length ? { sources, citations } : undefined;
 };
 
 /**

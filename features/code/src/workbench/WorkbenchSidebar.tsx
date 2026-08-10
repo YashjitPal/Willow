@@ -57,7 +57,7 @@ import {
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MessageLoading } from '@willow/ui/message-loading';
-import { ModelsMenu } from '@willow/chat/composer/Composer';
+import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 // Chat mode's renderer, used verbatim so the two tabs format identically:
@@ -80,7 +80,7 @@ import { VisualEditMenu } from './visual-edit-menu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '@willow/agent-builder/agent-builder-store';
-import { newChatSignal } from '@willow/chat/chat-store';
+import { newChatSignal } from '@willow/core/new-chat-signal';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '@willow/design/design-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';

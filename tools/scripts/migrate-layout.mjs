@@ -121,6 +121,8 @@ const MOVES = [
   /* ---------------- platform/ui -------------------------------------- */
   [`${D}/components/ui/`, 'platform/ui/src/'],
   [`${D}/components/hooks/use-auto-resize-textarea.ts`, 'platform/ui/src/hooks/use-auto-resize-textarea.ts'],
+  [`${D}/components/GithubImportDialog.tsx`, 'platform/ui/src/github/GithubImportDialog.tsx'],
+  [`${D}/lib/githubRepository.ts`, 'platform/ui/src/github/repository.ts'],
 
   /* ---------------- features/chat ------------------------------------ */
   [`${D}/components/DashboardChat.tsx`, 'features/chat/src/ChatView.tsx'],
@@ -148,8 +150,6 @@ const MOVES = [
   [`${D}/lib/visual-editor/`, 'features/code/src/visual-editing/engine/'],
   [`${D}/lib/sandpack/`, 'features/code/src/runtime/sandpack/'],
   [`${D}/lib/preview/`, 'features/code/src/runtime/preview/'],
-  [`${D}/components/GithubImportDialog.tsx`, 'features/code/src/github/GithubImportDialog.tsx'],
-  [`${D}/lib/githubRepository.ts`, 'features/code/src/github/repository.ts'],
   [`${D}/lib/local-companion.ts`, 'features/code/src/local-companion.ts'],
 
   /* ---------------- features/design ---------------------------------- */

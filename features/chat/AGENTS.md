@@ -15,16 +15,15 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/chat-message.ts` | The `ChatMsg` shape plus its save/serialize/sanitize helpers. |
 | `src/chat-history.ts` | Converts stored `ChatMsg[]` into the AI wire format, inlining attachment bytes. |
 | `src/chat-model.ts` | The system prompt and provider/model/key resolution for a send. |
+| `deferred-prompt-blocks.md` | Prompt blocks for features Willow has not built yet, parked drop-in ready. Not dead text — see below. |
 | `src/chat-timing.ts` | `waitForBrowserPaint()` — yields one frame so an intermediate render is actually seen. |
-| `src/chat-store.ts` | Nanostore. The `newChatSignal` "New Chat" broadcast. |
 | `src/chat-turn-store.ts` | Module-level registry of in-flight turns, so a response outlives ChatView. |
 | `src/chat-turn-runner.ts` | Drives one turn to completion, independent of React. Owns finalisation and checkpointing. |
-| `src/composer/Composer.tsx` | `InputBar`, the prompt box (885 lines). Attachments, tool chips, send, and the two JSX branches. Re-exports `ModelsMenu` so its public surface is unchanged. |
+| `src/composer/Composer.tsx` | `InputBar`, the prompt box (885 lines). Attachments, tool chips, send, and the two JSX branches. |
 | `src/composer/composer-options.tsx` | The composer's static option tables: `TOOLS`, `TOOL_SYMBOLS`, `THEMES`, `MODES` and their types. |
 | `src/composer/composer-icons.tsx` | `SpotifyIcon` and `ModelIcon` — inline SVG/provider glyphs. |
 | `src/composer/ModesMenu.tsx` | The mode dropdown. |
 | `src/composer/ThemesMenu.tsx` | The theme dropdown. |
-| `src/composer/ModelsMenu.tsx` | The model + thinking-effort picker (400 lines). Also imported directly by Code's `CodeHome` and `WorkbenchSidebar`. |
 | `src/composer/use-composer-dictation.ts` | The whole dictation subsystem: recording, transcription, caret restoration (343 lines). |
 | `src/composer/use-composer-models.ts` | Resolves the selected model/effort id and derives the pill labels. |
 | `src/composer/use-composer-textarea-autosize.ts` | The RAF-throttled textarea measurement, and the two flags the layout derives from it. |
@@ -35,9 +34,45 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 ## Architecture
 
 Chat owns the UI, not the LLM call — `@willow/ai/chat` owns that. `ChatView`
-holds the thread state in its own `useState`; `chat-store.ts` is only a signal
-atom that lets the Code workbench's sidebar and top bar trigger a new chat from
-outside.
+holds the thread state in its own `useState` and resets it locally.
+
+Chat, Code and Media are three independent agents, and as of the split below
+this package has **no edge to either of the others' feature packages** in either
+direction. Two things used to cross that line and neither belonged to the
+feature it lived in:
+
+- `ModelsMenu`, the model + effort picker. Chat owned it and re-exported it
+  through `Composer.tsx` so Code could import it; it now lives in
+  `@willow/ui/models/ModelsMenu`, which both features import sideways. It takes
+  props and holds no chat state, so nothing had to change but the path.
+- `newChatSignal` / `triggerNewChat`, once `src/chat-store.ts`. Despite the
+  name, **Chat never subscribed** — Code's top bar fires it and Code's sidebar
+  listens. It is now `@willow/core/new-chat-signal`.
+
+`@willow/media` and `@willow/studio` are still imported from here, and Media and
+Spark still import this package's composer. Those are live couplings, not
+oversights; the invariant is specifically about the three agent surfaces.
+
+## The deferred prompt blocks
+
+`CHAT_SYSTEM_PROMPT` was adapted from a production prompt that described four
+capabilities Willow has no executor for: media generation, `<Image of X>`
+diagram tags, a `<GenerateWidget>` widget schema, and a personalization ladder
+over a user-profile store. They were held out of the shipped prompt on one rule —
+**a prompt block that describes a tool the harness never declares does not add
+capability, it teaches the model to announce work it never does.** The user reads
+that as a bug, not as a missing feature.
+
+They were not thrown away. All four sit verbatim in `deferred-prompt-blocks.md`,
+already converted to Willow's naming and stripped of the source's plan tiers, so
+each is a paste away. The gate for moving one back up into `chat-model.ts` is not
+"is the UI ready" — it is **is the tool declared to the model on that turn**. For
+media that means `enableMediaTools` in `@willow/ai/chat`, which chat mode leaves
+off precisely because media is a different agent.
+
+The file has no importer, so `gemini-cards.test.mjs` asserts it exists and still
+holds all four blocks. That test is load-bearing: the prompt it was extracted
+from was never committed, so if the file goes, the text is gone.
 
 ## The big one
 
@@ -75,9 +110,10 @@ private to the new file.
 
 ### The composer split, and the rule that made it safe
 
-`Composer.tsx` was 2036 lines and is now 885, across the nine modules listed
-above. It ran out of extractable leaves after `ModelsMenu`, so the remaining four
-splits are **hooks**, and they follow one rule:
+`Composer.tsx` was 2036 lines and is now 885, across the modules listed above
+plus `ModelsMenu`, which was extracted here and has since moved on to
+`@willow/ui`. It ran out of extractable leaves after that one, so the remaining
+four splits are **hooks**, and they follow one rule:
 
 > A block can become a hook when every free identifier it reads is an outer
 > value it only *reads*. Then the body moves byte-for-byte, because a hook body
@@ -341,17 +377,26 @@ Landing after the runner's save, that would write the user message alone and
 
 ## Dependencies
 
-Imports from 8 Willow packages: `@willow/ui` (10), `@willow/ai` (6),
-`@willow/core` (4, attachments), then `@willow/storage`, `@willow/auth`,
-`@willow/media`, `@willow/code`, and `@willow/studio`.
+Imports from 7 Willow packages: `@willow/ui` (11), `@willow/ai` (6),
+`@willow/core` (5, attachments and the GitHub import), then `@willow/storage`,
+`@willow/auth`, `@willow/media`, and `@willow/studio`.
 
-The last four are cross-feature and worth knowing about. `ChatView` renders
+The last two are cross-feature and worth knowing about. `ChatView` renders
 Media's `HeroSection`, `BottomPanel` and `PinnedChatGreeting` directly — in the
 zero state `pinnedComposer` reduces the hero to the glow alone, suppressing both
 its `InputBar` (so the footer's composer stays the single one) and its greeting
 (which `ChatView` renders itself, inside the composer's box). The composer
-reaches into Code for `GithubImportDialog` and up into the Studio shell for
-`BackgroundContext`.
+reaches up into the Studio shell for `BackgroundContext`.
+
+**Chat does not import Code, and that is deliberate.** Chat, Code and Media are
+three separate agents with three separate system prompts and harnesses; nothing
+in this package parses Code's artifact envelope or shares its history. The one
+former exception was the composer's `GithubImportDialog`, which lived in
+`features/code/src/github/` and was imported from here — despite Code never
+using it. It now sits in `@willow/ui/github/`, dialog and GitHub client
+together; importing a repo produces a `'github'` `ComposerAttachment`, a kind
+`@willow/core` already declared. See
+[`platform/ui`](../../platform/ui/AGENTS.md) for why it landed there.
 
 Chats and their attachments persist through
 `@willow/storage/local-fs/LocalFSContext`; blobs are cached in a
@@ -364,7 +409,6 @@ Chats and their attachments persist through
 **This package imports from:**
 
 - [`apps/studio`](../../apps/studio/AGENTS.md) — the host shell: routing, sidebar, settings
-- [`features/code`](../code/AGENTS.md) — the Workbench: sandbox and visual editing
 - [`features/media`](../media/AGENTS.md) — AI image and video generation
 - [`platform/ai`](../../platform/ai/AGENTS.md) — model clients, chat orchestration, computer use
 - [`platform/auth`](../../platform/auth/AGENTS.md) — Firebase, `useAuth()`, `useUserData()`
