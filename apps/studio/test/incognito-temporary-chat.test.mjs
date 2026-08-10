@@ -210,17 +210,31 @@ it('pins the Temporary Chat header instead of putting it in the message flow', (
     'the header can absorb clicks on the toggle button — incognito would be inescapable');
 });
 
-it('shows the header for the whole session, not just the zero state', () => {
+it('shows the header only once the thread is under way, never over the zero state', () => {
   const layout = STUDIO_LAYOUT();
   const guard = layout.match(/\{([^\n]*isIncognito[^\n]*) && \(\s*<div\s+data-test-id="temporary-chat-header"/);
   assert.ok(guard, 'could not locate the temporary-chat header render guard');
 
-  // `!isChatOngoing` gates the toggle *button*, which hides once a chat starts.
-  // The header must not inherit that: the requirement is that it stays put.
+  // This assertion used to demand the opposite — that the header stay mounted for
+  // the whole session — and it outlived the measurement that disproved it. Gemini's
+  // temporary chat opens with NO header: the zero state carries the
+  // `gemini_chat_temp` glyph and the "Incognito chat" card, and the pinned label
+  // only fades in with the thread. Ungated, the label sat above the zero-state
+  // card, which Gemini never shows.
+  assert.match(guard[1], /\bisChatOngoing\b/,
+    'the header is ungated — the label would sit above the zero-state card');
   assert.ok(
-    !/isChatOngoing/.test(guard[1]),
-    'the header is gated on isChatOngoing — it would vanish as soon as a chat starts',
+    !/!isChatOngoing/.test(guard[1]),
+    'the header is gated on the negation — it would show in the zero state only',
   );
+
+  // The header and the toggle button are deliberately complementary: the button
+  // carries `!isChatOngoing`, so exactly one of the two occupies the band.
+  const button = layout.match(/\{([^\n]*isIncognito[^\n]*) && \(\s*<[\s\S]{0,200}?aria-label="Temporary chat"/);
+  if (button) {
+    assert.match(button[1], /!isChatOngoing/,
+      'the toggle button lost its complementary gate');
+  }
 });
 
 it('removes the in-flow incognito pill from the message list', () => {

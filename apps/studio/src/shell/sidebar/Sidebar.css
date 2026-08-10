@@ -1,4 +1,99 @@
 
+/*
+ * The sidenav's staged reveal, taken verbatim from Gemini's own rules. The rail width
+ * itself is an Angular `@widthTransition` trigger at 300ms cubic-bezier(0.2, 0, 0, 1)
+ * (already on the <aside>); these two are the children that come in behind it, and
+ * their delays are what stop everything appearing at once mid-slide.
+ *
+ *   .gemini-sidenav-text          { opacity: 0 }
+ *   .gemini-sidenav-text.expanded { display: inline;
+ *                                   animation: fadeIn .1s ease forwards;
+ *                                   animation-delay: .1s }
+ *   @keyframes fadeIn { 0% { opacity: 0 } to { opacity: 1 } }
+ *
+ *   .close-sidenav-button-desktop { opacity: 0; visibility: hidden;
+ *                                   animation: show-close-button 50ms linear .25s forwards }
+ *   @keyframes show-close-button  { to { opacity: 1; visibility: visible } }
+ *
+ * The close button's 250ms delay is deliberate: it lands 50ms before the 300ms width
+ * settles, so the button never appears over a rail that is still narrower than it.
+ */
+/*
+ * Google Sans Flex is a VARIABLE face here (`weight "280 540"`, `stretch "92% 100%"`),
+ * and Gemini drives its width axis through a token chain
+ * (`--gds-type-scale-default-rond` <- `--gem-sys-typography-type-scale--*`) rather than
+ * through `font-stretch`, which computes to a flat `100%` on every node. Without these
+ * axes the same string renders WIDER than Gemini's: the account name measured 69.1px
+ * here against 66.31px there, at identical 15px/400/20px. Applying `"wdth" 92` to the
+ * live node took it to exactly 66.31.
+ *
+ * Measured on Gemini's sidenav: 49 of 50 text leaves carry
+ * `"ROND" 0, "slnt" 0, "wdth" 92`, across every size and weight -
+ *   .gds-body-s               13px/400/17px   "Chat" 28.84, "New chat" 56.35
+ *   .gds-body-m               15px/400/20px   "Yashjit Pal" 66.31
+ *   .gds-emphasized-body-s    13px/540/17px   active recents title
+ *   .expandable-section-title 13px/400/17px   "Notebooks" 66.38
+ *   .mavatar-tier-label       13px/400/17px   "Pro" 20.39
+ * so one inherited declaration is the faithful shape, not 14 per-element styles.
+ * The lone exemption is `.beta-badge` (7px/500, `varS: normal`), opted out below.
+ *
+ * "wght" IS DELIBERATELY OMITTED. Gemini pins it per token, but an inherited `"wght" 400`
+ * would override `font-weight` on every descendant - verified: pinning 400 collapsed a
+ * 500 label from 72.64px onto 70.66px, which would silently kill both the 470 wordmark
+ * and the bold-on-selected nav label the user asked for by name. With the axis omitted,
+ * `font-weight` still drives it (400 -> 70.66, 500 -> 72.64), so weight stays in CSS's
+ * hands and only the width axis is inherited.
+ *
+ * Icons are unaffected: MaterialSymbol always writes its own inline
+ * `font-variation-settings`, and the property replaces rather than merges.
+ */
+.studio-sidebar {
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92;
+}
+
+/*
+ * Gemini's `.beta-badge` is the single sidebar leaf with `font-variation-settings: normal`
+ * - at 7px the width axis is not applied. Reset rather than inherit.
+ */
+.studio-sidebar .willow-beta-badge {
+  font-variation-settings: normal;
+}
+
+/*
+ * The wordmark is `.gemini-sidenav-text.gds-title-l-emphasized`: 17px/470/24px at (46,16),
+ * "Gemini" 55.01x24, computing `"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470`. Note ROND 20
+ * and wdth 94 - it does NOT share the body text's 0/92 - so it must restate the full axis
+ * list (the property replaces wholesale, so a partial list would drop the inherited ones).
+ * Set here rather than inline so the ROND/wdth pair cannot drift from the measurement.
+ */
+.willow-sidenav-text {
+  opacity: 0;
+  animation: willow-sidenav-text-fade-in 100ms ease 100ms forwards;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+@keyframes willow-sidenav-text-fade-in {
+  0% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.willow-sidenav-close-button {
+  opacity: 0;
+  visibility: hidden;
+  animation: willow-sidenav-show-close-button 50ms linear 250ms forwards;
+}
+
+@keyframes willow-sidenav-show-close-button {
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
 .menu-fade-in {
   animation: menuFadeIn 0.15s ease-out forwards;
 }
@@ -178,34 +273,38 @@
 }
 
 /*
- * Gemini's menu-open animation, from its authored keyframes:
+ * Gemini's SETTINGS pane animation. Measured directly off the pane, both directions:
  *
- *   @keyframes expand-in { 0% { opacity:.25; transform:scale(.5) } to { opacity:1; transform:scale(1) } }
- *   .card-container { animation: expand-in .1s ease-in-out }
+ *   _mat-menu-enter  120ms cubic-bezier(0, 0, 0.2, 1)  scale(0.8) -> none, opacity 0 -> 1
+ *   _mat-menu-exit   100ms linear                      opacity 1 -> 0   (no transform)
  *
- * It starts at HALF SCALE and QUARTER opacity rather than from zero, which is what makes
- * it read as a quick pop instead of a fade. Captured live on the plus menu and both of
- * its submenus by sampling getAnimations() the frame each pane appeared.
+ * This is NOT the plus menu's animation, which is `expand-in` at 100ms ease-in-out from
+ * scale(.5)/opacity .25. The settings pane is a plain Angular Material menu and uses
+ * Material's own pair. Applying the plus menu's curve here was close but wrong.
  *
- * Duplicated here rather than shared with the composer on purpose: Gemini does the same,
- * defining the animation independently per component (_ngcontent-ng-c3600954668_expand-in
- * for the plus menu, _ngcontent-ng-c3777966446_expand-in for the toolbox drawer), and it
- * keeps the sidebar from depending on a composer stylesheet that need not be mounted.
- *
- * APPLIED BY ANALOGY, not from an individual capture of the settings menu. Gemini's card
- * rule lists .mat-mdc-menu-panel.lm-menu-theme in the same selector group as the
- * plus-menu cards, so they share a surface; the settings pane's own animation was not
- * sampled, because the tab was occluded by the time that capture was attempted.
+ * The exit is a pure opacity fade with no scale, which is why it is easy to miss — but it
+ * is there, and Angular keeps the node mounted for its full 100ms before removing it.
+ * `transform-origin` measured `0px <height>`: bottom-left, matching the upward growth.
  */
-@keyframes willow-gem-menu-in {
-  0% { opacity: 0.25; transform: scale(0.5); }
-  100% { opacity: 1; transform: scale(1); }
+@keyframes willow-mat-menu-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: none; }
 }
 
-.willow-gem-menu-in {
-  animation: willow-gem-menu-in 0.1s ease-in-out;
+@keyframes willow-mat-menu-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.willow-mat-menu-enter {
+  animation: willow-mat-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.willow-mat-menu-exit {
+  animation: willow-mat-menu-exit 100ms linear forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .willow-gem-menu-in { animation: none; }
+  .willow-mat-menu-enter,
+  .willow-mat-menu-exit { animation: none; }
 }

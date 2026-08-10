@@ -1,0 +1,699 @@
+/*
+ * Connected Apps page — clone of gemini.google.com/apps.
+ *
+ * Every selector is prefixed with .connected-apps-container on purpose. The
+ * sibling settings tabs (PersonalIntelligenceTab.css, SavedInfoTab.css) are
+ * plain global imports that already collide with each other on .header,
+ * .section, .page-content and the whole .mdc-switch* family. Nothing here may
+ * leak into them.
+ *
+ * Measurements come from computed styles on the live Gemini page.
+ */
+
+.connected-apps-container {
+  --ca-spacing-xs: 4px;
+  --ca-spacing-s: 8px;
+  --ca-spacing-m: 12px;
+  --ca-spacing-l: 16px;
+  --ca-spacing-xl: 20px;
+  --ca-spacing-xxl: 24px;
+
+  --ca-surface: #131314;
+  --ca-surface-container: #1e1f20;
+  --ca-surface-child: #1b1b1b;
+  --ca-surface-prompt: #282a2c;
+  --ca-on-surface: #e3e3e3;
+  --ca-on-surface-variant: #c4c7c5;
+  --ca-outline: #8e918f;
+  --ca-divider: #444746;
+  --ca-primary: #a8c7fa;
+  --ca-prompt-text: #d3e3fd;
+
+  --ca-content-max-width: 880px;
+  --ca-card-width: 264px;
+
+  background: var(--ca-surface);
+  color: var(--ca-on-surface);
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Type scale. Defined locally rather than relying on PersonalIntelligenceTab.css
+   being in the bundle. */
+.connected-apps-container .ca-display-s {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 32px;
+  font-weight: 360;
+  line-height: 38px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.connected-apps-container .ca-title-l {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.connected-apps-container .ca-body-l {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.connected-apps-container .ca-body-m {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.connected-apps-container .ca-label-s {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+/* ---------- Page shell ---------- */
+
+.connected-apps-container .ca-window {
+  display: flex;
+  flex-direction: column;
+  /* 68px top matches the sibling settings tabs (.page-content) so the three
+     pages share a vertical rhythm. */
+  margin: 68px auto var(--ca-spacing-xxl);
+  padding-bottom: var(--ca-spacing-xxl);
+  border-radius: var(--ca-spacing-xxl);
+  background: var(--ca-surface);
+}
+
+.connected-apps-container .ca-header {
+  display: grid;
+  gap: var(--ca-spacing-m) var(--ca-spacing-xl);
+  width: 100%;
+  max-width: var(--ca-content-max-width);
+  margin: 0 auto;
+  padding: var(--ca-spacing-xxl);
+  box-sizing: border-box;
+}
+
+.connected-apps-container .ca-title {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-subtitle {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-subtitle a,
+.connected-apps-container .ca-privacy a {
+  color: #e6e6e6;
+  text-decoration: underline;
+}
+
+/* ---------- Category chips ---------- */
+
+.connected-apps-container .ca-chip-row {
+  display: inline-block;
+  margin: 0 auto;
+  padding: var(--ca-spacing-xxl) 0;
+  white-space: nowrap;
+}
+
+.connected-apps-container .ca-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  margin: var(--ca-spacing-xs) 0 var(--ca-spacing-xs) var(--ca-spacing-s);
+  padding: 0 var(--ca-spacing-m);
+  border: none;
+  border-radius: var(--ca-spacing-s);
+  background: transparent;
+  color: var(--ca-on-surface-variant);
+  font-family: 'Google Sans Flex', 'Google Sans Text', 'Google Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Gemini draws the chip outline as a ::before overlay, not a border. */
+.connected-apps-container .ca-chip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--ca-outline);
+  border-radius: var(--ca-spacing-s);
+  pointer-events: none;
+}
+
+/* And the hover state as a separate tinted overlay that fades in. */
+.connected-apps-container .ca-chip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--ca-spacing-s);
+  background: var(--ca-on-surface-variant);
+  opacity: 0;
+  transition: opacity 150ms linear;
+  pointer-events: none;
+}
+
+.connected-apps-container .ca-chip:hover::after {
+  opacity: 0.08;
+}
+
+.connected-apps-container .ca-chip:focus-visible::after {
+  opacity: 0.12;
+}
+
+.connected-apps-container .ca-chip:focus-visible {
+  outline: none;
+}
+
+/* ---------- Category heading ---------- */
+
+.connected-apps-container .ca-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: var(--ca-content-max-width);
+  margin: 0 auto;
+  padding: var(--ca-spacing-xxl) var(--ca-spacing-xxl) 0;
+  box-sizing: border-box;
+  scroll-margin-top: var(--ca-spacing-xxl);
+}
+
+.connected-apps-container .ca-category-name {
+  color: var(--ca-on-surface);
+}
+
+/* ---------- Card grid ---------- */
+
+.connected-apps-container .ca-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--ca-card-width));
+  justify-content: center;
+  gap: var(--ca-spacing-xxl) var(--ca-spacing-xl);
+  width: 100%;
+  max-width: var(--ca-content-max-width);
+  margin: 0 auto;
+  padding: var(--ca-spacing-xxl) var(--ca-spacing-xxl) 0;
+  box-sizing: border-box;
+}
+
+/* ---------- Standard card ---------- */
+
+.connected-apps-container .ca-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 400px;
+  padding: var(--ca-spacing-xl);
+  border-radius: var(--ca-spacing-xxl);
+  background: var(--ca-surface-container);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: height 250ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Expanded cards grow to fit and scroll internally. */
+.connected-apps-container .ca-card.ca-expanded {
+  height: max-content;
+  max-height: 640px;
+  padding-top: 0;
+  overflow-y: auto;
+}
+
+.connected-apps-container .ca-opt-in-row {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin-bottom: var(--ca-spacing-l);
+}
+
+/* When expanded the row sticks to the top of the scrolling card. */
+.connected-apps-container .ca-card.ca-expanded .ca-opt-in-row {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  gap: var(--ca-spacing-l);
+  height: 52px;
+  margin-bottom: 0;
+  padding: var(--ca-spacing-xl) 0;
+  background: var(--ca-surface-container);
+}
+
+.connected-apps-container .ca-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-toggle-slot {
+  margin-left: auto;
+}
+
+.connected-apps-container .ca-card-name {
+  display: inline-flex;
+  max-width: 100%;
+  margin-bottom: var(--ca-spacing-xs);
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-card.ca-expanded .ca-card-name {
+  font-size: 1.5rem;
+  line-height: 32px;
+}
+
+.connected-apps-container .ca-handle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ca-spacing-s);
+  margin-bottom: var(--ca-spacing-s);
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-collapsed-content {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.connected-apps-container .ca-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: clip;
+  text-overflow: ellipsis;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-learn-more {
+  display: inline-block;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ca-primary);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.connected-apps-container .ca-learn-more:hover {
+  text-decoration: underline;
+}
+
+/* The hero prompt tile is pinned to the bottom of the card. */
+.connected-apps-container .ca-hero-prompt-slot {
+  margin-top: auto;
+}
+
+.connected-apps-container .ca-hero-prompt {
+  display: block;
+  width: 100%;
+  height: 164px;
+  margin-top: var(--ca-spacing-l);
+  padding: var(--ca-spacing-m);
+  border: none;
+  border-radius: var(--ca-spacing-m);
+  background: var(--ca-surface-prompt);
+  color: var(--ca-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: box-shadow 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.connected-apps-container .ca-hero-prompt:hover {
+  box-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
+}
+
+.connected-apps-container .ca-hero-prompt span {
+  display: block;
+  width: 100%;
+  height: 140px;
+  white-space: normal;
+  overflow: hidden;
+}
+
+/* ---------- Workspace parent card (spans the full grid width) ---------- */
+
+.connected-apps-container .ca-parent-card {
+  position: relative;
+  grid-column: 1 / -1;
+  padding: var(--ca-spacing-xl);
+  border-radius: var(--ca-spacing-xxl);
+  background: var(--ca-surface-container);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.connected-apps-container .ca-parent-content {
+  display: flex;
+}
+
+.connected-apps-container .ca-parent-title {
+  width: 224px;
+  margin-right: 60px;
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-parent-title .ca-card-name {
+  margin-bottom: var(--ca-spacing-m);
+}
+
+.connected-apps-container .ca-parent-description {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-child-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 246px);
+  grid-auto-rows: 100px;
+  gap: var(--ca-spacing-s) var(--ca-spacing-l);
+}
+
+.connected-apps-container .ca-child-card {
+  position: relative;
+  height: 100%;
+  padding: var(--ca-spacing-l);
+  border-radius: var(--ca-spacing-m);
+  background: var(--ca-surface-child);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.connected-apps-container .ca-child-content {
+  display: flex;
+}
+
+.connected-apps-container .ca-child-logo {
+  width: 24px;
+  height: 24px;
+  margin-right: var(--ca-spacing-s);
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-child-name {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-child-handle {
+  color: var(--ca-on-surface-variant);
+}
+
+/* ---------- Expanded capabilities panel ---------- */
+
+.connected-apps-container .ca-expanded-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 250ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms linear;
+}
+
+.connected-apps-container .ca-card.ca-expanded .ca-expanded-content {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 250ms cubic-bezier(0.05, 0.7, 0.1, 1),
+    opacity 200ms linear 80ms;
+}
+
+/* The inner wrapper is what actually clips during the row transition. */
+.connected-apps-container .ca-expanded-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.connected-apps-container .ca-divider {
+  height: 1px;
+  margin: var(--ca-spacing-l) 0;
+  border: none;
+  background: var(--ca-divider);
+}
+
+.connected-apps-container .ca-capability-title {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-capability-group {
+  margin-top: var(--ca-spacing-m);
+}
+
+.connected-apps-container .ca-capability-list {
+  display: grid;
+  gap: var(--ca-spacing-s);
+  align-items: flex-start;
+  margin-top: var(--ca-spacing-s);
+}
+
+.connected-apps-container .ca-capability-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ca-spacing-s);
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-capability-item .ca-capability-icon {
+  color: var(--ca-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-prompt-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: var(--ca-spacing-m);
+}
+
+.connected-apps-container .ca-prompt-pill {
+  margin-top: var(--ca-spacing-s);
+  padding: 9px var(--ca-spacing-l);
+  border: none;
+  border-radius: 100px;
+  background: var(--ca-surface-prompt);
+  color: var(--ca-prompt-text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.connected-apps-container .ca-prompt-pill:hover {
+  box-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
+}
+
+/* ---------- Toggle ----------
+   Rebuilt from Gemini's --mat-slide-toggle-* variables. Note: no check/cross
+   icons in either state, unlike the toggle in PersonalIntelligenceTab. */
+
+.connected-apps-container .ca-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--ca-divider);
+  box-shadow: inset 0 0 0 2px var(--ca-outline);
+  transition:
+    background-color 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 75ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.connected-apps-container .ca-switch[aria-checked='true'] .ca-switch-track {
+  background: var(--ca-primary);
+  box-shadow: none;
+}
+
+.connected-apps-container .ca-switch-handle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+  border-radius: 9999px;
+  background: var(--ca-outline);
+  transform: translateY(-50%);
+  transition:
+    width 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    height 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    margin 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 75ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.connected-apps-container .ca-switch[aria-checked='true'] .ca-switch-handle {
+  width: 24px;
+  height: 24px;
+  margin-left: 24px;
+  background: #062e6f;
+}
+
+/* 40px state layer, same as --mat-slide-toggle-state-layer-size. */
+.connected-apps-container .ca-switch-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: var(--ca-on-surface);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 75ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.connected-apps-container .ca-switch:hover .ca-switch-handle::before {
+  opacity: 0.08;
+}
+
+.connected-apps-container .ca-switch:focus-visible {
+  outline: none;
+}
+
+.connected-apps-container .ca-switch:focus-visible .ca-switch-handle::before {
+  opacity: 0.12;
+}
+
+/* ---------- Footer ---------- */
+
+.connected-apps-container .ca-premium,
+.connected-apps-container .ca-privacy {
+  width: 100%;
+  max-width: 832px;
+  margin: var(--ca-spacing-xxl) auto 0;
+  box-sizing: border-box;
+}
+
+.connected-apps-container .ca-premium {
+  display: flex;
+  gap: var(--ca-spacing-l);
+  padding: var(--ca-spacing-l);
+  border-radius: var(--ca-spacing-l);
+  background: var(--ca-surface-container);
+}
+
+.connected-apps-container .ca-premium-icon,
+.connected-apps-container .ca-privacy-icon {
+  color: var(--ca-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.connected-apps-container .ca-premium-title {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-premium-description {
+  margin-top: var(--ca-spacing-xs);
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-premium-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ca-spacing-l);
+  margin-top: var(--ca-spacing-l);
+}
+
+.connected-apps-container .ca-premium-links a {
+  color: var(--ca-prompt-text);
+  font-size: 15px;
+  font-weight: 370;
+  line-height: 20px;
+  text-decoration: underline;
+}
+
+.connected-apps-container .ca-privacy {
+  display: flex;
+  gap: var(--ca-spacing-l);
+  padding: 0 var(--ca-spacing-l);
+}
+
+.connected-apps-container .ca-privacy-text {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-privacy-text a {
+  color: var(--ca-prompt-text);
+  text-decoration: underline;
+}
+
+/* ---------- Narrow viewports ---------- */
+
+@media (max-width: 767px) {
+  .connected-apps-container .ca-hero-prompt {
+    height: auto;
+    min-height: 88px;
+  }
+
+  .connected-apps-container .ca-hero-prompt span {
+    height: auto;
+  }
+
+  .connected-apps-container .ca-parent-content {
+    flex-direction: column;
+  }
+
+  .connected-apps-container .ca-parent-title {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: var(--ca-spacing-l);
+  }
+
+  .connected-apps-container .ca-child-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connected-apps-container .ca-card,
+  .connected-apps-container .ca-expanded-content,
+  .connected-apps-container .ca-switch-track,
+  .connected-apps-container .ca-switch-handle,
+  .connected-apps-container .ca-switch-handle::before,
+  .connected-apps-container .ca-chip::after,
+  .connected-apps-container .ca-hero-prompt,
+  .connected-apps-container .ca-prompt-pill {
+    transition-duration: 1ms;
+  }
+}

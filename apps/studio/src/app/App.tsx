@@ -9,6 +9,7 @@ import { BottomPanel } from '@willow/media/MediaShowcase';
 import { SettingsModal } from '../settings/SettingsModal';
 import { PersonalIntelligenceTab } from '../settings/tabs/personal-intelligence/PersonalIntelligenceTab';
 import { SavedInfoTab } from '../settings/tabs/saved-info/SavedInfoTab';
+import { ConnectedAppsTab } from '../settings/tabs/connected-apps/ConnectedAppsTab';
 import { ProjectsPage } from '@willow/project-browser/ProjectsPage';
 import { LoginPage } from '@willow/account/LoginPage';
 import { Onboarding } from '@willow/onboarding/Onboarding';
@@ -384,11 +385,13 @@ const App: React.FC = () => {
     if (view === 'agents') navigate('/?view=agents');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'saved-info') navigate('/saved-info');
+    else if (view === 'connected-apps') navigate('/connected-apps');
     else if (view === 'gems') navigate('/gems');
     else if (
       searchParams.get('view') === 'agents' ||
       location.pathname === '/personalization-settings' ||
       location.pathname === '/saved-info' ||
+      location.pathname === '/connected-apps' ||
       location.pathname === '/gems'
     ) {
       navigate('/', { replace: true });
@@ -414,11 +417,20 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         setCurrentView('saved-info');
       }
+    } else if (location.pathname === '/connected-apps') {
+      if (currentView !== 'connected-apps') {
+        setCurrentView('connected-apps');
+      }
     } else if (location.pathname.startsWith('/gems')) {
       if (currentView !== 'gems') {
         setCurrentView('gems');
       }
-    } else if (currentView === 'personal-intelligence' || currentView === 'saved-info' || currentView === 'gems') {
+    } else if (
+      currentView === 'personal-intelligence' ||
+      currentView === 'saved-info' ||
+      currentView === 'connected-apps' ||
+      currentView === 'gems'
+    ) {
       setCurrentView('home');
     }
   }, [location.pathname, currentView]);
@@ -696,6 +708,8 @@ const App: React.FC = () => {
           <PersonalIntelligenceTab />
         ) : currentView === 'saved-info' ? (
           <SavedInfoTab />
+        ) : currentView === 'connected-apps' ? (
+          <ConnectedAppsTab />
         ) : currentView === 'gems' ? (
           <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
             <GemsView />
@@ -716,6 +730,7 @@ const App: React.FC = () => {
            <Route path="/" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
+           <Route path="/connected-apps" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />
            <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />

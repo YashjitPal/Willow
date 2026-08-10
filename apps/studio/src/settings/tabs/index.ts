@@ -8,4 +8,5 @@ export { ModelsTab } from './ModelsTab';
 export { GovernanceTab } from './GovernanceTab';
 export { PersonalIntelligenceTab } from './personal-intelligence/PersonalIntelligenceTab';
 export { SavedInfoTab } from './saved-info/SavedInfoTab';
+export { ConnectedAppsTab } from './connected-apps/ConnectedAppsTab';
 

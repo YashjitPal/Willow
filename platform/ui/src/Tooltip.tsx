@@ -87,6 +87,28 @@ const clamp = (value: number, min: number, max: number) =>
 const HIDE_DURATION_MS = 75;
 
 /**
+ * Gemini left-aligns a tooltip that had to wrap and centres one that did not.
+ *
+ * The rule is Material's, read verbatim out of the shipped bundle rather than
+ * inferred from how the bubbles look:
+ *
+ *   Sa() { var a = this.wc.Ua.getBoundingClientRect();
+ *          return a.height > 24 && a.width >= 200 }
+ *
+ * feeding `_.Q("mdc-tooltip--multiline", b.eCc)` in the template. Both numbers
+ * are the surface's own limits — `min-height: 24px` and `max-width: 200px` —
+ * so the test really asks "is this taller than one line AND pinned at the
+ * cap", which is the same as "did it wrap".
+ *
+ * Reproduced as a rule, not as a per-call-site flag: the sidebar tabs are
+ * simply the first tooltips long enough to trip it.
+ */
+const isMultiline = (surface: HTMLElement) => {
+  const box = surface.getBoundingClientRect();
+  return box.height > 24 && box.width >= 200;
+};
+
+/**
  * One overlay host for the whole app, appended to `<body>` — Gemini does the
  * same with `.cdk-overlay-container`. Queried before creating so React's
  * StrictMode double-invoke cannot produce two.
@@ -129,6 +151,7 @@ function TooltipOverlay({
   const [phase, setPhase] = React.useState<Phase>('hidden');
   const paneRef = React.useRef<HTMLDivElement | null>(null);
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const surfaceRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     setPhase((p) => (open ? 'shown' : p === 'shown' ? 'hiding' : p));
@@ -208,6 +231,15 @@ function TooltipOverlay({
     }
 
     wrapper.style.transformOrigin = TRANSFORM_ORIGIN[placement];
+
+    // Alignment last, and imperatively, for the same reason Material does it in
+    // its own post-show hook: the test reads the surface's rendered box, so it
+    // can only run once the box exists and has been placed. It only changes
+    // `text-align`, so it cannot invalidate the measurement it just made.
+    const surface = surfaceRef.current;
+    if (surface) {
+      surface.classList.toggle('willow-tooltip-surface--multiline', isMultiline(surface));
+    }
   }, [anchor, position]);
 
   /**
@@ -279,6 +311,7 @@ function TooltipOverlay({
         <div ref={paneRef} className={`willow-tooltip-pane willow-tooltip-pane--${position}`}>
           <div ref={wrapperRef} className="willow-tooltip" aria-hidden="true">
             <div
+              ref={surfaceRef}
               className={
                 className ? `willow-tooltip-surface ${className}` : 'willow-tooltip-surface'
               }

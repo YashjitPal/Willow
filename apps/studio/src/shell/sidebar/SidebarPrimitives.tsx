@@ -39,7 +39,7 @@ export const SidebarItem: React.FC<{
       }}
       className={`relative flex h-8 items-center transition-colors duration-150 group/item cursor-pointer outline-none
         ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 ${!Icon && !symbol ? 'pl-[8px] pr-1.5' : 'px-1.5'} overflow-hidden`}
-        ${active ? 'bg-[#171717] text-[#e6e6e6] hover:bg-[#171717]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] hover:text-[#e6e6e6]'}
+        ${active ? 'bg-[#171717]' : ''} text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]
         rounded-full`}
     >
       {symbol ? (
@@ -59,6 +59,16 @@ export const SidebarItem: React.FC<{
         </div>
       ) : null}
       {!isCollapsed && (
+        /*
+         * DELIBERATE DEVIATION FROM GEMINI, requested explicitly.
+         *
+         * Gemini's `.gem-nav-list-item.is-active` sets `background-color` and nothing
+         * else — its label stays `--lumi-sys-color--on-surface` (#e6e6e6) at weight 400
+         * in every state. I matched that and removed the weight bump; the user asked
+         * for it back by name ("the selected tab on the left sidebar turns a little
+         * bold, I want the exact thing back"). Restored verbatim: `font-medium
+         * text-white` on active. Do not "fix" this against the Gemini measurement.
+         */
         <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
@@ -115,12 +125,27 @@ export const SectionHeader: React.FC<{
       aria-expanded={isExpanded}
       aria-controls={controlsId}
       onClick={onToggle}
-      className="group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center gap-1 overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal text-white/55 outline-none"
+      className="group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal text-white/55 outline-none"
     >
-      <span className="min-w-0 flex-1 truncate">{title}</span>
+      {/*
+       * NOT flex-1. Gemini's `.expandable-section-title` is `white-space: nowrap;
+       * vertical-align: middle` and nothing else, so it shrink-wraps its text and the
+       * chevron sits directly against it. Measured on both sections: title right edge
+       * to icon left edge is exactly 4px ("Notebooks" 14->80.38 then icon at 84.38;
+       * "Recents" 14->62.28 then icon at 66.28). A flex-1 title consumed the row and
+       * pushed the chevron to the far edge, which is the visible gap.
+       */}
+      <span className="min-w-0 truncate">{title}</span>
       <span
         aria-hidden="true"
-        className="luminous-symbols inline-flex h-4 w-4 shrink-0 items-center justify-center text-[16px] leading-4 opacity-0 transition-opacity duration-200 group-hover/section:opacity-100 group-focus-visible/section:opacity-100"
+        /*
+         * `margin-inline-start: var(--gem-sys-spacing--xs)` = 4px, in a 16px box.
+         * Hidden at rest and revealed on hover/focus-visible:
+         *   .toggle-icon { transition: transform .2s cubic-bezier(.2,0,0,1), opacity .2s ease }
+         *   .expandable-section-header:hover .toggle-icon,
+         *   .expandable-section-header:focus-visible .toggle-icon { opacity: 1 }
+         */
+        className="luminous-symbols ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[16px] leading-4 opacity-0 transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover/section:opacity-100 group-focus-visible/section:opacity-100"
         style={{
           fontFamily: "'Luminous Symbols', sans-serif",
           fontWeight: 330,

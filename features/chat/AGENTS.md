@@ -130,24 +130,24 @@ the corner it grows from (measured `0px <height>`, because Gemini's composer is
 bottom-docked), both submenus on `0 0`. **There is no leave animation** — Gemini
 removes the pane outright.
 
-### Rows that are deliberately absent
+### Rows Willow cannot back yet
 
-Gemini also shows **Add from Drive**, and **Photos / Avatar / Notebooks** under More
-uploads. Willow has no backend for any of them, so each is gated behind its own
-optional handler prop (`onAddFromDrive`, `onAddPhotos`, `onAddAvatar`,
-`onAddNotebook`) and simply does not render. Passing a handler is all it takes to
-turn one on — the row, its glyph and its geometry are already written.
+Gemini shows **Add from Drive** on the root and **Photos / Avatar / Notebooks**
+alongside Import code under More uploads. Willow has no backend for any of them, but
+they all render anyway: the menu is a clone, so a missing row is a visible difference.
+Each takes an optional handler; a row without one closes the menu and does nothing
+else. Only **Upload files** and **Import code** are actually wired today.
 
 **Personal Intelligence** is wired but not persisted: `Composer.tsx` holds it in
 local state, because Willow's Personal Intelligence settings tab has no app-level
 store behind it yet. The row renders and flips exactly as Gemini's does.
 
-Its glyph is **the one unmeasured value in the file**. Gemini draws it as a masked
-`span.icon.lm-icon-m` rather than a `mat-icon`, so it carries no
-`data-mat-icon-name`, and the rule holding its mask was in a component stylesheet
-that had not loaded when the capture ran. `personal_intelligence` follows the
-convention every other glyph obeys, but it is an inference and the code says so.
-
+Its glyph is **the one unmeasured value in the file, and it is currently wrong**.
+Gemini draws it as a masked `span.icon.lm-icon-m` rather than a `mat-icon`, so it
+carries no `data-mat-icon-name`, and the rule holding its mask was in a component
+stylesheet that had not loaded when the capture ran. `personal_intelligence` was
+inferred from the convention every other glyph obeys — and it renders as nothing,
+which proves no such ligature exists. It needs the real mask URL off a live capture.
 `apps/studio/test/gemini-plus-menu.test.mjs` pins all of the above.
 
 ## The big one
