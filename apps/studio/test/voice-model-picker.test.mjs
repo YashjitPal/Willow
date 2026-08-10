@@ -7,6 +7,10 @@
  * the derivation holds when a provider is added — which a text assertion cannot
  * show. The wiring half reads `Composer.tsx` and `ModelsMenu.tsx` as text, the
  * convention here, since a React tree is not what is under test.
+ *
+ * The menu is read from `@willow/ui`, not from Chat: it takes its roster as a
+ * prop and holds no chat state, so it moved to `platform/ui/src/models/` when the
+ * Chat/Code edge was cut. The voice roster it renders is still Chat's.
  */
 
 import assert from 'node:assert/strict';
@@ -20,7 +24,7 @@ const read = (relative) =>
   fs.readFileSync(path.resolve(import.meta.dirname, '../../..', relative), 'utf8');
 
 const composer = read('features/chat/src/composer/Composer.tsx');
-const menu = read('features/chat/src/composer/ModelsMenu.tsx');
+const menu = read('platform/ui/src/models/ModelsMenu.tsx');
 
 describe('voice model registry', () => {
   let registry;

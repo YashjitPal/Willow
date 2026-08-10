@@ -308,6 +308,43 @@ export interface AnthropicCitedBlock {
   citations: any[];
 }
 
+/**
+ * True when a provider-supplied `type` or `name` names web search, however the
+ * endpoint chooses to spell it.
+ *
+ * Anthropic's own strings are `web_search_tool_result`, `web_search_result` and
+ * `web_search_result_location`, and the tool itself carries a dated version
+ * suffix (`web_search_20250305`) that changes as the tool evolves. Matching any
+ * of those literally is a trap on two fronts: a new tool version renames the
+ * strings out from under us, and a gateway that implements the same tool is
+ * under no obligation to copy the spelling -- `Web_Search`, `WebSearch`,
+ * `web-search` and `websearch` are all things a relay can plausibly emit. An
+ * unrecognised block is dropped silently, so the failure is not an error; the
+ * search runs, the model answers, and no source card ever renders.
+ *
+ * So separators and case are discarded before comparing: everything that is not
+ * a letter or digit goes, the rest lowercases, and the remainder has to contain
+ * `websearch`. That accepts every spelling above and any version suffix, needs
+ * nothing configured or stored, and still rejects the neighbouring block types
+ * it must not swallow -- `char_location`, `page_location`,
+ * `code_execution_tool_result`, `bash_code_execution_tool_result`.
+ */
+export const namesWebSearch = (value: unknown): boolean =>
+  typeof value === 'string'
+  && value.replace(/[^a-z0-9]/gi, '').toLowerCase().includes('websearch');
+
+/**
+ * True when a `type` names a failure rather than a result.
+ *
+ * `web_search_tool_result_error` normalises to something containing `websearch`
+ * like every success shape does, and it arrives in the same `content` array, so
+ * `namesWebSearch` alone would let it through. It carries `error_code` instead of
+ * a url, so it would be dropped a step later anyway -- rejecting it by name keeps
+ * that from being an accident.
+ */
+const namesAnError = (value: unknown): boolean =>
+  typeof value === 'string' && /error/i.test(value);
+
 /** Reads one Anthropic search result or citation into a source. */
 const readAnthropicSource = (raw: any): GroundingSource | null => {
   const uri = asString(raw?.url);
@@ -372,7 +409,10 @@ export const resolveAnthropicCitations = (
   };
 
   for (const result of Array.isArray(searchResults) ? searchResults : []) {
-    if (result?.type && result.type !== 'web_search_result') continue;
+    // An entry with no `type` is trusted -- not every endpoint sets one. A typed
+    // entry has to name web search in some spelling, and must not be the failure
+    // object that arrives in this same array.
+    if (result?.type && (!namesWebSearch(result.type) || namesAnError(result.type))) continue;
     intern(result);
   }
 
@@ -381,7 +421,10 @@ export const resolveAnthropicCitations = (
     if (!block || block.end <= block.start || !Array.isArray(block.citations)) continue;
     const sourceIndices: number[] = [];
     for (const citation of block.citations) {
-      if (citation?.type && citation.type !== 'web_search_result_location') continue;
+      // Same tolerance as the results above. A document citation (`char_location`,
+      // `page_location`) names no search and is correctly skipped -- it carries a
+      // document index rather than a url, so it could not fill a source card.
+      if (citation?.type && (!namesWebSearch(citation.type) || namesAnError(citation.type))) continue;
       const index = intern(citation);
       if (index !== null && !sourceIndices.includes(index)) sourceIndices.push(index);
     }
@@ -389,9 +432,143 @@ export const resolveAnthropicCitations = (
     citations.push({ startIndex: block.start, endIndex: block.end, sourceIndices });
   }
 
-  // A search that ran but produced no citation leaves nothing to anchor a chip
-  // to. Returning the sources anyway would render chips over no text.
-  if (!citations.length) return empty;
+  // Sources without citations are kept, and the distinction matters: chips are
+  // driven by `citations` and the sources panel by `sources`, so a search that
+  // ran and produced no citation renders the panel and no chips rather than
+  // chips over no text. This is the measured case on a relay that returns real
+  // `web_search_tool_result` blocks but emits zero `citations_delta` -- the
+  // results exist, only the spans are missing, and dropping them lost the whole
+  // search rather than just its inline anchors.
+  if (!sources.length) return empty;
+  citations.sort((a, b) => a.endIndex - b.endIndex || a.startIndex - b.startIndex);
+  return { sources, citations };
+};
+
+/**
+ * Everything search-shaped harvested from one OpenAI-compatible stream.
+ *
+ * Two buckets because the providers split into two kinds, and the difference is
+ * whether a chip can be anchored:
+ *
+ *  - `annotations` carry character offsets, so they become real inline citations.
+ *    OpenAI's Responses API documents `{type: 'url_citation', url, title,
+ *    start_index, end_index}` on `output_text`, and xAI's Responses API copies
+ *    that shape exactly.
+ *  - `sources` are bare lists with no offsets: xAI's chat path returns a flat
+ *    `citations` array of URL strings, Zhipu returns a top-level `web_search`
+ *    array of `{title, link, content, publish_date, refer}`. There is nothing to
+ *    anchor, so these fill the sources panel and produce no chips.
+ */
+export interface CompatSearchHarvest {
+  annotations: any[];
+  sources: any[];
+}
+
+/** True when a `type` names an OpenAI-style url citation, however it is spelled. */
+export const namesUrlCitation = (value: unknown): boolean =>
+  typeof value === 'string'
+  && value.replace(/[^a-z0-9]/gi, '').toLowerCase().includes('urlcitation');
+
+/**
+ * Reads one OpenAI-compatible source entry.
+ *
+ * Accepts a bare URL string, because xAI's `citations` is a string array, and
+ * otherwise tries every field name the four providers use for the same three
+ * things. `link` is Zhipu's, `url` is everyone else's; `content` is Zhipu's page
+ * excerpt, `cited_text` is Anthropic's wording reused by relays that proxy it.
+ */
+const readCompatSource = (raw: any): GroundingSource | null => {
+  if (typeof raw === 'string') {
+    const uri = raw.trim();
+    if (!/^https?:\/\//i.test(uri)) return null;
+    let domain = '';
+    try { domain = new URL(uri).hostname; } catch { return null; }
+    return { uri, title: domain, domain };
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const uri = asString(raw.url) || asString(raw.link) || asString(raw.uri);
+  const title = asString(raw.title) || asString(raw.name);
+  if (!uri && !title) return null;
+  let domain = '';
+  try { if (uri) domain = new URL(uri).hostname; } catch { domain = ''; }
+  const source: GroundingSource = { uri, title: title || domain, domain };
+  const snippet = asString(raw.cited_text) || asString(raw.snippet)
+    || asString(raw.content) || asString(raw.description);
+  // Capped because Zhipu's `content` is page body rather than an excerpt, and
+  // this value is persisted with the message. The card renders two lines; the
+  // cap only stops an unbounded blob reaching storage.
+  if (snippet) source.snippet = snippet.length > 300 ? `${snippet.slice(0, 300)}…` : snippet;
+  return source;
+};
+
+/**
+ * Converts an OpenAI-compatible harvest into the same `MessageCitations` the
+ * Gemini and Anthropic paths produce.
+ *
+ * Unlike those two this can legitimately return sources with **no** citations,
+ * and callers must keep them: for xAI and Zhipu a bare source list is all the
+ * provider sends, so dropping it for want of offsets would mean their search
+ * never shows anything at all.
+ *
+ * `start_index`/`end_index` are treated as JS string indices and clamped to the
+ * answer. They are documented as indices into the output text; a provider that
+ * counts code points rather than UTF-16 units would drift on astral characters,
+ * and there is no `cited_text` here to verify against the way the Gemini path
+ * does, so the offsets are trusted as sent and only range-checked.
+ */
+export const resolveCompatCitations = (
+  harvest: CompatSearchHarvest,
+  answerText: string,
+): MessageCitations => {
+  const sources: GroundingSource[] = [];
+  const byKey = new Map<string, number>();
+
+  const intern = (raw: any): number | null => {
+    const source = readCompatSource(raw);
+    if (!source) return null;
+    const key = source.uri || `${source.title}|${source.domain}`;
+    const existing = byKey.get(key);
+    if (existing !== undefined) {
+      const kept = sources[existing];
+      if (!kept.snippet && source.snippet) kept.snippet = source.snippet;
+      if (source.title && source.title !== source.domain && kept.title === kept.domain) {
+        kept.title = source.title;
+      }
+      return existing;
+    }
+    const next = sources.length;
+    byKey.set(key, next);
+    sources.push(source);
+    return next;
+  };
+
+  const citations: GroundingCitation[] = [];
+  const text = typeof answerText === 'string' ? answerText : '';
+
+  for (const annotation of Array.isArray(harvest?.annotations) ? harvest.annotations : []) {
+    if (!annotation || typeof annotation !== 'object') continue;
+    // An untyped entry is trusted; a typed one has to name a url citation or web
+    // search in some spelling. `file_citation` names neither and is skipped.
+    const type = (annotation as any).type;
+    if (type && !namesUrlCitation(type) && !namesWebSearch(type)) continue;
+    // The payload sits either inline or nested under a key matching the type.
+    const body = (annotation as any).url_citation
+      || (annotation as any).urlCitation
+      || annotation;
+    const index = intern(body);
+    if (index === null) continue;
+    const start = Number((body as any).start_index ?? (body as any).startIndex);
+    const end = Number((body as any).end_index ?? (body as any).endIndex);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    const from = Math.max(0, Math.min(Math.trunc(start), text.length));
+    const to = Math.max(0, Math.min(Math.trunc(end), text.length));
+    if (to <= from) continue;
+    citations.push({ startIndex: from, endIndex: to, sourceIndices: [index] });
+  }
+
+  for (const source of Array.isArray(harvest?.sources) ? harvest.sources : []) intern(source);
+
+  if (!sources.length) return { sources: [], citations: [] };
   citations.sort((a, b) => a.endIndex - b.endIndex || a.startIndex - b.startIndex);
   return { sources, citations };
 };

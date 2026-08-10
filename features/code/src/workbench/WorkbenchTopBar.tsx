@@ -30,7 +30,7 @@ import { ShimmerButton } from '@willow/ui/shimmer-button';
 import { isVisualEditMode, enterVisualEdit, exitVisualEdit, hasUnsavedChanges, discardVisualChanges } from '../visual-editing/engine/index';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { previewErrors, toggleErrorPanel, isErrorPanelOpen } from '@willow/core/error-store';
-import { triggerNewChat } from '@willow/chat/chat-store';
+import { triggerNewChat } from '@willow/core/new-chat-signal';
 
 const VisualEditsIcon = ({ size = 16, className = "" }: { size?: number, className?: string }) => (
   <svg 

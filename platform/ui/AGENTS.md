@@ -21,12 +21,13 @@ Willow-specific:
 | `src/streaming-markdown-styles.ts` | The renderer's injected stylesheet + `useInjectStyles` (522 lines). |
 | `src/MaterialSymbol.tsx` | Material Symbols icon by name. |
 | `src/Avatar.tsx` · `src/AgentIcon.tsx` · `src/CanvasIcon.tsx` | Iconography. |
-| `src/GeminiAttachmentCard.tsx` · `src/RichResourcePreview.tsx` | Attachment/link previews. |
+| `src/GeminiAttachmentCard.tsx` · `src/RichResourcePreview.tsx` | Attachment/link previews. The tile is measured off Gemini — see below. |
 | `src/GeminiBentoCard.tsx` + `src/gemini-cards.ts` | Gemini's `bento-card` tiles and the flex packing that lays them out. Every value measured — see below. |
 | `src/GeminiInlineImage.tsx` | Gemini's markdown `.inline-image-container`: floated image plus a credit/alt caption. |
 | `src/TopLoadingBar.tsx` | Route-transition progress bar. |
 | `src/Tooltip.tsx` + `.css` | Gemini's tooltip. Every value measured off gemini.google.com — see below. |
 | `src/hooks/use-auto-resize-textarea.ts` | Grows a textarea to fit its content. |
+| `src/github/GithubImportDialog.tsx` + `src/github/repository.ts` | The composer's "Import code" dialog and its GitHub client. Lived in `features/code` until it was noticed that Code never used it and Chat did — see below. |
 
 Decorative / animated:
 
@@ -109,6 +110,110 @@ vertical centres equal).
 
 `apps/studio/test/tooltip-triggers.test.mjs` pins both directions.
 
+## Attachment tiles
+
+`GeminiAttachmentCard.tsx` is Gemini's attachment tile, transcribed rather than
+designed. The decision logic it runs on lives in `platform/core`:
+`gemini-file-tables.ts` (generated — five index-aligned lookup tables lifted from
+the bundle), `gemini-file-info.ts` (the ported functions, each naming its Gemini
+original), and `gemini-file-icon.ts` (mime → vendored PNG).
+
+**Shape is decided by extension, never by mime.** Gemini's template picks the
+cover-cropped thumbnail via `q_c`/`dK`, both of which test only the filename's
+extension. So a PNG served as `application/octet-stream` still gets a thumbnail,
+and an `image/png` named `report` does not. Willow's own `detectAttachmentKind`
+(`platform/core/src/attachments.ts`) matches on mime **or** extension, so the two
+disagree on exactly those cases — do not wire `attachment.kind` into the tile. A
+test pins this.
+
+**The generic tile shows a label or an icon, not both.** `showsExtensionLabel`
+returns true for PDF, TEXT, AUDIO and UNKNOWN — the four types whose Drive icon
+says no more than the word does. Everything else gets the 24px icon. Note that
+`md` is in the code-extension table, so markdown is CODE and takes the `text/code`
+bracket icon, not a "MD" label.
+
+The box: 112×112, 20px corners, `rgba(255,255,255,0.12)`, `overflow:hidden`, and
+a content box on the floor holding the name. **That content box's inset differs by
+shape — 8px over a thumbnail, 12px on a generic tile** — and it is the close
+button's containing block, so the button inherits that inset rather than sitting in
+the tile's own corner. Measured: image `594+112−20−8 = 678`, generic
+`834+112−20−12 = 914`.
+
+Strip pitch is 120 = 112 + an 8px gap.
+
+**Gemini's `margin-inline: -12px` on the strip is load-bearing, not decoration.**
+It cancels `.text-input-field`'s own `padding: 12px` so the strip spans the
+container's full border box, and the re-added `padding-inline: 12px` is what places
+the first tile. Measured live: wrapper x == fieldset x == 582, first tile x == 594.
+Willow's strip must cancel its shell's padding the same way — `-ml-[14px] -mr-[15px]`
+in the chat variant, `-mx-2` in the standard one. An earlier pass skipped this on the
+theory that `px-3` already positioned the tiles; it does not, and the result was a
+first tile at 26px against Gemini's 12px, reported as an unexplained left gap. The
+full-width span is also what puts the mask's 12px fade exactly on the tile edge.
+
+`pr-[54px]` on the chat strip is ours, not Gemini's: the maximize toggle is
+absolutely positioned at `right-[-7px] top-[8px]` at 40×40 and tiles must clear it.
+Gemini has no control there and uses a symmetric 12px.
+
+**Do not wrap the strip in an `overflow-hidden` box.** The negative margin pulls the
+strip wider than its parent, so any clipping ancestor slices the first tile. Willow
+had exactly that — an `overflow-hidden` div at x=588.4 around a strip at x=574.4,
+left over from a `grid-rows-[0fr]` height animation — and it cut 2.4px off the first
+tile's left edge, which showed as a dark strip under the corner radius. The layout
+reported no gap; only a pixel read of the rendered frame found it (`getBoundingClientRect`
+said the image and tile rects were identical, because clipping happens at paint).
+The strip is now rendered conditionally instead. Gemini does the same: its `row-gap`
+rule keys off `:has(.attachment-preview-wrapper)`, which only means anything if the
+wrapper is absent when nothing is attached.
+
+**Nothing about a tile animates.** The close button is revealed by
+`.gem-attachment-tile:not(.is-mobile):hover .gem-attachment-close-button
+{ visibility: visible }` with `transition: all 0s`, so it snaps in. Detaching is the
+same: every element in the strip computes `transition-duration: 0s`, no `@keyframes`
+matches `/attach|chip|preview/`, and the strip carries no `ng-trigger-*` class, so
+there is no Angular runtime animation either. The tile is removed and the flex row
+reflows. Willow's old fade/zoom entrance and its 200ms removal hold were both
+inventions and are gone.
+
+The glyph is `close` in `Luminous Symbols` at 16px, `font-variation-settings:
+"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330`, black on a white 20px pill.
+The `mat-icon` carries no text — the ligature is a `::before` whose `content` is
+`"close"`.
+
+Attaching a file does **not** switch Gemini's composer into a different layout. The
+3-row grid comes from `with-toolbox-drawer`:
+
+```css
+.text-input-field:where(.with-toolbox-drawer):not(.simplified-input-area):not(:has(.input-companion-wrapper))
+  { grid-template: "file-preview" auto "text-input" auto "leading-actions … trailing-actions" 1fr; }
+.text-input-field:has(.attachment-preview-wrapper) { row-gap: 8px; }
+```
+
+The strip merely fills a row that was already declared, so the box grows by
+112 + 8 = 120px. Height with five files attached decomposes exactly:
+12 + 112 + 8 + 40 + 8 + 38 + 12 = 230.
+
+Willow reaches the same two-row arrangement through `shouldExpand` in
+`use-composer-textarea-autosize.ts`, which already handled tool chips and wrapped
+text — attachments simply were not an input to it. Wired, the chat composer measures
+64px → 234px on attach against Gemini's 230px. The remaining 4px is internal
+distribution, not total: top padding (12) and bottom padding (15) match, while
+tile→editor is 24 against Gemini's 12 and editor→controls is 15 against 23. Closing
+that needs Gemini's *unattached* baseline, which cannot be measured while files are
+in its composer.
+
+Two things are deliberately **not** implemented, both for want of ground truth:
+the message variant's multi-file layout (item 2 of the prompt-box work), and the
+video tile's duration overlay — Gemini defines a bottom scrim for the media
+variant but does not emit it on live tiles, so inventing one was the wrong call.
+
+The tooltip needs no code here: the tile passes the **full** filename, extension
+included, as `title=`, and `GlobalTooltips` does the rest (see above). The visible
+label is middle-truncated to 20 characters; the tooltip is not.
+
+`apps/studio/test/gemini-attachment-tile.test.mjs` pins the shape decision, the
+label/icon split, the box, the close button and the strip.
+
 ## Cards and inline images
 
 Both are transcribed from the running Gemini app, not designed. The header
@@ -175,11 +280,32 @@ Five things worth knowing before touching them:
 `apps/studio/test/gemini-cards.test.mjs` pins the measured geometry, the
 attribution rules, the packing arithmetic, the type scales and the wiring.
 
+## The GitHub import dialog
+
+`src/github/` is the composer's "Import code" flow: paste a repository URL, and
+`repository.ts` walks the public GitHub API, packs the text files it finds
+(subject to the size and count caps at the top of the file) and returns a single
+`'github'` `ComposerAttachment`. `GithubImportDialog.tsx` is the modal around it,
+plus an "Upload folder" escape hatch that hands raw `File`s back to the caller.
+
+It sat in `features/code/src/github/` for a long time, on the reasonable-sounding
+theory that importing a repo is a Code concern. It is not — Code never imported
+it. The only consumer was Chat's composer, which had to reach across into another
+feature to get at it, and that single edge was the whole of Chat's dependency on
+Code. Willow Chat, Willow Code and Willow Media are three independent agents;
+that edge made them look coupled when they were not.
+
+It lives here rather than in `platform/core` because `platform/core` bans I/O and
+API clients, and `repository.ts` is a `fetch` client. The dialog and its client
+stay in one directory: the caps, the priority-filename list and the dialog's
+error copy are one design, and splitting them across packages to satisfy a
+purity rule would cost more than it buys.
+
 ## Dependency constraint
 
 **`platform/ui` must never import from `features/` or `apps/`.** It imports
-`@willow/core` (13 call sites, mostly `cn()`) and nothing else in the repo. If a
-component needs feature data, take it as a prop.
+`@willow/core` (14 call sites, mostly `cn()` and the attachment types) and
+nothing else in the repo. If a component needs feature data, take it as a prop.
 
 <!-- related-packages -->
 

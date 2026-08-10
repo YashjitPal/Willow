@@ -355,16 +355,36 @@ describe('grounding normalisation', () => {
       );
     });
 
-    it('drops a search that produced no citation, rather than chipping over no text', () => {
+    it('keeps a search that produced no citation, as sources with no chips', () => {
+      // This used to return nothing at all, on the reasoning that a citation is
+      // what a chip anchors to. It is — but chips are driven by `citations` and
+      // the sources panel by `sources`, so returning the sources renders the
+      // panel and no chips rather than chips over no text.
+      //
+      // The case is real and measured: a relay returns genuine
+      // `web_search_tool_result` blocks and emits zero `citations_delta`. The
+      // pages were fetched and are worth offering; only the spans are missing.
       const resolved = mod.resolveAnthropicCitations([result('https://nasa.gov/europa', 'Europa')], []);
-      assert.deepEqual(resolved, { sources: [], citations: [] });
-      // A zero-width block is the same case: there is no run to attach a chip to.
+      assert.deepEqual(resolved.citations, [], 'nothing to anchor, so no chips');
+      assert.deepEqual(resolved.sources.map((s) => s.uri), ['https://nasa.gov/europa']);
+
+      // A zero-width block is the same case: no run to attach a chip to, but the
+      // page behind it still exists.
+      const zeroWidth = mod.resolveAnthropicCitations(
+        [result('https://nasa.gov/europa', 'Europa')],
+        [{ start: 12, end: 12, citations: [cite('https://nasa.gov/europa', 'nasa.gov', 'Quote.')] }],
+      );
+      assert.deepEqual(zeroWidth.citations, []);
+      assert.deepEqual(zeroWidth.sources.map((s) => s.uri), ['https://nasa.gov/europa']);
+    });
+
+    it('still returns nothing when there was no search at all', () => {
+      // The empty case has to stay empty, or an ungrounded turn grows a panel.
+      assert.deepEqual(mod.resolveAnthropicCitations([], []), { sources: [], citations: [] });
       assert.deepEqual(
-        mod.resolveAnthropicCitations(
-          [result('https://nasa.gov/europa', 'Europa')],
-          [{ start: 12, end: 12, citations: [cite('https://nasa.gov/europa', 'nasa.gov', 'Quote.')] }],
-        ),
+        mod.resolveAnthropicCitations([{ type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' }], []),
         { sources: [], citations: [] },
+        'a failed search is not a source',
       );
     });
 

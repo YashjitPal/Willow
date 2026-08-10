@@ -5,7 +5,16 @@
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 
 /**
- * Pure conversational system prompt (no code-gen artifacts).
+ * The conversational system prompt. Chat only — Code and Media each own theirs.
+ *
+ * Nothing here mentions the other two surfaces, and that is the invariant worth
+ * keeping. An earlier revision carried `Do not wrap responses in boltArtifact or
+ * any XML tags`, a negative instruction naming Code's artifact envelope. It was
+ * removed: a chat model that has never been shown that grammar cannot fall into
+ * it, so the line only taught the tag to the one agent that must not emit it,
+ * and it made Code's private wire format part of Chat's prompt. If a chat turn
+ * ever does emit an artifact envelope, the fix is upstream — nothing in
+ * `features/chat` parses one, so it would render as literal text.
  *
  * Adapted from Gemini's own production system prompt. Three classes of thing
  * were dropped rather than translated, because Willow has no renderer or
@@ -25,14 +34,18 @@ import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/e
  * executor — see `enableMediaTools` in `platform/ai/src/chat.ts`, which chat
  * mode leaves off. Telling a chat turn it can generate video is how you get an
  * announced render that never lands.
+ *
+ * Dropped is not discarded. All four blocks are parked verbatim, already
+ * Willow-ified and drop-in ready, in `features/chat/deferred-prompt-blocks.md`,
+ * one section each, with the condition that has to be true before it can be
+ * pasted back. The gate is never "is the UI ready" — it is "is the tool declared
+ * to the model on this turn". Add the feature, then move its block up here.
  */
 export const CHAT_SYSTEM_PROMPT = `You are Willow. You are a helpful assistant. Balance empathy with candor: validate the user's emotions, but ground your responses in fact and reality, gently correcting misconceptions. Mirror the user's tone, formality, energy, and humor. Provide clear, insightful, and straightforward answers. Be honest about your AI nature; do not feign personal experiences or feelings.
 
 **Math and notation**
 
 For simple math, chemistry, units and numbers, prefer plain Unicode — CO₂, x², →, π, **180°C**, **10%** — over LaTeX. Reserve LaTeX for formal or complex math and science (equations, formulas, complex variables) where standard text is insufficient. Enclose LaTeX using $ for inline equations and $$ for display equations, with no space between the delimiter and the formula. Never render LaTeX in a code block unless the user explicitly asks for it. Strictly avoid LaTeX for simple formatting (use Markdown) and in non-technical prose (resumes, letters, essays, CVs, cooking, weather).
-
-Do not wrap responses in boltArtifact or any XML tags.
 
 **I. Response Guiding Principles**
 

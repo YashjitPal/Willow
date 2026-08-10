@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport } from "./providers/endpoints";
-import { mergeCitations, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, type AnthropicCitedBlock, type MessageCitations } from "./grounding";
+import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type MessageCitations } from "./grounding";
 
 export interface Attachment {
   type: 'image' | 'text' | 'file';
@@ -103,6 +103,106 @@ const clientCache: {
   gemini: null,
   openai: null,
   anthropic: null,
+};
+
+/**
+ * True when a failed request looks like the endpoint refusing the search tool
+ * rather than failing for its own reasons.
+ *
+ * Every provider here except Gemini is configured against a relay, and a relay
+ * is free not to implement a server-side tool its upstream documents. Sending
+ * one it does not know can fail the whole turn, which is strictly worse than
+ * having no search -- so the request is retried once without it.
+ *
+ * Matching is on the message naming a tool or search parameter, not on the
+ * status code, because the observed relays are inconsistent about which code
+ * they use for an unsupported parameter. Requiring the tool to be named is what
+ * keeps an unrelated 401 or 429 from burning a second request: those say
+ * "invalid api key" and "rate limit", neither of which mentions a tool. A false
+ * positive costs one retry and still surfaces the original error if it repeats.
+ */
+const namesSearchToolRejection = (error: any): boolean => {
+  const parts = [
+    error?.message,
+    error?.error?.message,
+    error?.error?.param,
+    error?.error?.code,
+    error?.response?.data?.error?.message,
+  ].filter((part) => typeof part === 'string');
+  if (!parts.length) return false;
+  const text = parts.join(' ');
+  return /web[\s._-]*search|x[\s._-]*search|search_parameters|\bweb_search_options\b|\btools?\b/i.test(text);
+};
+
+/**
+ * Runs a streaming request with server-side search attached, and once more
+ * without it if the endpoint rejects the search parameter.
+ *
+ * Safe to retry only because it wraps the *create* call: an OpenAI-compatible
+ * `create` with `stream: true` resolves once the response head arrives, so a
+ * rejection throws before a single token has been handed to `onToken`. Retrying
+ * after tokens had been emitted would duplicate the answer.
+ *
+ * An abort is rethrown untouched -- the user pressing stop must not be read as
+ * an unsupported parameter and quietly retried.
+ */
+const createWithSearchFallback = async <T>(
+  attempt: (searchEnabled: boolean) => Promise<T>,
+  searchRequested: boolean,
+  signal?: AbortSignal,
+): Promise<T> => {
+  if (!searchRequested) return attempt(false);
+  try {
+    return await attempt(true);
+  } catch (error: any) {
+    throwIfAborted(signal);
+    if (isAbortError(error) || !namesSearchToolRejection(error)) throw error;
+    return attempt(false);
+  }
+};
+
+/**
+ * Pulls every search-shaped field off one OpenAI-compatible stream chunk.
+ *
+ * Four providers, four spellings of the same two ideas, none of them agreeing
+ * with the OpenAI base shape they all claim:
+ *
+ *  - `delta.annotations` -- OpenAI's documented Chat Completions shape, entries
+ *    of `{type: 'url_citation', url_citation: {url, title, start_index,
+ *    end_index}}`. xAI's Responses API sends the same fields inline instead of
+ *    nested, and both are accepted.
+ *  - `chunk.citations` -- xAI's chat path, a flat array of URL strings.
+ *  - `chunk.web_search` -- Zhipu's, an array of `{title, link, content,
+ *    publish_date, refer}` sitting beside `choices` rather than inside it.
+ *
+ * Names are matched through `namesWebSearch`/`namesUrlCitation` rather than
+ * compared literally, for the same reason the Anthropic reader is: a relay is
+ * under no obligation to copy the upstream spelling, and an unrecognised field
+ * is dropped in silence -- the search would run, be paid for, and show nothing.
+ */
+const harvestCompatSearchChunk = (chunk: any, harvest: CompatSearchHarvest): void => {
+  if (!chunk || typeof chunk !== 'object') return;
+
+  const message = chunk.choices?.[0]?.delta ?? chunk.choices?.[0]?.message;
+  for (const container of [chunk, message]) {
+    if (!container || typeof container !== 'object') continue;
+    for (const [key, value] of Object.entries(container)) {
+      if (!Array.isArray(value) || !value.length) continue;
+      if (/^annotations$/i.test(key) || namesUrlCitation(key)) {
+        harvest.annotations.push(...value);
+      } else if (/^citations$/i.test(key) || namesWebSearch(key)) {
+        // Zhipu's `web_search` and xAI's `citations` are both bare lists. An
+        // entry carrying offsets is still routed to `annotations` so its span
+        // survives, since a relay may put annotation objects under either name.
+        for (const entry of value) {
+          const hasSpan = !!entry && typeof entry === 'object'
+            && ((entry as any).start_index !== undefined || (entry as any).startIndex !== undefined);
+          if (hasSpan) harvest.annotations.push(entry);
+          else harvest.sources.push(entry);
+        }
+      }
+    }
+  }
 };
 
 // The Gemini SDK takes its endpoint per-request rather than at construction,
@@ -1248,6 +1348,22 @@ Adhere to the following rules and guidelines:
 
     const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
 
+    // Same `enableSearch` toggle as Gemini and Anthropic: the tool runs on the
+    // provider's side in all three, so there is nothing extra to configure.
+    //
+    // `{ type: 'web_search' }` is the shape OpenAI documents for new
+    // integrations on the Responses API; `web_search_preview` is its legacy
+    // spelling and is not sent. Chat Completions is the awkward half -- OpenAI
+    // itself only offers search there through dedicated always-searching models
+    // (`gpt-5-search-api`, the deprecated `gpt-4o*-search-preview`), so
+    // api.openai.com rejects this tool on an ordinary model. It is sent anyway
+    // because this provider is commonly pointed at a relay that does accept it,
+    // and `createWithSearchFallback` turns the rejection into one wasted request
+    // rather than a failed turn. The rejection arrives before any token, so the
+    // retry cannot duplicate output.
+    const openaiSearchEnabled = options.enableSearch !== false;
+    const openaiSearchTools = [{ type: 'web_search' }];
+
     const chatCompletionParams = {
       model,
       // @ts-ignore
@@ -1263,14 +1379,22 @@ Adhere to the following rules and guidelines:
       )
     )));
 
+    const openaiHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
+    let openaiAnswerText = '';
+
     if (model === "gpt-5.5-pro" || hasOpenAIFileInput) {
-      let response = await openai.responses.create({
-        model,
-        input: responseInput,
-        ...(systemPrompt ? { instructions: systemPrompt } : {}),
-        reasoning: { effort: reasoningEffort },
-        ...(model === "gpt-5.5-pro" ? { background: true } : {}),
-      } as any, signal ? { signal } : undefined);
+      let response = await createWithSearchFallback(
+        (searchEnabled) => openai.responses.create({
+          model,
+          input: responseInput,
+          ...(systemPrompt ? { instructions: systemPrompt } : {}),
+          reasoning: { effort: reasoningEffort },
+          ...(searchEnabled ? { tools: openaiSearchTools } : {}),
+          ...(model === "gpt-5.5-pro" ? { background: true } : {}),
+        } as any, signal ? { signal } : undefined),
+        openaiSearchEnabled,
+        signal,
+      );
 
       const startedAt = Date.now();
       const maxWaitMs = 10 * 60 * 1000;
@@ -1291,17 +1415,33 @@ Adhere to the following rules and guidelines:
 
       const content = response.output_text || "";
       if (content) onToken(content);
+      openaiAnswerText = content;
+      // On the Responses API the citations hang off each `output_text` part
+      // rather than off the response, so the annotations have to be gathered
+      // from the output tree. `web_search_call` items are skipped: they record
+      // that a search happened, not what it found.
+      for (const item of Array.isArray((response as any).output) ? (response as any).output : []) {
+        for (const part of Array.isArray(item?.content) ? item.content : []) {
+          if (Array.isArray(part?.annotations)) openaiHarvest.annotations.push(...part.annotations);
+        }
+      }
     } else {
-      const stream = await openai.chat.completions.create({
-        ...chatCompletionParams,
-        stream: true,
-      }, signal ? { signal } : undefined);
+      const stream = await createWithSearchFallback(
+        (searchEnabled) => openai.chat.completions.create({
+          ...chatCompletionParams,
+          ...(searchEnabled ? { tools: openaiSearchTools } : {}),
+          stream: true,
+        } as any, signal ? { signal } : undefined),
+        openaiSearchEnabled,
+        signal,
+      );
 
       let hasEmittedText = false;
       let hasEmittedThought = false;
 
       for await (const chunk of stream as any) {
         throwIfAborted(signal);
+        harvestCompatSearchChunk(chunk, openaiHarvest);
         const delta = chunk.choices[0]?.delta;
         if (!delta) continue;
 
@@ -1320,8 +1460,16 @@ Adhere to the following rules and guidelines:
             onPhase?.('responding');
           }
           onToken(content);
+          // Accumulated because the annotation offsets index into the answer,
+          // and they arrive at the end of the stream when the text is complete.
+          openaiAnswerText += content;
         }
       }
+    }
+
+    if (openaiHarvest.annotations.length || openaiHarvest.sources.length) {
+      const resolved = resolveCompatCitations(openaiHarvest, openaiAnswerText);
+      if (resolved.sources.length) onCitations?.(resolved);
     }
   } else if (provider === 'anthropic') {
     // Both native Anthropic and custom gateways speak the Messages API; the
@@ -1365,7 +1513,7 @@ Adhere to the following rules and guidelines:
     });
 
     // Anthropic runs search server-side, like Gemini's `googleSearch`, so the
-    // same `enableSearch` toggle governs both and no key or endpoint is needed.
+    // same `enableSearch` toggle governs both and no separate key is needed.
     //
     // `web_search_20250305` rather than a newer version on purpose: from
     // `web_search_20260209` onward `allowed_callers` defaults to
@@ -1373,6 +1521,19 @@ Adhere to the following rules and guidelines:
     // execution tool (dynamic filtering) and returns a 400 on models that cannot
     // call tools programmatically. This version calls directly on every model
     // that supports the tool at all, which is what a chat turn wants.
+    //
+    // Sent to whatever endpoint is configured, official or not: a custom base URL
+    // is taken to mean its owner supplies the tool natively. That is a deliberate
+    // choice, so the one measured failure mode is worth recording. A New
+    // API-family relay accepted `tools` without validating it —
+    // `web_search_20250305` and a nonexistent `web_search_29999999` returned
+    // byte-identical responses, where api.anthropic.com 400s on an unknown type —
+    // then ran its own search and returned the result list *as* the reply (`I'll
+    // search for "<prompt>".Here are the search results …`) with zero
+    // `citations_delta`. The model never answers, and since the template only
+    // echoes the prompt, every turn renders as the same message with no error. If
+    // replies through a gateway ever look templated and identical, turn search off
+    // before looking anywhere else.
     const anthropicSearchEnabled = options.enableSearch !== false;
     const anthropicTools = anthropicSearchEnabled
       ? [{ type: 'web_search_20250305', name: 'web_search' }]
@@ -1407,10 +1568,19 @@ Adhere to the following rules and guidelines:
           // A non-streaming path can deliver a whole block's citations here
           // rather than as deltas.
           if (Array.isArray(block.citations)) currentBlock.citations.push(...block.citations);
-        } else if (block?.type === 'web_search_tool_result') {
+        } else if (namesWebSearch(block?.type) || namesWebSearch(block?.name)) {
           // `content` is the result list on success and a single error object
           // when the search failed (rate limits, `max_uses_exceeded`); the API
           // still returns HTTP 200 either way, so the shape is the only signal.
+          //
+          // The block is matched by `namesWebSearch` rather than against the
+          // literal `web_search_tool_result` so that an endpoint spelling its own
+          // search tool differently (`Web_Search`, `WebSearch`, `websearch`) still
+          // lands here with nothing configured. `name` is checked alongside `type`
+          // because a relay can put the tool's name in either field. The array
+          // guard is what keeps the matching invocation block -- `server_tool_use`
+          // named `web_search`, which carries `input`, not `content` -- from
+          // being read as though it were a result.
           if (Array.isArray(block.content)) anthropicSearchResults.push(...block.content);
         }
       } else if (event.type === 'content_block_delta') {
@@ -1433,7 +1603,11 @@ Adhere to the following rules and guidelines:
 
     if (anthropicBlocks.length || anthropicSearchResults.length) {
       const resolved = resolveAnthropicCitations(anthropicSearchResults, anthropicBlocks);
-      if (resolved.citations.length) onCitations?.(resolved);
+      // Fired on sources, not citations. An endpoint that returns real
+      // `web_search_tool_result` blocks and no `citations_delta` -- measured on a
+      // relay -- still has sources worth showing; it gets the sources panel and
+      // no inline chips instead of losing the search entirely.
+      if (resolved.sources.length) onCitations?.(resolved);
     }
   } else if (provider === 'moonshot' || provider === 'spacexai' || provider === 'zhipuai') {
     // OpenAI-compatible providers (Moonshot/Kimi, SpaceXAI/Grok, Zhipu AI/GLM)
@@ -1497,24 +1671,63 @@ Adhere to the following rules and guidelines:
 
     const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
 
-    const stream = await client.chat.completions.create({
-      model,
-      // @ts-ignore
-      messages: [...systemMessages, ...formattedMessages],
-      // Only attach reasoning effort to models that document this parameter.
-      ...(provider === 'moonshot'
-        ? { reasoning_effort: reasoningEffort }
-        : provider === 'spacexai' && model === 'grok-4.5'
-          ? { reasoning_effort: grok45ReasoningEffort }
-          : {}),
-      stream: true,
-    } as any, signal ? { signal } : undefined) as any;
+    // Server-side search, per provider, under the shared `enableSearch` toggle.
+    //
+    // xAI: `tools: [{ type: 'web_search' }]`, which supersedes the older
+    // `search_parameters` / `return_citations` / `mode: 'auto'` block. Grok also
+    // documents `x_search` for posts; only web search is sent here because that
+    // is the one whose results fill a source card the same way the other
+    // providers' do.
+    //
+    // Zhipu/GLM: the tool carries its own nested config object, and
+    // `search_result: 'True'` is what makes the endpoint return the result list
+    // at all -- without it the model searches and reports nothing citable. The
+    // string-typed booleans are Zhipu's own documented spelling, not a mistake.
+    //
+    // Moonshot/Kimi is deliberately absent. Its `$web_search` builtin could not
+    // be verified against Moonshot's current docs, and sending a guessed schema
+    // to a relay is how a working turn becomes a 400. Its replies are still read
+    // for citations below, so a relay that searches on its own still shows
+    // sources; only the request-side opt-in is missing.
+    const compatSearchTools: Record<string, any[]> = {
+      spacexai: [{ type: 'web_search' }],
+      zhipuai: [{
+        type: 'web_search',
+        web_search: { enable: 'True', search_result: 'True' },
+      }],
+    };
+    const compatSearchEnabled = options.enableSearch !== false
+      && !!compatSearchTools[provider];
+
+    const stream = await createWithSearchFallback<any>(
+      (searchEnabled) => client.chat.completions.create({
+        model,
+        // @ts-ignore
+        messages: [...systemMessages, ...formattedMessages],
+        // Only attach reasoning effort to models that document this parameter.
+        ...(provider === 'moonshot'
+          ? { reasoning_effort: reasoningEffort }
+          : provider === 'spacexai' && model === 'grok-4.5'
+            ? { reasoning_effort: grok45ReasoningEffort }
+            : {}),
+        ...(searchEnabled ? { tools: compatSearchTools[provider] } : {}),
+        stream: true,
+      } as any, signal ? { signal } : undefined) as any,
+      compatSearchEnabled,
+      signal,
+    );
 
     let hasEmittedText = false;
     let hasEmittedThought = false;
+    const compatHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
+    let compatAnswerText = '';
 
     for await (const chunk of stream) {
       throwIfAborted(signal);
+      // Read for every compatible provider, including the ones no tool was sent
+      // for: a relay is free to search on its own initiative, and reading costs
+      // nothing when it does not.
+      harvestCompatSearchChunk(chunk, compatHarvest);
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
 
@@ -1534,7 +1747,15 @@ Adhere to the following rules and guidelines:
           onPhase?.('responding');
         }
         onToken(content);
+        compatAnswerText += content;
       }
+    }
+
+    if (compatHarvest.annotations.length || compatHarvest.sources.length) {
+      const resolved = resolveCompatCitations(compatHarvest, compatAnswerText);
+      // xAI and Zhipu send no offsets at all, so requiring citations here would
+      // mean their search never rendered anything.
+      if (resolved.sources.length) onCitations?.(resolved);
     }
   }
 };
