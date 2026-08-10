@@ -145,10 +145,11 @@ export const PersonalIntelligenceTab: React.FC = () => {
           </div>
           <a
             aria-label="Go to Connected Apps section"
-            className="section-link-overlay"
-            href="https://gemini.google.com/apps"
-            target="_blank"
-            rel="noopener noreferrer"
+            className="section-link-overlay cursor-pointer"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/connected-apps');
+            }}
           ></a>
         </div>
 

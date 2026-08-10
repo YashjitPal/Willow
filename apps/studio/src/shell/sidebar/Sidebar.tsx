@@ -185,6 +185,26 @@ const SidebarGlyph: React.FC<{ name: string; className?: string }> = ({ name, cl
 const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Gemini's pane does not vanish on close: `_mat-menu-exit` fades it over 100ms while
+  // Angular keeps the node mounted, then removes it. Unmounting on `!isOpen` skips that
+  // entirely, so the close is tracked as a third state and the node outlives `isOpen`.
+  const [phase, setPhase] = useState<'closed' | 'open' | 'closing'>(isOpen ? 'open' : 'closed');
+  const wasOpen = useRef(isOpen);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPhase('open');
+    } else if (wasOpen.current) {
+      setPhase('closing');
+      // Matches the measured 100ms exit exactly. `animationend` would be more robust but
+      // never fires under `prefers-reduced-motion`, where the animation is suppressed.
+      const timer = window.setTimeout(() => setPhase('closed'), 100);
+      wasOpen.current = false;
+      return () => window.clearTimeout(timer);
+    }
+    wasOpen.current = isOpen;
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
@@ -201,7 +221,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (phase === 'closed') return null;
 
   const handleItemClick = (item: GeminiSettingsItem) => {
     if (item.url) {
@@ -220,14 +240,14 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       ref={menuRef}
       role="menu"
       aria-label="Settings"
-      className="willow-gem-menu-in absolute z-[100] w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]"
+      className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} absolute z-[100] w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
       style={{
         left: isCollapsed ? '52px' : 'calc(100% - 44px)',
         bottom: isCollapsed ? '94px' : '50px',
-        // Anchored bottom-left, so it grows up and to the right from the gear — the
-        // same relationship Gemini's plus menu has to its own trigger, where the
-        // measured transform-origin was `0px <height>`.
+        // Measured `0px <height>` on Gemini's pane: bottom-left, matching its upward growth.
         transformOrigin: '0 100%',
+        // The exit is opacity-only, so the pane must not swallow clicks while it fades.
+        pointerEvents: phase === 'closing' ? 'none' : undefined,
       }}
     >
       {GEMINI_SETTINGS_ITEMS.map((item) => (
@@ -244,37 +264,61 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           {item.trailingArrow && <GeminiSubmenuArrow />}
         </button>
       ))}
-      <div role="menuitem" className="h-[50px] overflow-hidden rounded-xl px-2 pt-3 text-[14px]">
-        <div className="flex items-start gap-2">
-          <MaterialSymbol
-            name="circle"
-            family="google-symbols"
-            size={24}
-            weight={300}
-            fill
-            roundness={100}
-            opticalSize={24}
-            className="mt-0.5 text-[#a8c7fa]"
-          />
-          <div className="min-w-0 leading-[17px]">
-            <div className="truncate text-[#a8c7fa]">Kolkata, West Bengal, India</div>
-            <div className="truncate text-[#e3e3e3]">Based on your places (Home)</div>
-          </div>
-        </div>
+      {/*
+        * Gemini's two location rows, measured off its own pane:
+        *
+        *   .location-menu-item-container .location-icon {
+        *     width: .5625rem; height: .5625rem; font-size: .5625rem;   -> 9px
+        *     color: var(--lumi-sys-color--on-surface);
+        *     margin-inline-end: var(--gem-sys-spacing--m);             -> 12px
+        *     flex-shrink: 0 }
+        *   .location-update-item .location-icon-spacer { visibility: hidden }
+        *
+        * The glyph is `circle` in Google Symbols with `"FILL" 1` — a small SOLID dot,
+        * not the 24px outlined ring this used to draw. The second row repeats the same
+        * dot purely as a spacer and hides it, which is how "Update location" lines up
+        * with the text above; an `ml-8` text indent was the previous stand-in and did
+        * not actually match (dot 9 + gap 12 = 21px, measured x=260 -> text x=281).
+        *
+        * Rows: about-item 54px tall, padding 8px; update-item 36px, padding 0 8px;
+        * both radius 12px, text 13px. Name is --gem-sys-color--primary (#a8c7fa),
+        * source #e6e6e6.
+        */}
+      <div role="menuitem" className="flex h-[54px] items-center overflow-hidden rounded-xl p-2 text-[13px]">
+        <span
+          aria-hidden="true"
+          className="mr-3 inline-flex h-[9px] w-[9px] shrink-0 items-center justify-center text-[9px] leading-[9px] text-[#e6e6e6]"
+          style={{
+            fontFamily: "'Google Symbols', 'Material Symbols Rounded', sans-serif",
+            fontVariationSettings: '"FILL" 1',
+          }}
+        >
+          circle
+        </span>
+        <span className="min-w-0 leading-[17px]">
+          <span className="block truncate text-[#a8c7fa]">Kolkata, West Bengal, India</span>
+          <span className="block truncate text-[#e6e6e6]">Based on your places (Home)</span>
+        </span>
       </div>
       <button
         type="button"
         role="menuitem"
         aria-label="Update location"
-        className="flex h-9 w-full items-end overflow-hidden rounded-xl px-2 pb-2 text-left text-[14px] text-[#a8c7fa] hover:bg-white/[0.08]"
+        className="flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left text-[13px] text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]"
       >
-        <span className="ml-8">Update location</span>
+        {/* Hidden, not absent: it reserves the 9px + 12px the row above spends on its dot. */}
+        <span
+          aria-hidden="true"
+          className="mr-3 inline-flex h-[9px] w-[9px] shrink-0 items-center justify-center text-[9px] leading-[9px]"
+          style={{ visibility: 'hidden' }}
+        />
+        <span className="min-w-0 truncate">Update location</span>
       </button>
     </div>
   );
 };
 
-export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'gems';
+export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'connected-apps' | 'gems';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -297,8 +341,8 @@ const SparkSidebarItem: React.FC<{
        */
       title={isCollapsed ? label : undefined}
       data-tooltip-position="right"
-      className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
-        active ? 'bg-[#171717] text-white font-medium' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
+      className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 text-[#e6e6e6] outline-none transition-colors duration-150 hover:bg-[rgba(230,230,230,0.08)] focus-visible:ring-2 focus-visible:ring-white/25 ${
+        active ? 'bg-[#171717]' : ''
       }`}
     >
       <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
@@ -312,6 +356,8 @@ const SparkSidebarItem: React.FC<{
         />
       </div>
       {!isCollapsed && (
+        /* Same deliberate deviation as <SidebarItem>: Gemini keeps the active label at
+         * weight 400 / #e6e6e6, but the weight bump was asked for back by name. */
         <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'}`}>
           {label}
         </span>
@@ -814,70 +860,89 @@ export const Sidebar: React.FC<SidebarProps> = ({
         pointerEvents: isHidden ? 'none' : 'auto'
       }}
     >
-      <div className="h-[52px] flex items-center relative min-w-[52px] shrink-0">
-        <div className="w-[52px] flex items-center justify-center shrink-0">
-          <button
-            onClick={onToggleCollapse}
-            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            /*
-             * Collapsed, this is a row of the 52px rail, so it places `right`
-             * like every other rail row (measured on Gemini: surface x=284
-             * against a trigger ending at 276, gap 8, vertically centred).
-             * Inferred for this particular button rather than measured — Gemini
-             * shows no tooltip on its expanded sidebar at all, so the collapsed
-             * top button could not be sampled directly. Left `below` when
-             * expanded, where that is what was measured.
-             */
-            data-tooltip-position={isCollapsed ? 'right' : 'below'}
-            className="w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 active:scale-95 cursor-pointer relative group/logo"
-          >
-            <div className={`transition-all duration-200 flex items-center justify-center
-              ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : 'opacity-100 scale-100'}`}>
-              <img
-                src={logo}
-                alt="Logo"
-                className="h-7 w-auto object-contain shrink-0 transition-all duration-300"
-                style={{ filter: getLogoFilter(userProfile?.workspaceColor) }}
-              />
+      {/*
+        * Header geometry, measured on Gemini's rail rather than centred by eye:
+        *
+        *   .lr26 .side-nav-menu-button { margin-top: 8px; margin-inline-start: 8px;
+        *                                 min-height: 40px }          -> (8, 8, 101.01, 40)
+        *   sparkle button                                            -> (14, 12, 95.01, 32)
+        *   .sparkle-image { height: 22px; width: 22px }              -> (15, 17, 22, 22)
+        *   .gemini-sidenav-text { margin-inline: 8px; font-size: 17px }
+        *                          weight 470, line-height 24px       -> (46, 16, 55.01, 24)
+        *
+        * So the two numbers that matter are: the glyph occupies x 15..37 / y 17..39, and
+        * the wordmark's box starts at x=46 and spans y 16..40. `ml-[10px] mt-3` on a
+        * 32px button puts a centred 22px glyph at exactly (15, 17) — and, conveniently,
+        * centres the button in the 52px rail too ((10+42)/2 = 26 = 52/2), so the same
+        * offset is correct collapsed and expanded and the glyph never shifts.
+        * `ml-1 mt-4` then lands the wordmark at (46, 16).
+        *
+        * This was a 36px button centred in a 52px box with a 28px glyph — 1px left and
+        * 2px high of Gemini, with the wordmark 4px further right and half a pixel large.
+        */}
+      <div className="relative flex h-[52px] min-w-[52px] shrink-0 items-start">
+        <button
+          onClick={onToggleCollapse}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          /*
+           * Collapsed, this is a row of the 52px rail, so it places `right`
+           * like every other rail row (measured on Gemini: surface x=284
+           * against a trigger ending at 276, gap 8, vertically centred).
+           * Inferred for this particular button rather than measured — Gemini
+           * shows no tooltip on its expanded sidebar at all, so the collapsed
+           * top button could not be sampled directly. Left `below` when
+           * expanded, where that is what was measured.
+           */
+          data-tooltip-position={isCollapsed ? 'right' : 'below'}
+          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-200 active:scale-95"
+        >
+          <div className={`transition-all duration-200 flex items-center justify-center
+            ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : 'opacity-100 scale-100'}`}>
+            {/* 22x22, matching `.sparkle-image`. logo.png is 683x683, so squaring it
+                does not distort. */}
+            <img
+              src={logo}
+              alt="Logo"
+              className="h-[22px] w-[22px] object-contain shrink-0 transition-all duration-300"
+              style={{ filter: getLogoFilter(userProfile?.workspaceColor) }}
+            />
+          </div>
+          {isCollapsed && (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 transform scale-90 group-hover:scale-110 pointer-events-none">
+              <span
+                className="luminous-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
+                style={{
+                  fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+                  fontWeight: 300,
+                  fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100'
+                }}
+              >
+                side_nav_expand
+              </span>
             </div>
-            {isCollapsed && (
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 transform scale-90 group-hover:scale-110 pointer-events-none">
-                <span
-                  className="luminous-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
-                  style={{
-                    fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-                    fontWeight: 300,
-                    fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100'
-                  }}
-                >
-                  side_nav_expand
-                </span>
-              </div>
-            )}
-          </button>
-        </div>
+          )}
+        </button>
 
         {!isCollapsed && (
           <span
-            className="gemini-sidenav-text text-[17.5px] leading-6 text-[#e0e0e0] select-none -ml-0.5 whitespace-nowrap overflow-hidden text-ellipsis transition-opacity duration-200"
+            className="willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6]"
             style={{
               fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-              fontWeight: 470,
-              fontVariationSettings: '"wght" 470'
+              fontWeight: 470
             }}
           >
             Willow
           </span>
         )}
-        
+
         {!isCollapsed && (
           <div className="absolute right-[14px] top-1.5">
             <button
               onClick={onToggleCollapse}
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] transition-colors"
+              className="willow-sidenav-close-button flex h-10 w-10 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] transition-colors"
             >
               <span
                 className="luminous-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
@@ -901,12 +966,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${isCollapsed ? 'bg-transparent' : 'bg-[#171717]'}`}
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
-          {/* Sliding active pill indicator - matches sidebar surface color (#1f1f1f) */}
+          {/*
+            * Gemini's `.app-tabs-slider`, verbatim from its authored rule:
+            *
+            *   .app-tabs-slider { position:absolute; top:.125rem; bottom:.125rem;
+            *     border-radius: corner-full; background: surface-bright; z-index:0;
+            *     transition: inset-inline-start .4s cubic-bezier(.25,1,.5,1),
+            *                 width           .4s cubic-bezier(.25,1,.5,1) }
+            *   .app-tabs-slider--chat  { inset-inline-start:.125rem; width:calc(50% - .125rem) }
+            *   .app-tabs-slider--agent { inset-inline-start:50%;     width:calc(50% - .125rem) }
+            *
+            * It animates its INSET, not a transform, and over 400ms on an ease-out-quart
+            * curve — not the 200ms cubic-bezier(0.2,0,0,1) translate this used to run.
+            * The distinction is visible: the authored curve overshoots toward the end of
+            * its travel and settles, where the old one decelerated linearly into place.
+            */}
           <div
-            className="absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full bg-[#1f1f1f] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
+            className="absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full bg-[#1f1f1f]"
             style={{
-              transform: studioExperience === 'spark' ? 'translateX(calc(100%))' : 'translateX(0px)',
+              left: studioExperience === 'spark' ? '50%' : '2px',
               opacity: isCollapsed ? 0 : 1,
+              transition: 'left 400ms cubic-bezier(0.25, 1, 0.5, 1), width 400ms cubic-bezier(0.25, 1, 0.5, 1)',
             }}
           />
 
@@ -924,11 +1004,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={() => onStudioExperienceChange('chat')}
               aria-pressed={studioExperience === 'chat'}
+              /* Mirrors the Spark tab: only the inactive tab carries a tooltip. Gemini's
+               * active tab pairs `app-tab--active` with `mat-mdc-tooltip-disabled`.
+               *
+               * The shortcut belongs on BOTH tabs. Gemini's Chat tab is the active one, so
+               * Material never built its describedby node and there was nothing to read —
+               * but the bundle shows one computed string feeding both:
+               *
+               *   Aa  = shortcutEnabled ? ` (${mac ? "⇧⌘S" : "Ctrl+Shift+S"})` : ""
+               *   Glb = () => "Switch to PLACEHOLDER_NAME"
+               *                 .replace("PLACEHOLDER_NAME", mode === 0 ? sparkName : "Chat") + Aa
+               *
+               * The suffix is outside the ternary, so it is appended either way. */
+              title={studioExperience === 'chat' ? undefined : 'Switch to Chat (Ctrl+Shift+S)'}
               tabIndex={isCollapsed ? -1 : 0}
               className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'chat'
                   ? 'text-[#e3e3e3]'
-                  : 'text-white/55 hover:text-white'
+                  : 'text-white/55 hover:text-[#e3e3e3]'
               }`}
             >
               Chat
@@ -940,15 +1033,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onStudioExperienceChange('spark');
               }}
               aria-pressed={studioExperience === 'spark'}
+              /* Read off Gemini's own tab: `aria-describedby` resolves to
+               * "Switch to Spark (Ctrl+Shift+S)", and the button carries
+               * `gemtooltipposition="below"` — which is Willow's default, so no
+               * data-tooltip-position override here.
+               *
+               * Only the INACTIVE tab has one. Gemini's Chat tab (active) carries
+               * `mat-mdc-tooltip-disabled` alongside `app-tab--active`, so the tooltip
+               * describes where you would go, never where you are. */
+              title={studioExperience === 'spark' ? undefined : 'Switch to Spark (Ctrl+Shift+S)'}
               tabIndex={isCollapsed ? -1 : 0}
+              /* `.app-tab:hover:not(.app-tab--active) { color: var(--gem-sys-color--on-surface) }`
+               * resolves to #e3e3e3, and there is NO background hover layer on Gemini's
+               * tabs at all — hover recolours the inactive tab's text and nothing else.
+               * Confirmed under forcePseudoState: the active tab's background stayed
+               * rgba(0,0,0,0) and its colour never moved off rgb(227,227,227). */
               className={`flex-1 flex h-full items-center justify-center gap-1 rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'spark'
                   ? 'text-[#e3e3e3]'
-                  : 'text-white/55 hover:text-white'
+                  : 'text-white/55 hover:text-[#e3e3e3]'
               }`}
             >
               <span>Spark</span>
-              <span className="text-[7px] font-medium leading-none text-[#e3e3e3] opacity-70">beta</span>
+              <span className="willow-beta-badge text-[7px] font-medium leading-none text-[#e3e3e3] opacity-70">beta</span>
             </button>
           </div>
 
@@ -1292,26 +1399,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </>
       )}
 
-      {/* Keep the account bottom-anchored and animate one Settings control
-          between its expanded and compact coordinates. */}
+      {/*
+        * Gemini's `sidenav-mavatar-footer`, measured rather than composed.
+        *
+        *   .mavatar-footer-row { display:flex; align-items:center;
+        *     justify-content:space-between; user-select:none; padding-block:4px }
+        *   .mavatar-footer-row.collapsed { flex-direction:column-reverse;
+        *     align-items:flex-start; justify-content:flex-start; gap:4px }
+        *   .mavatar-footer-row.collapsed .mavatar-user-name { display:none }
+        *
+        * So: expanded is 48px (40px content + 4px block padding), collapsed is 92px
+        * with the gear ABOVE the avatar — `column-reverse` reverses the DOM order, and
+        * `.mavatar-footer-right { align-self: flex-end }` is what keeps the gear on the
+        * right edge of the 52px rail. Both heights measured on the live app (expanded
+        * host 276x48; collapsed clone at 52px rail => 92, gear at y=8, avatar at y=48).
+        *
+        * IMPORTANT — this row does NOT animate. Probe 20 walked all 883 nodes under
+        * `sidenav-mavatar-footer` / `mat-action-list.desktop-controls` and found zero
+        * with a non-zero transition-duration, zero with a CSS animation, and zero with
+        * an Angular `ng-trigger-*` attribute. The layout swaps instantly and only the
+        * rail's own 300ms width carries the motion. Our previous version animated
+        * `right`, `top` and `max-width` on this subtree, which is precisely the
+        * "behaves weirdly different while collapsing and expanding" that was reported.
+        */}
       <div
-        className="relative mt-auto shrink-0"
+        className="relative mt-auto flex shrink-0 select-none px-1.5 py-1"
         style={{
-          height: isCollapsed ? '100px' : '46px',
-          transition: `height ${GEMINI_SIDEBAR_POSITION_MOTION}`,
+          height: isCollapsed ? '92px' : '48px',
+          flexDirection: isCollapsed ? 'column-reverse' : 'row',
+          alignItems: isCollapsed ? 'flex-start' : 'center',
+          justifyContent: isCollapsed ? 'flex-start' : 'space-between',
+          gap: isCollapsed ? '4px' : '0px',
         }}
       >
-        <div
-          className="absolute left-1.5 flex h-10 items-center"
-          style={{
-            top: isCollapsed ? 'auto' : '0px',
-            bottom: isCollapsed ? '4px' : 'auto',
-            right: isCollapsed ? '6px' : '48px',
-            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}`,
-          }}
-        >
+        <div className="flex h-10 min-w-0 items-center">
           {user ? (
-            <div className="relative flex h-10 w-full min-w-0 items-center">
+            <div className="relative flex h-10 min-w-0 items-center">
               <UserMenu
                 isOpen={isUserMenuOpen}
                 isCollapsed={isCollapsed}
@@ -1319,90 +1442,115 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSettingsClick={onSettingsClick}
                 backgroundType={backgroundType}
               />
+              {/*
+               * `.mavatar-footer-left { padding-inline: 5px 6px; gap: 8px }` — and it
+               * is an <a>, with NO state layer. Probe 17 forced :hover on it and
+               * re-read all seven descendants: not one changed background, ::before or
+               * opacity. Gemini's account row simply does not highlight, so ours
+               * doesn't either. (The gear does — see below.)
+               */}
               <button
                 type="button"
                 aria-label="Open account menu"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={handleUserMenuToggle}
-                className={`group/profile relative flex h-10 w-full min-w-0 items-center rounded-xl px-[5px] text-left transition-colors hover:bg-white/[0.06] ${isUserMenuOpen ? 'bg-white/[0.06]' : ''}`}
+                className="group/profile relative flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left"
               >
                 {userProfile?.photoURL ? (
                   <img
                     src={userProfile.photoURL}
                     alt="User"
-                    className={`h-[30px] w-[30px] shrink-0 rounded-full border border-white/10 object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}
+                    className={`h-[30px] w-[30px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
                   />
                 ) : (
-                  <span className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border border-white/10 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105 border-white/20' : ''}`}>
+                  <span className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
                     {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                   </span>
                 )}
-                <span
-                  aria-hidden={isCollapsed}
-                  className="min-w-0 flex-1 overflow-hidden truncate text-left text-[13px] text-[#e6e6e6]"
-                  style={{
-                    maxWidth: isCollapsed ? '0px' : '180px',
-                    marginLeft: isCollapsed ? '0px' : '8px',
-                    opacity: isCollapsed ? 0 : 1,
-                    transition: `max-width ${GEMINI_SIDEBAR_POSITION_MOTION}, margin-left ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1)`,
-                  }}
-                >
-                  {userProfile?.displayName || user?.email || 'Account'}
-                </span>
+                {/*
+                 * `display: none` when collapsed, not a width/opacity fade — measured
+                 * as such, and it is why the collapsed rail reflows in one step.
+                 * 15px/400/20px `--lumi-sys-color--on-surface`, measured at 66.31x20.
+                 *
+                 * DELIBERATELY NOT COPIED: Gemini nests this name in a
+                 * `.mavatar-user-info` column (66.31x37) with a second line under it,
+                 * `.mavatar-tier-label` — "Pro", 20.39x17, 13px/400/17px,
+                 * rgba(255,255,255,0.55), at relY 25.5 sharing the name's left edge.
+                 * That is a SUBSCRIPTION tier, and Willow has none: `UserProfile`
+                 * carries no such field, and `features/chat/src/chat-model.ts` already
+                 * drops tiers on purpose because Willow runs on the user's own API keys.
+                 * Rendering "Pro" here would invent a subscription rather than extract
+                 * a style, so the slot stays empty.
+                 *
+                 * The geometry is unaffected, which is why this is safe: the column's
+                 * combined centre sits at y=24 and so does this single line (Gemini's
+                 * name centres at 15.5 only because it is the top line of two). Avatar
+                 * and name left edges match Gemini exactly at x=11 and x=49. If a tier
+                 * ever exists, the numbers above are the measurement to build it from.
+                 */}
+                {!isCollapsed && (
+                  <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6]">
+                    {userProfile?.displayName || user?.email || 'Account'}
+                  </span>
+                )}
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => navigate('/login')}
-              className="flex h-10 w-full min-w-0 items-center rounded-xl px-1 text-left text-white/80 transition-colors hover:bg-white/[0.06]"
+              className="flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left text-white/80"
               title="Sign In"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10"><LogIn size={18} /></span>
-              <span
-                aria-hidden={isCollapsed}
-                className="min-w-0 flex-1 overflow-hidden truncate text-[13px] font-medium"
-                style={{
-                  maxWidth: isCollapsed ? '0px' : '180px',
-                  marginLeft: isCollapsed ? '0px' : '8px',
-                  opacity: isCollapsed ? 0 : 1,
-                  transition: `max-width ${GEMINI_SIDEBAR_POSITION_MOTION}, margin-left ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1)`,
-                }}
-              >
-                Sign In
-              </span>
+              <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border border-white/10"><LogIn size={18} /></span>
+              {!isCollapsed && (
+                <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-[15px] font-normal leading-5">
+                  Sign In
+                </span>
+              )}
             </button>
           )}
         </div>
 
-        <button
-          type="button"
-          aria-label="Settings"
-          title="Settings"
-          /*
-           * Measured on Gemini's bottom-left rail button — the direct analogue,
-           * same corner, same 32px box at x=246. Its pane read
-           * "top: 777.6px; left: 278px; transform: translateX(8px)" against an
-           * anchor at x=246 y=777.6 w=32, i.e. left == anchor.right and
-           * top == anchor.top: right placement, not below.
-           *
-           * The box is 32px (h-8), not 36 — Gemini's authored rule is
-           * `.mavatar-settings-button { height: 32px; width: 32px; color:
-           * var(--lumi-sys-color--on-surface) }`, and on-surface resolves to
-           * #e6e6e6 in the dark theme. This carried `h-9` and `#e3e3e3` for a
-           * while, contradicting the measurement the comment above already recorded.
-           */
-          data-tooltip-position="right"
-          onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-          className={`absolute flex h-8 w-8 items-center justify-center rounded-full text-[#e6e6e6] hover:bg-white/[0.08] ${isSettingsMenuOpen ? 'bg-white/[0.08]' : ''}`}
-          style={{
-            right: isCollapsed ? '8px' : '6px',
-            top: isCollapsed ? '4px' : '2px',
-            transition: `right ${GEMINI_SIDEBAR_POSITION_MOTION}, top ${GEMINI_SIDEBAR_POSITION_MOTION}, background-color 150ms ease`,
-          }}
-        >
-          <SidebarGlyph name="settings" className="h-5 w-5 text-[20px] leading-5" />
-        </button>
+        {/*
+         * `.mavatar-footer-right { margin: 4px; align-self: flex-end; gap: 12px }`.
+         * `align-self: flex-end` is doing the work in both states: expanded it is a
+         * no-op on the cross axis, collapsed (column-reverse) it pins the gear to the
+         * rail's right edge. Measured collapsed: 32x32 at (16,8) in a 52px rail.
+         */}
+        <div className="m-1 flex shrink-0 items-center gap-3 self-end">
+          <button
+            type="button"
+            aria-label="Settings"
+            title="Settings"
+            /*
+             * `.mavatar-settings-button { height: 32px; width: 32px; color:
+             * var(--lumi-sys-color--on-surface) }` — a 32px host. Inside it Material
+             * renders a 36px <button> (`--mat-icon-button-state-layer-size: 36px`,
+             * padding 6px) whose state layer is NOT on the button: probe 17 found it
+             * on the `.mat-mdc-button-persistent-ripple::before` child, at
+             * `rgb(196,199,197)` / opacity 0 -> 0.08 on hover, radius 9999px, inset 0.
+             * That is why the earlier probe of the button itself read "no hover".
+             * Reproduced here as an inset-0 ::before-equivalent span so the 36px layer
+             * overflows the 32px host exactly as Gemini's does.
+             *
+             * Pane placement measured on this same button: "top: 777.6px; left: 278px;
+             * transform: translateX(8px)" against an anchor at (246, 777.6, 32) —
+             * left == anchor.right and top == anchor.top, i.e. right, not below.
+             */
+            data-tooltip-position="right"
+            onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
+            className="group/settings relative flex h-8 w-8 items-center justify-center text-[#e6e6e6]"
+          >
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute -inset-0.5 rounded-full bg-[rgb(196,199,197)] transition-opacity duration-150 group-hover/settings:opacity-[0.08] ${
+                isSettingsMenuOpen ? 'opacity-[0.08]' : 'opacity-0'
+              }`}
+            />
+            <SidebarGlyph name="settings" className="relative h-5 w-5 text-[20px] leading-5" />
+          </button>
+        </div>
 
         {isCollapsed && (
           <button

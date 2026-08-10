@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import { TOOL_SYMBOLS, type ToolId } from './composer-options';
+import { TOOL_SYMBOLS, TOOL_TOOLTIPS, type ToolId } from './composer-options';
 
 /**
  * Gemini's plus menu, transcribed rather than designed.
@@ -92,6 +92,49 @@ const Glyph: React.FC<{ name: string; family?: IconFamily; className?: string }>
 );
 
 /**
+ * Gemini's Personal Intelligence icon, which is NOT a font ligature.
+ *
+ * Every other glyph in this menu is a `mat-icon` whose text is the icon name. This one is
+ * a masked span, captured verbatim off the live row:
+ *
+ *   <span class="icon lm-icon-m gem-menu-item-icon"
+ *         style="mask-image: url(https://fonts.gstatic.com/render/v1/Luminous+Symbols/28px/
+ *                personal_recommendations.svg?var=opsz,wght@28,260)">
+ *
+ * with `mask-size: contain` and `background-color: #e6e6e6` — the mask cuts the shape out
+ * of a solid fill. Note the real name is **personal_recommendations**, not
+ * `personal_intelligence`: this file previously guessed the latter from the label, and it
+ * rendered as nothing because no such ligature exists. That is why it must be a mask here
+ * rather than a `MaterialSymbol` — the SVG is a separate asset from the variable font, and
+ * the font has no glyph for it.
+ *
+ * `wght@28,260` in the URL is Gemini's own request (260, lighter than the 320 its font
+ * glyphs use); the rendered box is 20x20 from a 28px source.
+ */
+const PERSONAL_RECOMMENDATIONS_MASK =
+  'url("https://fonts.gstatic.com/render/v1/Luminous+Symbols/28px/personal_recommendations.svg?var=opsz,wght@28,260")';
+
+const PersonalRecommendationsGlyph: React.FC = () => (
+  <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+    <span
+      aria-hidden="true"
+      className="block h-5 w-5 shrink-0"
+      style={{
+        backgroundColor: ON_SURFACE,
+        maskImage: PERSONAL_RECOMMENDATIONS_MASK,
+        WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
+        maskSize: 'contain',
+        WebkitMaskSize: 'contain',
+        maskRepeat: 'no-repeat',
+        WebkitMaskRepeat: 'no-repeat',
+        maskPosition: 'center',
+        WebkitMaskPosition: 'center',
+      }}
+    />
+  </span>
+);
+
+/**
  * One 36px row. `labelInset` is the label's distance from the row's left edge: 40 on the
  * uploader rows, 44 on the tool rows. Both measured.
  */
@@ -100,6 +143,19 @@ const Row: React.FC<{
   family?: IconFamily;
   label: string;
   labelInset?: 40 | 44;
+  /**
+   * Tooltip text, and only the TOOL rows have one — see `TOOL_TOOLTIPS`.
+   *
+   * Passed as `title`, which is Willow's app-wide opt-in: `GlobalTooltips` swaps every
+   * `title=` for Gemini's tooltip component. See platform/ui/AGENTS.md.
+   *
+   * Placement is `right`, set per-row rather than by changing the global default, which is
+   * `below` and correct everywhere else in the app. Gemini's own panes for these rows are
+   * `cdk-overlay-pane mat-mdc-tooltip-panel-right` — CDK's flexible strategy picks the
+   * right edge because a menu row is wide and short, and `below` would land the bubble on
+   * the next row down.
+   */
+  tooltip?: string;
   trailingChevron?: boolean;
   selected?: boolean;
   onClick?: () => void;
@@ -111,6 +167,7 @@ const Row: React.FC<{
   family,
   label,
   labelInset = 40,
+  tooltip,
   trailingChevron,
   selected,
   onClick,
@@ -123,8 +180,10 @@ const Row: React.FC<{
     role={ariaHasPopup ? undefined : 'menuitem'}
     aria-haspopup={ariaHasPopup ? 'menu' : undefined}
     aria-expanded={ariaHasPopup ? !!expanded : undefined}
+    title={tooltip}
     onClick={onClick}
     onMouseEnter={onMouseEnter}
+    data-tooltip-position="right"
     className="group/row relative flex h-9 w-full items-center rounded-xl px-2 text-left"
     style={selected ? { backgroundColor: '#171717' } : undefined}
   >
@@ -195,7 +254,12 @@ export const PlusDropdownMenu: React.FC<{
   onToolSelect: (toolId: string) => void;
   selectedTool?: ToolId | null;
   geminiStyle?: boolean;
-  /** Rows Willow cannot back yet are simply not rendered — see the note in AGENTS.md. */
+  /**
+   * Gemini's full upload set. Every row renders whether or not Willow can serve it yet,
+   * because the menu is a clone of Gemini's and a missing row is a visible difference.
+   * A row with no handler closes the menu and does nothing else; wiring one is a single
+   * prop. Currently only Upload files and Import code are backed.
+   */
   onAddFromDrive?: () => void;
   onAddPhotos?: () => void;
   onAddAvatar?: () => void;
@@ -321,30 +385,26 @@ export const PlusDropdownMenu: React.FC<{
         label="Upload and tools"
       >
         <Row glyph="attach_file" label="Upload files" onClick={act(onFileSelect)} onMouseEnter={() => setOpenSub(null)} />
-        {onAddFromDrive && (
-          <Row glyph="drive" family="google-symbols" label="Add from Drive" onClick={act(onAddFromDrive)} onMouseEnter={() => setOpenSub(null)} />
-        )}
+        <Row glyph="drive" family="google-symbols" label="Add from Drive" onClick={act(onAddFromDrive)} onMouseEnter={() => setOpenSub(null)} />
 
-        {(onImportCode || onAddPhotos || onAddAvatar || onAddNotebook) && (
-          <div ref={uploadsRef} onMouseEnter={() => openWith('uploads')} onMouseLeave={closeSoon}>
-            <Row
-              glyph="more_horiz"
-              family="google-symbols"
-              label="More uploads"
-              trailingChevron
-              ariaHasPopup
-              expanded={openSub === 'uploads'}
-              onClick={() => openWith('uploads')}
-            />
-          </div>
-        )}
+        <div ref={uploadsRef} onMouseEnter={() => openWith('uploads')} onMouseLeave={closeSoon}>
+          <Row
+            glyph="more_horiz"
+            family="google-symbols"
+            label="More uploads"
+            trailingChevron
+            ariaHasPopup
+            expanded={openSub === 'uploads'}
+            onClick={() => openWith('uploads')}
+          />
+        </div>
 
         <Divider />
 
-        <Row glyph={TOOL_SYMBOLS.images} label="Create image" labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.video} label="Create video" labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.music} label="Create music" labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
+        <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
+        <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
+        <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
+        <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
 
         <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
           <Row
@@ -362,10 +422,10 @@ export const PlusDropdownMenu: React.FC<{
       {openSub === 'uploads' && (
         <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
           <MenuCard width={220} origin="0 0" label="More upload options">
-            {onAddPhotos && <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />}
-            {onAddAvatar && <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />}
-            {onImportCode && <Row glyph="code" label="Import code" onClick={act(onImportCode)} />}
-            {onAddNotebook && <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />}
+            <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
+            <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
+            <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
+            <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
           </MenuCard>
         </div>
       )}
@@ -373,8 +433,8 @@ export const PlusDropdownMenu: React.FC<{
       {openSub === 'tools' && (
         <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
           <MenuCard width={253} origin="0 0" label="More tools">
-            <Row glyph={TOOL_SYMBOLS.research} label="Deep research" labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
-            <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
+            <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
+            <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
             {onTogglePersonalIntelligence && (
               <PersonalIntelligenceRow
                 checked={personalIntelligence}
@@ -402,12 +462,10 @@ export const PlusDropdownMenu: React.FC<{
  *   selected icon     #d3e3fd      handle 24px selected / 16px unselected
  *   handle motion     75ms cubic-bezier(0.4, 0, 0.2, 1)
  *
- * THE GLYPH IS THE ONE UNMEASURED VALUE IN THIS FILE. Gemini renders it as a masked
- * `span.icon.lm-icon-m` rather than a `mat-icon`, so it carries no `data-mat-icon-name`,
- * and the rule holding its mask lives in a component stylesheet that was not loaded when
- * the capture ran. `personal_intelligence` follows the naming convention every other glyph
- * in this menu obeys (label lowercased and underscored: deep_research, guided_learning,
- * image_create), but it is an INFERENCE, not a measurement. Correct it here if it is wrong.
+ * THE GLYPH IS A MASK, NOT A LIGATURE — see `PersonalRecommendationsGlyph` above. The
+ * real name is `personal_recommendations`; an earlier version of this file guessed
+ * `personal_intelligence` from the label and rendered nothing at all, because the font has
+ * no such glyph. Both the name and the mask URL are now captured from the live row.
  */
 const PersonalIntelligenceRow: React.FC<{
   checked: boolean;
@@ -425,7 +483,7 @@ const PersonalIntelligenceRow: React.FC<{
       className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
       style={{ backgroundColor: HOVER_LAYER }}
     />
-    <Glyph name="personal_intelligence" />
+    <PersonalRecommendationsGlyph />
     <span className="relative flex flex-col" style={{ marginLeft: 12 }}>
       <span className={LABEL_CLASS} style={LABEL_STYLE}>Personal Intelligence</span>
       <span

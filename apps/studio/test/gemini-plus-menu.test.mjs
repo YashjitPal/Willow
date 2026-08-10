@@ -169,7 +169,7 @@ describe('the tool set matches Gemini', () => {
                          'Deep research', 'Guided learning']) {
       assert.ok(s.includes(`label: '${label}'`), `missing row label "${label}"`);
     }
-    assert.ok(!s.includes('Study and learn'), 'Gemini calls it Guided learning');
+    assert.ok(!s.includes("label: 'Study and learn'"), 'Gemini calls it Guided learning');
   });
 });
 
@@ -227,6 +227,34 @@ describe('the submenus sit outside the scrolling card', () => {
   });
 });
 
+describe('the upload rows', () => {
+  it('renders Gemini\'s full set, backed or not', () => {
+    // The menu is a clone, so a missing row is a visible difference. Every row renders
+    // whether or not Willow can serve it; one with no handler closes the menu and does
+    // nothing else. Only Upload files and Import code are actually backed today.
+    const s = codeOnly(MENU());
+    for (const [label, glyph] of [
+      ['Upload files', 'attach_file'],
+      ['Add from Drive', 'drive'],
+      ['Photos', 'photos'],
+      ['Avatar', 'likeness_lumi_icon'],
+      ['Import code', 'code'],
+      ['Notebooks', 'notebook'],
+    ]) {
+      assert.ok(s.includes(`label="${label}"`), `missing row "${label}"`);
+      assert.ok(s.includes(`glyph="${glyph}"`), `missing glyph ${glyph} for "${label}"`);
+    }
+  });
+
+  it('does not gate any of them behind a handler', () => {
+    const s = codeOnly(MENU());
+    for (const gate of ['{onAddPhotos &&', '{onAddAvatar &&', '{onImportCode &&',
+                        '{onAddNotebook &&', '{onAddFromDrive && (']) {
+      assert.ok(!s.includes(gate), `${gate} hides a row Gemini always shows`);
+    }
+  });
+});
+
 describe('the Personal Intelligence row', () => {
   it('is 48px with a Labs subtitle at the measured colour', () => {
     const s = codeOnly(MENU());
@@ -248,13 +276,71 @@ describe('the Personal Intelligence row', () => {
     assert.match(s, /75ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'measured handle motion');
   });
 
-  it('flags the one glyph that could not be measured', () => {
-    // Gemini renders this icon as a masked span with no data-mat-icon-name, and the rule
-    // holding its mask never loaded during capture. The name follows the convention every
-    // other glyph obeys, but it is inferred — the comment must keep saying so.
-    const raw = MENU();
-    assert.match(raw, /INFERENCE, not a measurement/,
-      'the inferred glyph must stay labelled as inferred');
-    assert.match(codeOnly(raw), /name="personal_intelligence"/);
+  it('draws the Personal Intelligence icon as a mask, not a ligature', () => {
+    // Captured verbatim off the live row. Every other glyph in this menu is a mat-icon
+    // whose text is the icon name; this one is a masked span, and the real name is
+    // `personal_recommendations`. An earlier version guessed `personal_intelligence` from
+    // the label and rendered nothing, because the font has no such glyph.
+    const s = codeOnly(MENU());
+    assert.match(s, /personal_recommendations\.svg\?var=opsz,wght@28,260/,
+      'the exact mask URL Gemini requests');
+    assert.match(s, /maskSize: 'contain'/, 'measured mask-size');
+    assert.ok(
+      !/name="personal_intelligence"/.test(s),
+      'personal_intelligence is not a real glyph — it renders as nothing',
+    );
+  });
+});
+
+describe('the row tooltips', () => {
+  it('puts Gemini\'s tooltip on the tool rows only', () => {
+    // Only the TOOL rows have a live tooltip. Every row carries
+    // `mat-mdc-tooltip-trigger`, but the uploader rows also carry
+    // `mat-mdc-tooltip-disabled` and show nothing. Their `aria-label` reads like a
+    // description ("Upload files. Documents, data, code files") — that is an accessible
+    // name, not a tooltip, and an earlier version of this file wired it up as one.
+    //
+    // These six are the authored literals from Gemini's bundle, not a transcription off
+    // the rendered bubbles. Reading them off screen had cost two characters' worth of
+    // drift: Canvas lost its Oxford comma, and Deep research was recorded as "Create
+    // detailed reports" where the source says "Get detailed reports".
+    const s = codeOnly(OPTIONS());
+    for (const [tool, text] of [
+      ['images', 'Visualize and edit'],
+      ['video', 'Bring ideas to life'],
+      ['music', 'Make audio tracks'],
+      ['canvas', 'Code, write, or make slides'],
+      ['research', 'Get detailed reports'],
+      ['learn', 'Study and learn new things'],
+    ]) {
+      assert.match(s, new RegExp(`${tool}: '${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`),
+        `${tool} tooltip must read "${text}"`);
+    }
+  });
+
+  it('gives the uploader rows no tooltip at all', () => {
+    const menu = codeOnly(MENU());
+    for (const label of ['Upload files', 'Add from Drive', 'More uploads', 'More tools']) {
+      const row = menu.match(new RegExp(`label="${label}"[\\s\\S]{0,240}?/>`));
+      assert.ok(row, `could not locate the "${label}" row`);
+      assert.ok(!/tooltip=/.test(row[0]), `"${label}" has no tooltip in Gemini`);
+    }
+    assert.ok(
+      !menu.includes('Documents, data, code files'),
+      'that string is an aria-label, not a tooltip',
+    );
+  });
+
+  it('passes the text through title=, the app-wide tooltip opt-in', () => {
+    assert.match(codeOnly(MENU()), /title=\{tooltip\}/,
+      'GlobalTooltips swaps every title= for the Gemini tooltip component');
+  });
+
+  it('places the bubble to the right, per row rather than globally', () => {
+    // Gemini's panes for these rows are `mat-mdc-tooltip-panel-right`. Willow's global
+    // default is `below` and is correct at the other ~230 title= sites, so the override
+    // belongs on the row, not in GlobalTooltips.
+    assert.match(codeOnly(MENU()), /data-tooltip-position="right"/,
+      'the row must opt into right placement');
   });
 });

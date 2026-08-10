@@ -388,7 +388,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // viewport in one uncompensated commit and shove the thread down.
     setRevealCount(Number.MAX_SAFE_INTEGER);
     // The turn started minutes ago; it must not run the new-turn entrance glide.
-    skipNextNativeScrollRef.current = true;
+    //
+    // Armed only when the scroll effect will actually reach this turn. Re-entering
+    // a chat whose running turn was already scrolled for makes that effect bail on
+    // its `lastScrolledUserId` guard, which never consumes the flag — and a flag
+    // left armed sends the NEXT real send to scrollTop 0 instead of running its
+    // own entrance. Same latch as the first-scroll jump above, same cure: decide
+    // it here, where "is this turn new to the scroller" is still answerable.
+    if (record.userMessage.id !== lastScrolledUserId.current) {
+      skipNextNativeScrollRef.current = true;
+    }
     setIsGenerating(true);
     setStreaming(record.content);
     setThinkingPhase(record.phase);
@@ -419,7 +428,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (!forceReload && (activeChatId === chatTitle || activeChatId === chatSessionId)) {
         return;
       }
-      isFirstScrollRef.current = true;
+      // Reaching here with the ids still matching means `forceReload` — a disk
+      // sync of the chat already on screen, not an open. Arming the first-scroll
+      // jump for it is what produced the send-time teleport: the reload commits
+      // the SAME thread, so the scroll effect bails on its `lastScrolledUserId`
+      // guard and never consumes the flag, leaving it armed for a send minutes
+      // later. That send then runs the open-a-chat reposition — a hard jump to
+      // `messages[length - 1 - 4]` — before its own entrance.
+      //
+      // Clearing it at that early return instead is NOT equivalent: a chat
+      // switch loads asynchronously while a still-attached turn from the
+      // previous chat keeps committing messages, and every one of those commits
+      // hits the same guard. The flag would be gone before the real load landed
+      // and the chat would open at the top.
+      const isSameChatReload = activeChatId === chatTitle || activeChatId === chatSessionId;
+      if (!isSameChatReload) isFirstScrollRef.current = true;
       initialLoadRef.current = true; // Block auto-save on load when switching chats
 
       // Bump on ENTRY only — never in an effect cleanup. This effect's deps

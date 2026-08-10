@@ -62,6 +62,30 @@ export const TOOL_SYMBOLS: Record<ToolId, string> = {
   learn: 'guided_learning',
 };
 
+/**
+ * Gemini's tooltip for each tool row.
+ *
+ * Only the TOOL rows have a tooltip. Every row in the menu carries
+ * `mat-mdc-tooltip-trigger`, but the uploader rows ("Upload files", "Add from Drive") also
+ * carry `mat-mdc-tooltip-disabled` and show nothing — their `aria-label` reads like a
+ * description ("Upload files. Documents, data, code files") but that is an accessible
+ * name, not a tooltip, and wiring it up as one is wrong. The "More uploads" and "More
+ * tools" rows have no tooltip either; their submenu is the affordance.
+ *
+ * Each string is the authored literal from Gemini's bundle, not a transcription off the
+ * rendered bubble. Two of these had drifted when they were read off screen: Canvas lost
+ * its Oxford comma, and Deep research was recorded as "Create detailed reports" when the
+ * source says "Get detailed reports".
+ */
+export const TOOL_TOOLTIPS: Record<ToolId, string> = {
+  images: 'Visualize and edit',
+  video: 'Bring ideas to life',
+  music: 'Make audio tracks',
+  canvas: 'Code, write, or make slides',
+  research: 'Get detailed reports',
+  learn: 'Study and learn new things',
+};
+
 export interface Theme {
   id: string;
   name: string;

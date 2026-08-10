@@ -202,6 +202,42 @@
 }
 
 /*
+ * Long tooltips are left-aligned, short ones centred. This is not a per-button
+ * choice — it is Material's `mdc-tooltip--multiline` modifier, and the rule
+ * behind it was read out of Gemini's own bundle rather than guessed:
+ *
+ *   Sa() { var a = this.wc.Ua.getBoundingClientRect();
+ *          return a.height > 24 && a.width >= 200 }
+ *   template: _.Q("mdc-tooltip--multiline", b.eCc)
+ *
+ * with the paired declarations
+ *
+ *   .mat-mdc-tooltip-surface              { text-align: center }
+ *   .mdc-tooltip--multiline .mat-mdc-...  { text-align: left }
+ *   [dir=rtl] .mdc-tooltip--multiline ... { text-align: right }
+ *
+ * confirmed through CSS.getMatchedStylesForNode, which reads the cascade the
+ * engine resolved — the base rule lives in a CORS-blocked gstatic sheet that
+ * page-side scanning cannot see at all.
+ *
+ * Both halves check out against measurement: the sidebar tab tooltip renders
+ * 200 x 48 (wraps, so multiline -> left) while every plus-menu tool tooltip
+ * renders 131-187 x 32 (under 200 wide, so centred). Reproducing the rule keeps
+ * both correct; hard-coding `left` on the two tabs would have left the next long
+ * tooltip wrong.
+ *
+ * `width >= 200` reads as a magic number but is not: 200px is `max-width`, so
+ * the test is "did this hit the cap", i.e. "did it have to wrap".
+ */
+.willow-tooltip-surface--multiline {
+  text-align: left;
+}
+
+[dir="rtl"] .willow-tooltip-surface--multiline {
+  text-align: right;
+}
+
+/*
  * The description node the trigger points at with aria-describedby. Gemini
  * keeps these in a `.cdk-describedby-message-container.cdk-visually-hidden`
  * off-screen div and marks the visible tooltip aria-hidden, so a screen reader
