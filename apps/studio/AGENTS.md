@@ -139,6 +139,58 @@ actually scrolls to, which is the case that mattered.
 
 <!-- related-packages -->
 
+## Sidebar footer: profile, settings and the fade
+
+The bottom of `shell/sidebar/Sidebar.tsx` reproduces Gemini's `mavatar-*` footer.
+Values came from Gemini's authored CSS via CDP's `CSS.getStyleSheetText` rather than
+from the DOM, because the tab was occluded by then and `document.styleSheets` had
+shed most of its rules (5085 -> 502); sheet text needs no layout, so it was unaffected.
+
+```css
+.mavatar-footer-row      { display:flex; align-items:center; justify-content:space-between;
+                           padding-block: var(--gem-sys-spacing--xs) }   /* 4px */
+.mavatar-footer-left     { padding-inline: 5px 6px; gap: var(--gem-sys-spacing--s) }  /* 8px */
+.mavatar-container       { height:30px; width:30px; padding-block:5px }
+.mavatar-user-name       { color: var(--lumi-sys-color--on-surface) }    /* #e6e6e6 */
+.mavatar-settings-button { height:32px; width:32px; color: var(--lumi-sys-color--on-surface) }
+```
+
+**The settings button is 32px, not 36.** It carried `h-9` and `#e3e3e3` for a while,
+contradicting the 32px measurement its own adjacent comment already recorded.
+
+**The fade is 16px over 150ms linear**, not a 56px wash on a 200ms default ease:
+
+```css
+.bottom-gradient-container { position:sticky; height:0; opacity:0; z-index:1;
+  pointer-events:none; transition: opacity .15s linear }
+.bottom-gradient-container.visible { opacity: 1 }
+.bottom-gradient { height: var(--bottom-gradient-height, 16px); bottom: 0;
+  background: linear-gradient(to top, var(--bottom-gradient-color), transparent) }
+```
+
+`--bottom-gradient-color` is `--lumi-sys-color--surface-bright` on the sidenav, which
+resolves to `#1f1f1f` — the sidebar's own background, so the list dissolves into the
+panel instead of sitting under a scrim.
+
+**Fade with the gradient overlay alone.** The scroll wrapper also carried a
+`mask-image` fading its last 10px to 20%, so the final row was dimmed twice. Gemini
+has no equivalent: it uses the sticky `.bottom-gradient` element and leaves the
+scroller unmasked. Gemini also defines a matching `.top-gradient` (same 16px, same
+150ms) which is not reproduced here — the top edge sits under the header.
+
+The settings pane uses the same surface as Gemini's menus (`.mat-mdc-menu-panel.lm-menu-theme`
+is in the same authored rule as the plus-menu cards) and opens with the same
+`expand-in` animation — 100ms `ease-in-out`, `scale(.5)` and `opacity .25` to 1,
+`transform-origin: 0 100%` since it grows up and right from the gear. That animation
+is applied **by analogy**: the plus menu and both its submenus were sampled directly,
+the settings pane was not, because the tab was occluded by then. The keyframes are
+duplicated into `Sidebar.css` rather than shared, which is what Gemini does too
+(`_ngcontent-ng-c3600954668_expand-in` and `_ngcontent-ng-c3777966446_expand-in` are
+two independent copies), and it keeps the sidebar off a composer stylesheet that need
+not be mounted.
+
+`apps/studio/test/gemini-sidebar-footer.test.mjs` pins all of the above.
+
 ## Related packages
 
 **This package imports from:**

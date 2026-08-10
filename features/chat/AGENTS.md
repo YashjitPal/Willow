@@ -14,8 +14,7 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/gemini-thinking-dots.ts` | The ~9KB single-line Lottie payload for the above, alone in a file so it stops wrecking greps. |
 | `src/chat-message.ts` | The `ChatMsg` shape plus its save/serialize/sanitize helpers. |
 | `src/chat-history.ts` | Converts stored `ChatMsg[]` into the AI wire format, inlining attachment bytes. |
-| `src/chat-model.ts` | The system prompt and provider/model/key resolution for a send. |
-| `deferred-prompt-blocks.md` | Prompt blocks for features Willow has not built yet, parked drop-in ready. Not dead text — see below. |
+| `src/chat-model.ts` | The system prompt and provider/model/key resolution for a send. Also carries the three deferred prompt blocks as comments — see below. |
 | `src/chat-timing.ts` | `waitForBrowserPaint()` — yields one frame so an intermediate render is actually seen. |
 | `src/chat-turn-store.ts` | Module-level registry of in-flight turns, so a response outlives ChatView. |
 | `src/chat-turn-runner.ts` | Drives one turn to completion, independent of React. Owns finalisation and checkpointing. |
@@ -63,16 +62,93 @@ over a user-profile store. They were held out of the shipped prompt on one rule 
 capability, it teaches the model to announce work it never does.** The user reads
 that as a bug, not as a missing feature.
 
-They were not thrown away. All four sit verbatim in `deferred-prompt-blocks.md`,
-already converted to Willow's naming and stripped of the source's plan tiers, so
-each is a paste away. The gate for moving one back up into `chat-model.ts` is not
-"is the UI ready" — it is **is the tool declared to the model on that turn**. For
-media that means `enableMediaTools` in `@willow/ai/chat`, which chat mode leaves
-off precisely because media is a different agent.
+They were not thrown away. All four are kept verbatim **as comments**, each
+annotated with the slot it goes back into and the tool that has to exist first,
+already converted to Willow's naming and stripped of the source's plan tiers so
+a paste needs no second pass. They are comments and not string constants on
+purpose: an unused `const` gets cleaned up by the next person or linter, and a
+half-wired one gets accidentally concatenated into a live prompt.
 
-The file has no importer, so `gemini-cards.test.mjs` asserts it exists and still
-holds all four blocks. That test is load-bearing: the prompt it was extracted
-from was never committed, so if the file goes, the text is gone.
+Where each one sits is the point:
+
+- The three chat-surface blocks are directly below `CHAT_SYSTEM_PROMPT` in
+  `src/chat-model.ts`.
+- The media block is **not here**. It sits above `systemPrompt` in
+  `features/media/src/MediaView.tsx`, the one surface that sets
+  `enableMediaTools: true` and can therefore honestly claim it.
+
+The gate for moving one up into a prompt is not "is the UI ready" — it is **is
+the tool declared to the model on that turn**.
+
+`gemini-cards.test.mjs` asserts all four are still present, and that none has
+become live code (it strips comments and re-checks). That test is load-bearing:
+the prompt they were extracted from was never committed, so if the comments go,
+the text is gone.
+
+## The plus menu
+
+`composer/PlusDropdownMenu.tsx` is Gemini's plus menu, transcribed rather than
+designed. Every value in it was read off the running gemini.google.com over CDP and
+cross-checked against Gemini's own authored CSS, fetched with
+`CSS.getStyleSheetText` across all 100 stylesheets. The two agreed everywhere they
+could disagree, so **do not "tidy" the numbers** — a change here is a drift from the
+original, not a refinement.
+
+| | Measured |
+| --- | --- |
+| Panel | `#1f1f1f`, radius 20px, padding 8px, shadow `0 0 20px rgba(0,0,0,0.28)` |
+| Widths | root 249px, More uploads 220px, More tools 253px |
+| Row | 36px tall, radius 12px, padding `0 8px` |
+| Label | Google Sans Flex 13px/17px, `#e6e6e6`, `"wdth" 92` |
+| Divider | `0.8px solid rgba(255,255,255,0.12)`, `margin-block: 8px` |
+| Hover | `rgba(230,230,230,0.08)`, **`transition: all 0s`** |
+| Icon | 24px box at 8px inset, glyph at 20px |
+
+**The hover layer snaps in.** Gemini computes `transition: all 0s` on the row, so a
+fade is wrong. It is a separate absolutely-positioned node precisely so its opacity
+can toggle without inheriting a transition.
+
+**The label inset is 40px on the uploader rows and 44px on the tool rows.** That 4px
+is real — Gemini uses two different row templates — and was measured on every row of
+each, so it is not rounding.
+
+**There are two icon fonts and they are not interchangeable.** Luminous Symbols
+carries `attach_file`, `image_create`, `movie`, `music`, `canvas`, `deep_research`,
+`guided_learning` and `chevron_right`; Google Symbols carries `drive` and
+`more_horiz`. Names come from each `mat-icon`'s own `data-mat-icon-name`.
+
+**The enter animation starts at half scale, not zero.** From Gemini's keyframes:
+
+```css
+@keyframes expand-in { 0% { opacity:.25; transform:scale(.5) } to { opacity:1; transform:scale(1) } }
+.card-container { animation: expand-in .1s ease-in-out }
+```
+
+That `.25`/`.5` start is what makes it read as a pop rather than a fade. The same
+animation plays on both submenus. Transform origin differs: the root menu pivots on
+the corner it grows from (measured `0px <height>`, because Gemini's composer is
+bottom-docked), both submenus on `0 0`. **There is no leave animation** — Gemini
+removes the pane outright.
+
+### Rows that are deliberately absent
+
+Gemini also shows **Add from Drive**, and **Photos / Avatar / Notebooks** under More
+uploads. Willow has no backend for any of them, so each is gated behind its own
+optional handler prop (`onAddFromDrive`, `onAddPhotos`, `onAddAvatar`,
+`onAddNotebook`) and simply does not render. Passing a handler is all it takes to
+turn one on — the row, its glyph and its geometry are already written.
+
+**Personal Intelligence** is wired but not persisted: `Composer.tsx` holds it in
+local state, because Willow's Personal Intelligence settings tab has no app-level
+store behind it yet. The row renders and flips exactly as Gemini's does.
+
+Its glyph is **the one unmeasured value in the file**. Gemini draws it as a masked
+`span.icon.lm-icon-m` rather than a `mat-icon`, so it carries no
+`data-mat-icon-name`, and the rule holding its mask was in a component stylesheet
+that had not loaded when the capture ran. `personal_intelligence` follows the
+convention every other glyph obeys, but it is an inference and the code says so.
+
+`apps/studio/test/gemini-plus-menu.test.mjs` pins all of the above.
 
 ## The big one
 

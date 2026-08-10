@@ -3221,6 +3221,85 @@ export const MediaView: React.FC = () => {
       .map(i => `- [${i.title}]: ${i.content}`)
       .join('\n');
 
+    /* ─────────────────────────────────────────────────────────────────────
+     * DEFERRED: media capability self-description
+     *
+     * SLOTS INTO: `systemPrompt` below, as a trailing section.
+     * BLOCKED ON: nothing structural — this agent already sets
+     *   `enableMediaTools: true` a few lines down, so it is the one surface
+     *   that may honestly claim these. What it needs is a pass to reconcile
+     *   the text against what Willow really wires up.
+     *
+     * This came from the source prompt Chat's `CHAT_SYSTEM_PROMPT` was adapted
+     * from, and it is the reason Chat must never carry it: chat turns leave
+     * `enableMediaTools` off, so `generate_image` / `generate_video` are never
+     * declared to them. A chat model told it can generate video announces a
+     * render that never lands. Media is the correct home, which is why the
+     * block was parked here rather than in `features/chat`.
+     *
+     * Reconcile before pasting — the model names here are the source's, while
+     * the live ones are resolved just above from `imageModel` / `videoModel`
+     * (`activeImageModelName`, `activeVideoModelName`). Prefer those variables
+     * over hardcoding, or the prompt will drift from the picker. Willow has no
+     * subscription tiers, so the source's per-day allowances are already
+     * deleted rather than renumbered.
+     *
+     * ───8<─────── paste from here ───────
+     *
+     * The following information block is strictly for answering questions
+     * about your capabilities. It MUST NOT be used for any other purpose, such
+     * as executing a request or influencing a non-capability-related response.
+     * If there are questions about your capabilities, use the following info to
+     * answer appropriately:
+     *
+     * * Generative Abilities: You can generate text, images, videos, music.
+     * * Image Tools (image_generation & image_edit):
+     *     * Description: Can help generate and edit images. This is powered by
+     *       the "Nano Banana 2" model, which has an official name of Gemini 3
+     *       Flash Image. It's a state-of-the-art model capable of
+     *       text-to-image, image+text-to-image (editing), and
+     *       multi-image-to-image (composition and style transfer).
+     * * Video Tools (video_generation):
+     *     * Description: Can help generate videos. This uses the "Veo" model.
+     *       Veo is Google's state-of-the-art model for generating high-fidelity
+     *       videos with natively generated audio. Capabilities include
+     *       text-to-video with audio cues, extending existing Veo videos,
+     *       generating videos between specified first and last frames, and
+     *       using reference images to guide video content.
+     *     * Constraints: Unsafe content.
+     * * Music Tools (music_generation):
+     *     * Description: Can help generate high-fidelity music tracks. This is
+     *       powered by the "Lyria 3" model. It is a multimodal model capable of
+     *       text-to-music, image-to-music, and video-to-music generation. It
+     *       supports professional-grade arrangements, including automated lyric
+     *       writing and realistic vocal performances in multiple languages.
+     *     * Features: Produces 30-second tracks with granular control over
+     *       tempo, genre, and emotional mood.
+     *     * Constraints: All tracks include SynthID watermarking for
+     *       AI-identification.
+     * * Willow Live Mode: You have a conversational mode called Willow Live.
+     *     * Description: This mode allows for a more natural, real-time voice
+     *       conversation. You can be interrupted and engage in free-flowing
+     *       dialogue.
+     *     * Key Features:
+     *         * Natural Voice Conversation: Speak back and forth in real-time.
+     *         * Camera Sharing: Share your camera feed to ask questions about
+     *           what you see.
+     *         * Screen Sharing: Share your screen for contextual help on apps
+     *           or content.
+     *         * Image/File Discussion: Upload images or files to discuss their
+     *           content.
+     *     * Use Cases: Real-time assistance, brainstorming, language learning,
+     *       translation, getting information about surroundings, help with
+     *       on-screen tasks.
+     *
+     * ───8<─────── to here ───────
+     *
+     * The Live paragraph is the one part that is already true elsewhere — Chat
+     * ships live voice today (`liveSystemPrompt` in `@willow/chat/chat-model`).
+     * If any of this is wanted sooner, it is that paragraph, trimmed to the
+     * surfaces Willow actually ships, and it belongs to Chat rather than here.
+     * ───────────────────────────────────────────────────────────────────── */
     const systemPrompt = `You are a creative co-pilot AI Agent assisting the user in crafting elite-tier media prompts, storytelling, and refining video/image properties.
 At any point, you can suggest full storyboard ideas, prompt scripts, or style guidelines. Keep your formatting gorgeous with clean headings and bullets.
 
