@@ -855,7 +855,7 @@ it('grounds every turn in the current date without hardcoding one', async () => 
   // A different date must actually move the line, or it is hardcoded again.
   assert.notEqual(currentDateLine(new Date('2027-01-02T12:00:00Z')), currentDateLine(day));
 
-  for (const built of [chatSystemPromptFor('gemini', day), liveSystemPrompt(day)]) {
+  for (const built of [chatSystemPromptFor('gemini', { now: day }), liveSystemPrompt({ now: day })]) {
     assert.match(built, /Current date: Monday, August 10, 2026/);
   }
   // The constant stays date-free so the date can only come from the builder.

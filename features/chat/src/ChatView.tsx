@@ -27,6 +27,7 @@ import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-store';
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
+import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
 import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, serializeChatMessage } from './chat-message';
 import {
@@ -112,6 +113,13 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 /**
+ * How long the thinking-steps / sources panel animates the scroller's width.
+ * Mirrors the `duration-300` on the container at the bottom of this file; it is
+ * only ever read to know when the width has stopped moving.
+ */
+const PANEL_TRANSITION_MS = 300;
+
+/**
  * A ResizeObserver that fires only when an observed box changes HEIGHT.
  *
  * Every ResizeObserver in this file exists for a height concern — the composer
@@ -132,10 +140,23 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
  * chosen. Gating on height lets the browser do that work for us.
  *
  * Width-driven callbacks are dropped, not deferred: nothing here reads a width.
+ *
+ * The height gate alone isn't enough for the panel, though. Narrowing the column
+ * re-wraps the text, and re-wrapped text is a real height change (measured: 288px
+ * on a long reply), so the gate passes on every frame of the animation anyway.
+ * `deferMs` covers that: while it returns a positive number the callback is
+ * coalesced into a single trailing run once the window closes, instead of forcing
+ * a synchronous layout of the whole thread ~18 times. Every callback here is
+ * idempotent and reads only current DOM state, so one run at the end lands on the
+ * same values the per-frame runs would have converged to.
  */
-const observeHeight = (callback: () => void): ResizeObserver => {
+const observeHeight = (
+  callback: () => void,
+  deferMs?: () => number,
+): ResizeObserver => {
   const seen = new WeakMap<Element, number>();
-  return new ResizeObserver((entries) => {
+  let trailing: ReturnType<typeof setTimeout> | null = null;
+  const observer = new ResizeObserver((entries) => {
     let heightChanged = false;
     for (const entry of entries) {
       const height = entry.contentRect.height;
@@ -147,8 +168,24 @@ const observeHeight = (callback: () => void): ResizeObserver => {
         heightChanged = true;
       }
     }
-    if (heightChanged) callback();
+    if (!heightChanged) return;
+
+    const remaining = deferMs ? deferMs() : 0;
+    if (remaining <= 0) {
+      if (trailing !== null) { clearTimeout(trailing); trailing = null; }
+      callback();
+      return;
+    }
+    if (trailing !== null) clearTimeout(trailing);
+    trailing = setTimeout(() => { trailing = null; callback(); }, remaining);
   });
+
+  const disconnect = observer.disconnect.bind(observer);
+  observer.disconnect = () => {
+    if (trailing !== null) { clearTimeout(trailing); trailing = null; }
+    disconnect();
+  };
+  return observer;
 };
 
 /**
@@ -192,6 +229,13 @@ interface ChatViewProps {
   onChatStartedChange?: (started: boolean) => void;
   isSidebarCollapsed?: boolean;
   onCollapseSidebar?: () => void;
+  /**
+   * Resets to an empty chat. Owned by `App` (it holds the reset key and the
+   * has-active-chat / incognito flags), and needed here only for the
+   * "Start new chat" button on the prompt-copy snackbar — Gemini raises that
+   * snackbar from the prompt Copy button, which lives in this tree.
+   */
+  onNewChat?: () => void;
   /** Workspace colour from the profile; tints the voice orb. */
   workspaceColor?: WorkspaceColorName;
 }
@@ -210,6 +254,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onChatStartedChange,
   isSidebarCollapsed = true,
   onCollapseSidebar,
+  onNewChat,
   workspaceColor,
 }) => {
   const { apiKeys } = useUserDataContext();
@@ -223,6 +268,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     loadLocalFSChat,
     localChats,
     chatScopeId,
+    selectLocalFSInboxChat,
     // Fast flag: the chat registry is on screen and `activeChatId` has settled.
     // Drives the boot dock (see `isBootHydrating`), NOT any disk work.
     isChatListHydrated,
@@ -782,10 +828,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [thinkingPhase, setThinkingPhase] = useState<StreamPhase>('thinking');
   const [thinkSeconds, setThinkSeconds] = useState(0);
   const [reactions, setReactions] = useState<Record<string, 'like' | 'dislike' | null>>({});
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
   const [openSourcesMessageId, setOpenSourcesMessageId] = useState<string | null>(null);
+  // ── Panel quiet window ─────────────────────────────────────────────────────
+  // Opening or closing the context panel animates the scroller's width for 300ms.
+  // That re-wraps every reply, and re-wrapping changes height, so the height-gated
+  // observers below would otherwise fire on each of the ~18 frames — each one
+  // forcing a synchronous layout of the whole thread, one of them under flushSync.
+  // While this timestamp is in the future they coalesce into a single trailing run
+  // instead. Derived from the two ids rather than `contextSidebarOpen`, which is
+  // declared far below the effects that need this.
+  const panelSettleUntilRef = useRef(0);
+  const panelIsOpen = openThinkingMessageId !== null || openSourcesMessageId !== null;
+  const panelWasOpenRef = useRef(panelIsOpen);
+  const panelDeferMs = useCallback(
+    () => Math.max(0, panelSettleUntilRef.current - performance.now()),
+    [],
+  );
+  useLayoutEffect(() => {
+    // Only an open<->closed flip animates the width. Mount doesn't, and neither
+    // does swapping thinking-steps for sources while the panel stays open.
+    if (panelWasOpenRef.current === panelIsOpen) return;
+    panelWasOpenRef.current = panelIsOpen;
+    // Small margin past the transition so the settling frame is covered too.
+    panelSettleUntilRef.current = performance.now() + PANEL_TRANSITION_MS + 60;
+  }, [panelIsOpen]);
   const [openResource, setOpenResource] = useState<RichResource | null>(null);
   const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -1453,7 +1521,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     //
     // Height only: the panel toggle animates this scroller's WIDTH, and a
     // flushSync per frame of that is what made opening the panel feel laggy.
-    const ro = observeHeight(() => flushSync(sync));
+    // Re-wrapped text still changes height, so the panel window also coalesces
+    // this into one run once the width stops moving.
+    const ro = observeHeight(() => flushSync(sync), panelDeferMs);
     ro.observe(c);
     return () => ro.disconnect();
   }, [hasStarted, editingUserId]);
@@ -1597,7 +1667,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     recompute();
     // Height only: `updateReservedHeight` reads clientHeight and offsetHeight and
     // nothing else, so a width-driven run can only ever recompute the same number.
-    const ro = observeHeight(recompute);
+    // Coalesced during the panel window for the same reason as the sync above.
+    const ro = observeHeight(recompute, panelDeferMs);
     ro.observe(c);
     const lastUserEl = lastUserMessageId ? messageRefs.current[lastUserMessageId] : null;
     if (lastUserEl) ro.observe(lastUserEl);
@@ -1622,8 +1693,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
     // Height only: `check` compares offsetHeight against the reserve. Reading
     // offsetHeight forces a layout flush, so a per-frame width run is not free
-    // even though the state update itself bails out.
-    const ro = observeHeight(check);
+    // even though the state update itself bails out. The re-wrap during the panel
+    // transition does change height, so that window is coalesced too — and this is
+    // the worst offender to leave un-coalesced, because flipping
+    // needsScrollPadding changes the height that fed the measurement.
+    const ro = observeHeight(check, panelDeferMs);
     ro.observe(el);
     check();
     return () => ro.disconnect();
@@ -1905,7 +1979,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           thinkingLevel,
           baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
         },
-        systemPrompt: chatSystemPromptFor(provider),
+        // A temporary chat carries nothing personal in and saves nothing out.
+        // Saved Info is the "in" half: the entries survive the session, so
+        // sending them would make a temporary chat quietly personalized.
+        systemPrompt: chatSystemPromptFor(provider, { personalize: !isIncognito }),
         history,
         attachmentPersistence,
         currentScopeId: () => chatScopeIdRef.current,
@@ -2098,7 +2175,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // Voice, and either a `languageCode` or a prompt directive depending on what
     // the provider accepts. With no provider match this returns the prompt
     // untouched and neither field set, i.e. exactly the pre-existing request.
-    const voiceOptions = buildLiveVoiceOptions(liveModelId, liveSystemPrompt());
+    const voiceOptions = buildLiveVoiceOptions(
+      liveModelId,
+      liveSystemPrompt({ personalize: !isIncognito }),
+    );
     liveSettingsSignatureRef.current = `${liveModelId}|${voiceSettingsSignature(liveModelId)}`;
 
     // Every callback below is late-bound to the ref, so a session that has been
@@ -2211,7 +2291,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // the mic is acquired.
     session.setMicMuted(micMutedRef.current);
     void session.start();
-  }, [openLiveTurn, closeLiveTurn, liveModelId, liveModelLabel, voiceProvider]);
+  }, [openLiveTurn, closeLiveTurn, liveModelId, liveModelLabel, voiceProvider, isIncognito]);
 
   const handleStartLive = useCallback(() => {
     if (isLive || isGenerating) return;
@@ -2386,10 +2466,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
     link.click();
   }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
 
+  /*
+   * Gemini's feedback for a copy is the bottom-left snackbar and nothing else.
+   * Measured before and after the click, the Copy button's own glyph is
+   * unchanged — `icon: "copy"` both times, same family, size, weight and
+   * colour — so there is deliberately no tick swap here any more.
+   */
   const handleCopy = (msg: ChatMsg) => {
     navigator.clipboard.writeText(msg.content);
-    setCopiedId(msg.id);
-    setTimeout(() => setCopiedId((id) => (id === msg.id ? null : id)), 1600);
+    showCopyToast('Copied to clipboard');
+  };
+
+  /*
+   * Copying a *prompt* raises a different snackbar in Gemini: "Prompt copied"
+   * with a trailing "Start new chat" pill. Same box, same enter/exit, so
+   * `CopyToast` renders both and only the payload differs.
+   */
+  const handleCopyPrompt = (msg: ChatMsg) => {
+    navigator.clipboard.writeText(msg.content);
+    showCopyToast('Prompt copied', {
+      label: 'Start new chat',
+      onClick: () => {
+        selectLocalFSInboxChat(null);
+        onNewChat?.();
+      },
+    });
   };
 
   const handleListen = (msg: ChatMsg) => {
@@ -2716,14 +2817,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <div className="gemini-user-actions pointer-events-none absolute right-3 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                             <button
                               type="button"
-                              onClick={() => handleCopy(msg)}
+                              onClick={() => handleCopyPrompt(msg)}
                               className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e0e0e0] before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
                               aria-label="Copy prompt"
                               title="Copy prompt"
                             >
                               <MaterialSymbol
                                 family="luminous"
-                                name={copiedId === msg.id ? 'check' : 'copy'}
+                                name="copy"
                                 size={20}
                                 weight={320}
                                 roundness={100}
@@ -2904,7 +3005,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 >
                   <ResponseActions
                     reaction={reactions[msg.id] || null}
-                    copied={copiedId === msg.id}
                     listening={listeningId === msg.id}
                     canRedo={isLastAssistant}
                     canShowThinking={!msg.isError}

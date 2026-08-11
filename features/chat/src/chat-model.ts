@@ -3,6 +3,11 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import {
+  savedInfoStore,
+  savedInstructionDate,
+  type SavedInfoState,
+} from '@willow/core/saved-info-store';
 
 /**
  * The conversational system prompt. Chat only — Code and Media each own theirs.
@@ -26,7 +31,12 @@ import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/e
  * - The `<Image of X>` diagram tag and the `<GenerateWidget>` LMDX widget
  *   schema. Both are inert text in `StreamingMarkdown`.
  * - The personalization ladder (Personal Context tool, User Corrections
- *   History). Willow stores no user profile for a turn to draw on.
+ *   History). That ladder governs *inferred* profile data — a background
+ *   summary of the user's activity, retrieved per turn — which Willow does not
+ *   collect. It is NOT what Saved Info is: those are directives the user typed
+ *   on purpose, and they are appended after this prompt by `savedInfoBlock`
+ *   below rather than gated behind a relevance ladder. The ladder comes back
+ *   with long-term memory, which is the thing it was written for.
  *
  * Image, video and music generation are deliberately described as *elsewhere*.
  * They are real Willow features, but they belong to the media agent, which is a
@@ -608,8 +618,72 @@ export const currentDateLine = (now: Date = new Date()): string =>
     day: 'numeric',
   })}`;
 
-const withCurrentDate = (prompt: string, now?: Date): string =>
-  `${prompt}\n\n${currentDateLine(now)}`;
+/**
+ * Gemini's own framing for the block, kept word for word.
+ *
+ * It is a PERMISSION, not a command: "You may use it as general context if
+ * explicitly relevant". That distinction is the whole design. A saved
+ * instruction is standing context, so a model told to *apply* all of it will
+ * drag "I use Apple Music" into a question about Java. Every instruction the
+ * user writes is phrased as an order already ("keep answers short"); the header
+ * is what stops the block as a whole reading as one.
+ */
+export const SAVED_INFO_HEADER = `# Saved Information
+Description: Below is some information previously shared by the user. You may use it as general context if explicitly relevant:`;
+
+/**
+ * The user's saved instructions as a prompt block, or `''` when there is
+ * nothing to say.
+ *
+ * Empty rather than a header with no entries under it: a bare "Below is some
+ * information previously shared by the user" followed by nothing invites the
+ * model to explain that it knows nothing about you.
+ *
+ * `- [YYYY-MM-DD] text`, newest first, is Gemini's line format. The date is what
+ * lets the model prefer a preference set this week over one set last year, and
+ * the two are frequently in conflict — most people's saved instructions
+ * accumulate contradictions they never clean up.
+ *
+ * Reads the store by default so no call site can forget to include it, and
+ * takes an explicit state for tests.
+ */
+export const savedInfoBlock = (state: SavedInfoState = savedInfoStore.get()): string => {
+  if (!state.enabled) return '';
+  const lines = state.instructions.map((entry) => {
+    const date = savedInstructionDate(entry);
+    return date ? `- [${date}] ${entry.text}` : `- ${entry.text}`;
+  });
+  if (lines.length === 0) return '';
+  return `${SAVED_INFO_HEADER}\n${lines.join('\n')}`;
+};
+
+export type PromptContext = {
+  /** Grounds the date line. Defaults to the current instant. */
+  now?: Date;
+  /**
+   * Whether Saved Info may reach the model. False in a temporary chat, which
+   * carries nothing personal in and saves nothing out.
+   */
+  personalize?: boolean;
+};
+
+/**
+ * Saved Info, then the date, then whatever the caller passed.
+ *
+ * Gemini keeps both of these out of the system prompt entirely — they arrive in
+ * a separate `context` role turn, after the tool declarations, in the order
+ * Saved Information → profile summary → current time → location. Willow's
+ * harness hands the provider ONE system string, so the same content is appended
+ * to it in the same order instead. Being inside the system prompt rather than
+ * beside it is a real difference: the guardrail against reciting instructions
+ * sits above, so the block is placed after it and delimited by its own heading,
+ * which keeps "what have you got saved about me" answerable. That question has
+ * an answer the user is entitled to — it is their own data, listed in Settings.
+ */
+const withTurnContext = (prompt: string, { now, personalize = true }: PromptContext): string => {
+  const savedInfo = personalize ? savedInfoBlock() : '';
+  return `${prompt}${savedInfo ? `\n\n${savedInfo}` : ''}\n\n${currentDateLine(now)}`;
+};
 
 /**
  * The system prompt for a text turn on `provider`.
@@ -618,10 +692,10 @@ const withCurrentDate = (prompt: string, now?: Date): string =>
  * newly-added provider is a one-line data change. The renderer is already
  * provider-blind, and an unparsed fence degrades to nothing.
  */
-export const chatSystemPromptFor = (provider: ChatProvider, now?: Date): string =>
-  withCurrentDate(
+export const chatSystemPromptFor = (provider: ChatProvider, context: PromptContext = {}): string =>
+  withTurnContext(
     supportsCards(provider) ? CHAT_SYSTEM_PROMPT + CARD_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT,
-    now,
+    context,
   );
 
 /**
@@ -629,8 +703,13 @@ export const chatSystemPromptFor = (provider: ChatProvider, now?: Date): string 
  *
  * The base prompt without the card fence: a spoken answer has nowhere to put a
  * card, and offering one to a voice turn only invites it to read JSON aloud.
+ *
+ * Saved Info applies here too. "No emojis" is moot in speech, but "keep answers
+ * short" and "call me Yashjit" are the instructions that matter MOST out loud,
+ * where there is no skimming past a long answer.
  */
-export const liveSystemPrompt = (now?: Date): string => withCurrentDate(CHAT_SYSTEM_PROMPT, now);
+export const liveSystemPrompt = (context: PromptContext = {}): string =>
+  withTurnContext(CHAT_SYSTEM_PROMPT, context);
 
 export type ChatProvider =
   | 'gemini'

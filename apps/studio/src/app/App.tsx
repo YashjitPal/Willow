@@ -706,6 +706,7 @@ const App: React.FC = () => {
                 onChatStartedChange={setHasActiveChat}
                 isSidebarCollapsed={isSidebarCollapsed}
                 onCollapseSidebar={() => setIsSidebarCollapsed(true)}
+                onNewChat={handleNewChat}
                 workspaceColor={userProfile?.workspaceColor}
               />
             </Suspense>

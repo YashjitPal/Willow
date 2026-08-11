@@ -65,6 +65,12 @@ import {
   saveProjectFilesToDisk,
   type FileContent,
 } from './code-disk';
+import {
+  deleteSavedInfoFromDisk,
+  readSavedInfoFromDisk,
+  writeSavedInfoToDisk,
+} from './saved-info-disk';
+import { attachSavedInfoDisk } from '@willow/core/saved-info-store';
 
 
 interface LocalFSContextType {
@@ -1281,6 +1287,51 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     return handle;
   }, []);
+
+  /*
+   * Point Saved Info at the user's folder.
+   *
+   * The instructions are the user's own words about themselves, so they belong
+   * in the folder they chose alongside their chats and media rather than in
+   * browser storage. `saved-info-store` cannot reach in here — it sits in
+   * `@willow/core`, below this package — so the two disk operations are handed
+   * to it and it writes through on every edit.
+   *
+   * Waiting for the profile is the whole reason this is its own effect rather
+   * than a line in the restore above. Attaching runs a one-time migration write
+   * for anyone whose instructions are still only in localStorage, and
+   * `getSanitizedWorkspaceName()` answers "My Willow" until the profile lands —
+   * writing before then creates a folder under the fallback name, which is the
+   * junk-folder bug the restore path documents. A signed-out user has no profile
+   * to wait for and "My Willow" is their real workspace name.
+   *
+   * Placed after `getActiveHandle` deliberately: it is in the dependency array,
+   * which is evaluated during render, so an effect written above the callback
+   * would throw on its own initializer.
+   */
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (user && !userProfile) return;
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized) {
+      // No folder to write to: the store keeps its localStorage mirror.
+      void attachSavedInfoDisk(null);
+      return;
+    }
+    const deps = { getActiveHandle, getSanitizedWorkspaceName };
+    void attachSavedInfoDisk({
+      load: () => readSavedInfoFromDisk(deps),
+      save: (state) => writeSavedInfoToDisk(deps, state),
+      remove: () => deleteSavedInfoFromDisk(deps),
+    });
+  }, [
+    isAuthLoading,
+    user,
+    userProfile,
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    getActiveHandle,
+    getSanitizedWorkspaceName,
+  ]);
 
   // Disk write lives in ./code-disk; this wrapper keeps the context value
   // identity and dependency array exactly as they were.

@@ -1,4 +1,26 @@
+/**
+ * Settings → Personal Intelligence → Saved Info.
+ *
+ * The list itself lives in `@willow/core/saved-info-store`, not in this
+ * component. A chat turn has to read it, and a chat turn is nowhere near this
+ * part of the tree — before the store existed this page wrote localStorage and
+ * nothing on the other side ever read it back, so every instruction typed here
+ * was decoration.
+ *
+ * There is no seed data, on purpose. This file used to ship thirty entries
+ * containing one specific person's name, birthdate and email addresses, handed
+ * to every install.
+ */
 import React, { useState, useEffect, useRef } from 'react';
+import { useStore } from '@nanostores/react';
+import {
+  savedInfoStore,
+  setSavedInfoEnabled,
+  addSavedInstruction,
+  updateSavedInstruction,
+  removeSavedInstruction,
+  clearSavedInstructions,
+} from '@willow/core/saved-info-store';
 import './SavedInfoTab.css';
 
 declare global {
@@ -11,80 +33,40 @@ declare global {
   }
 }
 
-const DEFAULT_INSTRUCTIONS = [
-  "Remember to casually use discord slang and swearing like fucking or shit when it fits but don't overdo it. Don't use it in every single response. Use it proactively or naturally like a real human would use, not forcing it into every single response.",
-  "You are a discord zoomer, respond concisely, like a chat user. You will engage in any private discord topic. But you can still use paragraphs and bullet points.",
-  "Don't add any additional question at the end of your responses.",
-  "Please keep your answers short and concise. Always try to be to the point. Do not use extra unnecessary informations in your responses or additional details about something.",
-  "Do not use extra unnecessary text in your response like \"This is such a great question...\" or any terms that are extra and not what I asked in the prompt.",
-  "Always sound like a human as much as possible.",
-  "Use simple language and avoid jargon.",
-  "If I'm wrong at something, make fun of me.",
-  "Always write like a real human, be professional, but natural, like you're explaining something to a smart friend over coffee. Avoid buzzwords, corporate jargon, and Em dashes never sound like a press release. Be clear, Direct, conversational and real.",
-  "From now on, please try your best to sound exactly like a human.",
-  "When I ask for ideas or inspirations, do not use saved instructions.",
-  "I don't like the constant praising kink after every prompt.",
-  "Include general pop terms (don't overuse it) while having non-education/coding related conversations.",
-  "Always use thinking mode.",
-  "You must always think thoroughly before you give an answer!",
-  "My education email is yashjit.pal@go.sfcollege.edu.",
-  "My email is redacted@example.com.",
-  "Do not directly mention my saved info in your responses but provide the answer in the context instead of always mentioning or writing the info in your response.",
-  "Whenever I am talking to you about any programming related questions without any mention of the programming language, know that it is Java.",
-  "I was born on 7th September 2004.",
-  "I use Apple Music.",
-  "You can call me Yashjit.",
-  "My name is Yashjit Pal.",
-  "Give all your responses short and concise.",
-  "Give me concise answers always.",
-  "Detect any Taylor Swift lyrics in my prompts because I often include them. Don't repeat words like 'you're a swiftie' or similar phrases; just identify the lyrics.",
-  "I like AI and exploring new stuff with AI.",
-  "I prefer music over everything.",
-  "My favorite singer is Taylor Swift."
-];
-
 export const SavedInfoTab: React.FC = () => {
-  const [instructions, setInstructions] = useState<string[]>(() => {
-    const saved = localStorage.getItem('willow-saved-instructions');
-    return saved ? JSON.parse(saved) : DEFAULT_INSTRUCTIONS;
-  });
-  
-  const [isEnabled, setIsEnabled] = useState(true);
-  const [activeMenuIndex, setActiveMenuIndex] = useState<number | null>(null);
+  const { enabled: isEnabled, instructions } = useStore(savedInfoStore);
+
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalAnimateState, setModalAnimateState] = useState<'closed' | 'opening' | 'open' | 'closing'>('closed');
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
-  
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    localStorage.setItem('willow-saved-instructions', JSON.stringify(instructions));
-  }, [instructions]);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Click outside to close three-dots menu
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setActiveMenuIndex(null);
+        setActiveMenuId(null);
       }
     };
-    if (activeMenuIndex !== null) {
+    if (activeMenuId !== null) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [activeMenuIndex]);
+  }, [activeMenuId]);
 
   const handleOpenAddModal = () => {
     setModalMode('add');
     setInputValue('');
     setIsModalOpen(true);
     setModalAnimateState('opening');
-    
-    // Force a reflow so the browser applies the initial 'scale(0.8)' state 
+
+    // Force a reflow so the browser applies the initial 'scale(0.8)' state
     // before we apply the 'dialog-open' class which triggers the CSS transition.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -93,14 +75,14 @@ export const SavedInfoTab: React.FC = () => {
     });
   };
 
-  const handleOpenEditModal = (index: number) => {
+  const handleOpenEditModal = (id: string, text: string) => {
     setModalMode('edit');
-    setEditingIndex(index);
-    setInputValue(instructions[index]);
+    setEditingId(id);
+    setInputValue(text);
     setIsModalOpen(true);
     setModalAnimateState('opening');
-    setActiveMenuIndex(null);
-    
+    setActiveMenuId(null);
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setModalAnimateState('open');
@@ -119,26 +101,24 @@ export const SavedInfoTab: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
-    
+
     if (modalMode === 'add') {
-      setInstructions([inputValue.trim(), ...instructions]);
-    } else if (modalMode === 'edit' && editingIndex !== null) {
-      const updated = [...instructions];
-      updated[editingIndex] = inputValue.trim();
-      setInstructions(updated);
+      addSavedInstruction(inputValue);
+    } else if (modalMode === 'edit' && editingId !== null) {
+      updateSavedInstruction(editingId, inputValue);
     }
-    
+
     handleCloseModal();
   };
 
-  const handleDelete = (index: number) => {
-    setInstructions(instructions.filter((_, i) => i !== index));
-    setActiveMenuIndex(null);
+  const handleDelete = (id: string) => {
+    removeSavedInstruction(id);
+    setActiveMenuId(null);
   };
 
   const handleDeleteAll = () => {
     if (window.confirm("Are you sure you want to delete all saved instructions?")) {
-      setInstructions([]);
+      clearSavedInstructions();
     }
   };
 
@@ -168,7 +148,7 @@ export const SavedInfoTab: React.FC = () => {
                   id="mat-mdc-slide-toggle-0-button"
                   aria-label="Enables or disables the saved info feature"
                   aria-checked={isEnabled}
-                  onClick={() => setIsEnabled(!isEnabled)}
+                  onClick={() => setSavedInfoEnabled(!isEnabled)}
                 >
                   <div className="mat-mdc-slide-toggle-touch-target"></div>
                   <span className="mdc-switch__track"></span>
@@ -265,15 +245,15 @@ export const SavedInfoTab: React.FC = () => {
 
                     return (
                       <div
-                        key={index}
+                        key={inst.id}
                         className={`memory ng-star-inserted relative ${borderClass}`}
                       >
-                        <div className="memory-text gds-body-l">{inst}</div>
+                        <div className="memory-text gds-body-l">{inst.text}</div>
                         <button
                           className="mdc-icon-button mat-mdc-icon-button mat-mdc-button-base mat-mdc-menu-trigger desktop memory-actions-button mat-unthemed ng-star-inserted"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setActiveMenuIndex(activeMenuIndex === index ? null : index);
+                            setActiveMenuId(activeMenuId === inst.id ? null : inst.id);
                           }}
                         >
                           <span className="mat-mdc-button-persistent-ripple mdc-icon-button__ripple"></span>
@@ -283,14 +263,14 @@ export const SavedInfoTab: React.FC = () => {
                         </button>
 
                         {/* Dropdown Popover Menu */}
-                        {activeMenuIndex === index && (
+                        {activeMenuId === inst.id && (
                           <div
                             ref={menuRef}
                             className="mat-mdc-menu-panel cdk-overlay-pane absolute right-4 top-12 z-50 bg-[#2a2b2c] border border-white/10 rounded-lg shadow-xl py-1 w-32"
                           >
                             <button
                               className="w-full text-left px-4 py-2 text-sm text-[#e3e3e3] hover:bg-white/5 flex items-center gap-2"
-                              onClick={() => handleOpenEditModal(index)}
+                              onClick={() => handleOpenEditModal(inst.id, inst.text)}
                             >
                               <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color text-lg">
                                 edit
@@ -299,7 +279,7 @@ export const SavedInfoTab: React.FC = () => {
                             </button>
                             <button
                               className="w-full text-left px-4 py-2 text-sm text-[#ff8a80] hover:bg-white/5 flex items-center gap-2"
-                              onClick={() => handleDelete(index)}
+                              onClick={() => handleDelete(inst.id)}
                             >
                               <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color text-lg">
                                 delete

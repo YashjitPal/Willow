@@ -1,0 +1,244 @@
+/*
+ * Gemini's copy snackbars — every value below was READ OFF gemini.google.com,
+ * not chosen. Measured at viewport 1419x826, dpr 1.25, by clicking a Copy
+ * button under CDP and dumping computed styles for every node in the overlay
+ * plus the authored @keyframes.
+ *
+ * There are TWO of them, and they differ only in the label and the trailing
+ * button:
+ *
+ *   response Copy  -> "Copied to clipboard", no button
+ *   prompt Copy    -> "Prompt copied" + a "Start new chat" tonal pill
+ *
+ * Same 344x60 surface, same tree, same enter/exit animations (measured
+ * separately on each: dwell 2163.4ms and 2175.2ms, exit 83.7ms and 84.7ms).
+ *
+ * Gemini's DOM (what each class below stands in for):
+ *
+ *   DIV.cdk-global-overlay-wrapper        -> .willow-copy-toast-container
+ *     justify-content: flex-start; align-items: flex-end   (bottom-LEFT)
+ *     DIV.cdk-overlay-pane                (392x108, no styling of its own)
+ *       MAT-SNACK-BAR-CONTAINER           -> .willow-copy-toast
+ *         padding:16px; margin:8px; transparent  <- THIS node animates
+ *         DIV.mdc-snackbar__surface       -> .willow-copy-toast__surface
+ *           DIV.container                 -> .willow-copy-toast__row
+ *             DIV.mat-mdc-snack-bar-label -> .willow-copy-toast__label
+ *             DIV.actions                 -> .willow-copy-toast__actions
+ *               BUTTON.mat-tonal-button   -> .willow-copy-toast__action
+ *
+ * Two things that look like mistakes but are measured: the toast is at the
+ * bottom LEFT (Gemini's overlay wrapper is flex-start/flex-end), and the exit
+ * animation fades only — there is no scale-down to match the enter.
+ */
+
+.willow-copy-toast-container {
+  position: fixed;
+  inset: 0;
+  /* Gemini's wrapper is `position:absolute; inset:0` inside the CDK overlay
+     container, which is itself fixed and full-viewport. Collapsed to one
+     fixed layer here. */
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-end;
+  /* Measured on the live chain: `.cdk-overlay-container` and
+     `.cdk-global-overlay-wrapper` are BOTH `pointer-events: none`, and
+     `.cdk-overlay-pane` turns it back on — so the empty full-viewport layer
+     never swallows clicks on the sidebar footer beneath it, while the action
+     button inside stays clickable. Both halves are required: without the
+     `auto` below, the "Start new chat" button would be dead. */
+  pointer-events: none;
+  z-index: 10000;
+}
+
+/*
+ * The animated node. Gemini animates MAT-SNACK-BAR-CONTAINER, never the
+ * surface (the surface sampled `opacity:1; transform:none` on every one of the
+ * 11 captured enter frames). Its 16px padding + the 8px margin are what put
+ * the surface 24px from the left edge and 24.4px from the bottom.
+ */
+.willow-copy-toast {
+  padding: 16px;
+  margin: 8px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: willow-copy-toast-enter 150ms cubic-bezier(0, 0, 0.2, 1) forwards;
+  /* Measured (pass 7): the CDK pane re-enables pointer-events below the
+     `none` wrapper, so the action button stays clickable. */
+  pointer-events: auto;
+}
+
+.willow-copy-toast--hiding {
+  animation: willow-copy-toast-exit 75ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* Surface measured 344x60. `min-width` is what holds the 344 — the label text
+   is far narrower than that. */
+.willow-copy-toast__surface {
+  min-width: 344px;
+  max-width: 672px;
+  min-height: 60px;
+  box-sizing: border-box;
+  padding: 0 12px 0 0;
+  border: 0;
+  border-radius: 16px;
+  background: rgb(31, 31, 31);
+  color: rgb(230, 230, 230);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/*
+ * Gemini's `DIV.container` inside BARD-SIMPLE-SNACK-BAR. It is what actually
+ * holds the surface open at 60px: the label's own padded height is only 44px
+ * (12 + 20 + 12), and this row's `min-height: 60px` supplies the rest. Without
+ * it the surface collapses to 44 and the whole snackbar reads too short.
+ */
+.willow-copy-toast__row {
+  flex: 1 1 auto;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/*
+ * 15px/20px, not the 16px the outer wrappers report. Reading type off any
+ * ancestor here returns the unstyled Angular wrapper (it measured
+ * "Times New Roman"); these values come from the node that owns the text node.
+ * The asymmetric padding is why the text sits 24px in from the surface edge.
+ */
+.willow-copy-toast__label {
+  flex: 1 1 auto;
+  padding: 12px 4px 12px 24px;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  letter-spacing: normal;
+  color: rgb(230, 230, 230);
+  text-align: start;
+}
+
+/*
+ * The trailing button, present only on the prompt-copy snackbar. Gemini nests
+ * four elements here (DIV.actions > GEM-BUTTON > BUTTON > SPAN.gds-body-m);
+ * the wrapper and GEM-BUTTON measured as pure pass-throughs — 0 padding, 0
+ * margin, no border, no background, same 121.65x36 rect as the button — so
+ * they collapse to one wrapper plus the button without moving a pixel.
+ *
+ * The 36px height is authored, not content-derived: `min-height` measured 0px
+ * and the content span is only 20px tall.
+ */
+.willow-copy-toast__actions {
+  height: 36px;
+  flex: 0 1 auto;
+}
+
+/*
+ * Two measured details that look wrong and are not:
+ *
+ *  - the button element computes 14px/normal 500, but the SPAN that actually
+ *    owns the text is 15px/20px 400 in a DIFFERENT family. Both are kept: the
+ *    button's own type never renders, yet it is what the box was measured
+ *    against.
+ *  - `cursor` measured `default`, not `pointer`.
+ *
+ * Its right edge sits 12px from the surface's — which is exactly the surface's
+ * existing `padding-right: 12px`, so no offset is needed here.
+ */
+.willow-copy-toast__action {
+  position: relative;
+  height: 36px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 12px;
+  margin: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: rgb(23, 23, 23);
+  color: rgb(230, 230, 230);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  font-weight: 500;
+  cursor: default;
+  -webkit-appearance: none;
+  appearance: none;
+  user-select: none;
+  overflow: visible;
+}
+
+/* The label span. Different family and metrics from the button around it. */
+.willow-copy-toast__action-label {
+  display: block;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+
+/*
+ * Material's persistent-ripple overlay, reproduced as a pseudo-element:
+ * `position: absolute; inset: 0`, the button's own 9999px radius, and a
+ * `rgb(230, 230, 230)` fill whose opacity measured 0 at rest and 0.08 on
+ * hover. `transition-duration` measured 0s, so the tint is instant — no fade
+ * is added here.
+ */
+.willow-copy-toast__action::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgb(230, 230, 230);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.willow-copy-toast__action:hover::after {
+  opacity: 0.08;
+}
+
+/* Authored keyframes, recovered verbatim from Gemini's stylesheets:
+   `_mat-snack-bar-enter` and `_mat-snack-bar-exit`. */
+@keyframes willow-copy-toast-enter {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Opacity only. Sampled exit frames held `transform: none` throughout while
+   opacity ran 1 -> 0.92 -> 0.73 -> 0.48 -> 0.17, so there is no scale-down. */
+@keyframes willow-copy-toast-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-copy-toast,
+  .willow-copy-toast--hiding {
+    animation-duration: 1ms;
+  }
+}
