@@ -14,10 +14,16 @@
  * - **Subscriptions**, via `subscriptions.list?mine=true`. Sustained interest
  *   rather than a single click.
  *
- * Categories, not titles. "Likes videos about home espresso" is a fact about the
- * person; a list of the last fifty videos they liked is a viewing log, and
- * storing that in a file to be read into every future prompt is not what the user
- * connected YouTube for.
+ * Categories, not titles — *for the profile*. "Likes videos about home espresso"
+ * is a fact about the person; a list of the last fifty videos they liked is a
+ * viewing log, and storing that in a file to be read into every future prompt is
+ * not what the user connected YouTube for.
+ *
+ * The live readers below are the other half of that, and the distinction is the
+ * whole reason both exist. `readYouTubeSignals` aggregates because its output is
+ * *stored*. `listLikedVideos` keeps the titles because its output is used once, to
+ * answer a question the user just asked, and then discarded — and "suggest
+ * something based on what I like" cannot be answered from category counts.
  */
 
 import { paginate, query } from '../google-fetch';
@@ -159,4 +165,90 @@ export const readYouTubeSignals = async (
 export const youtubeConnector: ConnectorReader = {
   id: 'youtube',
   readSignals: readYouTubeSignals,
+};
+
+// ---------------------------------------------------------------------------
+// Live reads — one request, real titles, nothing stored.
+// ---------------------------------------------------------------------------
+
+/**
+ * How many videos or channels a live read will fetch at most.
+ *
+ * One page, not two. A live read happens with the user waiting on a reply, and
+ * fifty liked videos is already more than any answer uses. The profile builder
+ * pages further because it runs in the background and is counting.
+ */
+const LIVE_LIMIT = 50;
+
+const clampLimit = (limit: number | undefined): number => {
+  if (!Number.isFinite(limit)) return 25;
+  return Math.min(Math.max(Math.trunc(limit as number), 1), LIVE_LIMIT);
+};
+
+export interface LikedVideo {
+  title: string;
+  channel: string;
+  /** A watchable link, so the model can hand the user something clickable. */
+  url: string;
+}
+
+export interface SubscribedChannel {
+  title: string;
+  url: string;
+}
+
+/**
+ * The user's liked videos, newest first — or `null` if the call failed.
+ *
+ * The `null` is load-bearing and every live reader here returns it the same way.
+ * An empty array means "this account has no liked videos", a null means "the
+ * request did not succeed", and the two produce completely different sentences to
+ * the user: one is a fact about them, the other is "reconnect YouTube". Collapsing
+ * them into `[]` is how an app tells someone they have never liked a video because
+ * their token expired.
+ */
+export const listLikedVideos = async (
+  fetchJson: ConnectorFetch,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<LikedVideo[] | null> => {
+  const url = `${YOUTUBE_API}/videos${query({
+    part: 'snippet',
+    myRating: 'like',
+    maxResults: clampLimit(options.limit),
+  })}`;
+  const page = await fetchJson<{ items?: Video[] }>(url, { signal: options.signal });
+  if (!page) return null;
+
+  return (page.items ?? [])
+    .map((video) => ({
+      title: (video.snippet?.title ?? '').trim(),
+      channel: (video.snippet?.channelTitle ?? '').trim(),
+      url: video.id ? `https://www.youtube.com/watch?v=${video.id}` : '',
+    }))
+    .filter((video) => video.title.length > 0);
+};
+
+/** The channels the user subscribes to, most relevant first, or `null` on failure. */
+export const listSubscriptions = async (
+  fetchJson: ConnectorFetch,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<SubscribedChannel[] | null> => {
+  const url = `${YOUTUBE_API}/subscriptions${query({
+    part: 'snippet',
+    mine: true,
+    maxResults: clampLimit(options.limit),
+    order: 'relevance',
+  })}`;
+  const page = await fetchJson<{ items?: Subscription[] }>(url, { signal: options.signal });
+  if (!page) return null;
+
+  return (page.items ?? [])
+    .map((entry) => {
+      const channelId = entry.snippet?.resourceId?.channelId;
+      return {
+        title: (entry.snippet?.title ?? '').trim(),
+        url: channelId ? `https://www.youtube.com/channel/${channelId}` : '',
+      };
+    })
+    .filter((channel) => channel.title.length > 0);
 };

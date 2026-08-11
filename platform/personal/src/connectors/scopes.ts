@@ -65,17 +65,29 @@ const driveRead: ConnectorScope = {
   tier: 'restricted',
 };
 
+/**
+ * Google's recommended Drive scope, and the reason Drive needs no verification:
+ * `drive.file` is non-sensitive because it grants nothing up front — access is
+ * per-file, and only for files the user opened in Willow or Willow created. The
+ * broad `drive.readonly` above is the restricted one.
+ */
 const driveFile: ConnectorScope = {
   url: 'https://www.googleapis.com/auth/drive.file',
   summary: 'Access files you open or create in Willow',
-  tier: 'restricted',
+  tier: 'basic',
 };
 
-/** Docs has no read scope distinct from Drive: a Docs file is a Drive file. */
+/**
+ * Docs has no read scope distinct from Drive: a Docs file is a Drive file.
+ *
+ * Sensitive rather than restricted, per the Cloud console's own classification —
+ * it needs the consent screen but not the verification a restricted scope drags
+ * in. Only `gmail.metadata` and `drive.readonly` are restricted here.
+ */
 const docsWrite: ConnectorScope = {
   url: 'https://www.googleapis.com/auth/documents',
   summary: 'Create and edit documents',
-  tier: 'restricted',
+  tier: 'sensitive',
 };
 
 export const SCOPES: Record<

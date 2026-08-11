@@ -78,7 +78,38 @@ it('reads the skip once and reuses it, so style and gate cannot disagree', () =>
   const view = CHAT_VIEW();
   assert.match(
     view,
-    /const skip = messageSkipStyle\(msg\.id, !isLastAssistant && !generating\);/,
+    /const skip = messageSkipStyle\(\s*msg\.id,/,
     'a second messageSkipStyle call could return a different result from the one spread',
+  );
+});
+
+it('stands containment down for the whole thread while a turn is in flight', () => {
+  // A send is exactly when the previous reply stops being isLastAssistant. If it
+  // gained containment at that moment, the first layout after the flip would
+  // report its intrinsic size rather than its real one (measured: 1152px -> 240px),
+  // and the entrance animation reads offsetTop in the very next rAF to size its
+  // glide. Gating on the thread-wide flag keeps the send path at its original
+  // geometry; the panel toggle this optimisation is for happens when idle.
+  assert.match(
+    CHAT_VIEW(),
+    /!isLastAssistant && !generating && !isGenerating,/,
+    'the thread-wide isGenerating gate is what keeps the send entrance measuring true geometry',
+  );
+});
+
+it('measures the inner content wrapper, never the reserve-carrying outer box', () => {
+  const view = CHAT_VIEW();
+  // The outer box of the last assistant turn carries responseAreaMinHeight.
+  // Caching that inflated height and then handing it back as an intrinsic size
+  // is what drove entranceOffset negative and made the new turn teleport.
+  assert.doesNotMatch(
+    view,
+    /messageRefs\.current\[msg\.id\] = el;\s*\n\s*measureMessageRef/,
+    'measurement must not sit on the outer wrapper — that box includes the reserve',
+  );
+  assert.match(
+    view,
+    /if \(isLastAssistant\) lastAssistantContentRef\.current = el;\s*\n\s*else if \(lastAssistantContentRef\.current === el\) lastAssistantContentRef\.current = null;\s*\n\s*measureMessageRef\(msg\.id\)\(el\);/,
+    'measurement belongs on the inner content wrapper, and the last-assistant ref must still be cleared by hand',
   );
 });

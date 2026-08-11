@@ -142,3 +142,87 @@ export const calendarConnector: ConnectorReader = {
   id: 'calendar',
   readSignals: readCalendarSignals,
 };
+
+// ---------------------------------------------------------------------------
+// Live reads — the actual schedule, for a question asked right now.
+// ---------------------------------------------------------------------------
+
+/** A live read looks at one page. Fifty events covers any window worth asking about. */
+const LIVE_PAGE_SIZE = 50;
+
+/** The furthest ahead a live read will look, however wide a window is requested. */
+const MAX_LOOK_AHEAD_DAYS = 180;
+
+export interface ScheduledEvent {
+  title: string;
+  /** `YYYY-MM-DD` for an all-day event, an ISO timestamp otherwise. */
+  start: string;
+  end?: string;
+  allDay: boolean;
+  location?: string;
+  /** Display names only, and only when there are few enough to mean something. */
+  attendees: string[];
+  recurring: boolean;
+}
+
+const startValue = (event: CalendarEvent): string =>
+  (event.start?.date ?? event.start?.dateTime ?? '').trim();
+
+/**
+ * The user's schedule across a window, or `null` if the call failed.
+ *
+ * Unlike `readCalendarSignals` this keeps recurring instances separate and does
+ * not dedupe by title, because "what is on my calendar tomorrow" wants three
+ * standups if there are three, not one fact about the user's week. The window is
+ * the caller's to choose — the profile builder's fortnight-back-six-weeks-forward
+ * is a rule about what belongs in a stored description of someone's life, not a
+ * limit on what they may ask about their own calendar.
+ */
+export const listScheduledEvents = async (
+  fetchJson: ConnectorFetch,
+  options: { daysAhead?: number; daysBack?: number; limit?: number; signal?: AbortSignal } = {},
+): Promise<ScheduledEvent[] | null> => {
+  const now = Date.now();
+  const ahead = Math.min(Math.max(options.daysAhead ?? 7, 0), MAX_LOOK_AHEAD_DAYS);
+  const back = Math.min(Math.max(options.daysBack ?? 0, 0), MAX_LOOK_AHEAD_DAYS);
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), LIVE_PAGE_SIZE);
+
+  const url = `${CALENDAR_API}/calendars/primary/events${query({
+    timeMin: new Date(now - back * DAY_MS).toISOString(),
+    timeMax: new Date(now + ahead * DAY_MS).toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: limit,
+  })}`;
+
+  const page = await fetchJson<{ items?: CalendarEvent[] }>(url, { signal: options.signal });
+  if (!page) return null;
+
+  const events: ScheduledEvent[] = [];
+  for (const event of page.items ?? []) {
+    // Cancelled and declined events are dropped for the same reason as in the
+    // profile: they are things the user is not doing. Birthdays and recurring
+    // instances are kept here, because a question about a day wants the day.
+    if (event.status === 'cancelled') continue;
+    const self = event.attendees?.find((attendee) => attendee.self);
+    if (self?.responseStatus === 'declined') continue;
+    const title = (event.summary ?? '').trim();
+    const start = startValue(event);
+    if (!title || !start) continue;
+
+    const location = (event.location ?? '').trim();
+    events.push({
+      title,
+      start,
+      ...(event.end?.date ?? event.end?.dateTime
+        ? { end: (event.end?.date ?? event.end?.dateTime)!.trim() }
+        : {}),
+      allDay: Boolean(event.start?.date),
+      ...(location && location.length < 120 ? { location } : {}),
+      attendees: namedAttendees(event),
+      recurring: Boolean(event.recurringEventId),
+    });
+  }
+
+  return events;
+};
