@@ -1,5 +1,6 @@
 import React from 'react';
-import { MoreVertical, Pin, Terminal } from 'lucide-react';
+import { Pin, Terminal } from 'lucide-react';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SidebarItem } from './SidebarPrimitives';
 
 /**
@@ -82,25 +83,42 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
     onClick={() => onSelect(chatId)}
     keepActionsVisible={isMenuOpen || startedInCode}
     actions={
+      /*
+       * Measured on Gemini's Recents row: BUTTON 24x24, `dxFromRowRight: 8`,
+       * `dyFromRowTop: 4`, background transparent with `border-radius: 9999px`,
+       * padding 0. It is revealed by `visibility: hidden -> visible` with
+       * `opacity: 1` in BOTH states, so there is no fade. The hover tint comes
+       * from a `.mat-mdc-button-persistent-ripple` child at rgb(196, 199, 197)
+       * opacity 0.08 — the button's own background never changes.
+       *
+       * The Terminal overlay is Willow's own "started in Code mode" marker and
+       * has no Gemini counterpart; it is left as it was.
+       */
       <button
         onClick={(e) => onMenuClick(e, chatId)}
         aria-label={`More options for ${displayName}`}
-        className={`relative flex h-[22px] w-[22px] items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white transition-colors shrink-0 ${
-          isMenuOpen || startedInCode ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+        className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
+          isMenuOpen || startedInCode ? 'visible' : 'invisible group-hover/item:visible'
         }`}
       >
         {startedInCode && !isMenuOpen && (
           <span
             title="Started in Code mode"
-            className="absolute inset-0 flex items-center justify-center rounded-md bg-white/10 group-hover/item:opacity-0 group-hover/item:pointer-events-none transition-opacity"
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-white/10 transition-opacity group-hover/item:pointer-events-none group-hover/item:opacity-0"
           >
             <Terminal size={14} strokeWidth={2} aria-hidden="true" />
           </span>
         )}
-        <MoreVertical
-          size={14}
-          aria-hidden="true"
-          className={startedInCode && !isMenuOpen ? 'opacity-0 group-hover/item:opacity-100 transition-opacity' : undefined}
+        <MaterialSymbol
+          name="more_vert"
+          family="luminous"
+          size={20}
+          weight={320}
+          roundness={100}
+          opticalSize={20}
+          className={`relative ${
+            startedInCode && !isMenuOpen ? 'opacity-0 transition-opacity group-hover/item:opacity-100' : ''
+          }`}
         />
       </button>
     }

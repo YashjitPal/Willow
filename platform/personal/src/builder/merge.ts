@@ -17,14 +17,24 @@ import { isStorableClaim } from '../profile/sensitive';
 import { bulletFingerprint, type ProfileBullet } from '../profile/types';
 import type { ExtractedBullet } from './extract-prompt';
 
+/**
+ * A candidate, from either half of the build.
+ *
+ * The extractor's bullets have no source of their own — they all came from chat
+ * history — while a connector's bullets each name their product. So `source` is
+ * optional per candidate and falls back to the run's source, which keeps one
+ * merge path for both halves instead of two that could drift apart.
+ */
+export type MergeCandidate = ExtractedBullet & { source?: string };
+
 export interface MergeInput {
-  /** Everything the extractor returned across every batch this run. */
-  candidates: ExtractedBullet[];
+  /** Everything the extractor and the connectors produced this run. */
+  candidates: MergeCandidate[];
   /** Auto bullets from the previous profile. User bullets never come in here. */
   existing: ProfileBullet[];
   /** Fingerprints of bullets the user deleted. */
   suppressed: string[];
-  /** Where the candidates came from, as shown in Settings. */
+  /** Fallback source for candidates that do not name one. */
   source: string;
   /** Injected so a test can pin it and so expiry is computed once per run. */
   now: Date;
@@ -211,7 +221,7 @@ export const mergeCandidates = ({
       id: newId(),
       section,
       text: trimTo(text, MAX_TEXT_CHARS),
-      source,
+      source: candidate.source?.trim() || source,
       evidence: trimTo(evidence, MAX_EVIDENCE_CHARS),
       ...(candidate.date ? { date: candidate.date } : {}),
       origin: 'auto',
