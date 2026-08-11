@@ -406,7 +406,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isHidden = false
 }) => {
   const navigate = useNavigate();
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, loading: isAuthLoading } = useAuth();
   const currentSparkLocation = useStore(sparkLocation);
   const {
     chatScopeId,
@@ -414,12 +414,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     activeChatId, 
     selectLocalFSInboxChat, 
     isLocalFolderConnected,
-    isLocalFolderAuthorized,
     authorizeLocalFolder,
     deleteLocalFSChat,
     renameLocalFSChat,
     loadLocalFSChat,
-    isInitializingLocalFS
+    isInitializingLocalFS,
+    isChatListHydrated
   } = useLocalFS();
 
   const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
@@ -1276,7 +1276,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
 
-              {!isInitializingLocalFS && isLocalFolderConnected && (!isLocalFolderAuthorized || localChats.length > 0) && (
+              {/*
+                * Gated on `isChatListHydrated`, NOT on `!isInitializingLocalFS`.
+                * The list comes out of localStorage in one synchronous pass and
+                * the titles are the filenames, so it is ready at the same moment
+                * the nav rows above it are; the init flag additionally waits on
+                * folder permission, a per-file disk reconcile, and a projects
+                * scan. See the field's note in `LocalFSContext.tsx`.
+                *
+                * `localChats.length > 0` covers the HEADER too, deliberately.
+                * This used to read `(!isLocalFolderAuthorized || localChats.length > 0)`,
+                * which rendered a bare "Recents" heading with nothing beneath it
+                * during the window where the folder is connected but permission
+                * has not been re-granted — the body below is gated on the same
+                * `length > 0`, so that branch could only ever produce a label
+                * over empty space. A section heading is a promise that there is
+                * a section; it now appears only once there is one.
+                */}
+              {isChatListHydrated && isLocalFolderConnected && localChats.length > 0 && (
                 <>
                   <SectionHeader
                     title="Recents"
@@ -1433,7 +1450,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }}
       >
         <div className="flex h-10 min-w-0 items-center">
-          {user ? (
+          {/*
+           * Three states, not two. `loading` is true until Firebase has both
+           * restored the session AND fetched the Firestore profile, so without
+           * this branch the footer rendered "Sign In", then an email-initial
+           * disc, then the real photo and name — the identity visibly changing
+           * twice on every refresh.
+           *
+           * The placeholder is EMPTY ON PURPOSE — no shimmer, no grey discs.
+           * The rest of the sidebar fills in element by element against the bare
+           * surface, and a pulsing account row would be the one thing on the
+           * rail drawing attention to itself while everything else quietly
+           * arrives. It still reserves the exact 40px row height, so the real
+           * avatar and name land without shifting anything.
+           */}
+          {isAuthLoading ? (
+            <div className="flex h-10 min-w-0 items-center pl-[5px] pr-1.5" aria-hidden="true" />
+          ) : user ? (
             <div className="relative flex h-10 min-w-0 items-center">
               <UserMenu
                 isOpen={isUserMenuOpen}
@@ -1460,10 +1493,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <img
                     src={userProfile.photoURL}
                     alt="User"
-                    className={`h-[30px] w-[30px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
+                    className={`willow-profile-reveal h-[30px] w-[30px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
                   />
                 ) : (
-                  <span className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
+                  <span className={`willow-profile-reveal flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
                     {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                   </span>
                 )}
@@ -1489,7 +1522,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * ever exists, the numbers above are the measurement to build it from.
                  */}
                 {!isCollapsed && (
-                  <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6]">
+                  <span className="willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6]">
                     {userProfile?.displayName || user?.email || 'Account'}
                   </span>
                 )}

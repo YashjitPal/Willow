@@ -57,6 +57,28 @@ export const STOP_BUTTON_ICON = {
   variationSettings: '"FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300',
 } as const;
 
+/**
+ * The attached-tool chip's two typography readings, taken off Gemini's live chip.
+ *
+ * Glyph: `lm-icon-s`, 16px Luminous Symbols. `opsz` is 16 here, not the 20 the plus
+ * menu's rows use -- the chip's glyph is a size smaller than the menu's, so the optical
+ * size axis differs and they cannot share one constant.
+ *
+ * Label: `.gds-body-s` at 13px/17px weight 400. Same axis set as the menu labels and the
+ * sidebar body text, which is Gemini's shared body token rather than a coincidence.
+ *
+ * The family has to be stated explicitly. Gemini resolves this label to Google Sans Flex,
+ * whose `wdth` axis is live -- "Music" measures 35.29px at `wdth 92` against 36.67px at
+ * 100. Without the family the chip inherits Inter, which has no `wdth` axis at all, so
+ * the 92 is silently ignored and every chip renders ~1.6px too wide.
+ */
+export const CHIP_GLYPH_AXES = '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330';
+
+export const CHIP_LABEL_STYLE: React.CSSProperties = {
+  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+  fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+};
+
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -325,45 +347,82 @@ export const InputBar: React.FC<{
     }
   };
 
+  /**
+   * Gemini's attached-tool chip, measured off the live app rather than styled by eye.
+   *
+   * This used to be `#bae6fd` ("Refined light blue color (sky-200)") on `bg-sky-500/10`,
+   * which is where the blue tint came from. Gemini's chip has no blue in it at all — it is
+   * a neutral tonal button. Every value below is a reading off
+   * `toolbox-drawer gem-button.selected-item-gem-button`:
+   *
+   *   host gem-button   padding 0 0 0 8px          (the gap from the plus button)
+   *   button            24px tall, radius 9999px, bg rgba(255,255,255,0.12),
+   *                     colour rgb(230,230,230), padding 0 8px 0 4px, cursor default
+   *   content           display flex, gap 4px, align centre
+   *   glyph             16px Luminous Symbols, "FILL" 0 "GRAD" 0 "ROND" 100 "opsz" 16 "wght" 330
+   *   label             .gds-body-s, 13px/17px, weight 400, "wdth" 92
+   *
+   * Two behaviours that are easy to get wrong and are both measured, not assumed:
+   *
+   * 1. The close glyph is APPENDED on hover, it does not replace the tool glyph. Gemini
+   *    keeps both — `.on-focus-secondary-icon` is `display: none` until
+   *    `button:hover, button:focus`. The old code swapped the icon out, which is why the
+   *    chip appeared to change identity under the cursor.
+   * 2. The chip grows by exactly 16px on hover, because the right padding drops 8px -> 4px
+   *    as the 16px glyph and its 4px gap arrive: rest 4+16+4+43.9+8 = 75.9, hover
+   *    4+16+4+43.9+4+16+4 = 91.9. Both verified against the live rects.
+   *
+   * There is deliberately NO transition. Gemini's only authored one is
+   * `box-shadow 0.28s`, and box-shadow never changes here, so the growth is instant.
+   * `transition-all duration-200` would ease the padding and the width — an animation
+   * Gemini does not have.
+   *
+   * The whole chip is one button labelled "Deselect <label>", which is Gemini's own
+   * accessible name; the close glyph is decoration inside it, not a separate control.
+   */
   const ToolChip = ({ toolId, onRemove }: { toolId: ToolId, onRemove: () => void }) => {
     const tool = TOOLS[toolId];
     const Icon = tool.icon;
-    const [isHovered, setIsHovered] = useState(false);
-
-    // Refined light blue color (sky-200)
-    const lightBlue = "#bae6fd"; 
+    const glyph = TOOL_SYMBOLS[toolId];
 
     return (
-      <div 
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        className={`flex items-center gap-2 px-2.5 py-2.5 rounded-full transition-all duration-200 cursor-default select-none border-transparent ${
-          isHovered 
-            ? "bg-sky-500/10" 
-            : "bg-transparent"
-        }`}
+      <button
+        type="button"
+        aria-label={`Deselect ${tool.chipLabel}`}
+        onClick={onRemove}
+        className="group flex h-6 shrink-0 cursor-default select-none items-center justify-center rounded-full bg-[rgba(255,255,255,0.12)] pl-1 pr-2 hover:pr-1 focus-visible:pr-1"
       >
-        {isHovered ? (
-          <div 
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            className="w-4 h-4 rounded-full bg-sky-500/20 flex items-center justify-center hover:bg-sky-500/30 transition-colors cursor-pointer"
+        <span className="flex items-center gap-1">
+          {chatVariant && glyph
+            ? <MaterialSymbol
+                name={glyph}
+                family="luminous"
+                size={16}
+                weight={330}
+                variationSettings={CHIP_GLYPH_AXES}
+                className="text-[#e6e6e6]"
+              />
+            : <Icon size={16} className="text-[#e6e6e6]" strokeWidth={2.2} />}
+          <span
+            className="whitespace-nowrap text-[13px] font-normal leading-[17px] text-[#e6e6e6]"
+            style={CHIP_LABEL_STYLE}
           >
+            {tool.chipLabel}
+          </span>
+          <span className="hidden group-hover:flex group-focus-visible:flex">
             {chatVariant
-              ? <MaterialSymbol name="close" size={12} weight={500} className="text-[#bae6fd]" />
-              : <X size={10} className="text-[#bae6fd]" strokeWidth={3} />}
-          </div>
-        ) : (
-          chatVariant && TOOL_SYMBOLS[toolId]
-            ? <MaterialSymbol name={TOOL_SYMBOLS[toolId]!} size={18} className="text-[#bae6fd]" />
-            : <Icon size={16} className="text-[#bae6fd]" strokeWidth={2.2} />
-        )}
-        <span className="text-[13.5px] font-medium leading-none text-[#bae6fd]">
-          {tool.chipLabel}
+              ? <MaterialSymbol
+                  name="close"
+                  family="luminous"
+                  size={16}
+                  weight={330}
+                  variationSettings={CHIP_GLYPH_AXES}
+                  className="text-[#e6e6e6]"
+                />
+              : <X size={12} className="text-[#e6e6e6]" strokeWidth={2.2} />}
+          </span>
         </span>
-      </div>
+      </button>
     );
   };
 
@@ -705,8 +764,14 @@ export const InputBar: React.FC<{
                   geminiStyle={chatVariant}
                 />
               </div>
+              {/* No entrance/exit animation: measured against Gemini, both directions are
+                  instant. rAF traces of the attach (70 frames) and detach (71 frames) show
+                  the field snapping 64<->102px in a single frame with getAnimations() empty
+                  on the field, input area, leading cluster and toolbox-drawer throughout —
+                  against a passing positive control. The Angular ng-trigger-toolboxDrawerEnter
+                  attribute is present but declares no animation that runs here. */}
               {selectedTool && (
-                <div className="mt-[1px] animate-in fade-in zoom-in-95 duration-200">
+                <div className="mt-[1px]">
                   <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
                 </div>
               )}

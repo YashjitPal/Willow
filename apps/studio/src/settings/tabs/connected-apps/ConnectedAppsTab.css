@@ -35,6 +35,11 @@
   background: var(--ca-surface);
   color: var(--ca-on-surface);
   font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  /* Gemini runs this page's body text on the narrow width axis. Weight stays in
+     CSS's hands; only ROND/slnt/wdth are inherited. Icons are unaffected —
+     MaterialSymbol always writes its own font-variation-settings, and the
+     property replaces rather than merges. */
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92;
 }
 
 /* Type scale. Defined locally rather than relying on PersonalIntelligenceTab.css
@@ -45,6 +50,8 @@
   font-weight: 360;
   line-height: 38px;
   letter-spacing: 0;
+  /* The headline is the one full-width, fully-rounded item on the page. */
+  font-variation-settings: 'ROND' 100, 'slnt' 0, 'wdth' 100, 'wght' 360;
   margin: 0;
 }
 
@@ -54,6 +61,7 @@
   font-weight: 470;
   line-height: 24px;
   letter-spacing: 0;
+  font-variation-settings: 'ROND' 20, 'slnt' 0, 'wdth' 94, 'wght' 470;
   margin: 0;
 }
 
@@ -114,11 +122,16 @@
 
 /* ---------- Category chips ---------- */
 
+/* Gemini nests a -8px-margin flex row inside an auto-centred inline-block to
+   cancel the first chip's leading margin. A centred flex row with a gap is the
+   same 8px rhythm without the negative-margin dance — and it can't fight the
+   auto centring. */
 .connected-apps-container .ca-chip-row {
-  display: inline-block;
-  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ca-spacing-s);
   padding: var(--ca-spacing-xxl) 0;
-  white-space: nowrap;
 }
 
 .connected-apps-container .ca-chip {
@@ -127,7 +140,7 @@
   align-items: center;
   justify-content: center;
   height: 32px;
-  margin: var(--ca-spacing-xs) 0 var(--ca-spacing-xs) var(--ca-spacing-s);
+  margin: var(--ca-spacing-xs) 0;
   padding: 0 var(--ca-spacing-m);
   border: none;
   border-radius: var(--ca-spacing-s);
@@ -137,6 +150,8 @@
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
+  /* At 14px Gemini leaves the chip label on the default axes. */
+  font-variation-settings: normal;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -288,6 +303,15 @@
   overflow: hidden;
 }
 
+/* Once expanded the card is height:max-content, so there is no free space for
+   `flex: 1 1 0` to claim and the block would collapse to zero — dropping the
+   description and the "Show less" button on top of the expanded panel. Give it
+   its natural height instead. */
+.connected-apps-container .ca-card.ca-expanded .ca-collapsed-content {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .connected-apps-container .ca-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -308,6 +332,7 @@
   font-size: 17px;
   font-weight: 370;
   line-height: 24px;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 370;
   text-align: start;
   cursor: pointer;
 }
@@ -646,7 +671,7 @@
 .connected-apps-container .ca-privacy {
   display: flex;
   gap: var(--ca-spacing-l);
-  padding: 0 var(--ca-spacing-l);
+  padding: var(--ca-spacing-l);
 }
 
 .connected-apps-container .ca-privacy-text {

@@ -23,6 +23,33 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+/*
+ * Hands off from the static boot shell in `index.html` to the real app.
+ *
+ * The two frames matter. React's commit only puts nodes in the DOM; the browser
+ * has not painted them yet, so fading the shell out on the commit alone
+ * uncovers an empty `#root` for one frame — a black flash exactly where the
+ * shell was supposed to prevent one. The first rAF fires before that paint, the
+ * second after it, at which point the real chrome is genuinely on screen.
+ *
+ * `opacity` then `remove()`: the node has to survive its own 120ms transition,
+ * and it stays interaction-inert throughout (`pointer-events: none` comes with
+ * the dismissed state) so it cannot swallow a click aimed at the app beneath.
+ *
+ * Idempotent and self-cancelling — under StrictMode this runs twice in dev, and
+ * the second pass finds nothing to do.
+ */
+const dismissBootShell = () => {
+  const shell = document.getElementById('willow-boot');
+  if (!shell || shell.dataset.dismissed === 'true') return;
+  shell.dataset.dismissed = 'true';
+  const remove = () => shell.remove();
+  shell.addEventListener('transitionend', remove, { once: true });
+  // Belt and braces: `transitionend` never fires if the transition is disabled
+  // (reduced motion) or the tab is backgrounded mid-fade.
+  window.setTimeout(remove, 400);
+};
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
@@ -39,3 +66,5 @@ root.render(
     </AuthProvider>
   </React.StrictMode>
 );
+
+requestAnimationFrame(() => requestAnimationFrame(dismissBootShell));

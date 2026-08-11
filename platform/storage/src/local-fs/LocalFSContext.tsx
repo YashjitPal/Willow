@@ -100,15 +100,34 @@ interface LocalFSContextType {
   renameLocalFSChat: (oldChatId: string, newChatId: string) => Promise<boolean>;
   getChatTimestamp: (chatId: string) => number;
   isInitializingLocalFS: boolean;
+  /*
+   * True once the chat registry has been read out of localStorage for the
+   * current scope — i.e. the moment the Recents list is renderable.
+   *
+   * This is deliberately NOT `!isInitializingLocalFS`. That flag means "the
+   * whole local-FS restore has settled", which includes verifying folder
+   * permission, walking every chat file on disk, and re-scanning projects —
+   * none of which the sidebar list needs. Chat titles ARE the filenames and the
+   * ordering comes from the timestamp index, so the list is complete and
+   * correct straight out of localStorage; the disk walk only corrects it if
+   * something changed outside the app. Gating the list on the walk is what made
+   * Recents show up seconds after the nav rows above it.
+   *
+   * Monotonic: once true it stays true, including across a scope switch. The
+   * switch clears `localChats` and `activateChatScope` refills it in the same
+   * pass, so flipping this back to false would only buy a flash of nothing.
+   */
+  isChatListHydrated: boolean;
 }
 
 const LocalFSContext = createContext<LocalFSContextType | null>(null);
 
 export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any }> = ({ children, modelConfig }) => {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, loading: isAuthLoading } = useAuth();
   const { apiKeys } = useUserDataContext();
   const [isSupported] = useState(isFSAAPISupported);
   const [isInitializingLocalFS, setIsInitializingLocalFS] = useState(true);
+  const [isChatListHydrated, setIsChatListHydrated] = useState(false);
   const [isLocalFolderConnected, setIsLocalFolderConnected] = useState(false);
   const [isLocalFolderAuthorized, setIsLocalFolderAuthorized] = useState(false);
   const [localFolderName, setLocalFolderName] = useState<string | null>(null);
@@ -941,8 +960,27 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   useEffect(() => {
     if (!isSupported) {
       setIsInitializingLocalFS(false);
+      setIsChatListHydrated(true);
       return;
     }
+    /*
+     * Wait for auth before touching the chat registry.
+     *
+     * The scope id is `${uid}::${rootId}::${workspaceName}`, and BOTH of those
+     * first two come from auth. Running while `loading` is still true meant
+     * hydrating under `signed-out::…` — which for a signed-in user with a saved
+     * folder is a real, populated scope — and then re-running once Firebase
+     * reported the uid, where `buildChatScopeId(...) !== chatScopeIdRef.current`
+     * is now true and the wipe below fires. That is exactly the reported
+     * flicker: the list paints from the provisional scope, is cleared when the
+     * true scope arrives, and paints again after the second activation.
+     *
+     * Holding here removes the wrong-scope pass entirely, so the list paints
+     * once, correctly. It costs nothing visually: `isChatListHydrated` stays
+     * false throughout, so Recents renders nothing rather than something wrong,
+     * and the rest of the sidebar is not gated on this at all.
+     */
+    if (isAuthLoading) return;
     let cancelled = false;
     let generation = ++providerGenerationRef.current;
     const isCurrent = () => !cancelled && providerGenerationRef.current === generation;
@@ -976,6 +1014,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
 
       await activateChatScope(nextRootId);
+      // The registry is now on screen: `activateChatScope` seeds `localChats`
+      // synchronously from localStorage, and chat titles are the filenames, so
+      // nothing below this line changes what Recents renders unless the folder
+      // was edited outside the app. Release the sidebar here rather than at the
+      // end of the restore.
+      if (!cancelled) setIsChatListHydrated(true);
       // activateChatScope advances the generation when account/root/workspace
       // changes; adopt that new generation for the work this restore started.
       if (cancelled) return;
@@ -988,6 +1032,20 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         try {
           const hasAccess = await verifyPermission(handle, false, false);
           if (hasAccess) {
+            /*
+             * Authorization is settled by `verifyPermission`, not by the disk
+             * walk below — so both this flag and the init gate flip here. They
+             * used to flip after `syncChatsWithDisk` + `syncProjectsFromDisk`,
+             * which meant every consumer of `isInitializingLocalFS` (including
+             * the "Authorize local folder?" modal) waited on a full per-file
+             * reconcile plus an unrelated projects scan. Releasing them here
+             * cannot flash the modal: `isLocalFolderAuthorized` is already true
+             * in the same commit.
+             */
+            if (isCurrent()) {
+              setIsLocalFolderAuthorized(true);
+              setIsInitializingLocalFS(false);
+            }
             const workspaceName = getSanitizedWorkspaceName();
             // Do NOT create the workspace folder here. On early mount the user
             // profile (and thus the real workspace name) may not have loaded
@@ -1007,7 +1065,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               // Recover & re-tag projects from disk (self-healing registry).
               await syncProjectsFromDisk(workspaceDir);
             }
-            if (isCurrent()) setIsLocalFolderAuthorized(true);
           } else {
             setIsLocalFolderAuthorized(false);
           }
@@ -1019,18 +1076,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         setLocalFolderName(null);
         setIsLocalFolderConnected(false);
       }
+      // Catch-all for the paths that did not release it above (no handle,
+      // permission denied, or a throw mid-restore). Idempotent.
       if (isCurrent()) setIsInitializingLocalFS(false);
     };
 
     void restoreConnection().catch(() => {
       if (isCurrent()) setIsInitializingLocalFS(false);
+      if (!cancelled) setIsChatListHydrated(true);
     });
     return () => {
       cancelled = true;
       providerGenerationRef.current += 1;
       pendingChatsDirRef.current = null;
     };
-  }, [isSupported, buildChatScopeId, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
+  }, [isSupported, isAuthLoading, buildChatScopeId, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
 
   // Cross-tab sync bridge. Another tab's writes to the shared localStorage
   // registry/indexes fire only the DOM `storage` event in this tab — nothing
@@ -2336,7 +2396,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         deleteLocalFSProject,
         renameLocalFSChat,
         getChatTimestamp: getScopedChatTimestamp,
-        isInitializingLocalFS
+        isInitializingLocalFS,
+        isChatListHydrated
       }}
     >
       {children}

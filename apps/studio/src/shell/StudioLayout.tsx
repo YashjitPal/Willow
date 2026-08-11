@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { Sidebar, ViewType } from './sidebar/Sidebar';
 import { SearchModal } from './SearchModal';
@@ -7,18 +6,26 @@ import { useBackground } from './BackgroundContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { WaveShaderBackground } from '@willow/ui/wave-shader';
 import { ShaderAnimation } from '@willow/ui/shader-lines';
-import { RainbowButton } from '@willow/ui/rainbow-button';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import type { StudioExperience } from '@willow/core/types';
 
-// Dynamic background renderer based on context
-const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapsed?: boolean }> = ({ isAuthenticated, isSidebarCollapsed }) => {
+/*
+ * Signed out is NOT a different layout. Everything Willow does runs locally, so
+ * the shell, the sidebar and the background are identical in both states and the
+ * only thing sign-in changes is the handful of features that genuinely need an
+ * account — those call `onAuthRequired` at their own call sites (see
+ * `ChatView.tsx` `isAuthenticated` guards).
+ *
+ * This used to be three separate signed-out overrides: the `lines` shader forced
+ * on regardless of the user's saved background, the sidebar gated out entirely,
+ * and a Log in / Sign up pair pinned top-right. Together they read as a barrier
+ * screen in front of an app that never needed one. All three are gone; do not
+ * reintroduce a signed-out-only visual.
+ */
+const BackgroundRenderer: React.FC<{ isSidebarCollapsed?: boolean }> = ({ isSidebarCollapsed }) => {
   const { background } = useBackground();
-  
-  // Force 'lines' background for non-authenticated users
-  const effectiveBackground = isAuthenticated ? background : 'lines';
-  
-  switch (effectiveBackground) {
+
+  switch (background) {
     case 'waves':
       return <WaveShaderBackground isSidebarCollapsed={isSidebarCollapsed} />;
     case 'lines':
@@ -29,24 +36,6 @@ const BackgroundRenderer: React.FC<{ isAuthenticated: boolean; isSidebarCollapse
   }
 };
 
-// Auth buttons for non-authenticated users
-const AuthButtons: React.FC = () => {
-  return (
-    <div className="absolute top-4 right-6 z-50 flex items-center gap-3">
-      <Link to="/login?mode=login">
-        <button className="px-4 py-2 text-sm font-medium text-white/80 hover:text-white transition-colors">
-          Log in
-        </button>
-      </Link>
-      <Link to="/login?mode=signup">
-        <RainbowButton className="px-4 py-2 text-sm font-bold">
-          Sign up
-        </RainbowButton>
-      </Link>
-    </div>
-  );
-};
-
 export const StudioLayout: React.FC<{
   isSearchOpen: boolean;
   setIsSearchOpen: (open: boolean) => void;
@@ -54,7 +43,6 @@ export const StudioLayout: React.FC<{
   setCurrentView: (view: ViewType) => void;
   children: React.ReactNode;
   onSettingsClick: (tabId?: string) => void;
-  isAuthenticated: boolean;
   studioMode: 'develop' | 'chat' | 'media';
   onModeChange: (mode: 'develop' | 'chat' | 'media') => void;
   studioExperience: StudioExperience;
@@ -73,7 +61,6 @@ export const StudioLayout: React.FC<{
   setCurrentView,
   children,
   onSettingsClick,
-  isAuthenticated,
   studioMode,
   onModeChange,
   studioExperience,
@@ -99,7 +86,6 @@ export const StudioLayout: React.FC<{
 
   const isChatExperience = studioExperience === 'chat';
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
-  const effectiveBackground = isAuthenticated ? background : 'lines';
   const studioSurface = '#0f0f0f';
   
   return (
@@ -108,9 +94,9 @@ export const StudioLayout: React.FC<{
       style={{ '--studio-surface': studioSurface } as React.CSSProperties}
     >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
-      {currentView === 'home' && isChatExperience && effectiveBackground === 'waves' && (
+      {currentView === 'home' && isChatExperience && background === 'waves' && (
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
+            <BackgroundRenderer isSidebarCollapsed={isSidebarCollapsed} />
             <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
             <div
               className="absolute inset-0 z-[2] pointer-events-none"
@@ -119,60 +105,54 @@ export const StudioLayout: React.FC<{
         </div>
       )}
 
-      {/* Only show sidebar when authenticated */}
-      {isAuthenticated && (
-        <>
-          {studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
-            <button
-              type="button"
-              className="studio-sidebar-mobile-open"
-              aria-label="Open sidebar"
-              onClick={() => setIsSidebarCollapsed(false)}
-            >
-              <MaterialSymbol
-                name="side_nav_expand"
-                family="google-symbols"
-                size={24}
-                weight={400}
-                opticalSize={24}
-              />
-            </button>
-          )}
-          <Sidebar
-            onSearchClick={() => setIsSearchOpen(true)}
-            currentView={currentView}
-            onViewChange={setCurrentView}
-            studioMode={studioMode}
-            onModeChange={onModeChange}
-            studioExperience={studioExperience}
-            onStudioExperienceChange={onStudioExperienceChange}
-            onSettingsClick={onSettingsClick}
-            backgroundType={effectiveBackground}
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            hasActiveChat={isChatOngoing}
-            onNewChat={() => {
-              selectLocalFSInboxChat(null);
-              onNewChat();
-            }}
-            isIncognito={isIncognito}
-            onIncognitoChat={onIncognitoChat}
-            isHidden={isSidebarHidden}
+      {/* The sidebar is unconditional — see the note on BackgroundRenderer above. */}
+      {studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
+        <button
+          type="button"
+          className="studio-sidebar-mobile-open"
+          aria-label="Open sidebar"
+          onClick={() => setIsSidebarCollapsed(false)}
+        >
+          <MaterialSymbol
+            name="side_nav_expand"
+            family="google-symbols"
+            size={24}
+            weight={400}
+            opticalSize={24}
           />
-          {studioExperience === 'spark' && !isSidebarCollapsed && (
-            <button
-              type="button"
-              className="studio-sidebar-mobile-scrim"
-              aria-label="Close navigation"
-              onClick={() => setIsSidebarCollapsed(true)}
-            />
-          )}
-        </>
+        </button>
       )}
-      
-      {/* Show auth buttons when not authenticated */}
-      {!isAuthenticated && <AuthButtons />}
-      
+      <Sidebar
+        onSearchClick={() => setIsSearchOpen(true)}
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        studioMode={studioMode}
+        onModeChange={onModeChange}
+        studioExperience={studioExperience}
+        onStudioExperienceChange={onStudioExperienceChange}
+        onSettingsClick={onSettingsClick}
+        backgroundType={background}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        hasActiveChat={isChatOngoing}
+        onNewChat={() => {
+          selectLocalFSInboxChat(null);
+          onNewChat();
+        }}
+        isIncognito={isIncognito}
+        onIncognitoChat={onIncognitoChat}
+        isHidden={isSidebarHidden}
+      />
+      {studioExperience === 'spark' && !isSidebarCollapsed && (
+        <button
+          type="button"
+          className="studio-sidebar-mobile-scrim"
+          aria-label="Close navigation"
+          onClick={() => setIsSidebarCollapsed(true)}
+        />
+      )}
+
+
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       {/* Persistent Authorize Sync Modal */}
@@ -287,9 +267,9 @@ export const StudioLayout: React.FC<{
           </div>
         )}
         {/* Background rendered in content area for lines only (solid is just plain color) */}
-        {currentView === 'home' && isChatExperience && effectiveBackground === 'lines' && (
+        {currentView === 'home' && isChatExperience && background === 'lines' && (
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-              <BackgroundRenderer isAuthenticated={isAuthenticated} isSidebarCollapsed={isSidebarCollapsed} />
+              <BackgroundRenderer isSidebarCollapsed={isSidebarCollapsed} />
               <div className="absolute inset-0 z-[1] pointer-events-none opacity-[0.06] mix-blend-overlay" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`}} />
               <div
                 className="absolute inset-0 z-[2] pointer-events-none"

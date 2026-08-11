@@ -38,6 +38,12 @@
  *
  * It starts at half scale and quarter opacity, not from zero. Confirmed live by sampling
  * getAnimations() the frame each pane appeared, on the root menu and both submenus.
+ *
+ * THE ICON INSET IS 8px ON THE BOX, 10px ON THE GLYPH — two different elements, so a
+ * probe that reads the wrong one looks like a 2px defect. Gemini's `mat-icon` is a 24x24
+ * box at inset 8 holding a 20px glyph, which puts the glyph's own text box at
+ * 8 + (24-20)/2 = 10. Willow nests the same way (`h-6 w-6` box at 8, 20px glyph span at
+ * 10), verified by measuring both apps' rendered rows side by side.
  */
 
 import assert from 'node:assert/strict';
