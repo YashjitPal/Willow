@@ -2,38 +2,52 @@ import React, { useCallback, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   APP_CATEGORIES,
-  DEFAULT_CONNECTIONS,
   LEARN_MORE_URL,
   PRIVACY_HUB_URL,
   SUBSCRIPTIONS_URL,
   type ChildApp,
   type ConnectedApp,
 } from './connectedAppsData';
+import { useConnections, type CardConnectionState } from './use-connections';
 import './ConnectedAppsTab.css';
 
 /**
  * Connected Apps — a clone of gemini.google.com/apps.
  *
- * UI only: toggles and "Learn more" drive local state, prompts are inert. The
- * geometry, colours and animation timings were measured off the live Gemini
+ * The geometry, colours and animation timings were measured off the live Gemini
  * page; see connectedAppsData.ts for where the copy came from.
+ *
+ * The toggles are real. A card with a connector behind it opens Google's consent
+ * screen and, if the user allows it, the product becomes readable by Willow;
+ * `use-connections.ts` owns that flow and `connector-map.ts` says which cards
+ * have a connector at all. The rest of the catalogue is still here, because it
+ * is what the page shows, but those switches are disabled rather than pretending
+ * — a switch that flips and grants nothing is worse than one that plainly can't.
+ *
+ * "Prompts to try" pills remain inert; they are illustrations of what to ask,
+ * not buttons, on Gemini's page too.
  */
 
 interface SwitchProps {
   checked: boolean;
+  disabled?: boolean;
   label: string;
   onChange: () => void;
+  title?: string;
 }
 
 /** Gemini's opt-in toggle. No check/cross glyphs — it doesn't render them here. */
-const Switch: React.FC<SwitchProps> = ({ checked, label, onChange }) => (
+const Switch: React.FC<SwitchProps> = ({ checked, disabled = false, label, onChange, title }) => (
   <button
     type="button"
     role="switch"
     aria-checked={checked}
     aria-label={label}
-    className="ca-switch"
+    aria-disabled={disabled}
+    className={`ca-switch${disabled ? ' ca-switch-disabled' : ''}`}
+    disabled={disabled}
     onClick={onChange}
+    title={title}
   >
     <span className="ca-switch-track" />
     <span className="ca-switch-handle" />
@@ -83,41 +97,99 @@ const ChildCard: React.FC<{ app: ChildApp }> = ({ app }) => (
 
 interface CardProps {
   app: ConnectedApp;
-  connected: boolean;
+  /** Null while GIS is still loading, so no switch claims a state it can't back. */
+  configured: boolean | null;
   expanded: boolean;
-  onToggle: (id: string) => void;
+  state: CardConnectionState;
+  onToggle: (id: string, name: string) => void;
   onToggleExpanded: (id: string) => void;
+  onToggleFeeds: (id: string) => void;
 }
 
-/** The Workspace card: full grid width, description beside a grid of child apps. */
-const ParentCard: React.FC<CardProps> = ({ app, connected, onToggle }) => (
-  <div className="ca-parent-card">
-    <div className="ca-opt-in-row">
-      <img alt="" aria-hidden="true" className="ca-logo" src={app.logo} />
-      <div className="ca-toggle-slot">
-        <Switch
-          checked={connected}
-          label={`Enables or disables the extension of ${app.name}`}
-          onChange={() => onToggle(app.id)}
-        />
-      </div>
-    </div>
-    <div className="ca-parent-content">
-      <div className="ca-parent-title">
-        <div className="ca-card-name ca-title-l">{app.name}</div>
-        <div className="ca-parent-description ca-body-m">{app.description}</div>
-      </div>
-      <div className="ca-child-grid">
-        {app.children?.map((child) => (
-          <ChildCard app={child} key={child.id} />
-        ))}
-      </div>
-    </div>
-  </div>
-);
+/** Why a card's switch can't be used, or null when it can. */
+const disabledReason = (state: CardConnectionState, configured: boolean | null): string | null => {
+  if (!state.connectable) return 'This app isn’t available to connect in Willow yet.';
+  if (configured === null) return 'Getting ready…';
+  if (!configured) return 'Connecting apps needs a Google OAuth client id, which this build doesn’t have.';
+  if (state.busy) return 'Waiting for the permission window…';
+  return null;
+};
 
-const AppCard: React.FC<CardProps> = ({ app, connected, expanded, onToggle, onToggleExpanded }) => {
+/**
+ * The second switch, shown only once a product is connected and only for the
+ * products Willow can actually learn from.
+ *
+ * Connecting Calendar and letting Calendar describe you are different decisions,
+ * so they get different switches. Drive and Docs never show this row: they are
+ * connected to get work done, and Willow deliberately never reads them to build
+ * a profile.
+ */
+const FeedsProfileRow: React.FC<{ app: ConnectedApp; state: CardConnectionState; onToggle: (id: string) => void }> = ({
+  app,
+  state,
+  onToggle,
+}) =>
+  state.connected && state.providesSignals ? (
+    <div className="ca-feeds-row">
+      <span className="ca-feeds-label ca-body-m">Use for personalization</span>
+      <Switch
+        checked={state.feedsProfile}
+        label={`Let ${app.name} inform what Willow remembers about you`}
+        onChange={() => onToggle(app.id)}
+      />
+    </div>
+  ) : null;
+
+/** The Workspace card: full grid width, description beside a grid of child apps. */
+const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle, onToggleFeeds }) => {
+  const reason = disabledReason(state, configured);
+  return (
+    <div className="ca-parent-card">
+      <div className="ca-opt-in-row">
+        <img alt="" aria-hidden="true" className="ca-logo" src={app.logo} />
+        <div className="ca-toggle-slot">
+          <Switch
+            checked={state.connected}
+            disabled={Boolean(reason)}
+            label={`Enables or disables the extension of ${app.name}`}
+            onChange={() => onToggle(app.id, app.name)}
+            title={reason ?? undefined}
+          />
+        </div>
+      </div>
+      <div className="ca-parent-content">
+        <div className="ca-parent-title">
+          <div className="ca-card-name ca-title-l">{app.name}</div>
+          <div className="ca-parent-description ca-body-m">{app.description}</div>
+          {/* One switch covers all five children, because Google grants their
+              scopes in a single consent screen. Saying so is cheaper than
+              letting the user wonder why the children have no switches. */}
+          <div className="ca-parent-note ca-label-s">
+            One permission screen covers every Workspace app listed here.
+          </div>
+          <FeedsProfileRow app={app} onToggle={onToggleFeeds} state={state} />
+        </div>
+        <div className="ca-child-grid">
+          {app.children?.map((child) => (
+            <ChildCard app={child} key={child.id} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AppCard: React.FC<CardProps> = ({
+  app,
+  configured,
+  expanded,
+  state,
+  onToggle,
+  onToggleExpanded,
+  onToggleFeeds,
+}) => {
   const hasExpandedContent = Boolean(app.can?.length || app.cannot?.length || app.prompts?.length);
+  const reason = disabledReason(state, configured);
 
   return (
     <div className={`ca-card${expanded ? ' ca-expanded' : ''}`}>
@@ -125,9 +197,11 @@ const AppCard: React.FC<CardProps> = ({ app, connected, expanded, onToggle, onTo
         <img alt="" aria-hidden="true" className="ca-logo" src={app.logo} />
         <div className="ca-toggle-slot">
           <Switch
-            checked={connected}
+            checked={state.connected}
+            disabled={Boolean(reason)}
             label="Enables or disables the extension"
-            onChange={() => onToggle(app.id)}
+            onChange={() => onToggle(app.id, app.name)}
+            title={reason ?? undefined}
           />
         </div>
       </div>
@@ -136,6 +210,8 @@ const AppCard: React.FC<CardProps> = ({ app, connected, expanded, onToggle, onTo
         <div className="ca-card-name ca-title-l">{app.name}</div>
         {app.handle ? <div className="ca-handle ca-label-s">{app.handle}</div> : null}
       </div>
+
+      <FeedsProfileRow app={app} onToggle={onToggleFeeds} state={state} />
 
       <div className="ca-collapsed-content">
         <div className="ca-description ca-body-m">{app.description}</div>
@@ -205,13 +281,17 @@ const AppCard: React.FC<CardProps> = ({ app, connected, expanded, onToggle, onTo
 };
 
 export const ConnectedAppsTab: React.FC = () => {
-  const [connections, setConnections] = useState<Record<string, boolean>>(DEFAULT_CONNECTIONS);
+  const { configured, notice, dismissNotice, stateFor, toggleConnection, toggleFeedsProfile } =
+    useConnections();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const toggleConnection = useCallback((id: string) => {
-    setConnections((prev) => ({ ...prev, [id]: !prev[id] }));
-  }, []);
+  const handleToggle = useCallback(
+    (id: string, name: string) => {
+      void toggleConnection(id, name);
+    },
+    [toggleConnection],
+  );
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -254,6 +334,40 @@ export const ConnectedAppsTab: React.FC = () => {
           ))}
         </div>
 
+        {/* Said once, at the top, rather than on every disabled switch. Without
+            it a page of dead toggles reads as a bug. */}
+        {configured === false ? (
+          <div className="ca-banner" role="status">
+            <MaterialSymbol
+              className="ca-banner-icon"
+              family="google-symbols"
+              name="info"
+              size={20}
+              weight={400}
+            />
+            <div className="ca-banner-text ca-body-m">
+              Connecting apps isn’t set up in this build. It needs a Google OAuth client id
+              (<code>VITE_GOOGLE_OAUTH_CLIENT_ID</code>); until then the switches below stay off.
+            </div>
+          </div>
+        ) : null}
+
+        {notice ? (
+          <div className="ca-banner" role="status">
+            <MaterialSymbol
+              className="ca-banner-icon"
+              family="google-symbols"
+              name="info"
+              size={20}
+              weight={400}
+            />
+            <div className="ca-banner-text ca-body-m">{notice}</div>
+            <button className="ca-banner-dismiss" onClick={dismissNotice} type="button">
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         {APP_CATEGORIES.map((category) => (
           <div key={category.id}>
             <div
@@ -268,10 +382,12 @@ export const ConnectedAppsTab: React.FC = () => {
               {category.apps.map((app) => {
                 const props: CardProps = {
                   app,
-                  connected: Boolean(connections[app.id]),
+                  configured,
                   expanded: expandedIds.has(app.id),
-                  onToggle: toggleConnection,
+                  state: stateFor(app.id),
+                  onToggle: handleToggle,
                   onToggleExpanded: toggleExpanded,
+                  onToggleFeeds: toggleFeedsProfile,
                 };
                 return app.children?.length ? (
                   <ParentCard key={app.id} {...props} />

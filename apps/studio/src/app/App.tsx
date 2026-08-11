@@ -55,6 +55,7 @@ const PersonalIntelligenceTab = React.lazy(() =>
   import('../settings/tabs/personal-intelligence/PersonalIntelligenceTab').then((m) => ({ default: m.PersonalIntelligenceTab }))
 );
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
+const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
 const ConnectedAppsTab = React.lazy(() =>
   import('../settings/tabs/connected-apps/ConnectedAppsTab').then((m) => ({ default: m.ConnectedAppsTab }))
 );
@@ -409,12 +410,14 @@ const App: React.FC = () => {
     if (view === 'agents') navigate('/?view=agents');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'saved-info') navigate('/saved-info');
+    else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
     else if (view === 'gems') navigate('/gems');
     else if (
       searchParams.get('view') === 'agents' ||
       location.pathname === '/personalization-settings' ||
       location.pathname === '/saved-info' ||
+      location.pathname === '/memory' ||
       location.pathname === '/connected-apps' ||
       location.pathname === '/gems'
     ) {
@@ -441,6 +444,10 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         setCurrentView('saved-info');
       }
+    } else if (location.pathname === '/memory') {
+      if (currentView !== 'memory') {
+        setCurrentView('memory');
+      }
     } else if (location.pathname === '/connected-apps') {
       if (currentView !== 'connected-apps') {
         setCurrentView('connected-apps');
@@ -452,6 +459,7 @@ const App: React.FC = () => {
     } else if (
       currentView === 'personal-intelligence' ||
       currentView === 'saved-info' ||
+      currentView === 'memory' ||
       currentView === 'connected-apps' ||
       currentView === 'gems'
     ) {
@@ -794,6 +802,14 @@ const App: React.FC = () => {
           }>
             <SavedInfoTab />
           </Suspense>
+        ) : currentView === 'memory' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <MemoryTab />
+          </Suspense>
         ) : currentView === 'connected-apps' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -828,6 +844,7 @@ const App: React.FC = () => {
            <Route path="/" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
+           <Route path="/memory" element={mainAppShell} />
            <Route path="/connected-apps" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />

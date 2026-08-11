@@ -343,7 +343,10 @@
 }
 
 .willow-mat-menu-exit {
-  animation: willow-mat-menu-exit 100ms linear forwards;
+  /* Measured `animation-delay: 0.025s` on Gemini's exit. The node is gone by
+     ~125ms after the close is requested (100ms linear + 25ms delay), which is
+     what triggerCloseMenu's hold mirrors. */
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {

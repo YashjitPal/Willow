@@ -17,8 +17,8 @@ import './GeminiDialog.css';
  *
  *   - Closing: the surface does NOT animate. Every sampled frame of the close
  *     read `opacity: 1; transform: none`. Only the backdrop fades, and the node
- *     is removed ~95ms in. So `closing` fades the backdrop and leaves the
- *     surface exactly where it is — deliberately not symmetric.
+ *     is removed ~75ms in, mid-fade. So `closing` fades the backdrop and leaves
+ *     the surface exactly where it is — deliberately not symmetric.
  *
  * Unmounting stays with the caller, which already holds the shouldRender/
  * isClosing pair the rest of the sidebar uses. `closing` is the render half of

@@ -18,7 +18,12 @@
  *
  *   3. There is NO exit animation on the surface at all. Through the entire
  *      close it read `opacity: 1; transform: none; transition: all`. Only the
- *      backdrop fades, and the node is removed ~95ms after that fade begins.
+ *      backdrop fades, and the node is removed ~75ms after that fade begins.
+ *      Frames straddle both events, so each capture gives an interval rather
+ *      than a point — Rename bracketed the removal at 66.7-101.2ms and Delete
+ *      at 49.9-82.3ms, and 66.7-82.3 is the only span in both. MDC's authored
+ *      `$mdc-dialog-exit-duration` is 75ms, the counterpart of the 150ms enter
+ *      below, so the hold is 75 rather than a midpoint guess.
  *      The only authored keyframes in Gemini's sheets are `backdrop-opacity`
  *      and `video-trimmer-backdrop-opacity`, both a plain 0 -> 1 opacity ramp.
  *

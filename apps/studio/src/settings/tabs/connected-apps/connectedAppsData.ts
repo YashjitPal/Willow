@@ -35,6 +35,12 @@ export interface ConnectedApp {
   prompts?: string[];
   /** Workspace is the one card that spans the full grid width. */
   children?: ChildApp[];
+  /**
+   * Whether Google ships this app connected by default on Gemini's own page.
+   *
+   * Captured data, not state: Willow's switches read `connectionsStore`. See the
+   * note at the bottom of this file for why that distinction cost a bug.
+   */
   defaultConnected: boolean;
 }
 
@@ -272,6 +278,16 @@ export const APP_CATEGORIES: AppCategory[] = [
   { id: 'other', name: 'Other', apps: OTHER },
 ];
 
-export const DEFAULT_CONNECTIONS: Record<string, boolean> = Object.fromEntries(
-  APP_CATEGORIES.flatMap((c) => c.apps).map((a) => [a.id, a.defaultConnected]),
-);
+/*
+ * There is deliberately no DEFAULT_CONNECTIONS export.
+ *
+ * There used to be one, built from `defaultConnected` above, and it was what the
+ * tab seeded its switches from — so the page opened with nearly every app shown
+ * as connected while Willow held no token for any of them. Connection state now
+ * comes from `connectionsStore`, which records a product only once Google has
+ * actually granted its scopes.
+ *
+ * `defaultConnected` stays on each entry because it is part of what was captured
+ * from Gemini's page — it says which apps Google turns on for you by default —
+ * but it must never again be read as "connected here".
+ */

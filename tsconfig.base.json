@@ -25,6 +25,7 @@
       "@willow/ui/*": ["platform/ui/src/*"],
       "@willow/projects/*": ["platform/projects/src/*"],
       "@willow/personal/*": ["platform/personal/src/*"],
+      "@willow/personal": ["platform/personal/src/index.ts"],
 
       "@willow/chat/*": ["features/chat/src/*"],
       "@willow/code/*": ["features/code/src/*"],

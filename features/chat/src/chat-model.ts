@@ -8,6 +8,12 @@ import {
   savedInstructionDate,
   type SavedInfoState,
 } from '@willow/core/saved-info-store';
+import {
+  PERSONAL_DATA_LADDER,
+  PERSONAL_RETRIEVAL_GUIDANCE,
+  profileBlock,
+  profileStore,
+} from '@willow/personal';
 
 /**
  * The conversational system prompt. Chat only — Code and Media each own theirs.
@@ -665,12 +671,45 @@ export type PromptContext = {
    * carries nothing personal in and saves nothing out.
    */
   personalize?: boolean;
+  /**
+   * Whether `retrieve_personal_data` is declared for this turn.
+   *
+   * The retrieval guidance ships only when the tool does. Instructions telling a
+   * model it MUST call a tool that was never declared produce a model that keeps
+   * trying and then apologises — so the caller that pushes the declaration is the
+   * caller that sets this, and the two move together or not at all.
+   */
+  personalTool?: boolean;
 };
 
 /**
- * Saved Info, then the date, then whatever the caller passed.
+ * The user summary, plus the rules for using it.
  *
- * Gemini keeps both of these out of the system prompt entirely — they arrive in
+ * These two are a pair and are assembled here so no call site can take one
+ * without the other. The ladder is a filter on data use, so shipping it with no
+ * profile attached costs nothing but tokens; shipping the profile without it is
+ * the actual hazard — a model handed a list of facts about someone and no
+ * instructions about them opens every answer with "Since you're a student in
+ * Florida...". That asymmetry is why the ladder is included whenever
+ * personalization is on, and the summary only when there is one.
+ *
+ * Order matches the source: the summary first, then the guidelines that govern
+ * it, then the tool guidance that says where to go when the summary runs out.
+ */
+const personalContextBlock = ({ personalize, personalTool }: PromptContext): string => {
+  if (!personalize) return '';
+  const state = profileStore.get();
+  if (!state.enabled) return '';
+
+  const parts = [profileBlock(state), PERSONAL_DATA_LADDER];
+  if (personalTool) parts.push(PERSONAL_RETRIEVAL_GUIDANCE);
+  return parts.filter(Boolean).join('\n\n');
+};
+
+/**
+ * Saved Info, then the profile, then the date, then whatever the caller passed.
+ *
+ * Gemini keeps all of these out of the system prompt entirely — they arrive in
  * a separate `context` role turn, after the tool declarations, in the order
  * Saved Information → profile summary → current time → location. Willow's
  * harness hands the provider ONE system string, so the same content is appended
@@ -679,10 +718,21 @@ export type PromptContext = {
  * sits above, so the block is placed after it and delimited by its own heading,
  * which keeps "what have you got saved about me" answerable. That question has
  * an answer the user is entitled to — it is their own data, listed in Settings.
+ *
+ * Saved Info stays ahead of the profile, and the ladder's Step 2 rule 1 names
+ * that order explicitly: a line the user typed outranks one Willow inferred,
+ * because one was written on purpose and the other was a guess.
  */
-const withTurnContext = (prompt: string, { now, personalize = true }: PromptContext): string => {
+const withTurnContext = (prompt: string, context: PromptContext): string => {
+  const { now, personalize = true } = context;
   const savedInfo = personalize ? savedInfoBlock() : '';
-  return `${prompt}${savedInfo ? `\n\n${savedInfo}` : ''}\n\n${currentDateLine(now)}`;
+  const personal = personalContextBlock({ ...context, personalize });
+  return [
+    prompt,
+    ...(savedInfo ? [savedInfo] : []),
+    ...(personal ? [personal] : []),
+    currentDateLine(now),
+  ].join('\n\n');
 };
 
 /**

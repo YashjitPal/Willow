@@ -269,7 +269,12 @@ it('withholds saved info from a temporary chat', () => {
   // A temporary chat saves nothing out; this is the "in" half. The entries
   // outlive the session, so sending them would make a temporary chat quietly
   // personalized while presenting itself as not.
-  assert.match(source, /chatSystemPromptFor\(provider, \{ personalize: !isIncognito \}\)/,
+  //
+  // Matched loosely on purpose: the options object carries other turn flags
+  // (`personalTool`, for one), and pinning its exact shape only fails whenever
+  // an unrelated flag is added. What matters is that the temporary flag is what
+  // decides `personalize`.
+  assert.match(source, /chatSystemPromptFor\(provider, \{[^}]*personalize: !isIncognito\b/,
     'a temporary text turn is personalized again');
   assert.match(source, /liveSystemPrompt\(\{ personalize: !isIncognito \}\)/,
     'a temporary voice session is personalized again');

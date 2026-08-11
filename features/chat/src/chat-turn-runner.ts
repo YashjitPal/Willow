@@ -1,6 +1,7 @@
 import { streamChat, isAbortError, type StreamPhase } from '@willow/ai/chat';
 import type { MessageCitations } from '@willow/ai/grounding';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
+import { runPersonalTool } from '@willow/personal';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   claimChatTurnSettlement,
@@ -49,6 +50,16 @@ export interface ChatTurnRunnerDeps {
     baseUrl?: string;
   };
   systemPrompt: string;
+  /**
+   * Personalization tools to declare, already gated.
+   *
+   * Empty when Memory is off or this is a temporary chat. Computed by the
+   * caller — the component knows whether the chat is temporary, and the runner
+   * is deliberately free of that question. `personalChatTools` exists so the two
+   * sides (prompt flag + tool list) cannot drift; both derive from the same
+   * `personalize` value.
+   */
+  personalTools: { functionDeclarations: any[] }[];
   /** Wire-format history, already built (it needs attachment bytes, which only
    *  the component can resolve). */
   history: AiChatMessage[];
@@ -177,6 +188,11 @@ export const runChatTurn = async (
         includeThoughts: options.thinkingLevel > 0,
         enableSearch: true,
         enableCodeExecution: true,
+        // Personalization tools, or none. Gated by the caller: empty in a
+        // temporary chat, empty when Memory is off, and empty when there is
+        // nothing stored and nothing connected — which is what keeps a model
+        // from being told it can look up a user it knows nothing about.
+        personalTools: deps.personalTools,
         baseUrl: options.baseUrl,
         signal: record.abort.signal,
       },
@@ -200,7 +216,19 @@ export const runChatTurn = async (
         record.phase = phase;
         record.listener?.onPhase(record);
       },
-      undefined,
+      // Tool executor. Only personal tools are declared on a chat turn, and
+      // `runPersonalTool` returns null for anything else, which surfaces to the
+      // model as the "tool not available" message rather than a silent success.
+      async (name: string, args: any) => {
+        const result = await runPersonalTool(name, args);
+        if (!result) {
+          return {
+            status: 'error',
+            error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
+          };
+        }
+        return { status: 'ok', result: result.text };
+      },
       (thoughtChunk: string) => {
         if (!isCurrent(record, deps)) return;
         record.thinkingText += thoughtChunk;

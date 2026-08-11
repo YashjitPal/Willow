@@ -1,6 +1,7 @@
 import React from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { Sidebar, ViewType } from './sidebar/Sidebar';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { SearchModal } from './SearchModal';
 import { useBackground } from './BackgroundContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
@@ -229,6 +230,19 @@ export const StudioLayout: React.FC<{
           >
             <span style={{ paddingLeft: '8px' }}>Temporary Chat</span>
           </div>
+        )}
+        {/*
+          Top-right: the conversation-actions menu, which is what Gemini shows
+          in this exact box once a conversation is under way. It is the
+          `isChatOngoing` counterpart of the temporary-chat button below —
+          Gemini shows one control here at a time, and the measured trigger
+          occupies the same 36x36 at top 14 / right 12 as the button does.
+
+          Gated to a real chat id: every row acts on a named chat, and
+          `hasActiveChat` can be true for an unsaved one.
+        */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && (
+          <ConversationActionsMenu chatId={activeChatId} />
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (

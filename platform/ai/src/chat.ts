@@ -47,6 +47,17 @@ export interface AiOptions {
    * passes a real `onToolCall`, may turn this on.
    */
   enableMediaTools?: boolean;
+  /**
+   * Declare the personalization tools: `retrieve_personal_data`, plus the action
+   * tools for whichever Google products are connected.
+   *
+   * Same rule as `enableMediaTools` and for the same reason — a declared tool
+   * with no executor behind it produces a model that announces work it never
+   * did. The caller passes the already-built declarations rather than a boolean
+   * so this file keeps knowing nothing about profiles, connectors or OAuth;
+   * `@willow/personal` builds them and `chat-turn-runner` executes them.
+   */
+  personalTools?: { functionDeclarations: any[] }[];
 }
 
 export const isAbortError = (error: unknown): boolean =>
@@ -672,6 +683,13 @@ const streamChatImpl: any = async (
     }
     if (codeExecEnabled) {
       tools.push({ codeExecution: {} });
+    }
+
+    // Personalization tools (retrieval + connected-product actions), built by
+    // @willow/personal and passed in ready to push. Empty blocks are filtered so
+    // the array never holds a promise of tools that were deliberately skipped.
+    for (const block of options.personalTools ?? []) {
+      if (block?.functionDeclarations?.length) tools.push(block);
     }
 
     // The media-agent harness tools, offered only when the caller can execute

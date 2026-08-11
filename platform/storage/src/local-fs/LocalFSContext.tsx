@@ -71,6 +71,18 @@ import {
   writeSavedInfoToDisk,
 } from './saved-info-disk';
 import { attachSavedInfoDisk } from '@willow/core/saved-info-store';
+import {
+  deleteProfileFromDisk,
+  readProfileFromDisk,
+  writeProfileToDisk,
+} from './personal-profile-disk';
+import {
+  attachPersonalRuntime,
+  attachProfileDisk,
+  detachPersonalRuntime,
+  schedulePersonalBuild,
+  type ProfileState,
+} from '@willow/personal';
 
 
 interface LocalFSContextType {
@@ -131,6 +143,7 @@ const LocalFSContext = createContext<LocalFSContextType | null>(null);
 export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any }> = ({ children, modelConfig }) => {
   const { user, userProfile, loading: isAuthLoading } = useAuth();
   const { apiKeys } = useUserDataContext();
+  const apiKeysRef = useRef(apiKeys);
   const [isSupported] = useState(isFSAAPISupported);
   const [isInitializingLocalFS, setIsInitializingLocalFS] = useState(true);
   const [isChatListHydrated, setIsChatListHydrated] = useState(false);
@@ -143,6 +156,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const [localChats, setLocalChats] = useState<string[]>([]);
   const [chatScopeId, setChatScopeId] = useState('signed-out::browser::My Willow');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
+  // The personal runtime reads keys through this rather than through a captured
+  // value, so adding a key after boot takes effect on the next build without
+  // re-attaching the runtime.
+  useEffect(() => {
+    apiKeysRef.current = apiKeys;
+  }, [apiKeys]);
 
   useEffect(() => {
     const storage = navigator.storage;
@@ -1838,6 +1858,76 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
     });
   }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata]);
+
+  /*
+   * Point the personal profile at the same folder, and start the builder.
+   *
+   * Split from the Saved Info effect even though the conditions are identical,
+   * because this one does a second thing: it hands the runtime a way to read
+   * chats, then schedules a build. Folding the two together would mean a change
+   * to either concern re-runs both, and re-running this one re-reads every chat.
+   *
+   * Placed here rather than beside Saved Info because it depends on
+   * `loadLocalFSChat`, which is declared above — an effect written earlier would
+   * reference it before its initializer runs.
+   *
+   * The same wait applies and for the same reason: `getSanitizedWorkspaceName()`
+   * answers "My Willow" until the profile lands, and a write before then creates
+   * a junk folder.
+   */
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (user && !userProfile) return;
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized) {
+      // No folder: the profile keeps its localStorage mirror, and nothing builds.
+      // A build reads chats off disk, and there is no disk to read.
+      void attachProfileDisk(null);
+      detachPersonalRuntime();
+      return;
+    }
+
+    const deps = { getActiveHandle, getSanitizedWorkspaceName };
+    void attachProfileDisk({
+      load: () => readProfileFromDisk(deps) as Promise<Partial<ProfileState> | null>,
+      save: (state) => writeProfileToDisk(deps, state),
+      remove: () => deleteProfileFromDisk(deps),
+    });
+
+    attachPersonalRuntime({
+      // Read through refs, so the runtime sees the current scope's chats even
+      // though this attach happened once. `list` is the sorted, tombstone-free
+      // list the sidebar shows, which is exactly the set a build should read.
+      chats: {
+        list: async () => localChatsRef.current.map((chatId) => ({
+          chatId,
+          updatedAt: chatTimestampsRef.current[chatId] ?? 0,
+        })),
+        load: (chatId) => loadLocalFSChat(chatId),
+      },
+      // A function, not a captured value: a key added after boot is then picked
+      // up by the next build without re-attaching. That is also why `apiKeys` is
+      // absent from the dependency array below — including it would restart the
+      // scheduler on every keystroke in the API-key field.
+      getApiKeys: () => apiKeysRef.current,
+    });
+
+    // Hands back its own canceller, so a folder or scope change drops a build
+    // that was scheduled but has not started.
+    const cancelScheduledBuild = schedulePersonalBuild();
+    return () => {
+      cancelScheduledBuild();
+      detachPersonalRuntime();
+    };
+  }, [
+    isAuthLoading,
+    user,
+    userProfile,
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    getActiveHandle,
+    getSanitizedWorkspaceName,
+    loadLocalFSChat,
+  ]);
 
   /** Heavy attachment bytes live in IndexedDB next to chat bodies, never in localStorage. */
   const saveLocalFSChatAttachment = useCallback(async (

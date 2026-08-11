@@ -46,6 +46,7 @@ import {
 import { runChatTurn } from './chat-turn-runner';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
+import { personalChatTools } from './personal-tools';
 import { waitForBrowserPaint } from './chat-timing';
 import { findDeepBlockAnchor } from './scroll-anchor';
 import { useStore } from '@nanostores/react';
@@ -2095,6 +2096,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
         history = [];
       }
 
+      // A temporary chat carries nothing personal in and saves nothing out, so
+      // the same flag governs both halves of personalization: the prompt blocks
+      // and the tools. Computed once here so they cannot disagree — the
+      // retrieval guidance tells the model it MUST call a tool, and shipping
+      // that text without the declaration produces a model that keeps trying.
+      const personalTools = personalChatTools({ personalize: !isIncognito });
+
       await runChatTurn(record, {
         options: {
           provider,
@@ -2103,10 +2111,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           thinkingLevel,
           baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
         },
-        // A temporary chat carries nothing personal in and saves nothing out.
         // Saved Info is the "in" half: the entries survive the session, so
         // sending them would make a temporary chat quietly personalized.
-        systemPrompt: chatSystemPromptFor(provider, { personalize: !isIncognito }),
+        systemPrompt: chatSystemPromptFor(provider, {
+          personalize: !isIncognito,
+          personalTool: personalTools.length > 0,
+        }),
+        personalTools,
         history,
         attachmentPersistence,
         currentScopeId: () => chatScopeIdRef.current,

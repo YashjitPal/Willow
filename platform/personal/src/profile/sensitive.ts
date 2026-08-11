@@ -43,7 +43,7 @@ const SENSITIVE_FAMILIES: readonly { readonly label: string; readonly pattern: R
   {
     label: 'health',
     pattern:
-      /\b(diagnos\w*|symptom\w*|disorder|disease|illness|chronic|disab(?:led|ility)|therapy|therapist|psychiatr\w*|antidepressant|medication|prescri\w+|dosage|mg\s+daily|depress(?:ed|ion)|anxiety|adhd|autis\w+|bipolar|schizo\w+|ptsd|ocd|cancer|diabet\w+|asthma|epilep\w+|hiv|std|sti|pregnan\w+|miscarriage|abortion|fertility|ivf|eating disorder|anorexi\w*|bulimi\w*|self[- ]harm|suicid\w+|addict\w+|alcoholi\w+|rehab|overdose|surgery|hospitali[sz]ed)\b/i,
+      /\b(diagnos\w*|symptom\w*|disorder\w*|disease\w*|illness\w*|chronic|disab(?:led|ilit\w+)|therapy|therapist\w*|psychiatr\w*|antidepressant\w*|medication\w*|prescri\w+|dosage\w*|mg\s+daily|depress(?:ed|ion)|anxiety|adhd|autis\w+|bipolar|schizo\w+|ptsd|ocd|cancers?|diabet\w+|asthma|epilep\w+|hiv|std|sti|pregnan\w+|miscarriages?|abortions?|fertility|ivf|eating disorders?|anorexi\w*|bulimi\w*|self[- ]harm|suicid\w+|addict\w+|alcoholi\w+|rehab|overdoses?|surger(?:y|ies)|hospitali[sz]ed)\b/i,
   },
   {
     label: 'national origin',
