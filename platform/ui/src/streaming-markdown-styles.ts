@@ -12,6 +12,20 @@ import { useInsertionEffect } from 'react';
 
 const STYLE_ID = 'streaming-markdown-styles';
 
+/**
+ * How far a full-bleed block paints outside its column, per side.
+ *
+ * `.smd-code-block` sets `margin: 16px -16px 0`, so it is intentionally 2× this
+ * wider than the text measure. Exported because an ancestor that applies paint
+ * containment — `contain: paint`, or anything implying it such as
+ * `content-visibility` — clips descendants to its own padding box, a rectangle
+ * with no border radius. That slices this much off both sides of the block,
+ * straight through the widest part of its 40px corner curve. An ancestor doing
+ * that must widen its padding box by this amount per side to keep the bleed
+ * inside the clip. Kept here so the number cannot drift from the rule below.
+ */
+export const MARKDOWN_BLOCK_BLEED_PX = 16;
+
 const STYLE_CSS = [
   '@keyframes smd-fade-in-text {',
   '  from { opacity: 0; }',
@@ -186,6 +200,8 @@ const STYLE_CSS = [
   '.smd-code-block {',
   '  position: relative;',
   '  min-width: 0;',
+  // Full bleed: 2x MARKDOWN_BLOCK_BLEED_PX wider than the column. Any ancestor
+  // applying paint containment has to account for it — see that constant.
   '  margin: 16px -16px 0;',
   '  overflow: clip;',
   '  border-radius: 40px;',

@@ -193,7 +193,11 @@ it('discards a superseded chat load instead of letting it win', () => {
 
   // Check 1 must precede the revoke: a superseded load reaching it revokes the
   // WINNER's object URLs and every image in the fresh thread goes blank.
-  const revoke = body.indexOf('revokeAllAttachmentObjectUrls()');
+  // Matched as a prefix, not `...Urls()` — the call takes a `keepBlobs` option
+  // now (a same-chat disk sync must not drop blobs whose IndexedDB write is
+  // still in flight), and an exact-parens anchor silently missed it.
+  const revoke = body.indexOf('revokeAllAttachmentObjectUrls(');
+  assert.notEqual(revoke, -1, 'loadChat no longer revokes stale object URLs at all');
   assert.ok(firstCheck < revoke,
     'a stale load can revoke the winning load\'s attachment object URLs');
 

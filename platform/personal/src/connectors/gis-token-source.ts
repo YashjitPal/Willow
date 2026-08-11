@@ -221,7 +221,22 @@ let lastHint: string | undefined;
 
 const readClientId = (): string | undefined => {
   try {
-    const env = (import.meta as any)?.env;
+    /*
+     * `import.meta.env`, spelled exactly like that.
+     *
+     * A browser defines no such property. In dev, Vite supplies it by scanning
+     * each module's source for that literal text and, when it finds it, adding
+     * `import.meta.env = {...}` to the top of what it serves. The check is on the
+     * text, so `import.meta?.env` never matches: nothing is added, the property
+     * stays undefined, every client id looks absent, and the Settings tab claims
+     * connectors are not set up. The optional chain that reads as defensive is
+     * what breaks it.
+     *
+     * The chain after `.env` is fine, and is the part that carries a non-Vite
+     * caller (a test importing this module directly): there the whole expression
+     * is undefined rather than an object.
+     */
+    const env = (import.meta.env as any) ?? undefined;
     const value = env?.[CLIENT_ID_ENV];
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   } catch {

@@ -856,17 +856,17 @@ it('gates the profile block, the ladder and the retrieval guidance separately', 
     'the ladder is guidance about personal data generally and must not depend on a built profile');
 });
 
-it('withholds personal tools from a temporary chat and from an empty profile', async () => {
+it('withholds personal tools from a temporary chat and from disabled Memory', async () => {
   const { personalChatTools } = await importTs(
     path.join(repoRoot, 'features', 'chat', 'src', 'personal-tools.ts'),
   );
   const store = await resetProfile();
   await resetConnections();
 
-  // Nothing to retrieve and nothing connected: declaring the tool would invite a
-  // call that can only answer "nothing found".
-  assert.deepEqual(personalChatTools({ personalize: true }), [],
-    'tools were offered with an empty profile and no connections');
+  // Retrieval reads saved chats as well as the profile, so it is offered from the
+  // first run — an unseeded profile is not an empty search.
+  assert.ok(personalChatTools({ personalize: true }).length > 0,
+    'Memory was on and the retrieval tool was not offered');
 
   store.commitBuildResult({
     bullets: [autoBullet({ id: 't1' })],

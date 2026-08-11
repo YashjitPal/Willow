@@ -46,9 +46,12 @@ import {
 import { runChatTurn } from './chat-turn-runner';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
+import { useOffscreenMessageSkip } from './offscreen-message-skip';
+import { MARKDOWN_BLOCK_BLEED_PX } from '@willow/ui/streaming-markdown-styles';
 import { personalChatTools } from './personal-tools';
 import { waitForBrowserPaint } from './chat-timing';
 import { findDeepBlockAnchor } from './scroll-anchor';
+import { $chatPanelOpen } from './chat-panel-store';
 import { useStore } from '@nanostores/react';
 
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
@@ -348,10 +351,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return url;
   }, []);
 
-  const revokeAllAttachmentObjectUrls = useCallback(() => {
+  /**
+   * `keepBlobs` is for a reload of the chat already on screen. Object URLs must
+   * still be revoked and remade — they are what the tiles render — but the blob
+   * cache behind them is this view's only copy of an attachment whose IndexedDB
+   * write has not landed yet, and dropping it makes that attachment
+   * unrecoverable for the rest of the session. A real chat switch still clears
+   * it, so the cache stays bounded by the chat you are actually in.
+   */
+  const revokeAllAttachmentObjectUrls = useCallback((options?: { keepBlobs?: boolean }) => {
     for (const url of attachmentObjectUrlsRef.current) URL.revokeObjectURL(url);
     attachmentObjectUrlsRef.current.clear();
-    attachmentBlobsRef.current.clear();
+    if (!options?.keepBlobs) attachmentBlobsRef.current.clear();
   }, []);
 
   const hydrateSavedAttachments = useCallback(async (
@@ -362,10 +373,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
       .map(sanitizeSavedAttachment)
       .filter((attachment): attachment is ChatAttachment => !!attachment);
     const hydrated = await Promise.all(metadata.map(async (attachment) => {
-      const stored = await loadLocalFSChatAttachment(attachment.id);
-      if (!stored?.blob) return attachment;
-      attachmentBlobsRef.current.set(attachment.id, stored.blob);
-      return { ...attachment, url: createAttachmentObjectUrl(stored.blob) };
+      // Memory first, disk second — the same precedence `handleOpenAttachment`
+      // uses, and for the same reason. The two writes a sent attachment needs
+      // are not ordered against each other: the chat body reaches disk as soon
+      // as the turn settles (the autosave effect owns that save and does not
+      // await `attachmentPersistence`), while the bytes go to IndexedDB on their
+      // own promise. The disk-sync reload that follows the body save therefore
+      // routinely reads this store before the blob exists. Falling straight
+      // through to url-less metadata there is what turned a sent image into a
+      // generic file chip the moment a response completed, and it was permanent:
+      // nothing re-hydrates an already-rendered tile.
+      const cached = attachmentBlobsRef.current.get(attachment.id);
+      const blob = cached ?? (await loadLocalFSChatAttachment(attachment.id))?.blob;
+      if (!blob) return attachment;
+      attachmentBlobsRef.current.set(attachment.id, blob);
+      return { ...attachment, url: createAttachmentObjectUrl(blob) };
     }));
     return hydrated.length > 0 ? hydrated : undefined;
   }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
@@ -581,7 +603,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // in the freshly-loaded thread goes blank.
           if (!isCurrent()) return;
           if (msgs && msgs.length > 0) {
-            revokeAllAttachmentObjectUrls();
+            revokeAllAttachmentObjectUrls({ keepBlobs: isSameChatReload });
             // Strip runtime-only flags that should never be persisted.
             // If a save happened mid-generation, the assistant placeholder
             // will have isGenerating:true and empty content — drop those.
@@ -627,7 +649,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // with an empty thread instead (and release the load guard so the
           // first real message saves normally).
           if (!isCurrent()) return;
-          revokeAllAttachmentObjectUrls();
+          revokeAllAttachmentObjectUrls({ keepBlobs: isSameChatReload });
           // Still route through the commit: a brand-new chat whose very first
           // turn is generating in the background has nothing on disk yet, and
           // dropping to an empty thread here would erase it from view.
@@ -881,6 +903,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
       panelBottomPinnedRef.current =
         container.scrollHeight - container.clientHeight - container.scrollTop <= 2;
     }
+  }, [panelIsOpen]);
+
+  // Publish the panel state so the shell can hide the ConversationActionsMenu
+  // while thinking-steps or sources occupy the top-right corner.
+  useEffect(() => {
+    $chatPanelOpen.set(panelIsOpen);
+    return () => { $chatPanelOpen.set(false); };
   }, [panelIsOpen]);
 
   /**
@@ -1288,6 +1317,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Records each message's real rendered height and hands back the style that
+  // lets Chrome skip layout for the ones scrolled out of view. See the module
+  // for why the height is remembered rather than estimated.
+  const { measureRef: measureMessageRef, skipStyle: messageSkipStyle } = useOffscreenMessageSkip();
   const userBubbleCollapsePinnedToBottomRef = useRef(false);
   // Inner content of the last assistant block — measured for the overflow
   // check so it's independent of the outer minHeight/paddingBottom we apply.
@@ -3010,13 +3043,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isLastAssistant = msg.id === lastAssistantId;
             const isLatestCompletedTurn = !generating && msg.id === latestConversationMessageId;
 
+            const skip = messageSkipStyle(msg.id, !isLastAssistant && !generating);
+
             return (
               <div
                 key={msg.id}
-                ref={(el) => { messageRefs.current[msg.id] = el; }}
+                ref={(el) => {
+                  messageRefs.current[msg.id] = el;
+                  measureMessageRef(msg.id)(el);
+                }}
                 className="group/assistant-response"
                 style={{
                   marginTop: gapBefore,
+                  // Skip layout while scrolled out of view. Excluded: the last
+                  // assistant turn (it carries the response reserve and is
+                  // re-measured every streaming frame) and anything generating.
+                  // `content-visibility` also implies paint containment, which
+                  // is why this is on assistant turns only — a user bubble's
+                  // hover actions are positioned at `top-full`, outside its box,
+                  // and would be clipped.
+                  ...skip,
+                  // Paint containment clips to THIS element's padding box, and
+                  // `.smd-code-block` deliberately bleeds MARKDOWN_BLOCK_BLEED_PX
+                  // past the column on each side. Without this the clip cut
+                  // through the widest part of its 40px radius and the block read
+                  // as having chiselled-flat sides. The padding and the negative
+                  // margin cancel, so the content box — and therefore the text
+                  // measure and every height already cached — is unchanged; only
+                  // the clip rectangle grows. Applied only alongside the skip, so
+                  // a turn without containment keeps exactly its old box.
+                  ...(skip.contentVisibility
+                    ? {
+                        paddingInline: MARKDOWN_BLOCK_BLEED_PX,
+                        marginInline: -MARKDOWN_BLOCK_BLEED_PX,
+                      }
+                    : {}),
                   ...(isLastAssistant && responseAreaMinHeight !== undefined
                     ? {
                         // Reserve exactly the visible area below the user bubble.

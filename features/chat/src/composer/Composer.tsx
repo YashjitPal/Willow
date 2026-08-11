@@ -37,6 +37,7 @@ import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { MicMutedSlash } from './MicMutedSlash';
 import { playMicToggleEarcon } from './mic-earcon';
 import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-store';
+import { profileStore, setProfileEnabled } from '@willow/personal';
 import { listVoiceModels } from '../voice-settings/voice-providers';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerModels } from './use-composer-models';
@@ -146,12 +147,19 @@ export const InputBar: React.FC<{
     setIsPlusMenuOpen,
   });
   const [isSolidExpanded, setIsSolidExpanded] = useState(false);
-  // Gemini shows Personal Intelligence as a Labs toggle inside the plus menu's
-  // "More tools" submenu. Willow has a Personal Intelligence settings tab but no
-  // app-level state behind it yet, so this holds the toggle locally: the row renders
-  // and flips exactly as Gemini's does, and gains persistence the moment there is a
-  // setting to bind it to.
-  const [personalIntelligence, setPersonalIntelligence] = useState(false);
+  /*
+   * Gemini shows Personal Intelligence as a toggle inside the plus menu's "More
+   * tools" submenu, and this is the same switch as the one on the Personal
+   * Intelligence settings tab — not a second, chat-local copy of it.
+   *
+   * It was a `useState(false)` while there was no app-level state to bind to,
+   * which made it cosmetic: it moved, and nothing read it. Now it reads and
+   * writes `profileStore.enabled`, the flag that actually gates the profile block
+   * in the system prompt, the automatic builds and the retrieval tool. Default is
+   * on, from `PROFILE_DEFAULTS` — personalization is opt-out, and this row is one
+   * of the two places to opt out.
+   */
+  const { enabled: personalIntelligence } = useStore(profileStore);
   const [isGithubImportOpen, setIsGithubImportOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
   const solidPlusRef = useRef<HTMLButtonElement>(null);
@@ -678,7 +686,14 @@ export const InputBar: React.FC<{
                 scrollbarGutter: solidExpanded ? 'auto' : 'stable',
                 fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
               }}
-              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              /*
+               * No scrollbar, because Gemini's composer shows none. Its rules are authored
+               * (12px bar, 8px thumb, #444746 on thumb hover) but Chromium never repaints
+               * that layer for this scroller — four renders of the live app confirmed it,
+               * so the prompt box scrolls with nothing visible in the gutter. Hiding the
+               * bar reproduces what is on screen; the default black strip did not.
+               */
+              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -760,7 +775,7 @@ export const InputBar: React.FC<{
                   onToolSelect={(id) => setSelectedTool(id as ToolId)}
                   selectedTool={selectedTool}
                   personalIntelligence={personalIntelligence}
-                  onTogglePersonalIntelligence={setPersonalIntelligence}
+                  onTogglePersonalIntelligence={setProfileEnabled}
                   geminiStyle={chatVariant}
                 />
               </div>
@@ -985,10 +1000,11 @@ export const InputBar: React.FC<{
           </div>
         )}
 
+        {/* No scrollbar — see the chat-variant textarea for the measured reason. */}
         <textarea
           ref={textareaRef}
           placeholder="Ask Willow to create an internal tool that..."
-          className="w-full bg-transparent text-white placeholder-zinc-500 px-4 pt-2.5 pb-2 outline-none resize-none text-[15px] font-light leading-relaxed overflow-y-auto pr-2"
+          className="w-full bg-transparent text-white placeholder-zinc-500 px-4 pt-2.5 pb-2 outline-none resize-none text-[15px] font-light leading-relaxed overflow-y-auto pr-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ height: '48px', minHeight: '48px', scrollbarGutter: 'stable' }}
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
@@ -1042,7 +1058,7 @@ export const InputBar: React.FC<{
                 onToolSelect={(id) => setSelectedTool(id as ToolId)}
                   selectedTool={selectedTool}
                   personalIntelligence={personalIntelligence}
-                  onTogglePersonalIntelligence={setPersonalIntelligence}
+                  onTogglePersonalIntelligence={setProfileEnabled}
               />
               {selectedTool && (
                 <div className="ml-2">

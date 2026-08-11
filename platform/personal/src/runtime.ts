@@ -32,6 +32,13 @@ export interface PersonalRuntimeDeps {
   /** The user's API keys, for the extractor. Read fresh each build, because a
    *  user can add a key after the app has booted. */
   getApiKeys: () => unknown;
+  /**
+   * The Personal Intelligence system default from Settings → Models & API, if the
+   * user set one. A function for the same reason as `getApiKeys`: the choice can
+   * change long after the runtime was attached, and a captured value would pin
+   * every future build to whatever was selected at boot.
+   */
+  getExtractModelId?: () => string | undefined;
 }
 
 let deps: PersonalRuntimeDeps | null = null;
@@ -75,7 +82,7 @@ export const buildProfileNow = async (
 ): Promise<RebuildOutcome> => {
   if (!deps) return { status: 'nothing-to-do', chatsRead: 0, batches: 0 };
 
-  const model = resolveExtractModel(deps.getApiKeys());
+  const model = resolveExtractModel(deps.getApiKeys(), deps.getExtractModelId?.());
   if (!model) return { status: 'nothing-to-do', chatsRead: 0, batches: 0 };
 
   let outcome: RebuildOutcome = { status: 'nothing-to-do', chatsRead: 0, batches: 0 };
@@ -117,7 +124,7 @@ export const buildDecision = async (now = Date.now()): Promise<ScheduleDecision>
     enabled: state.enabled,
     lastBuiltAt: state.lastBuiltAt,
     pendingChats: pending,
-    hasModel: Boolean(resolveExtractModel(deps.getApiKeys())),
+    hasModel: Boolean(resolveExtractModel(deps.getApiKeys(), deps.getExtractModelId?.())),
     now,
   });
 };

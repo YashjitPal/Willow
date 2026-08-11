@@ -1,6 +1,7 @@
 
 import React, { useState, Suspense } from 'react';
 import { useStore } from '@nanostores/react';
+import { AUTO_MODEL } from '@willow/ai/models/auto-select';
 import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocation } from 'react-router-dom';
 import type { ViewType } from '../shell/sidebar/Sidebar';
 import { StudioLayout } from '../shell/StudioLayout';
@@ -265,6 +266,12 @@ const App: React.FC = () => {
       chatRenaming: 'gemini-3.1-flash-lite',
       computerUse: 'claude-sonnet-4.5',
       transcription: 'gemini-3.5-flash-lite',
+      // Not an id, on purpose. Personal Intelligence routes itself to the
+      // cheapest capable model the user has actually added, and re-routes when
+      // they add a cheaper or newer one. Naming a model here would pin every
+      // install to one the user may hold no key for. A real id appears only once
+      // the user picks one in Settings, and that pin is then permanent.
+      personalIntelligence: AUTO_MODEL,
     }
   };
 
@@ -299,7 +306,17 @@ const App: React.FC = () => {
           moonshot: { ...moonshot, savedModels: dedupeSavedModels(moonshot.savedModels) },
           spacexai: { ...spacexai, savedModels: dedupeSavedModels(spacexai.savedModels) },
           zhipuai: { ...zhipuai, savedModels: dedupeSavedModels(zhipuai.savedModels) },
-          systemDefaults: { ...DEFAULT_MODEL_CONFIG.systemDefaults, ...(parsed.systemDefaults || {}) },
+          systemDefaults: {
+            ...DEFAULT_MODEL_CONFIG.systemDefaults,
+            ...(parsed.systemDefaults || {}),
+            // Personal Intelligence shipped for a few hours with a hardcoded id
+            // as its default. A stored copy of that id is not a choice the user
+            // made, so it must not be read as one — it would pin them out of the
+            // automatic routing they never opted out of.
+            personalIntelligence: parsed.systemDefaults?.personalIntelligence === 'gemini-3.1-flash-lite'
+              ? AUTO_MODEL
+              : (parsed.systemDefaults?.personalIntelligence || AUTO_MODEL),
+          },
         };
       }
     } catch { /* fall through */ }

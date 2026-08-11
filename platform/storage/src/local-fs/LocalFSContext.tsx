@@ -83,6 +83,7 @@ import {
   schedulePersonalBuild,
   type ProfileState,
 } from '@willow/personal';
+import { resolveAutoModel, type AutoSelectProvider } from '@willow/ai/models/auto-select';
 
 
 interface LocalFSContextType {
@@ -144,6 +145,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const { user, userProfile, loading: isAuthLoading } = useAuth();
   const { apiKeys } = useUserDataContext();
   const apiKeysRef = useRef(apiKeys);
+  const modelConfigRef = useRef(modelConfig);
   const [isSupported] = useState(isFSAAPISupported);
   const [isInitializingLocalFS, setIsInitializingLocalFS] = useState(true);
   const [isChatListHydrated, setIsChatListHydrated] = useState(false);
@@ -163,6 +165,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   useEffect(() => {
     apiKeysRef.current = apiKeys;
   }, [apiKeys]);
+
+  // Same arrangement for the model config, which carries the Personal
+  // Intelligence system default. Changing it in Settings must reach the next
+  // build without restarting the scheduler.
+  useEffect(() => {
+    modelConfigRef.current = modelConfig;
+  }, [modelConfig]);
 
   useEffect(() => {
     const storage = navigator.storage;
@@ -1909,6 +1918,28 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // absent from the dependency array below — including it would restart the
       // scheduler on every keystroke in the API-key field.
       getApiKeys: () => apiKeysRef.current,
+      // The Personal Intelligence row in Settings → Models & API. `auto` — the
+      // default, and what the row shows until the user pins a model — resolves
+      // here, against the same saved-models list the settings screen shows, so
+      // the builder and the UI cannot disagree about which model is running.
+      // This takes a key check, which is why the row's helper lives here instead
+      // of in the settings screen: the runtime is the one that knows the key.
+      getExtractModelId: () => {
+        const systemDefault = modelConfigRef.current?.systemDefaults?.personalIntelligence;
+        const models = Object.entries(modelConfigRef.current ?? {})
+          .filter(([key]) => key !== 'systemDefaults')
+          .flatMap(([provider, config]: [string, any]) =>
+            (config?.savedModels || []).map((model: any) => ({
+              ...model,
+              provider,
+            })),
+          );
+        const hasKey = (provider: AutoSelectProvider): boolean => {
+          const key = apiKeysRef.current?.[provider]?.[0];
+          return typeof key === 'string' && key.trim().length > 0;
+        };
+        return resolveAutoModel(systemDefault, models, hasKey)?.modelId;
+      },
     });
 
     // Hands back its own canceller, so a folder or scope change drops a build
