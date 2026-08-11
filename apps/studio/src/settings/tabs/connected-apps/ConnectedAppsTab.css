@@ -620,6 +620,86 @@
   opacity: 0.12;
 }
 
+/* A switch with no connector behind it, or one waiting on a consent popup.
+   Dimmed and unclickable rather than hidden: the card is part of the catalogue
+   Gemini shows, and removing it would be a different page. */
+.connected-apps-container .ca-switch-disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.connected-apps-container .ca-switch-disabled:hover .ca-switch-handle::before {
+  opacity: 0;
+}
+
+/* ---------- Personalization opt-in (second switch on a connected card) ---------- */
+
+.connected-apps-container .ca-feeds-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ca-spacing-m);
+  margin-bottom: var(--ca-spacing-m);
+}
+
+.connected-apps-container .ca-feeds-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-parent-note {
+  margin-top: var(--ca-spacing-m);
+  color: var(--ca-outline);
+}
+
+/* ---------- Page-level notice ---------- */
+
+.connected-apps-container .ca-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ca-spacing-m);
+  width: 100%;
+  max-width: var(--ca-content-max-width);
+  margin: var(--ca-spacing-l) auto 0;
+  padding: var(--ca-spacing-l);
+  border-radius: var(--ca-spacing-m);
+  background: var(--ca-surface-container);
+  box-sizing: border-box;
+}
+
+.connected-apps-container .ca-banner-icon {
+  flex-shrink: 0;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-banner-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-banner-text code {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 13px;
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-banner-dismiss {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ca-primary);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.connected-apps-container .ca-banner-dismiss:hover {
+  text-decoration: underline;
+}
+
 /* ---------- Footer ---------- */
 
 .connected-apps-container .ca-premium,

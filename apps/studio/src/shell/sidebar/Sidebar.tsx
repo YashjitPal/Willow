@@ -13,11 +13,6 @@ import {
   ArrowUpRight,
   LogIn,
   Terminal,
-  Share2,
-  Pin,
-  Pencil,
-  BookOpen,
-  Trash2,
   Github,
 } from 'lucide-react';
 import { DiscordIcon } from './SidebarIcons';
@@ -47,6 +42,8 @@ import type { StudioExperience } from '@willow/core/types';
 import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { GeminiDialog, GeminiDialogPill, GeminiOutlinedField } from '@willow/ui/GeminiDialog';
+import { onChatActionIntent, pinnedChatsStorageKey } from '../chat-actions';
 
 // Recents renders a window over the chat list rather than the whole thing, and
 // grows it as you scroll. The full id list is already in memory (localStorage),
@@ -77,6 +74,23 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
 
 // ── Inline menus (used once, kept here) ──────────────────────────────────────
 
+/*
+ * The Recents row menu's five items, styled from Gemini measurement:
+ *
+ *   BUTTON 36px tall, 163.26 wide, radius 12px, padding `0 8px`, background
+ *   transparent -> rgba(230, 230, 230, 0.08) on hover (the hover tint is the
+ *   item's OWN background, unlike the trigger and the pill, which use ripples).
+ *   Icons are "Luminous Symbols" 20px at the menu's variation settings
+ *   ("FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320), rgb(230, 230, 230),
+ *   inside a 24px box at dx 8. The label sits at dx 40 (8 pad + 24 icon + 8
+ *   gap) in 13px/17px 400 at the row's width axis ("wdth" 92) — the same type
+ *   as a Recents row, not the settings menu's.
+ */
+const GEMINI_MENU_ITEM_CLASS =
+  'flex h-9 w-full min-w-0 items-center gap-2 rounded-xl px-2 text-left text-[13px] leading-[17px] font-normal tracking-normal text-[#e6e6e6] transition-colors hover:bg-[rgba(230,230,230,0.08)]';
+const GEMINI_MENU_LABEL_CLASS =
+  'truncate text-[13px] leading-[17px] font-normal tracking-normal text-[#e6e6e6]';
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type GeminiSettingsMenuProps = {
@@ -92,6 +106,8 @@ type GeminiSettingsItem = {
   icon: string;
   iconFamily?: 'luminous' | 'google-symbols' | 'avatar' | 'spark-settings' | 'custom';
   trailingArrow?: boolean;
+  /* Opens a hover flyout instead of doing anything on click. Gemini's Theme row only. */
+  submenu?: 'theme';
   action?: 'settings';
   url?: string;
 };
@@ -106,7 +122,7 @@ const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'skills', label: 'Skills', icon: 'contract', iconFamily: 'luminous', action: 'settings' },
   { id: 'gems', label: 'Gems', icon: 'gems', iconFamily: 'luminous', action: 'settings' },
   { id: 'links', label: 'Your public links', icon: 'link', iconFamily: 'google-symbols', action: 'settings' },
-  { id: 'theme', label: 'Theme', icon: 'routine', iconFamily: 'google-symbols', trailingArrow: true },
+  { id: 'theme', label: 'Theme', icon: 'routine', iconFamily: 'google-symbols', trailingArrow: true, submenu: 'theme' },
   { id: 'spark-settings', label: 'Willow Spark settings', icon: 'agent_mode_spark', iconFamily: 'spark-settings', action: 'settings' },
   { id: 'agents-settings', label: 'Agents Settings', icon: 'agent', iconFamily: 'custom', action: 'settings' },
   { id: 'models', label: 'Models', icon: 'spark', iconFamily: 'luminous', action: 'settings' },
@@ -159,10 +175,147 @@ const GeminiSettingsItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }
   );
 };
 
+/*
+ * Angular Material's own `svg.mat-mdc-menu-submenu-icon`, read off Gemini's Theme row.
+ * The triangle itself was already right; its BOX and COLOUR were not:
+ *
+ *   <svg viewBox="0 0 5 10"><polygon points="0,0 5,5 0,10"/></svg>
+ *   width: 24px; padding: 0 0 0 12px;   -> 36px slot, measured x=256 right=292
+ *   height: 10px
+ *   fill: rgb(196, 199, 197)
+ *
+ * So it is a 24px-wide box with a 12px lead-in, not the 5px sliver this drew, and it is
+ * DIMMER than the label beside it (#c4c7c5 against #e6e6e6) — which `fill-current` could
+ * never produce, since it inherits the row's own colour.
+ *
+ * `box-content` is load-bearing: Tailwind's preflight makes every element `border-box`, so
+ * `w-6 pl-3` alone would give a 24px total with 12px of padding eaten out of it (content 12)
+ * instead of the measured 24 + 12 = 36.
+ *
+ * The viewBox stays 5x10 against a 24x10 box, so the glyph letterboxes to its natural 5px
+ * width and centres in the slot — exactly as it does in Gemini, same svg, same box.
+ */
 const GeminiSubmenuArrow: React.FC = () => (
-  <svg aria-hidden="true" className="h-[10px] w-[5px] shrink-0 fill-current" viewBox="0 0 5 10">
+  <svg aria-hidden="true" focusable="false" className="box-content block h-[10px] w-6 shrink-0 pl-3 fill-[#c4c7c5]" viewBox="0 0 5 10">
     <polygon points="0,0 5,5 0,10" />
   </svg>
+);
+
+/*
+ * Settings > Theme, measured off Gemini's live submenu.
+ *
+ * Unlike the top-right conversation menu (a `gem-menu` in a plain popover, which does NOT
+ * animate), this one IS a `.mat-mdc-menu-panel` — `.lm-menu-theme` — so Material's own
+ * enter/exit pair applies to it, the same pair the settings pane and the Recents row menu
+ * already use here. Verified per-frame, not assumed:
+ *
+ *   enter  _mat-menu-enter  120ms cubic-bezier(0, 0, 0.2, 1)  scale(.8)/opacity 0 -> none/1
+ *   exit   _mat-menu-exit   100ms linear, 25ms delay          opacity 1 -> 0, NO transform
+ *
+ * `transform-origin` measured `left top` here, NOT the settings pane's `0 100%`: this panel
+ * hangs off the right of its trigger row and grows down-right, where the pane grows upward.
+ *
+ * Geometry, all of it authored rather than derived:
+ *   panel   240x124 at (300, 373.21), radius 20, padding 8, bg rgb(31,31,31),
+ *           shadow rgba(0,0,0,.28) 0 0 20px, colour rgb(227,227,227)
+ *   rows    3 x `role="menuitemradio"`, 224x36, padding 0 8px, radius 12, gap 0
+ *   hover   rgba(230,230,230,.08)
+ *   label   13px/17px/400 rgb(230,230,230), flex 1 1 0%, white-space nowrap
+ *   check   ONLY on the selected row: 24x24 box, 20px Luminous `check`, margin-right 8
+ *
+ * The 240px width is AUTHORED, not content-derived — the opposite of the conversation menu.
+ * Proof: the three labels measure 44.13 / 30.31 / 28.31 natural against a 240px box, and
+ * all three rows report clientWidth === scrollWidth === 224. Sizing this to its content
+ * would collapse it to about a third of Gemini's.
+ *
+ * The check's 8px right margin is what makes the two label widths differ, and the
+ * arithmetic closes exactly: content 208 = label 176 + icon 24 + margin 8 on the checked
+ * row, and 208 = label alone on the other two.
+ */
+type GeminiThemeChoice = 'system' | 'light' | 'dark';
+
+const GEMINI_THEME_STORAGE_KEY = 'willow_theme';
+
+const GEMINI_THEME_OPTIONS: { id: GeminiThemeChoice; label: string }[] = [
+  { id: 'system', label: 'System' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+];
+
+/*
+ * 25ms delay + 100ms duration. The panel must outlive `isOpen` by the FULL 125ms: at 100ms
+ * the fade is only three-quarters done (opacity .25), so unmounting there pops it off screen
+ * while it is still clearly visible. Gemini's own node was measured leaving the DOM 145ms
+ * after the close was triggered — 125ms plus a frame.
+ */
+const GEMINI_MAT_MENU_EXIT_MS = 125;
+
+const GeminiThemeSubmenu: React.FC<{
+  phase: 'open' | 'closing';
+  top: number;
+  value: GeminiThemeChoice;
+  onSelect: (value: GeminiThemeChoice) => void;
+  onKeepOpen: () => void;
+  onLeave: () => void;
+}> = ({ phase, top, value, onSelect, onKeepOpen, onLeave }) => (
+  <div
+    role="menu"
+    aria-label="Theme"
+    onMouseEnter={onKeepOpen}
+    onMouseLeave={onLeave}
+    className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto absolute z-[101] w-[240px] rounded-[20px] bg-[#1f1f1f] p-2 text-[#e3e3e3] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+    style={{
+      top,
+      /*
+       * Measured left 300 against a parent whose right edge is 308 — an 8px overlap, which
+       * is exactly the parent's padding. So the panel butts against the parent's CONTENT
+       * edge, not its border edge, and the same 8px accounts for the -8px on `top`.
+       */
+      left: 'calc(100% - 8px)',
+      transformOrigin: 'left top',
+      pointerEvents: phase === 'closing' ? 'none' : undefined,
+    }}
+  >
+    {GEMINI_THEME_OPTIONS.map((option) => (
+      <button
+        key={option.id}
+        type="button"
+        role="menuitemradio"
+        aria-checked={value === option.id}
+        onClick={() => onSelect(option.id)}
+        className="flex h-9 w-full items-center rounded-xl px-2 text-left transition-colors hover:bg-[rgba(230,230,230,0.08)]"
+      >
+        {/*
+          * `.gem-menu-item-label`: 13/17/400 at `"wdth" 92`, and `flex: 1 1 0%` — the label
+          * absorbs the row, so the check is pushed to the trailing edge rather than being
+          * positioned. Measured 176px wide on the checked row vs 208 unchecked; the 32px
+          * difference IS the 24px glyph box plus its 8px margin.
+          */}
+        <span
+          className="min-w-0 flex-1 whitespace-nowrap text-[13px] leading-[17px] font-normal text-[#e6e6e6]"
+          style={{
+            fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+            fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+          }}
+        >
+          {option.label}
+        </span>
+        {value === option.id && (
+          <MaterialSymbol
+            name="check"
+            family="luminous"
+            size={20}
+            weight={320}
+            roundness={100}
+            opticalSize={20}
+            className="mr-2 text-[#e6e6e6]"
+            /* 20px glyph in a 24px box — MaterialSymbol ties the two together by default. */
+            style={{ width: 24, height: 24, lineHeight: '24px' }}
+          />
+        )}
+      </button>
+    ))}
+  </div>
 );
 
 const GEMINI_SIDEBAR_POSITION_MOTION = '300ms cubic-bezier(0.2, 0, 0, 1)';
@@ -191,6 +344,76 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   const [phase, setPhase] = useState<'closed' | 'open' | 'closing'>(isOpen ? 'open' : 'closed');
   const wasOpen = useRef(isOpen);
 
+  /*
+   * The Theme flyout gets the same three-phase treatment as the pane itself, and for the
+   * same measured reason — it is a `.mat-mdc-menu-panel`, so it fades out over 100ms after
+   * a 25ms delay rather than disappearing.
+   *
+   * `top` is carried in state because it is measured off the trigger ROW, not the pane:
+   * Gemini put the panel at the row's top minus 8px, so it cannot be a constant here (the
+   * Theme row's offset within the pane depends on how many rows precede it).
+   */
+  const [themePhase, setThemePhase] = useState<'closed' | 'open' | 'closing'>('closed');
+  const [themeTop, setThemeTop] = useState(0);
+  const themeCloseTimer = useRef<number | null>(null);
+  const [theme, setTheme] = useState<GeminiThemeChoice>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const stored = window.localStorage.getItem(GEMINI_THEME_STORAGE_KEY);
+    return stored === 'system' || stored === 'light' || stored === 'dark' ? stored : 'dark';
+  });
+
+  const cancelThemeClose = () => {
+    if (themeCloseTimer.current !== null) {
+      window.clearTimeout(themeCloseTimer.current);
+      themeCloseTimer.current = null;
+    }
+  };
+
+  /*
+   * Opening is instant, closing is deferred by the exit's own length. Hovering off the
+   * Theme row and onto the flyout would otherwise close it before the pointer arrives —
+   * the two are separate elements with a gap between them, so a bare mouseleave/mouseenter
+   * pair has no overlap. The flyout's own `onMouseEnter` cancels the pending close.
+   */
+  const openThemeSubmenu = (row: HTMLElement) => {
+    cancelThemeClose();
+    const pane = menuRef.current;
+    /*
+     * `offsetTop` rather than a client rect: the row's offsetParent is the wrapper (the pane
+     * itself is static), and offsetTop is a LAYOUT value, so it is immune to the scale(.8)
+     * the pane is still carrying if the pointer arrives mid-enter. A rect would be measured
+     * against the shrunken pane and place the flyout too high. Scrolling is not in offsetTop
+     * at all, hence the explicit scrollTop term.
+     */
+    setThemeTop(row.offsetTop - (pane ? pane.scrollTop : 0) - 8);
+    setThemePhase('open');
+  };
+
+  const closeThemeSubmenu = () => {
+    cancelThemeClose();
+    setThemePhase((current) => (current === 'open' ? 'closing' : current));
+    themeCloseTimer.current = window.setTimeout(() => {
+      setThemePhase((current) => (current === 'closing' ? 'closed' : current));
+      themeCloseTimer.current = null;
+    }, GEMINI_MAT_MENU_EXIT_MS);
+  };
+
+  const keepThemeOpen = () => {
+    cancelThemeClose();
+    setThemePhase((current) => (current === 'closing' ? 'open' : current));
+  };
+
+  const handleThemeSelect = (next: GeminiThemeChoice) => {
+    setTheme(next);
+    try {
+      window.localStorage.setItem(GEMINI_THEME_STORAGE_KEY, next);
+    } catch {
+      /* private mode / quota — the selection still applies for this session */
+    }
+  };
+
+  useEffect(() => cancelThemeClose, []);
+
   useEffect(() => {
     if (isOpen) {
       setPhase('open');
@@ -200,6 +423,10 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       // never fires under `prefers-reduced-motion`, where the animation is suppressed.
       const timer = window.setTimeout(() => setPhase('closed'), 100);
       wasOpen.current = false;
+      // The flyout cannot outlive its own pane, and it has no exit of its own to play here
+      // — the pane fading takes it with it.
+      cancelThemeClose();
+      setThemePhase('closed');
       return () => window.clearTimeout(timer);
     }
     wasOpen.current = isOpen;
@@ -236,27 +463,56 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   };
 
   return (
+    /*
+     * The pane is `overflow-y-auto` (it can outgrow the viewport), and an overflow scroller
+     * CLIPS its children — so a flyout rendered inside it would be cut off at the pane's
+     * right edge, which is precisely where this one is supposed to start. Gemini sidesteps
+     * this by putting the submenu in its own `.cdk-overlay-pane`, a sibling.
+     *
+     * Same shape here: a wrapper owns the placement, the pane and the flyout are siblings
+     * inside it. The wrapper is a zero-size positioning anchor with no paint of its own, so
+     * the pane's measured geometry is unchanged — `left`/`bottom` simply moved up one level,
+     * and the flyout's `calc(100% - 8px)` resolves against the pane's width because the
+     * wrapper is `w-[300px]` too.
+     */
     <div
-      ref={menuRef}
-      role="menu"
-      aria-label="Settings"
-      className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} absolute z-[100] w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+      className="pointer-events-none absolute z-[100] w-[300px]"
       style={{
         left: isCollapsed ? '52px' : 'calc(100% - 44px)',
         bottom: isCollapsed ? '94px' : '50px',
-        // Measured `0px <height>` on Gemini's pane: bottom-left, matching its upward growth.
-        transformOrigin: '0 100%',
-        // The exit is opacity-only, so the pane must not swallow clicks while it fades.
-        pointerEvents: phase === 'closing' ? 'none' : undefined,
       }}
     >
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label="Settings"
+        className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto absolute bottom-0 left-0 w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+        style={{
+          // Measured `0px <height>` on Gemini's pane: bottom-left, matching its upward growth.
+          transformOrigin: '0 100%',
+          // The exit is opacity-only, so the pane must not swallow clicks while it fades.
+          pointerEvents: phase === 'closing' ? 'none' : undefined,
+        }}
+      >
       {GEMINI_SETTINGS_ITEMS.map((item) => (
         <button
           key={item.id}
           type="button"
           role="menuitem"
           aria-label={item.label}
+          aria-haspopup={item.submenu ? 'menu' : undefined}
+          aria-expanded={item.submenu ? themePhase === 'open' : undefined}
           onClick={() => handleItemClick(item)}
+          /*
+           * Hover, not click: Gemini's row is a `mat-mdc-menu-item-submenu-trigger`, which
+           * opens on hover. Every OTHER row closes it, which is what makes moving down the
+           * list dismiss the flyout — measured as `_mat-menu-exit` firing the moment the
+           * pointer landed on the next row.
+           */
+          onMouseEnter={(event) => {
+            if (item.submenu === 'theme') openThemeSubmenu(event.currentTarget);
+            else closeThemeSubmenu();
+          }}
           className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal text-[#e6e6e6] transition-colors hover:bg-[rgba(230,230,230,0.08)]"
         >
           <GeminiSettingsItemIcon item={item} />
@@ -314,11 +570,27 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
         />
         <span className="min-w-0 truncate">Update location</span>
       </button>
+      </div>
+
+      {/*
+        * A sibling of the pane, not a child — see the wrapper's note. It is mounted only
+        * while it has a phase to play, so the closed state costs nothing.
+        */}
+      {themePhase !== 'closed' && (
+        <GeminiThemeSubmenu
+          phase={themePhase}
+          top={themeTop}
+          value={theme}
+          onSelect={handleThemeSelect}
+          onKeepOpen={keepThemeOpen}
+          onLeave={closeThemeSubmenu}
+        />
+      )}
     </div>
   );
 };
 
-export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'connected-apps' | 'gems';
+export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -458,8 +730,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (distanceToBottom <= RECENTS_GROW_THRESHOLD_PX) growRecents();
   };
 
-  // Pinned chats persistence
-  const pinnedChatsKey = `willow_pinned_chats:v2:${encodeURIComponent(chatScopeId)}`;
+  // Pinned chats persistence. The key format comes from the shared builder so it
+  // cannot drift from the read the top-right conversation-actions menu does —
+  // that menu reads pins, and this component remains the only writer.
+  const pinnedChatsKey = pinnedChatsStorageKey(chatScopeId);
   const [pinnedChatState, setPinnedChatState] = useState<{ scopeId: string; chats: string[] }>(() => ({
     scopeId: chatScopeId,
     chats: [],
@@ -507,13 +781,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Three-dot menu state
   const [menuActiveChat, setMenuActiveChat] = useState<string | null>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; isAbove: boolean } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; left: number; isAbove: boolean } | null>(null);
   const [shouldRenderMenu, setShouldRenderMenu] = useState(false);
   const [isMenuClosing, setIsMenuClosing] = useState(false);
 
-  // Inline renaming state
+  // Rename dialog state (replaced the inline row edit: Gemini's Recents menu
+  // raises a "Rename this chat" dialog, measured 512 wide, field prefilled and
+  // autofocused with the caret at the end, Rename pill disabled until the value
+  // changes or is emptied).
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [shouldRenderRename, setShouldRenderRename] = useState(false);
+  const [isRenameClosing, setIsRenameClosing] = useState(false);
 
   // Delete chat confirmation state
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
@@ -523,12 +802,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleMenuClick = (e: React.MouseEvent, chat: string) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    const menuHeight = 180;
+    // Measured: the pane butts directly against the trigger with NO gap. Opening
+    // down, pane.y === trigger.bottom; opening up, pane.bottom === trigger.top
+    // (transform-origin flips to `0px <height>px` accordingly). Anchoring the
+    // upward case by `bottom` rather than `top - height` avoids guessing the
+    // height, which is content-derived.
+    const menuHeight = 196; // 5 rows x 36 + 2 x 8 padding — for the flip test only
     const spaceBelow = window.innerHeight - rect.bottom;
     const isAbove = spaceBelow < menuHeight;
 
     setMenuPosition({
-      top: isAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
+      top: isAbove ? undefined : rect.bottom,
+      bottom: isAbove ? window.innerHeight - rect.top : undefined,
       left: rect.left,
       isAbove,
     });
@@ -539,12 +824,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const triggerCloseMenu = () => {
     setIsMenuClosing(true);
+    // Measured close: opacity hits 0 at ~118ms and the node is gone by ~125ms
+    // (100ms linear + the 25ms delay the exit animation carries).
     setTimeout(() => {
       setShouldRenderMenu(false);
       setIsMenuClosing(false);
       setMenuActiveChat(null);
       setMenuPosition(null);
-    }, 150);
+    }, 125);
+  };
+
+  const openRenameDialog = (chat: string) => {
+    setEditingChatId(chat);
+    setEditValue(chat);
+    setShouldRenderRename(true);
+    setIsRenameClosing(false);
+  };
+
+  /*
+   * Measured close, sampled per frame off Gemini's own dialog: the surface never
+   * animates out (`opacity: 1; transform: none` in every frame), only the backdrop
+   * fades, and the node is removed mid-fade — long before the backdrop's 400ms
+   * transition would finish.
+   *
+   * Bracketing the removal from both captures (frames straddle it, so each gives
+   * an interval, not a point):
+   *   Rename  fade starts 333.3-340.7, gone 407.4-434.5  ->  66.7-101.2ms
+   *   Delete  fade starts 346.5-360.1, gone 410.0-428.8  ->  49.9- 82.3ms
+   * The only span in both is 66.7-82.3, and MDC's authored
+   * `$mdc-dialog-exit-duration` is 75ms — the counterpart of the 150ms
+   * `$mdc-dialog-enter-duration` this dialog's surface transition already matches.
+   * So 75, not a midpoint guess.
+   */
+  const triggerCloseRename = () => {
+    setIsRenameClosing(true);
+    setTimeout(() => {
+      setShouldRenderRename(false);
+      setIsRenameClosing(false);
+      setEditingChatId(null);
+    }, 75);
+  };
+
+  // handleRenameSave reads `editingChatId`/`editValue` off this render's closure,
+  // so clearing the id in the same tick cannot disturb the in-flight save.
+  const commitRename = () => {
+    void handleRenameSave();
+    triggerCloseRename();
   };
 
   const handleRenameSave = async () => {
@@ -587,17 +912,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     triggerCloseMenu(); // Close the 3-dot menu when deleting
   };
 
+  // Same 75ms measured hold as the Rename dialog — see triggerCloseRename.
   const triggerCloseDelete = () => {
     setIsDeleteClosing(true);
     setTimeout(() => {
       setShouldRenderDelete(false);
       setIsDeleteClosing(false);
       setChatToDelete(null);
-    }, 150);
+    }, 75);
   };
 
   const confirmDeleteChat = async () => {
     if (chatToDelete) {
+      // Dismiss first. Gemini's dialog node is gone ~75ms after the click, which
+      // is nowhere near long enough to have waited on a disk delete — leaving it
+      // up until `deleteLocalFSChat` resolves would read as a frozen dialog.
+      // `chatToDelete` is read off this render's closure, so clearing the state
+      // behind the 75ms hold cannot affect anything below.
+      triggerCloseDelete();
       const success = await deleteLocalFSChat(chatToDelete);
       if (success) {
         unmarkCodeChat(chatScopeId, chatToDelete);
@@ -615,9 +947,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setPinnedChatState({ scopeId: chatScopeId, chats: next });
         localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
       }
-      triggerCloseDelete();
     }
   };
+
+  /*
+   * Chat actions raised from outside the sidebar — currently the top-right
+   * conversation-actions menu, which reproduces Gemini's Pin / Rename / Delete
+   * rows for the open conversation.
+   *
+   * They are routed here rather than reimplemented there because this component
+   * is the single writer for all of it: the scope-guarded pin list and its three
+   * localStorage write sites, the rename dup-check and sanitizer, the pin carry
+   * across a rename, and the Code-mode / scanned-chat id maps. A second writer
+   * would have to keep every one of those in lock-step.
+   *
+   * The handlers are the same ones the row menu uses, unchanged.
+   */
+  useEffect(
+    () =>
+      onChatActionIntent(({ action, chatId }) => {
+        if (action === 'pin') togglePinChat(chatId);
+        else if (action === 'rename') openRenameDialog(chatId);
+        else if (action === 'delete') handleDeleteChat(chatId);
+      }),
+    // `togglePinChat` closes over `pinnedChats`, so a stale subscription would
+    // toggle against an out-of-date list and drop concurrent pins.
+    [pinnedChats, chatScopeId, pinnedChatsKey],
+  );
 
   useEffect(() => {
     const handleClose = () => {
@@ -664,9 +1020,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const windowedChats = useMemo(() => {
     if (!hasMoreRecents) return sortedChats;
     // Rows that must stay mounted regardless of where they sort:
-    //   editingChatId  — the rename <input> lives inside the row, and React does
-    //                    not fire blur on unmount, so windowing it away would
-    //                    silently discard the rename and strand `editingChatId`.
+    //   editingChatId  — the row being renamed. The rename dialog is a portal so
+    //                    it would survive the row unmounting, but the row is what
+    //                    the user is looking at behind it, and it re-sorts to the
+    //                    top the moment the rename lands.
     //   menuActiveChat — the menu is NOT a portal but it IS rendered outside the
     //                    map, so it would survive as a menu floating next to
     //                    nothing.
@@ -704,8 +1061,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onModeChange?.('chat');
     selectLocalFSInboxChat(chatId);
   });
-  const handleRenameSaveStable = useEventCallback(() => { void handleRenameSave(); });
-  const handleRenameCancel = useEventCallback(() => setEditingChatId(null));
   const handleMenuClickStable = useEventCallback(handleMenuClick);
 
   // Legacy Code-mode marker backfill.
@@ -1303,7 +1658,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setRecentsExpanded((expanded) => {
                         if (expanded) {
                           if (shouldRenderMenu) triggerCloseMenu();
-                          if (editingChatId) handleRenameSave();
                         } else {
                           // Re-opening the section is a fresh start, so don't
                           // re-mount however many rows were grown before it was
@@ -1341,14 +1695,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
                               isPinned={pinnedChatSet.has(chat)}
                               startedInCode={codeChats[chat] === true}
-                              isEditing={editingChatId === chat}
                               isMenuOpen={menuActiveChat === chat}
-                              editValue={editValue}
                               onSelect={handleSelectChat}
                               onMenuClick={handleMenuClickStable}
-                              onEditValueChange={setEditValue}
-                              onEditCommit={handleRenameSaveStable}
-                              onEditCancel={handleRenameCancel}
                             />
                           );
                         })}
@@ -1607,122 +1956,181 @@ export const Sidebar: React.FC<SidebarProps> = ({
       />
 
       {shouldRenderMenu && menuActiveChat && menuPosition && (
-        <div 
-          className={`fixed z-[9999] w-[185px] ${sidebarBgClass} py-2 ${
-            menuPosition.isAbove ? 'origin-bottom' : 'origin-top'
-          } rounded-2xl border border-white/5 ${
-            isMenuClosing ? 'menu-fade-out' : 'menu-fade-in'
-          }`}
-          style={{ 
-            top: `${menuPosition.top}px`, 
+        /*
+         * Measured Gemini pane: 179.26x196 at the trigger's bottom-left with ZERO
+         * gap, bg rgb(31,31,31), radius 20px, padding 8px, shadow
+         * `rgba(0,0,0,0.28) 0 0 20px 0`, no border, min-width 150, max-width 280.
+         *
+         * The 179.26 is content-derived, NOT authored: the widest row is "Share
+         * conversation" at labelDx 40 + labelW 115.26 + 8 right padding = 163.26,
+         * plus 2x8 panel padding. So this shrink-wraps between the measured
+         * min/max rather than pinning a width.
+         *
+         * transform-origin measured `0px 0px` opening down and `0px 196px`
+         * opening up — i.e. the corner nearest the trigger.
+         */
+        <div
+          className={`fixed z-[9999] box-border min-w-[150px] max-w-[280px] rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)] ${
+            menuPosition.isAbove ? 'origin-bottom-left' : 'origin-top-left'
+          } ${isMenuClosing ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'}`}
+          style={{
+            ...(menuPosition.top !== undefined ? { top: `${menuPosition.top}px` } : {}),
+            ...(menuPosition.bottom !== undefined ? { bottom: `${menuPosition.bottom}px` } : {}),
             left: `${menuPosition.left}px`,
-            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-1.5 space-y-0.5">
-            <button 
+          <div>
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 triggerCloseMenu();
                 alert("Sharing conversation link: " + window.location.origin + "/chat/" + menuActiveChat);
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+              className={GEMINI_MENU_ITEM_CLASS}
             >
-              <Share2 size={15} strokeWidth={2} className="text-zinc-300" />
-              <span>Share conversation</span>
+              <MaterialSymbol name="share_2" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
+              <span className={GEMINI_MENU_LABEL_CLASS}>Share conversation</span>
             </button>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 togglePinChat(menuActiveChat);
                 triggerCloseMenu();
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+              className={GEMINI_MENU_ITEM_CLASS}
             >
-              <Pin size={15} strokeWidth={2} className={pinnedChats.includes(menuActiveChat) ? "text-amber-400 fill-amber-400" : "text-zinc-300"} />
-              <span>{pinnedChats.includes(menuActiveChat) ? 'Unpin' : 'Pin'}</span>
+              {/* Measured `data-mat-icon-name`: `push_pin` when the chat is
+                  unpinned, `unpin` when it is pinned. The label flips with it. */}
+              <MaterialSymbol
+                name={pinnedChats.includes(menuActiveChat) ? 'unpin' : 'push_pin'}
+                family="luminous"
+                size={20}
+                weight={320}
+                roundness={100}
+                opticalSize={20}
+                className="!w-6 shrink-0"
+              />
+              <span className={GEMINI_MENU_LABEL_CLASS}>{pinnedChats.includes(menuActiveChat) ? 'Unpin' : 'Pin'}</span>
             </button>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
-                setEditingChatId(menuActiveChat);
-                setEditValue(menuActiveChat);
+                openRenameDialog(menuActiveChat);
                 triggerCloseMenu();
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+              className={GEMINI_MENU_ITEM_CLASS}
             >
-              <Pencil size={15} strokeWidth={2} className="text-zinc-300" />
-              <span>Rename</span>
+              <MaterialSymbol name="edit" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
+              <span className={GEMINI_MENU_LABEL_CLASS}>Rename</span>
             </button>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 triggerCloseMenu();
                 alert(`Added "${menuActiveChat}" to Notebook.`);
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+              className={GEMINI_MENU_ITEM_CLASS}
             >
-              <BookOpen size={15} strokeWidth={2} className="text-zinc-300" />
-              <span>Add to notebook</span>
+              <MaterialSymbol name="notebook" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
+              <span className={GEMINI_MENU_LABEL_CLASS}>Add to notebook</span>
             </button>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 const chatToDelete = menuActiveChat;
                 triggerCloseMenu();
                 handleDeleteChat(chatToDelete);
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 h-[30px] text-[13px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+              className={GEMINI_MENU_ITEM_CLASS}
             >
-              <Trash2 size={15} strokeWidth={2} className="text-zinc-300" />
-              <span>Delete</span>
+              <MaterialSymbol name="delete" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
+              <span className={GEMINI_MENU_LABEL_CLASS}>Delete</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* Delete Chat Confirmation Dialog */}
-      {shouldRenderDelete && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center px-4">
-          {/* Backdrop */}
-          <div 
-            className={`absolute inset-0 bg-black/60 ${isDeleteClosing ? 'backdrop-fade-out' : 'backdrop-fade-in'}`} 
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerCloseDelete();
-            }}
-          />
-          
-          <div className={`relative bg-[#1e1f20] rounded-[28px] p-6 max-w-[500px] w-full shadow-2xl ${isDeleteClosing ? 'modal-scale-out' : 'modal-scale-in'}`}>
-            <h2 className="text-[22px] font-medium text-[#e3e3e3] mb-4">Delete chat?</h2>
-            
-            <p className="text-[15px] text-[#c4c7c5] leading-relaxed mb-8">
-              This will permanently delete this conversation and its history. This action cannot be undone.
-            </p>
-            
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerCloseDelete();
-                }}
-                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+      {/*
+        * "Rename this chat", measured at 512 wide / 213 tall.
+        *
+        * The 24px gap above the field is Gemini's own: its inner `.dialog-content`
+        * carries `padding: 24px 0 0` INSIDE the already-16px-padded dialog content
+        * block, which is why the field sits at dy 89 rather than 65.
+        *
+        * The Rename pill is disabled at open (measured
+        * `color(srgb 0.901961 ... / 0.12)` on a fresh dialog) and enables once the
+        * value differs from the current name. An emptied field keeps it disabled.
+        */}
+      {shouldRenderRename && (
+        <GeminiDialog
+          headingAs="h2"
+          title="Rename this chat"
+          width={512}
+          closing={isRenameClosing}
+          onDismiss={triggerCloseRename}
+          actions={
+            <>
+              <GeminiDialogPill onClick={triggerCloseRename}>Cancel</GeminiDialogPill>
+              <GeminiDialogPill
+                disabled={!editValue.trim() || editValue === editingChatId}
+                onClick={commitRename}
               >
-                Cancel
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  confirmDeleteChat();
-                }}
-                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
-              >
-                Delete
-              </button>
-            </div>
+                Rename
+              </GeminiDialogPill>
+            </>
+          }
+        >
+          <div style={{ paddingTop: 24 }}>
+            <GeminiOutlinedField
+              value={editValue}
+              onChange={setEditValue}
+              ariaLabel="Chat name"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && editValue.trim() && editValue !== editingChatId) commitRename();
+              }}
+            />
           </div>
-        </div>
+        </GeminiDialog>
+      )}
+
+      {/*
+        * "Delete chat?", measured at 600 wide. Same chrome as Rename — the only
+        * structural difference is that the title is an H1 and the body has no
+        * inner top padding, so the paragraph starts at dy 65 flush under the
+        * content block's own 16px.
+        *
+        * Both pills are `rgb(23, 23, 23)` and both are ENABLED: Gemini does not
+        * tint the destructive action red, and Delete is not gated behind anything.
+        *
+        * Gemini's body reads "...from your Gemini Apps Activity, plus any content
+        * you created." with a "Learn more" link to
+        * support.google.com/gemini?p=deleted_chats. Willow deletes one local chat
+        * file and has no activity store and no support page, so the sentence names
+        * what is actually deleted and the link is dropped rather than pointed at
+        * Google's docs. Length is kept so the paragraph still wraps to the
+        * measured two lines at 540px; the dialog height is content-derived, not
+        * authored, so it settles ~20px shorter without the link line.
+        */}
+      {shouldRenderDelete && (
+        <GeminiDialog
+          headingAs="h1"
+          title="Delete chat?"
+          width={600}
+          closing={isDeleteClosing}
+          onDismiss={triggerCloseDelete}
+          actions={
+            <>
+              <GeminiDialogPill onClick={triggerCloseDelete}>Cancel</GeminiDialogPill>
+              <GeminiDialogPill onClick={() => { void confirmDeleteChat(); }}>Delete</GeminiDialogPill>
+            </>
+          }
+        >
+          <p>
+            This will delete the prompts, responses, and attachments in this chat from this
+            device, plus any content you created in it.
+          </p>
+        </GeminiDialog>
       )}
     </aside>
   );

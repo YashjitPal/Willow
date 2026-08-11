@@ -80,6 +80,57 @@ function chipSourcesForRange(context: RenderContext, start: number, end: number)
   return sources;
 }
 
+/**
+ * The typography `.smd-root` itself declares.
+ *
+ * Named once because two separate things depend on these exact numbers: the
+ * root element's inline `font-variation-settings`, and the test below that
+ * decides whether a word's own span is redundant with what it inherits. If the
+ * two ever disagreed, settled text would silently render at the wrong weight —
+ * so they are derived from this rather than written out twice.
+ *
+ * `font-weight: 400` in `streaming-markdown-styles.ts` is the third copy and
+ * cannot import from here without a cycle; a test pins it to this value.
+ */
+const ROOT_TYPOGRAPHY = { weight: 400, width: 92, roundness: 0 } as const;
+
+const fontVariation = (roundness: number, slant: number, width: number, weight: number): string =>
+  '"ROND" ' + roundness + ', "slnt" ' + slant + ', "wdth" ' + width + ', "wght" ' + weight;
+
+const ROOT_VARIATION = fontVariation(
+  ROOT_TYPOGRAPHY.roundness,
+  0,
+  ROOT_TYPOGRAPHY.width,
+  ROOT_TYPOGRAPHY.weight,
+);
+
+/**
+ * Whether a word span under this context would be indistinguishable from the
+ * text it wraps.
+ *
+ * Every word gets its own `<span>` so the streaming fade can address it. Once a
+ * message settles the fade is gone — `.smd-w` and `.smd-settled` exist only
+ * under `.smd-streaming` — and for ordinary body text the span's inline styles
+ * restate what `.smd-root` already provides, character for character. Thousands
+ * of those spans are not free: each carries its own `font-variation-settings`,
+ * so the font engine shapes every word as an isolated run instead of caching
+ * glyph runs across a line, and the whole thread re-shapes word by word on every
+ * frame of the context panel's width animation.
+ *
+ * Deliberately conservative. Headings (`variant: 'h'`) and anything bold, italic
+ * or struck carry real style the span is load-bearing for, so they keep it; only
+ * the default body case is dropped, which is the overwhelming majority of a long
+ * conversation and all of the cost.
+ */
+const isInertWordStyle = (context: RenderContext): boolean =>
+  context.variant === 'w' &&
+  !context.strong &&
+  !context.em &&
+  !context.strike &&
+  context.weight === ROOT_TYPOGRAPHY.weight &&
+  context.width === ROOT_TYPOGRAPHY.width &&
+  context.roundness === ROOT_TYPOGRAPHY.roundness;
+
 interface WordProps {
   children: string;
   variant: 'w' | 'h';
@@ -106,11 +157,7 @@ const Word = React.memo(
   }: WordProps) {
     const settledAtMount = useRef(settled).current;
     const effectiveWeight = strong ? Math.max(540, weight) : weight;
-    const variation =
-      '"ROND" ' + roundness +
-      ', "slnt" ' + (em ? -10 : 0) +
-      ', "wdth" ' + width +
-      ', "wght" ' + effectiveWeight;
+    const variation = fontVariation(roundness, em ? -10 : 0, width, effectiveWeight);
 
     return (
       <span
@@ -553,9 +600,24 @@ interface RenderContext {
    * follow document order.
    */
   chipOrder?: { next: number };
+  /**
+   * Whether the per-word fade is running for this message.
+   *
+   * False for every settled turn in the thread, which is what lets the word
+   * spans be dropped — see `isInertWordStyle`. Threaded through the context
+   * rather than read from a module flag because two messages render under
+   * different values at the same time: the newest is streaming while the rest
+   * are static.
+   */
+  animating?: boolean;
 }
 
 function renderAnimatedText(value: string, start: number, context: RenderContext): React.ReactNode[] {
+  // Settled body text needs no per-word handles: nothing addresses them once the
+  // fade is over, and their styles are the ones already inherited. Hand the run
+  // back as a single text node so the font engine can shape it as one run.
+  if (!context.animating && isInertWordStyle(context)) return [value];
+
   const nodes: React.ReactNode[] = [];
   const expression = /\S+/g;
   let cursor = 0;
@@ -1822,10 +1884,11 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       definitions,
       footnoteNumbers,
       variant: 'w',
-      weight: 400,
-      width: 92,
-      roundness: 0,
+      weight: ROOT_TYPOGRAPHY.weight,
+      width: ROOT_TYPOGRAPHY.width,
+      roundness: ROOT_TYPOGRAPHY.roundness,
       chipGroups,
+      animating: animationEnabled,
       // Fresh each render, so ordinals are recomputed from zero in document order
       // and stay stable for a given tree instead of drifting upward on re-render.
       chipOrder: { next: 0 },
@@ -1840,7 +1903,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
           className
         }
         data-streaming={animationEnabled ? 'true' : undefined}
-        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+        style={{ fontVariationSettings: ROOT_VARIATION }}
       >
         {rendered}
       </div>

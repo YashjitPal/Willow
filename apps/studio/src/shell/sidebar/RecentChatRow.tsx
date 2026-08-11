@@ -18,8 +18,9 @@ import { SidebarItem } from './SidebarPrimitives';
  * caller wraps its handlers in `useEventCallback` for exactly this reason. Adding
  * an object/array/inline-arrow prop silently un-memoizes the whole list.
  *
- * `editValue` is deliberately NOT hoisted into a shared object: only the row
- * being renamed reads it, so a keystroke re-renders that one row.
+ * Renaming no longer happens in the row. Gemini's Recents menu raises a modal
+ * "Rename this chat" dialog, so the row lost its inline `<input>` and the
+ * per-keystroke re-render that came with it.
  */
 export interface RecentChatRowProps {
   chatId: string;
@@ -28,14 +29,9 @@ export interface RecentChatRowProps {
   isActive: boolean;
   isPinned: boolean;
   startedInCode: boolean;
-  isEditing: boolean;
   isMenuOpen: boolean;
-  editValue: string;
   onSelect: (chatId: string) => void;
   onMenuClick: (event: React.MouseEvent, chatId: string) => void;
-  onEditValueChange: (value: string) => void;
-  onEditCommit: () => void;
-  onEditCancel: () => void;
 }
 
 const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
@@ -45,38 +41,18 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
   isActive,
   isPinned,
   startedInCode,
-  isEditing,
   isMenuOpen,
-  editValue,
   onSelect,
   onMenuClick,
-  onEditValueChange,
-  onEditCommit,
-  onEditCancel,
 }) => (
   <SidebarItem
     flushRight
     label={displayName}
     customLabel={
-      isEditing ? (
-        <input
-          value={editValue}
-          onChange={(e) => onEditValueChange(e.target.value)}
-          onBlur={onEditCommit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onEditCommit();
-            if (e.key === 'Escape') onEditCancel();
-          }}
-          autoFocus
-          onClick={(e) => e.stopPropagation()}
-          className="w-full bg-transparent border-b border-white/20 text-white font-medium text-[13.5px] outline-none px-1 py-0.5 min-w-0"
-        />
-      ) : (
-        <div className="flex items-center gap-1.5 min-w-0 w-full">
-          <span className="truncate flex-1">{displayName}</span>
-          {isPinned && <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />}
-        </div>
-      )
+      <div className="flex items-center gap-1.5 min-w-0 w-full">
+        <span className="truncate flex-1">{displayName}</span>
+        {isPinned && <Pin size={10} className="text-amber-400 shrink-0 transform rotate-45" />}
+      </div>
     }
     isCollapsed={isCollapsed}
     active={isActive}

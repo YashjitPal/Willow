@@ -1,0 +1,650 @@
+/*
+ * Memory page — Settings → Personal Intelligence → Memory.
+ *
+ * Every selector is prefixed with .mem- on purpose, for the reason the
+ * Connected Apps page states for itself: PersonalIntelligenceTab.css and
+ * SavedInfoTab.css are plain global imports that already collide with each
+ * other on .header, .section, .page-content and the whole .mdc-switch*
+ * family. Nothing here may leak into them, and nothing of theirs may leak
+ * into this page's dialog — which is why the switch and the dialog below are
+ * hand-rolled with their own tokens instead of reusing class names that a
+ * sibling stylesheet already styles.
+ *
+ * Layout follows the Connected Apps page's shell (68px top margin, centered
+ * column, 880px content max-width). Row and dialog measurements are the same
+ * ones the Saved Info page copied from Gemini.
+ */
+
+.mem-container {
+  --mem-surface: #131314;
+  --mem-surface-container: #1e1f20;
+  --mem-surface-hover: #252627;
+  --mem-on-surface: #e3e3e3;
+  --mem-on-surface-variant: #c4c7c5;
+  --mem-outline: #8e918f;
+  --mem-primary: #a8c7fa;
+  --mem-primary-container: #062e6f;
+  --mem-danger: #ff8a80;
+
+  --mem-content-max-width: 880px;
+
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--mem-surface);
+  color: var(--mem-on-surface);
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92;
+}
+
+/* ---------- Type scale (local, like Connected Apps' .ca-* scale) ---------- */
+
+.mem-container .mem-display-s {
+  font-size: 32px;
+  font-weight: 360;
+  line-height: 38px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.mem-container .mem-title-l {
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.mem-container .mem-body-l {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.mem-container .mem-body-m {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.mem-container .mem-label-s {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+/* ---------- Page shell ---------- */
+
+.mem-container .mem-window {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--mem-content-max-width);
+  margin: 68px auto 24px;
+  padding: 0 20px 40px;
+  box-sizing: border-box;
+}
+
+.mem-container .mem-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.mem-container .mem-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.mem-container .mem-subtitle {
+  color: var(--mem-on-surface);
+  margin: 0;
+}
+
+.mem-container .mem-last-built {
+  color: var(--mem-on-surface-variant);
+  margin: 0;
+}
+
+/* ---------- Switch (hand-rolled; see header comment) ---------- */
+
+.mem-container .mem-switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mem-container .mem-switch-track {
+  position: absolute;
+  inset: 0;
+  background-color: var(--mem-surface-container);
+  border: 2px solid var(--mem-outline);
+  border-radius: 16px;
+  box-sizing: border-box;
+  transition:
+    background-color 90ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 90ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mem-container .mem-switch-handle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--mem-outline);
+  transition:
+    transform 90ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 90ms cubic-bezier(0.4, 0, 0.2, 1),
+    width 90ms ease,
+    height 90ms ease,
+    top 90ms ease,
+    left 90ms ease;
+}
+
+.mem-container .mem-switch-on .mem-switch-track {
+  background-color: var(--mem-primary);
+  border-color: var(--mem-primary);
+}
+
+.mem-container .mem-switch-on .mem-switch-handle {
+  transform: translateX(20px);
+  background-color: var(--mem-primary-container);
+  width: 24px;
+  height: 24px;
+  top: 4px;
+  left: 4px;
+}
+
+.mem-container .mem-switch:focus-visible {
+  outline: 2px solid var(--mem-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Action buttons ---------- */
+
+.mem-container .mem-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mem-container .mem-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 10px 24px;
+  border-radius: 100px;
+  border: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  user-select: none;
+}
+
+.mem-container .mem-button .mat-icon {
+  font-size: 18px !important;
+  width: 18px !important;
+  height: 18px !important;
+  margin: 0 8px 0 -8px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1 !important;
+}
+
+.mem-container .mem-button-filled {
+  background-color: var(--mem-primary);
+  color: var(--mem-primary-container);
+}
+
+.mem-container .mem-button-filled:hover {
+  background-color: #c3ddff;
+}
+
+.mem-container .mem-button-outlined {
+  background-color: transparent;
+  color: var(--mem-primary);
+  border: 0.8px solid var(--mem-outline);
+}
+
+.mem-container .mem-button-outlined:hover {
+  background-color: rgba(168, 199, 250, 0.08);
+  border-color: var(--mem-primary);
+}
+
+.mem-container .mem-button:disabled {
+  background-color: rgba(227, 227, 227, 0.12);
+  color: rgba(227, 227, 227, 0.38);
+  border-color: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+
+.mem-container .mem-button-trailing {
+  margin-left: auto;
+}
+
+/* ---------- Status / feedback line ---------- */
+
+.mem-container .mem-status {
+  min-height: 20px;
+  margin: 0 0 28px;
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-empty {
+  margin: 0;
+  padding: 32px 0;
+  color: var(--mem-on-surface-variant);
+}
+
+/* ---------- Groups ---------- */
+
+.mem-container .mem-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.mem-container .mem-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.mem-container .mem-group-heading {
+  color: var(--mem-on-surface);
+}
+
+.mem-container .mem-group-count {
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-group-guidance {
+  margin: 0 0 12px;
+  color: var(--mem-on-surface-variant);
+}
+
+/* ---------- Rows (Saved Info's memory list, measurements intact) ---------- */
+
+.mem-container .mem-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mem-container .mem-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 72px;
+  background-color: var(--mem-surface-container);
+  box-sizing: border-box;
+  transition: background-color 0.15s ease;
+}
+
+.mem-container .mem-row:hover {
+  background-color: var(--mem-surface-hover);
+}
+
+.mem-container .mem-first-item {
+  border-radius: 12px 12px 4px 4px;
+}
+
+.mem-container .mem-middle-item {
+  border-radius: 4px;
+}
+
+.mem-container .mem-last-item {
+  border-radius: 4px 4px 12px 12px;
+}
+
+.mem-container .mem-single-item {
+  border-radius: 12px;
+}
+
+.mem-container .mem-row-body {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0 12px 16px;
+  box-sizing: border-box;
+}
+
+.mem-container .mem-row-text {
+  color: var(--mem-on-surface-variant);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mem-container .mem-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-row-source {
+  color: var(--mem-primary);
+  opacity: 0.9;
+}
+
+.mem-container .mem-row-badge {
+  color: var(--mem-primary);
+}
+
+.mem-container .mem-row-evidence {
+  margin-top: 4px;
+  color: var(--mem-outline);
+}
+
+.mem-container .mem-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: 12px;
+  padding: 8px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--mem-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.mem-container .mem-row-actions:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- Row menu ---------- */
+
+.mem-container .mem-row-menu {
+  position: absolute;
+  top: 48px;
+  right: 8px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 128px;
+  padding: 4px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background-color: #2a2b2c;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.mem-container .mem-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: var(--mem-on-surface);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mem-container .mem-menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.mem-container .mem-menu-item .mat-icon {
+  font-size: 18px;
+}
+
+.mem-container .mem-menu-item-danger {
+  color: var(--mem-danger);
+}
+
+/* ---------- Dialog (Saved Info's modal stack, renamed to keep it local) ---------- */
+
+.mem-container .mem-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 1000;
+}
+
+.mem-container .mem-backdrop-show {
+  opacity: 1;
+}
+
+.mem-container .mem-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.mem-container .mem-dialog {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 600px;
+  background-color: var(--mem-surface-container);
+  border-radius: 28px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  color: var(--mem-on-surface);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 150ms linear,
+    transform 150ms cubic-bezier(0, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+.mem-container .mem-dialog-open {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.mem-container .mem-dialog-closing {
+  opacity: 0;
+  transform: scale(1);
+  transition: opacity 75ms linear;
+}
+
+.mem-container .mem-dialog-title {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 24px 24px 13px;
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 380;
+  line-height: 28px;
+  color: var(--mem-on-surface);
+  /* MD3 dialog title baseline spacer, same as Saved Info. */
+  position: relative;
+}
+
+.mem-container .mem-dialog-title::before {
+  display: inline-block;
+  width: 0;
+  height: 32px;
+  content: '';
+  vertical-align: 0px;
+}
+
+.mem-container .mem-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
+.mem-container .mem-dialog-field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 16px;
+  background-color: var(--mem-surface-container);
+  border: 1px solid var(--mem-outline);
+  border-radius: 10px;
+  transition:
+    border-color 0.2s ease,
+    border-width 0.1s ease;
+  display: flex;
+}
+
+.mem-container .mem-dialog-field:focus-within {
+  border: 2px solid var(--mem-primary);
+  padding: 15px;
+}
+
+.mem-container .mem-dialog-input {
+  width: 100%;
+  min-height: 120px;
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  color: var(--mem-on-surface);
+  font-family: 'Google Sans Text', 'Google Sans', sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  resize: none;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.mem-container .mem-dialog-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mem-container .mem-dialog-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-dialog-static {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  font-size: 13px;
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-dialog-static strong {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--mem-on-surface);
+}
+
+.mem-container .mem-dialog-select,
+.mem-container .mem-dialog-date {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  background-color: var(--mem-surface-container);
+  border: 1px solid var(--mem-outline);
+  border-radius: 10px;
+  color: var(--mem-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  cursor: pointer;
+}
+
+.mem-container .mem-dialog-select:focus,
+.mem-container .mem-dialog-date:focus {
+  border-color: var(--mem-primary);
+}
+
+.mem-container .mem-dialog-hint {
+  margin: 0;
+  color: var(--mem-on-surface-variant);
+}
+
+.mem-container .mem-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 24px;
+}
+
+.mem-container .mem-dialog-actions button {
+  height: 40px;
+  padding: 10px 24px;
+  border: none;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.mem-container .mem-dialog-cancel {
+  background-color: transparent;
+  color: var(--mem-primary);
+  padding: 10px 12px;
+}
+
+.mem-container .mem-dialog-cancel:hover {
+  background-color: rgba(168, 199, 250, 0.08);
+}
+
+.mem-container .mem-dialog-submit {
+  background-color: var(--mem-primary);
+  color: var(--mem-primary-container);
+  margin-left: 8px;
+}
+
+.mem-container .mem-dialog-submit:hover {
+  background-color: #c3ddff;
+}
+
+.mem-container .mem-dialog-submit:disabled {
+  background-color: rgba(227, 227, 227, 0.12) !important;
+  color: rgba(227, 227, 227, 0.38) !important;
+  cursor: default;
+  pointer-events: none;
+}

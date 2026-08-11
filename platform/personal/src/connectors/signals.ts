@@ -25,7 +25,6 @@ import { createGoogleFetch } from './google-fetch';
 import { canProvideSignals, connectorById, scopeUrls } from './registry';
 import { tokenSource, type TokenSource } from './token-source';
 import type { ConnectorId, ConnectorSignal } from './types';
-import { normalizeSectionId } from '../profile/sections';
 import type { CandidateBullet } from '../profile/types';
 
 export interface CollectOptions {
@@ -44,8 +43,10 @@ export const activeSignalConnectors = (): ConnectorId[] => {
   );
 };
 
+/** A signal is already shaped like a candidate; its `section` is the same union
+ *  the profile uses, so nothing needs coercing here. */
 const toCandidate = (signal: ConnectorSignal): CandidateBullet => ({
-  section: normalizeSectionId(signal.section),
+  section: signal.section,
   text: signal.text,
   source: signal.source,
   evidence: signal.evidence,

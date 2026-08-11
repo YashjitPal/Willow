@@ -1,0 +1,66 @@
+/*
+ * The top-right conversation-actions menu, reproduced from measurement over CDP.
+ *
+ * Captured off gemini.google.com at viewport 1536x826, dpr 1.25, zoom 1, with an
+ * acked screencast and a 6-frame rAF positive control, from
+ * `[aria-label="Open menu for conversation actions."]` and the pane it opens.
+ *
+ * This is NOT the same implementation as the Recents row menu, and the
+ * difference is the reason this file exists rather than reusing Sidebar.css:
+ *
+ *   Recents row menu   Angular Material `mat-menu` -> `.mat-mdc-menu-panel`
+ *                      matches, so it gets `_mat-menu-enter` / `_mat-menu-exit`.
+ *   This menu          a `gem-menu` inside a plain `cdk-overlay-popover`.
+ *                      `.mat-mdc-menu-panel` does NOT match, so Material's
+ *                      keyframes never apply and there is NO animation in
+ *                      either direction.
+ *
+ * "No animation" is measured, not assumed. Opening: the pane is fully formed and
+ * byte-identical in every sampled frame (`opacity: 1`,
+ * `transform: matrix(1,0,0,1,0,4)`, `animationName: none` on both the pane and
+ * its child, h 268, y 54). Closing: 19 identical frames, then GONE in one frame.
+ * The rAF recorder was armed before the click and reported 11 baseline frames,
+ * so the absence of intermediate frames is an absence of animation rather than
+ * an absence of frames (see memory: raf-sampler-false-negative).
+ *
+ * Geometry, all measured:
+ *   trigger      BUTTON 36x36 at (1488, 14) -> top 14, right 12. radius 9999,
+ *                padding 6, background transparent, colour rgb(230, 230, 230).
+ *   pane         203.26 x 268 at (1320.74, 54), right edge 1524 = trigger.right.
+ *                The CDK wrapper is `inset: 50px 12px auto auto` with
+ *                `align-items: flex-end`, and the pane itself carries
+ *                `transform: translateY(4px)` -> top = trigger.bottom + 4.
+ *                Contrast the Recents menu: zero gap, left-aligned.
+ *   width        content-derived and MUST NOT be authored. 203.26 = 8 + 187.26 +
+ *                8, and the row's 187.26 - 16 padding = 171.26 =
+ *                20 (leading) + 8 + 115.26 ("Share conversation") + 8 +
+ *                20 (trailing). The trailing 20px box is EMPTY
+ *                (`innerHTML: "<!----><!----><!---->"`) - a reserved slot that
+ *                has to be reproduced or the pane comes out 28px too narrow.
+ *   rows         7, each 36 tall, `padding: 8px`, `gap: 8px`, radius 12.
+ *   hover        rgba(230, 230, 230, 0.08) on the row's own background.
+ */
+
+/*
+ * The pane is outside `.studio-sidebar`, so it cannot inherit that subtree's
+ * width axis - the labels measured `"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400`
+ * and must declare it here. `font-variation-settings` replaces rather than
+ * merges, so the full list is restated.
+ *
+ * `wght` IS included here, unlike the sidebar's inherited rule: every label in
+ * this pane measured 400 and none of its descendants carries a different weight,
+ * so there is no `font-weight` for the axis to override.
+ */
+.willow-conv-menu {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/*
+ * Measured `color: rgb(227, 227, 227)` on every row icon - one step off the
+ * label's rgb(230, 230, 230), which is why it is set separately rather than
+ * inherited from the row.
+ */
+.willow-conv-menu-icon {
+  color: rgb(227, 227, 227);
+}

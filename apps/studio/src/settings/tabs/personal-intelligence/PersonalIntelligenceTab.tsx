@@ -1,10 +1,20 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useStore } from '@nanostores/react';
+import { profileStore, setProfileEnabled } from '@willow/personal';
 import './PersonalIntelligenceTab.css';
 
 export const PersonalIntelligenceTab: React.FC = () => {
   const navigate = useNavigate();
-  const [isMemoryEnabled, setIsMemoryEnabled] = useState(true);
+  /**
+   * The Memory switch is the real one, not a local `useState`.
+   *
+   * It gates three separate things that live nowhere near this component: the
+   * profile block in every chat's system prompt, the automatic builds, and the
+   * retrieval tool. Before this was wired, flipping it changed a boolean that
+   * only this component could see, so Memory was permanently on.
+   */
+  const { enabled: isMemoryEnabled } = useStore(profileStore);
 
   return (
     <div className="w-full h-full overflow-y-auto bg-[#0f0f0f] personal-intelligence-container">
@@ -52,7 +62,7 @@ export const PersonalIntelligenceTab: React.FC = () => {
                     id="mat-mdc-slide-toggle-0-button"
                     aria-label="Enables or disables the use of personal Willow context"
                     aria-checked={isMemoryEnabled}
-                    onClick={() => setIsMemoryEnabled(!isMemoryEnabled)}
+                    onClick={() => setProfileEnabled(!isMemoryEnabled)}
                   >
                     <div className="mat-mdc-slide-toggle-touch-target"></div>
                     <span className="mdc-switch__track"></span>
@@ -90,10 +100,19 @@ export const PersonalIntelligenceTab: React.FC = () => {
           <div className="description gds-body-l">
             <span> Willow learns from your past chats to understand more about you. Coming soon to Live. </span>
             <div className="links gds-label-m">
-              <a href="https://support.google.com/gemini?p=man_del" target="_blank" rel="noopener noreferrer">
+              {/* The row keeps no chevron, matching Gemini, where Memory is
+                  toggle-only while Connected Apps and Instructions navigate. The
+                  subpage is reached through this sentence instead. */}
+              <a
+                href="/memory"
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate('/memory');
+                }}
+              >
                 Manage and delete
               </a>{' '}
-              your past chats anytime.{' '}
+              what Willow remembers anytime.{' '}
               <a href="https://support.google.com/gemini?p=personalization" target="_blank" rel="noopener noreferrer">
                 Learn more
               </a>
