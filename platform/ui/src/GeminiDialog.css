@@ -1,0 +1,254 @@
+/*
+ * Gemini's Material dialog, reproduced from measurement over CDP.
+ *
+ * Captured off gemini.google.com at viewport 1419x826, dpr 1.25, from the two
+ * dialogs the Recents row menu raises — "Rename this chat" (512x213) and
+ * "Delete chat?" (600x193). They agree on every piece of surface chrome, so one
+ * shell renders both and only the width and the body differ.
+ *
+ * Three findings shaped this file:
+ *
+ *   1. The surface scales in on a CSS TRANSITION, not an animation. Sampled
+ *      frames read `animation-name: none` with
+ *      `transition: transform 0.15s cubic-bezier(0, 0, 0.2, 1)` and
+ *      `transform: scale(0.8)` -> `scale(1)`.
+ *
+ *   2. Its opacity is 1 in every sampled frame, opening AND closing. The
+ *      surface never fades.
+ *
+ *   3. There is NO exit animation on the surface at all. Through the entire
+ *      close it read `opacity: 1; transform: none; transition: all`. Only the
+ *      backdrop fades, and the node is removed ~95ms after that fade begins.
+ *      The only authored keyframes in Gemini's sheets are `backdrop-opacity`
+ *      and `video-trimmer-backdrop-opacity`, both a plain 0 -> 1 opacity ramp.
+ *
+ * `--mat-dialog-transition-duration: 150ms` was set inline on the container of
+ * both dialogs, which is where the 150ms below comes from.
+ */
+
+.willow-gdlg-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Measured `rgba(0, 0, 0, 0.32)` with `backdrop-filter: none` — there is no
+     blur behind a Gemini dialog. */
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.willow-gdlg-backdrop--shown {
+  opacity: 1;
+}
+
+/* The CDK's own centring layer: the pane is `position: static` inside a flex
+   overlay wrapper, so the dialog is centred by the wrapper, not by insets. */
+.willow-gdlg-host {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.willow-gdlg-surface {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 32px;
+  background: rgb(31, 31, 31);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  color: rgb(227, 227, 227);
+  overflow: auto;
+  transform: scale(0.8);
+  transition: transform 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.willow-gdlg-surface--shown {
+  transform: scale(1);
+}
+
+/*
+ * The title is the one node in either dialog that does NOT use the body's width
+ * axis: it computed `"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470` against the
+ * body's `"ROND" 0 ... "wdth" 92`, the same pair as the sidenav wordmark. The
+ * full axis list is restated because `font-variation-settings` replaces rather
+ * than merges.
+ *
+ * Rename's title is an H2 and Delete's is an H1 — measured, and reproduced by
+ * the `as` prop rather than normalised here.
+ */
+.willow-gdlg-title {
+  margin: 0 0 1px;
+  padding: 24px 24px 0;
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  color: rgb(227, 227, 227);
+  text-align: start;
+  letter-spacing: normal;
+}
+
+.willow-gdlg-content {
+  padding: 16px 24px 0;
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(230, 230, 230);
+}
+
+.willow-gdlg-content p {
+  margin: 0;
+}
+
+/* Measured on Delete's "Learn more": `text-decoration: underline`, and the same
+   rgb(230, 230, 230) as the body — Gemini does not tint it. */
+.willow-gdlg-link {
+  color: rgb(230, 230, 230);
+  text-decoration: underline;
+}
+
+.willow-gdlg-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
+  padding: 16px;
+}
+
+/*
+ * The tonal pill. Measured in both dialogs: Cancel 70.72x36, Rename 78.93x36,
+ * Delete 68.34x36 — all three are 12 + their label + 12, so the width is
+ * content-derived and must NOT be authored. Only the height is fixed.
+ *
+ * Both of Delete's pills are the same rgb(23, 23, 23): Gemini does not tint a
+ * destructive action red.
+ */
+.willow-gdlg-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgb(23, 23, 23);
+  color: rgb(230, 230, 230);
+  font-family: "Google Sans Flex", "Google Sans Text", sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  font-weight: 500;
+  /* Measured `normal` on the label — the pill does not carry the body's width
+     axis, so it must be reset rather than inherited from .willow-gdlg-content. */
+  font-variation-settings: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Measured `color(srgb 0.901961 0.901961 0.901961 / 0.12)` and `/ 0.38)`, which
+   is rgb(230, 230, 230) at those two alphas. Rename opens in this state because
+   the field starts at the unchanged title. */
+.willow-gdlg-pill:disabled {
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
+  cursor: default;
+}
+
+/* Material's persistent ripple, which is what actually carries the hover tint —
+   the button's own background never changes. */
+.willow-gdlg-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgb(230, 230, 230);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.willow-gdlg-pill:not(:disabled):hover::before {
+  opacity: 0.08;
+}
+
+.willow-gdlg-pill__label {
+  position: relative;
+}
+
+/*
+ * The outlined field, from the Rename dialog. 452x56 with `padding: 0 16px` on
+ * the wrapper and `16px 0` on the infix, which is what centres the 24px input.
+ *
+ * The outline is `mdc-notched-outline--no-label`, so the notch measured 0x0 and
+ * the leading (12px) and trailing (440px) pieces meet to form one plain 4px box.
+ * It is drawn on an absolutely-positioned layer for the reason Material does the
+ * same: focus takes the border from 0.8px to 1.6px, and an in-flow border would
+ * shift the input by 0.8px at that moment.
+ */
+.willow-gdlg-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+}
+
+.willow-gdlg-field__outline {
+  position: absolute;
+  inset: 0;
+  border: 0.8px solid rgb(142, 145, 143);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.willow-gdlg-field:hover .willow-gdlg-field__outline {
+  border-color: rgb(230, 230, 230);
+}
+
+.willow-gdlg-field:focus-within .willow-gdlg-field__outline {
+  border-width: 1.6px;
+  border-color: rgb(230, 230, 230);
+}
+
+.willow-gdlg-field__input {
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(230, 230, 230);
+  caret-color: rgb(230, 230, 230);
+}
+
+/* Repo convention, as in Sidebar.css and CopyToast.css. Not measured — Gemini
+   ships no reduced-motion rule for the dialog. */
+@media (prefers-reduced-motion: reduce) {
+  .willow-gdlg-backdrop,
+  .willow-gdlg-surface {
+    transition-duration: 1ms;
+  }
+}

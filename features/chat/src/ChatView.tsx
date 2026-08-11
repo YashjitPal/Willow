@@ -47,6 +47,7 @@ import { runChatTurn } from './chat-turn-runner';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
 import { waitForBrowserPaint } from './chat-timing';
+import { findDeepBlockAnchor } from './scroll-anchor';
 import { useStore } from '@nanostores/react';
 
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
@@ -187,6 +188,16 @@ const observeHeight = (
   };
   return observer;
 };
+
+/**
+ * How long the scroll pin keeps correcting after the panel's width has settled.
+ *
+ * The observers above coalesce their work to the trailing edge of the panel
+ * window, and one of them writes the response reserve — so a real height change
+ * lands ~360ms in, AFTER the animation is visually over. A pin that stopped with
+ * the transition would fix 300ms of drift and then let that last step through.
+ */
+const PANEL_PIN_TAIL_MS = 120;
 
 /**
  * Sampler for the app's emphasised curve, `cubic-bezier(0.2, 0, 0, 1)`.
@@ -842,6 +853,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const panelSettleUntilRef = useRef(0);
   const panelIsOpen = openThinkingMessageId !== null || openSourcesMessageId !== null;
   const panelWasOpenRef = useRef(panelIsOpen);
+  // Scroll-pin across the panel transition: the scroller's width animates, the
+  // text re-wraps and grows, and Chrome's native anchoring is suppressed by that
+  // very animation (a padding/width change every frame disables it), so the
+  // thread slides down under the viewport. This drives the per-frame corrective
+  // scroll in the pin hook below. Ref, not state: it is read and written every
+  // rAF while the transition runs and must never force a render.
+  const panelTransitionPhaseRef = useRef<'idle' | 'captured' | 'running'>('idle');
+  const panelBottomPinnedRef = useRef(false);
   const panelDeferMs = useCallback(
     () => Math.max(0, panelSettleUntilRef.current - performance.now()),
     [],
@@ -853,6 +872,111 @@ export const ChatView: React.FC<ChatViewProps> = ({
     panelWasOpenRef.current = panelIsOpen;
     // Small margin past the transition so the settling frame is covered too.
     panelSettleUntilRef.current = performance.now() + PANEL_TRANSITION_MS + 60;
+    // Snapshot where the viewport is before the width animation starts. The
+    // pin hook owns every frame of the transition; it reads these two refs.
+    panelTransitionPhaseRef.current = 'captured';
+    const container = chatScrollRef.current;
+    if (container) {
+      panelBottomPinnedRef.current =
+        container.scrollHeight - container.clientHeight - container.scrollTop <= 2;
+    }
+  }, [panelIsOpen]);
+
+  /**
+   * Hold the reading position still across the panel transition.
+   *
+   * The reflow itself is wanted: the text should re-wrap live as the column
+   * narrows. What is not wanted is the thread sliding, and that happens because
+   * re-wrapped text above the viewport is taller than it was. Chrome normally
+   * repays exactly this via scroll anchoring — but a computed padding/width
+   * change on an ancestor inside the scroller is a suppression trigger, and this
+   * transition animates both for 300ms, so anchoring is off for precisely the
+   * window in which it was needed. The coalescing above fixed the React half of
+   * that; this fixes the part the browser will not do for us.
+   *
+   * Measure-and-correct per frame rather than computing a total up front: the
+   * re-wrap arrives progressively over the animation, the reserve lands after
+   * it, and a frame that reads where the anchor IS cannot be stale.
+   */
+  useLayoutEffect(() => {
+    if (panelTransitionPhaseRef.current !== 'captured') return;
+    panelTransitionPhaseRef.current = 'running';
+
+    const container = chatScrollRef.current;
+    const release = () => { panelTransitionPhaseRef.current = 'idle'; };
+    if (!container) { release(); return; }
+
+    // Streaming owns the scroll position — the follow logic below writes it on
+    // every token — and two writers on one scroller is the jerk this removes.
+    if (isGeneratingRef.current || isLiveRef.current) { release(); return; }
+
+    const bottomPinned = panelBottomPinnedRef.current;
+    const anchor = bottomPinned
+      ? null
+      : findDeepBlockAnchor(container, container.getBoundingClientRect().top + 1);
+    if (!bottomPinned && !anchor) { release(); return; }
+    const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+
+    // Exactly one writer for the duration. Native anchoring is suppressed on
+    // most of these frames but not provably all of them, and a browser
+    // adjustment landing on top of ours would overshoot — self-correcting on
+    // the next frame, which is visible as jitter rather than as a jump.
+    const previousOverflowAnchor = container.style.overflowAnchor;
+    container.style.overflowAnchor = 'none';
+
+    let raf: number | null = null;
+    let cancelled = false;
+
+    // The pin writes scrollTop, which fires `scroll`, so a scroll listener would
+    // see its own work. Listen for the INPUT instead — same reasoning as the
+    // turn entrance below.
+    const interrupt = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+      finish();
+    };
+    const finish = () => {
+      container.style.overflowAnchor = previousOverflowAnchor;
+      container.removeEventListener('wheel', interrupt);
+      container.removeEventListener('touchstart', interrupt);
+      container.removeEventListener('keydown', interrupt);
+      release();
+    };
+    container.addEventListener('wheel', interrupt, { passive: true });
+    container.addEventListener('touchstart', interrupt, { passive: true });
+    container.addEventListener('keydown', interrupt);
+
+    const step = () => {
+      if (cancelled) return;
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      if (bottomPinned) {
+        container.scrollTop = maxScrollTop;
+      } else if (anchor) {
+        // A regenerate or an edit can unmount the anchor mid-transition; its
+        // rect then reads all zeros, which would look like a huge upward move.
+        if (!anchor.isConnected) { finish(); return; }
+        const delta = anchor.getBoundingClientRect().top - anchorTop;
+        // Sub-pixel moves are layout noise, and writing scrollTop for them would
+        // round-trip the scroller every frame for nothing.
+        if (Math.abs(delta) > 0.5) {
+          container.scrollTop = Math.min(maxScrollTop, Math.max(0, container.scrollTop + delta));
+        }
+      }
+      if (performance.now() < panelSettleUntilRef.current + PANEL_PIN_TAIL_MS) {
+        raf = requestAnimationFrame(step);
+      } else {
+        raf = null;
+        finish();
+      }
+    };
+    raf = requestAnimationFrame(step);
+
+    return () => {
+      cancelled = true;
+      if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+      finish();
+    };
   }, [panelIsOpen]);
   const [openResource, setOpenResource] = useState<RichResource | null>(null);
   const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);

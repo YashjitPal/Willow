@@ -12,7 +12,7 @@
  * of model calls, and checks for cancellation between every one.
  */
 
-import { bulletFingerprint, type ProfileBullet, type ProfileState } from '../profile/types';
+import { bulletFingerprint, type CandidateBullet, type ProfileBullet, type ProfileState } from '../profile/types';
 import {
   buildExtractRequest,
   EXTRACT_SYSTEM_PROMPT,
@@ -20,7 +20,7 @@ import {
   type ExtractedBullet,
 } from './extract-prompt';
 import type { ExtractRunner } from './llm';
-import { mergeCandidates, type MergeResult } from './merge';
+import { mergeCandidates, type MergeCandidate, type MergeResult } from './merge';
 import { batchTranscripts, buildTranscript, renderTranscript, type RawSavedMessage } from './transcript';
 
 /** Where chats come from. `LocalFSContext` supplies both in the app. */
@@ -34,6 +34,16 @@ export interface ChatSource {
 export interface RebuildDeps {
   chats: ChatSource;
   extract: ExtractRunner;
+  /**
+   * Connected products, read for facts the chats cannot supply.
+   *
+   * Optional and injected, so the builder never imports the connector layer:
+   * a build with no connectors is the normal case and must not drag OAuth code
+   * into the path. Returns already-shaped candidates because each connector
+   * knows its own section and writes its own evidence — there is no model call
+   * on this side, which is why connector signals cost nothing to refresh.
+   */
+  connectors?: () => Promise<CandidateBullet[]>;
   /** Current state, read once at the start and re-read before committing. */
   getState: () => ProfileState;
   commit: (result: { bullets: ProfileBullet[]; digested: Record<string, number> }) => void;
@@ -102,9 +112,67 @@ export const selectPendingChats = (
 const knownLines = (bullets: ProfileBullet[]): string[] =>
   bullets.map((bullet) => bullet.text);
 
+/**
+ * Everything a new bullet is not allowed to duplicate.
+ *
+ * The user's deletions, plus the user's own hand-written bullets — a derived
+ * bullet saying what the user already wrote is the same fact twice, and the
+ * hand-written one is the keeper.
+ */
+const suppressionSet = (state: ProfileState): string[] => [
+  ...state.suppressed,
+  ...state.bullets
+    .filter((bullet) => bullet.origin === 'user')
+    .map((bullet) => bulletFingerprint(bullet.text)),
+];
+
+/**
+ * Drop stored bullets that this run's connectors are about to restate.
+ *
+ * Connector data is not incremental. A calendar read today returns a different
+ * set of events than it did last week, and the merge keeps existing bullets over
+ * new ones — so without this, last week's events would win the collision and the
+ * profile would describe a week that has already happened.
+ *
+ * Which bullets to clear is worked out from the fresh candidates' own `source`
+ * values rather than a hardcoded list of product names, so it stays right when a
+ * connector is added and, importantly, clears nothing when a connector could not
+ * be read: no fresh Calendar bullets means the stored ones are still the best
+ * information available and should stay.
+ */
+const dropRefreshedSources = (
+  bullets: ProfileBullet[],
+  fresh: MergeCandidate[],
+): ProfileBullet[] => {
+  const refreshed = new Set(
+    fresh.map((candidate) => candidate.source?.trim()).filter((source): source is string => Boolean(source)),
+  );
+  if (refreshed.size === 0) return bullets;
+  return bullets.filter((bullet) => !refreshed.has(bullet.source));
+};
+
+/**
+ * Read the connected products, if any. Never throws.
+ *
+ * A failing connector must not fail a build that also read chats successfully —
+ * the chat half is the part that cost model calls, and throwing it away because
+ * a Calendar token expired would be the expensive half paying for the free one.
+ */
+const readConnectors = async (
+  connectors: RebuildDeps['connectors'],
+): Promise<MergeCandidate[]> => {
+  if (!connectors) return [];
+  try {
+    return await connectors();
+  } catch {
+    return [];
+  }
+};
+
 export const runRebuild = async ({
   chats,
   extract,
+  connectors,
   getState,
   commit,
   signal,
@@ -118,8 +186,31 @@ export const runRebuild = async ({
   if (signal?.aborted) return { status: 'cancelled', chatsRead: 0, batches: 0 };
 
   const pending = selectPendingChats(available, startState.digested);
+
+  // Connector data is re-read on every build, including builds where no chat
+  // changed. A calendar is not incremental — last week's events are gone and
+  // next week's are new — so carrying the old bullets forward would leave the
+  // profile describing a week that has already happened.
   if (pending.length < MIN_CHATS_PER_RUN) {
-    return { status: 'nothing-to-do', chatsRead: 0, batches: 0 };
+    const fromConnectors = await readConnectors(connectors);
+    if (fromConnectors.length === 0 || signal?.aborted) {
+      return { status: signal?.aborted ? 'cancelled' : 'nothing-to-do', chatsRead: 0, batches: 0 };
+    }
+    const current = getState();
+    if (!current.enabled) return { status: 'disabled', chatsRead: 0, batches: 0 };
+    const { bullets, stats } = mergeCandidates({
+      candidates: fromConnectors,
+      existing: dropRefreshedSources(
+        current.bullets.filter((bullet) => bullet.origin === 'auto'),
+        fromConnectors,
+      ),
+      suppressed: suppressionSet(current),
+      source: 'Connected apps',
+      now: now(),
+      newId,
+    });
+    commit({ bullets, digested: {} });
+    return { status: 'built', chatsRead: 0, batches: 0, stats };
   }
 
   // Newest first, so a run cut short has read what matters most.
@@ -185,16 +276,22 @@ export const runRebuild = async ({
   const current = getState();
   if (!current.enabled) return { status: 'disabled', chatsRead: readIds.size, batches: batches.length };
 
+  // Connector signals join the same merge as the extractor's bullets, so they
+  // share the dedupe, the caps and the sensitive screen. Read *after* the
+  // batches: a connector is one network round-trip and the batches are model
+  // calls, so this is the free half of the run.
+  const fromConnectors = await readConnectors(connectors);
+
   const { bullets, stats } = mergeCandidates({
-    candidates,
-    existing: current.bullets.filter((bullet) => bullet.origin === 'auto'),
+    candidates: [...candidates, ...fromConnectors],
+    existing: dropRefreshedSources(
+      current.bullets.filter((bullet) => bullet.origin === 'auto'),
+      fromConnectors,
+    ),
     // Include fingerprints of the user's own bullets: a hand-written bullet and
     // a derived one saying the same thing should not both be in the list, and
     // the hand-written one is the keeper.
-    suppressed: [
-      ...current.suppressed,
-      ...current.bullets.filter((b) => b.origin === 'user').map((b) => bulletFingerprint(b.text)),
-    ],
+    suppressed: suppressionSet(current),
     source: 'Willow chat history',
     now: now(),
     newId,
