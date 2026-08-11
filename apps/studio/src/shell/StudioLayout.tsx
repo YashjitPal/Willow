@@ -9,6 +9,8 @@ import { WaveShaderBackground } from '@willow/ui/wave-shader';
 import { ShaderAnimation } from '@willow/ui/shader-lines';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import type { StudioExperience } from '@willow/core/types';
+import { useStore } from '@nanostores/react';
+import { $chatPanelOpen } from '@willow/chat/chat-panel-store';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -86,6 +88,7 @@ export const StudioLayout: React.FC<{
   } = useLocalFS();
 
   const isChatExperience = studioExperience === 'chat';
+  const chatPanelOpen = useStore($chatPanelOpen);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
   const studioSurface = '#0f0f0f';
   
@@ -241,7 +244,7 @@ export const StudioLayout: React.FC<{
           Gated to a real chat id: every row acts on a named chat, and
           `hasActiveChat` can be true for an unsaved one.
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && !chatPanelOpen && (
           <ConversationActionsMenu chatId={activeChatId} />
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}

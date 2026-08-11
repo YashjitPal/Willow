@@ -54,19 +54,57 @@ const DEFAULT_MODELS: Record<ExtractProvider, string> = {
 const PROVIDER_ORDER: ExtractProvider[] = ['gemini', 'openai', 'anthropic'];
 
 /**
+ * Which provider a model id belongs to, when the saved-model list does not say.
+ *
+ * Same prefix table as `platform/ai/transcription.ts`, and it exists for the same
+ * reason: a user can set a system default to an id this package has never heard
+ * of, and refusing to run is worse than guessing from the prefix.
+ */
+const inferProvider = (modelId: string): ExtractProvider | null => {
+  const normalized = modelId.toLowerCase();
+  if (normalized.startsWith('gemini-')) return 'gemini';
+  if (normalized.startsWith('claude-')) return 'anthropic';
+  if (normalized.startsWith('gpt-') || normalized.startsWith('o1') || normalized.startsWith('o3')) {
+    return 'openai';
+  }
+  return null;
+};
+
+/**
  * Pick a model to extract with, or `null` when the user has no usable key.
  *
  * Null is a normal outcome, not an error: someone can run Willow entirely on a
  * provider this does not support, and the correct response is to leave the
  * profile empty rather than to nag. The Settings page says the profile has not
  * been built; nothing else happens.
+ *
+ * `preferredModelId` is the Personal Intelligence system default. It wins when it
+ * resolves to a provider the user actually holds a key for, and is ignored
+ * otherwise — a stale default left pointing at a removed key should fall back to
+ * a working small model rather than silently stopping every future build. The
+ * request shapes below cover three providers, so a default naming a fourth
+ * (Kimi, Grok, GLM) also falls through to the default rather than failing at
+ * fetch time.
  */
-export const resolveExtractModel = (apiKeys: ApiKeyMap): ExtractModel | null => {
-  for (const provider of PROVIDER_ORDER) {
+export const resolveExtractModel = (
+  apiKeys: ApiKeyMap,
+  preferredModelId?: string,
+): ExtractModel | null => {
+  const hasKey = (provider: ExtractProvider): string | null => {
     const key = apiKeys?.[provider]?.[0];
-    if (typeof key === 'string' && key.trim()) {
-      return { provider, modelId: DEFAULT_MODELS[provider], apiKey: key.trim() };
-    }
+    return typeof key === 'string' && key.trim() ? key.trim() : null;
+  };
+
+  const preferred = preferredModelId?.trim();
+  if (preferred) {
+    const provider = inferProvider(preferred);
+    const key = provider ? hasKey(provider) : null;
+    if (provider && key) return { provider, modelId: preferred, apiKey: key };
+  }
+
+  for (const provider of PROVIDER_ORDER) {
+    const key = hasKey(provider);
+    if (key) return { provider, modelId: DEFAULT_MODELS[provider], apiKey: key };
   }
   return null;
 };

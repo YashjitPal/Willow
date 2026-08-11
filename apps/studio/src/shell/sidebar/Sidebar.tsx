@@ -719,6 +719,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     codeChatScannedRef.current.clear();
   }, [chatScopeId]);
   const [isAtScrollEnd, setIsAtScrollEnd] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     setIsScrolled(target.scrollTop > 5);
@@ -729,6 +731,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (distanceToBottom <= RECENTS_GROW_THRESHOLD_PX) growRecents();
   };
+
+  useLayoutEffect(() => {
+    const target = scrollContainerRef.current;
+    if (!target) return;
+
+    const checkState = () => {
+      setIsScrolled(target.scrollTop > 5);
+      setIsAtScrollEnd(target.scrollTop + target.clientHeight >= target.scrollHeight - 4);
+    };
+
+    checkState();
+    const observer = new ResizeObserver(checkState);
+    observer.observe(target);
+    if (target.firstElementChild) observer.observe(target.firstElementChild);
+
+    return () => observer.disconnect();
+  }, []);
 
   // Pinned chats persistence. The key format comes from the shared builder so it
   // cannot drift from the read the top-right conversation-actions menu does —
@@ -1550,6 +1569,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         */}
       <div className="flex-1 relative min-h-0">
         <div
+          ref={scrollContainerRef}
           onScroll={handleScroll}
           className="h-full overflow-y-auto pt-0 pb-0 gemini-chat-scrollbar"
         >
