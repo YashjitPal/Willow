@@ -166,9 +166,10 @@ const observeHeight = (
     for (const entry of entries) {
       const height = entry.contentRect.height;
       const previous = seen.get(entry.target);
-      // Sub-pixel tolerance: real changes here are line-height sized, so this
-      // only filters layout noise, never a wrap.
-      if (previous === undefined || Math.abs(previous - height) > 0.5) {
+      // Must track sub-pixel changes strictly: user-bubble collapse is a CSS
+      // max-height transition. Filtering small delta jumps drops frames, which
+      // causes the container scrollHeight to dip before the observer catches up.
+      if (previous !== height) {
         seen.set(entry.target, height);
         heightChanged = true;
       }
@@ -3043,15 +3044,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isLastAssistant = msg.id === lastAssistantId;
             const isLatestCompletedTurn = !generating && msg.id === latestConversationMessageId;
 
-            const skip = messageSkipStyle(msg.id, !isLastAssistant && !generating);
+            // Containment is suppressed for the whole thread while a turn is in
+            // flight, not just on the generating message.
+            //
+            // Two measured facts make the send path hostile to flipping this on:
+            // applying `content-visibility` to an already-laid-out element makes
+            // the FIRST layout after the flip report its intrinsic size, not its
+            // real one (measured: 1152px -> 240px, recovering the next frame);
+            // and a send is exactly when the previous reply stops being
+            // `isLastAssistant`, so it would gain containment at the same moment
+            // the entrance animation measures `offsetTop` to size its glide. Any
+            // error there lands straight in `entranceOffset`, which is why a
+            // stale height showed up as "starts partway up", "far too fast", and
+            // at the extreme "teleports" — all one bug.
+            //
+            // The panel toggle this optimisation exists for happens when the
+            // thread is idle, so nothing is given up by standing down here.
+            const skip = messageSkipStyle(
+              msg.id,
+              !isLastAssistant && !generating && !isGenerating,
+            );
 
             return (
               <div
                 key={msg.id}
-                ref={(el) => {
-                  messageRefs.current[msg.id] = el;
-                  measureMessageRef(msg.id)(el);
-                }}
+                ref={(el) => { messageRefs.current[msg.id] = el; }}
                 className="group/assistant-response"
                 style={{
                   marginTop: gapBefore,
@@ -3089,9 +3106,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 }}
               >
                 {/* Inner wrapper = pure content height, unaffected by the outer
-                    minHeight/paddingBottom. Measured for the overflow check. */}
+                    minHeight/paddingBottom. Measured for the overflow check —
+                    and for the intrinsic size, which MUST be read here rather
+                    than off the outer box. The outer box of the last assistant
+                    turn carries the response reserve (`responseAreaMinHeight`),
+                    so measuring it cached "content + reserve". The instant a send
+                    made that turn no longer last it lost the reserve and gained
+                    containment carrying that inflated number as its intrinsic
+                    size, which inflates `offsetTop` for everything below and
+                    drives the entrance animation's `entranceOffset` negative —
+                    sending it down the scrollIntoView path instead of gliding.
+                    Worst after a SHORT reply, where nearly all of the cached
+                    height was reserve. This wrapper never holds the reserve, so
+                    its height is what the outer box really becomes once the turn
+                    stops being last. */}
                 <div
-                  ref={isLastAssistant ? lastAssistantContentRef : undefined}
+                  ref={(el) => {
+                    // The old `isLastAssistant ? ref : undefined` form let React
+                    // null this out on its own when a turn stopped being last.
+                    // A single callback has to do that by hand, or the overflow
+                    // check keeps measuring the previous turn forever. Sibling
+                    // refs run in tree order, so this clears before the new last
+                    // turn sets itself.
+                    if (isLastAssistant) lastAssistantContentRef.current = el;
+                    else if (lastAssistantContentRef.current === el) lastAssistantContentRef.current = null;
+                    measureMessageRef(msg.id)(el);
+                  }}
                   className={`w-full space-y-3 ${openResource ? 'ml-auto max-w-[476px]' : ''}`}
                 >
                 {showThinkingRow && !isFirstTurnEntranceActive && (() => {

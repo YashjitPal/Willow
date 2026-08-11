@@ -747,7 +747,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (target.firstElementChild) observer.observe(target.firstElementChild);
 
     return () => observer.disconnect();
-  }, []);
+  }, [currentView]);
 
   // Pinned chats persistence. The key format comes from the shared builder so it
   // cannot drift from the read the top-right conversation-actions menu does —

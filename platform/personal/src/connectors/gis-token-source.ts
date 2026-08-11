@@ -34,6 +34,15 @@ const DEFAULT_EXPIRY_SECONDS = 3600;
  */
 const SILENT_TIMEOUT_MS = 8_000;
 
+/**
+ * How long to wait for Google's script before calling connectors unavailable.
+ *
+ * A tag blocked by an extension can fire neither `load` nor `error`, so the
+ * deadline is what stops Connected Apps from waiting on a script that is never
+ * arriving.
+ */
+const SCRIPT_TIMEOUT_MS = 10_000;
+
 interface TokenResponse {
   access_token?: string;
   error?: string;
@@ -49,6 +58,7 @@ interface GoogleOAuth2 {
     client_id: string;
     scope: string;
     hint?: string;
+    include_granted_scopes?: boolean;
     callback: (response: TokenResponse) => void;
     error_callback?: (error: { type?: string }) => void;
   }) => TokenClient;
@@ -57,24 +67,58 @@ interface GoogleOAuth2 {
 const oauth2 = (): GoogleOAuth2 | null =>
   (globalThis as any).google?.accounts?.oauth2 ?? null;
 
-const loadGisScript = (): Promise<void> =>
-  new Promise((resolve) => {
+/** In flight or finished, shared by every caller. See `loadGisScript`. */
+let scriptLoad: Promise<void> | null = null;
+
+/**
+ * Load GIS, and wait for it to have actually run.
+ *
+ * The one shared promise is the whole point. This is called once when Connected
+ * Apps mounts and again the moment auth resolves and supplies a login hint —
+ * twice more under StrictMode in dev. An earlier version returned as soon as a
+ * `gsi/client` tag existed in the DOM, so those later calls came back while the
+ * first one's script was still downloading: `google.accounts.oauth2` did not
+ * exist yet, `initBrowserTokenSource` read that as unconfigured, and the tab
+ * showed the "needs a client id" banner on a build that had one. Existing tag is
+ * not the same fact as script has run, and only the second one is worth waiting
+ * for.
+ */
+const loadGisScript = (): Promise<void> => {
+  if (oauth2()) return Promise.resolve();
+  if (scriptLoad) return scriptLoad;
+
+  scriptLoad = new Promise<void>((resolve) => {
     if (typeof document === 'undefined') {
       resolve();
       return;
     }
-    if (oauth2() || document.querySelector('script[src*="gsi/client"]')) {
+
+    let settled = false;
+    // Resolves either way: a blocked script is "no connectors", not a crash, and
+    // never a promise left hanging. Clearing the cache when nothing arrived lets
+    // a later mount retry, so a slow first paint is not permanent.
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (!oauth2()) scriptLoad = null;
       resolve();
-      return;
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[src*="gsi/client"]');
+    const script = existing ?? document.createElement('script');
+    script.addEventListener('load', finish, { once: true });
+    script.addEventListener('error', finish, { once: true });
+    setTimeout(finish, SCRIPT_TIMEOUT_MS);
+
+    if (!existing) {
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      document.head.appendChild(script);
     }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    // Resolves either way: a blocked script is "no connectors", not a crash.
-    script.onload = () => resolve();
-    script.onerror = () => resolve();
-    document.head.appendChild(script);
   });
+
+  return scriptLoad;
+};
 
 export interface GisOptions {
   clientId?: string;
@@ -129,6 +173,22 @@ export const createGisTokenSource = ({ clientId, loginHint }: Required<Pick<GisO
           client_id: clientId,
           scope: scopes.join(' '),
           ...(loginHint ? { hint: loginHint } : {}),
+          /*
+           * Ask for these scopes and nothing else.
+           *
+           * GIS defaults this to true, which quietly adds every scope the account
+           * has already granted this client to whatever is being requested now.
+           * That turns a YouTube request into a YouTube-plus-everything-granted
+           * request, and Google refuses to issue YouTube scopes alongside other
+           * APIs' — the connect popup dies on `invalid_request` naming two scopes
+           * Willow never asked for together. Which pairs conflict is Google's
+           * business and undocumented, so the fix is to stop sending scopes this
+           * request did not ask for rather than to special-case YouTube.
+           *
+           * Nothing is lost: prior grants survive on Google's side, and each token
+           * is cached against the exact scopes it covers.
+           */
+          include_granted_scopes: false,
           callback: (response) => {
             if (timer) clearTimeout(timer);
             if (!response.access_token) {
