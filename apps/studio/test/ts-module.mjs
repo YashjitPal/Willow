@@ -18,10 +18,21 @@
  * self-contained. The alias map is parsed out of `apps/studio/vite.config.ts`
  * rather than restated here, so a test cannot resolve a specifier differently
  * from the build.
+ *
+ * Bare specifiers (`nanostores`) resolve to a `file:` URL in node_modules and
+ * are handed to Node untranspiled. A `data:` URL module has no parent to resolve
+ * against, so before this a module under test could not import any real
+ * dependency — the import failed with `ERR_UNSUPPORTED_RESOLVE_REQUEST` naming
+ * only the package, which reads like a missing install rather than a loader
+ * limit. They are deliberately NOT walked: published JS needs no type-stripping,
+ * and recursing into a package's own tree would transpile hundreds of files to
+ * reach one export.
  */
 
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import esbuild from 'esbuild-wasm';
 
@@ -56,7 +67,35 @@ const willowAliases = () => {
 
 let aliasCache = null;
 
-const IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*)(['"])((?:\.|@willow\/)[^'"]*)\2/g;
+/**
+ * Every specifier in a source file. Relative and `@willow/*` ones are
+ * transpiled and rewritten; bare package names are resolved to a file URL;
+ * `node:` builtins are left exactly as written.
+ */
+const ANY_IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*)(['"])([^'"]+)\2/g;
+
+const isBuiltin = (specifier) => specifier.startsWith('node:');
+
+const isBare = (specifier) =>
+  !specifier.startsWith('.') && !specifier.startsWith('@willow/') && !isBuiltin(specifier);
+
+const requireFromRepo = createRequire(path.join(REPO_ROOT, 'package.json'));
+
+/**
+ * A bare specifier as a `file:` URL Node can import.
+ *
+ * `require.resolve` follows `main`/`exports` the same way the runtime would, so
+ * this lands on the file the app would load. Unresolvable specifiers are left
+ * alone: the import then fails naming the package, which is the right error for
+ * something genuinely not installed.
+ */
+const resolveBare = (specifier) => {
+  try {
+    return pathToFileURL(requireFromRepo.resolve(specifier)).href;
+  } catch {
+    return null;
+  }
+};
 
 const EXTENSIONS = ['.ts', '.tsx', '.mts', '/index.ts', '/index.tsx'];
 
@@ -131,8 +170,14 @@ const buildModule = async (file, cache, pending) => {
 
   const source = fs.readFileSync(absolute, 'utf8');
   const specifiers = new Map();
-  for (const [, , , specifier] of source.matchAll(IMPORT_SPECIFIER)) {
+  for (const [, , , specifier] of source.matchAll(ANY_IMPORT_SPECIFIER)) {
     if (specifiers.has(specifier)) continue;
+    if (isBuiltin(specifier)) continue;
+    if (isBare(specifier)) {
+      const url = resolveBare(specifier);
+      if (url) specifiers.set(specifier, url);
+      continue;
+    }
     const target = resolveSpecifier(absolute, specifier);
     specifiers.set(
       specifier,
@@ -141,7 +186,7 @@ const buildModule = async (file, cache, pending) => {
   }
 
   const rewritten = source.replace(
-    IMPORT_SPECIFIER,
+    ANY_IMPORT_SPECIFIER,
     (match, keyword, quote, specifier) => {
       const url = specifiers.get(specifier);
       return url ? `${keyword}${quote}${url}${quote}` : match;

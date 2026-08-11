@@ -194,6 +194,7 @@ export default defineConfig(() => {
         { find: "@willow/agent-builder", replacement: path.resolve(ROOT, "features/agent-builder/src") },
         { find: "@willow/project-browser", replacement: path.resolve(ROOT, "features/projects/src") },
         { find: "@willow/onboarding", replacement: path.resolve(ROOT, "features/onboarding/src") },
+        { find: "@willow/personal", replacement: path.resolve(ROOT, "platform/personal/src") },
         { find: "@willow/projects", replacement: path.resolve(ROOT, "platform/projects/src") },
         { find: "@willow/storage", replacement: path.resolve(ROOT, "platform/storage/src") },
         { find: "@willow/account", replacement: path.resolve(ROOT, "features/auth/src") },

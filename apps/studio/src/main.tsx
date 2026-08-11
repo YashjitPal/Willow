@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './app/App';
 import { AuthProvider } from '@willow/auth/AuthContext';
 import { GlobalTooltips } from '@willow/ui/Tooltip';
+import { GlobalCopyToast } from '@willow/ui/CopyToast';
 import { configureImageProxy } from '@willow/ui/image-source';
 // Side-effect import: lets features register with platform machinery before
 // anything renders. Must stay above the render call.
@@ -59,6 +60,13 @@ root.render(
       and outside the router because it needs neither. See platform/ui/Tooltip.
     */}
     <GlobalTooltips />
+    {/*
+      Gemini's "Copied to clipboard" snackbar. Mounted at the root for the same
+      reason as the tooltips — it is raised from `features/chat` through a
+      `platform/ui` store and rendered into its own overlay host on `<body>`,
+      so it needs neither the router nor App state.
+    */}
+    <GlobalCopyToast />
     <AuthProvider>
       <BrowserRouter>
         <App />

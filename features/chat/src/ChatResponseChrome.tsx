@@ -9,7 +9,6 @@ type Reaction = 'like' | 'dislike' | null;
 
 interface ResponseActionsProps {
   reaction: Reaction;
-  copied: boolean;
   listening: boolean;
   canRedo: boolean;
   canShowThinking: boolean;
@@ -57,7 +56,6 @@ const RESPONSE_SYMBOL_PROPS = {
 
 export const ResponseActions: React.FC<ResponseActionsProps> = ({
   reaction,
-  copied,
   listening,
   canRedo,
   canShowThinking,
@@ -213,7 +211,9 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           </button>
         )}
         <button type="button" className={ACTION_BUTTON} onClick={onCopy} aria-label="Copy" title="Copy">
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name={copied ? 'check' : 'copy'} weight={copied ? 400 : 320} />
+          {/* No tick. Measured before and after a copy in the live app, the
+              glyph never changes — the snackbar is the whole feedback. */}
+          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="copy" />
         </button>
         <button
           ref={triggerRef}

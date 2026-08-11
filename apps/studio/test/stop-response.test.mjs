@@ -242,7 +242,7 @@ test('a stopped turn shows only Redo and Report legal issue', () => {
   assert.match(stoppedBranch, /name="refresh"/);
   assert.match(stoppedBranch, /aria-label="Report legal issue"/);
   assert.match(stoppedBranch, /name="flag"/);
-  for (const absent of ['thumb_up', 'thumb_down', 'more_horiz', 'name={copied']) {
+  for (const absent of ['thumb_up', 'thumb_down', 'more_horiz', 'name="copy"']) {
     assert.ok(
       !stoppedBranch.includes(absent),
       `stopped turns must not render ${absent}`,
