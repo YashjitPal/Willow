@@ -157,6 +157,40 @@ export const chatGreetingText = (
 };
 
 /**
+ * Whether the greeting may be shown yet.
+ *
+ * The greeting is a single string with the name inside it, so building it before
+ * the name is known does not produce "a greeting without a name" — it produces a
+ * different, wrong greeting that then has to be replaced. A refresh went
+ * `Let's chat` -> `Let's chat, there` -> `Let's chat, Yashjit`, because `user`
+ * arrives from Firebase on one tick and the Firestore profile carrying
+ * `displayName` on a later one, and the text was rebuilt from whatever happened
+ * to be present at each.
+ *
+ * Both conditions are load-bearing:
+ *
+ *   `!loading`      Until Firebase has reported, `user` is null and so
+ *                   `isAuthenticated` is false — which is indistinguishable from
+ *                   genuinely signed out. That is what produced the nameless
+ *                   first frame; the signed-out short-circuit below would
+ *                   otherwise fire for a signed-in user.
+ *
+ *   `!!userProfile` Signed in, so a name exists; wait for the document that
+ *                   holds it. Usually already true the moment `loading` clears,
+ *                   because `AuthContext` adopts the cached profile in the same
+ *                   commit — this only bites on a genuinely cold load, which is
+ *                   precisely when it should.
+ *
+ * Signed out short-circuits, because `Let's chat` is the *final* text in that
+ * case rather than a placeholder for one. There is nothing to wait for, so
+ * waiting would only delay the finished result.
+ */
+export const useGreetingReady = (isAuthenticated: boolean): boolean => {
+  const { userProfile, loading } = useAuth();
+  return !loading && (!isAuthenticated || !!userProfile);
+};
+
+/**
  * The pinned greeting, hung off the composer's box.
  *
  * `bottom-full` puts its bottom edge on the composer's top edge — Gemini's
@@ -173,7 +207,15 @@ export const PinnedChatGreeting: React.FC<{
   isAuthenticated?: boolean;
 }> = ({ isIncognito = false, isAuthenticated = false }) => {
   const { userProfile } = useAuth();
+  const isReady = useGreetingReady(isAuthenticated);
   const firstName = userProfile?.displayName?.split(' ')[0] || 'there';
+
+  // Nothing, not a placeholder. The heading is `position: absolute` against the
+  // composer's box, so withholding it moves nothing and the composer does not
+  // shift when it lands. When it does land, `willow-lm-fade-in-up` runs on
+  // mount — the same 300ms entrance it plays today, now on first appearance
+  // instead of on a swap from wrong text to right text.
+  if (!isReady) return null;
 
   return (
     <div
@@ -599,9 +641,33 @@ export const HeroSection: React.FC<{
    */
   const glowAccent = homeGlowAccent(userProfile?.workspaceColor);
 
+  /*
+   * The glow waits for the greeting, and arrives with it.
+   *
+   * They are one visual event — Gemini plays `lm-background-grow` and
+   * `lm-fade-in-up` off the same load — but they live in different subtrees
+   * here, so holding only the text would have left the glow blooming alone
+   * against an empty centre and the heading dropping in afterwards. Sharing
+   * `useGreetingReady` puts both on the same trigger.
+   *
+   * Withholding the CLASS is what withholds the glow: the gradient is a
+   * `::before` on this element, and `willow-gemini-home-glow-grow` is declared
+   * on that rule, so the animation starts when the class lands rather than on
+   * mount. There is also nothing to reserve space for — the pseudo-element is
+   * absolutely positioned at `z-index: -1` — so this costs no layout either way.
+   *
+   * It is additionally gated on `initialMode === 'chat'` (unchanged): Media and
+   * Develop have no glow to begin with.
+   */
+  const isGreetingReady = useGreetingReady(!!isAuthenticated);
+  const glowClass =
+    initialMode === 'chat' && isGreetingReady
+      ? `willow-gemini-home-glow${isIncognito ? ' willow-gemini-home-glow-gray' : ''}`
+      : '';
+
   return (
     <div
-      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${initialMode === 'chat' ? `willow-gemini-home-glow${isIncognito ? ' willow-gemini-home-glow-gray' : ''}` : ''}`}
+      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${glowClass}`}
       style={{ '--willow-home-glow-accent': glowAccent } as React.CSSProperties}
     >
       {studioMode === 'media' ? (
@@ -1000,7 +1066,14 @@ export const HeroSection: React.FC<{
                 transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)' // Exact Gemini Material 3 emphasis easing extracted from gemini.html
               }}
             >
-              <ChatZeroStateGreeting headingText={getHeadingText()} isIncognito={isIncognito} />
+              {/* Same rule as the pinned greeting: the name is inside the
+                  string, so rendering early means rendering the wrong string
+                  and replacing it. Safe to withhold because the wrapper above
+                  is a FIXED 36px spacer — the heading is absolutely positioned
+                  within it, so the InputBar does not move either way. */}
+              {isGreetingReady && (
+                <ChatZeroStateGreeting headingText={getHeadingText()} isIncognito={isIncognito} />
+              )}
               </div>
             </div>
           )}

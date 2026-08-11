@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
-import { HeroSection, PinnedChatGreeting } from '@willow/media/MediaHome';
+import { HeroSection, PinnedChatGreeting, useGreetingReady } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
@@ -112,6 +112,46 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 /**
+ * A ResizeObserver that fires only when an observed box changes HEIGHT.
+ *
+ * Every ResizeObserver in this file exists for a height concern — the composer
+ * growing a line, a user bubble collapsing, a reply outgrowing its reserve — but
+ * a ResizeObserver fires on width too, and the thinking-steps / sources panel
+ * animates the scroller's width over 300ms. So each of them used to run on all
+ * ~18 frames of that animation, one of them under `flushSync`, re-rendering the
+ * whole message list synchronously every frame.
+ *
+ * That cost two separate things. The obvious one is the jank on open/close. The
+ * subtle one: Chrome's scroll anchoring (`overflow-anchor`, on by default) picks
+ * a node near the top of the viewport and repays any height change above it by
+ * adjusting scrollTop, which is exactly what keeps Gemini's thread from sliding
+ * when its panel re-wraps the text. Measured on the live app, Gemini's scrollTop
+ * moves by itself — 1904.8 -> 1856.8 for a 48px shrink — and the tracked element
+ * holds position to the pixel. Willow got no such repayment, because the
+ * synchronous re-render churn kept invalidating the anchor the browser had
+ * chosen. Gating on height lets the browser do that work for us.
+ *
+ * Width-driven callbacks are dropped, not deferred: nothing here reads a width.
+ */
+const observeHeight = (callback: () => void): ResizeObserver => {
+  const seen = new WeakMap<Element, number>();
+  return new ResizeObserver((entries) => {
+    let heightChanged = false;
+    for (const entry of entries) {
+      const height = entry.contentRect.height;
+      const previous = seen.get(entry.target);
+      // Sub-pixel tolerance: real changes here are line-height sized, so this
+      // only filters layout noise, never a wrap.
+      if (previous === undefined || Math.abs(previous - height) > 0.5) {
+        seen.set(entry.target, height);
+        heightChanged = true;
+      }
+    }
+    if (heightChanged) callback();
+  });
+};
+
+/**
  * Sampler for the app's emphasised curve, `cubic-bezier(0.2, 0, 0, 1)`.
  *
  * The new-turn entrance drives a transform AND a scrollTop off one timeline, so
@@ -183,6 +223,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     loadLocalFSChat,
     localChats,
     chatScopeId,
+    // Fast flag: the chat registry is on screen and `activeChatId` has settled.
+    // Drives the boot dock (see `isBootHydrating`), NOT any disk work.
+    isChatListHydrated,
   } = useLocalFS();
 
   // A background turn outlives this component, so the runner cannot call through
@@ -909,6 +952,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const liveTurnRef = useRef<{ userId: string; assistantId: string; acc: string } | null>(null);
 
   const hasStarted = messages.length > 0 || isGenerating || isLive;
+  /*
+   * Boot: empty thread, composer docked, until we know whether a chat restores.
+   *
+   * The pre-React shell in `index.html` paints a docked composer over an empty
+   * surface, because that is the position the composer holds in every loaded
+   * conversation — so a refresh that lands back in a chat moves nothing. Without
+   * this, React's first commit centred the composer (no messages yet, so
+   * `hasStarted` is false), and the handoff jumped it from the bottom to the
+   * middle and, if a chat then restored, straight back down.
+   *
+   * `isChatListHydrated` is the right signal because it is exactly the moment
+   * the question is answerable: the registry is on screen and `activeChatId` has
+   * settled, so either a load is now in flight (`isChatLoading` takes over
+   * below, composer stays put) or there is nothing to restore and the composer
+   * may rise to centre. It is the fast flag — one synchronous localStorage read
+   * — not `isInitializingLocalFS`, which additionally waits on folder
+   * permission and a per-file disk reconcile.
+   *
+   * `useGreetingReady` is the second half, and it is what keeps the three
+   * arrivals in ONE frame: the composer rises, the glow grows, and the heading
+   * fades in together, rather than the box centring over blank space while the
+   * profile is still in flight. On every browser that supports the File System
+   * Access API this term is already satisfied by the time hydration lands —
+   * `LocalFSContext`'s restore is itself gated on auth — so it costs nothing
+   * there; it earns its place on the browsers where it is not, because
+   * `isChatListHydrated` is set immediately when the API is missing.
+   *
+   * The other three terms are escape hatches, not theory: a send, a background
+   * turn finishing, or a live session starting before hydration all mean the
+   * thread has real content, and it must not be blanked to wait on a list.
+   */
+  const isGreetingReady = useGreetingReady(!!isAuthenticated);
+  const isBootHydrating =
+    (!isChatListHydrated || !isGreetingReady) && messages.length === 0 && !isGenerating && !isLive;
   // The third state: a user-selected chat whose body has not arrived yet. The
   // thread area renders nothing, but the composer must stay exactly where it is.
   //
@@ -916,8 +993,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // drives the composer's docked-vs-centred layout, and the docked->zero
   // direction is a deliberate 0-duration snap, so flipping it would teleport the
   // composer to screen centre and slide it back on every chat open.
-  const showBlankThread = isChatLoading;
+  const showBlankThread = isChatLoading || isBootHydrating;
   const isThreadDocked = hasStarted || showBlankThread;
+  /*
+   * The disclaimer does NOT ride the boot dock.
+   *
+   * It is the one thing under the docked composer that the boot shell has no
+   * copy of, so including it here would have it appear at the React handoff and
+   * then leave again the instant the composer rose to centre — a line of text
+   * flashing in the middle of a sequence whose whole point is that nothing
+   * moves. `hasStarted || isChatLoading` is the original meaning: show it when
+   * there is, or is about to be, a conversation.
+   */
+  const showComposerDisclaimer = hasStarted || isChatLoading;
   const lastUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id;
   // A live turn marks the user's bubble `isTranscribing` for exactly as long as
   // they are being listened to, which is the orb's listening signal.
@@ -1362,7 +1450,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // browser clamps scrollTop, and the whole thread above the composer jerks
     // and settles back. Same failure the user-bubble collapse hits below, same
     // cure — see the flushSync at the end of handleUserBubbleToggle.
-    const ro = new ResizeObserver(() => flushSync(sync));
+    //
+    // Height only: the panel toggle animates this scroller's WIDTH, and a
+    // flushSync per frame of that is what made opening the panel feel laggy.
+    const ro = observeHeight(() => flushSync(sync));
     ro.observe(c);
     return () => ro.disconnect();
   }, [hasStarted, editingUserId]);
@@ -1504,7 +1595,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       }
     };
     recompute();
-    const ro = new ResizeObserver(recompute);
+    // Height only: `updateReservedHeight` reads clientHeight and offsetHeight and
+    // nothing else, so a width-driven run can only ever recompute the same number.
+    const ro = observeHeight(recompute);
     ro.observe(c);
     const lastUserEl = lastUserMessageId ? messageRefs.current[lastUserMessageId] : null;
     if (lastUserEl) ro.observe(lastUserEl);
@@ -1527,7 +1620,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const fits = contentH <= responseAreaMinHeight + 5;
       setNeedsScrollPadding((prev) => (prev === !fits ? prev : !fits));
     };
-    const ro = new ResizeObserver(check);
+    // Height only: `check` compares offsetHeight against the reserve. Reading
+    // offsetHeight forces a layout flush, so a per-frame width run is not free
+    // even though the state update itself bails out.
+    const ro = observeHeight(check);
     ro.observe(el);
     check();
     return () => ro.disconnect();
@@ -2964,6 +3060,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // `hasStarted` and the other to `isThreadDocked` re-introduces the
             // squash, because the box would be re-measured on a commit whose
             // transition says "animate".
+            //
+            // The boot settle (see `isBootHydrating`) travels the same
+            // docked -> zero direction and so lands in the snap branch too. That
+            // is deliberate, not an oversight: it is the same visual event New
+            // chat is, and the capture above says Gemini does not move the box
+            // for it. The motion the eye follows is the greeting's fade-in-up
+            // and the glow's grow, both of which start in that same commit.
             transition={{
               layout: isThreadDocked
                 ? { duration: 0.25, ease: [0.2, 0, 0, 1] as const }
@@ -2988,7 +3091,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               // Zero state has no disclaimer, matching Gemini, which keeps its
               // own in the bottom bar and out of the centred composer. It costs
               // no layout either way — the line is `absolute top-full`.
-              showDisclaimer={isThreadDocked}
+              showDisclaimer={showComposerDisclaimer}
               currentMode="chat"
               onModeChange={() => {}}
               onSubmit={(prompt, _mode, attachments) => {

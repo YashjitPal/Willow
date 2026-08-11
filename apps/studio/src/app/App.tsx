@@ -4,16 +4,6 @@ import { useStore } from '@nanostores/react';
 import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocation } from 'react-router-dom';
 import type { ViewType } from '../shell/sidebar/Sidebar';
 import { StudioLayout } from '../shell/StudioLayout';
-import { HeroSection } from '@willow/media/MediaHome';
-import { BottomPanel } from '@willow/media/MediaShowcase';
-import { SettingsModal } from '../settings/SettingsModal';
-import { PersonalIntelligenceTab } from '../settings/tabs/personal-intelligence/PersonalIntelligenceTab';
-import { SavedInfoTab } from '../settings/tabs/saved-info/SavedInfoTab';
-import { ConnectedAppsTab } from '../settings/tabs/connected-apps/ConnectedAppsTab';
-import { ProjectsPage } from '@willow/project-browser/ProjectsPage';
-import { LoginPage } from '@willow/account/LoginPage';
-import { Onboarding } from '@willow/onboarding/Onboarding';
-import { ChatView } from '@willow/chat/ChatView';
 import { CodeWorkspaceSkeleton } from '@willow/code/CodeHomeSkeleton';
 import { TopLoadingBar } from '@willow/ui/TopLoadingBar';
 import { topLoadingReasons } from '@willow/ui/top-loading-store';
@@ -37,6 +27,40 @@ const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
+/*
+ * The app's initial view is the chat home screen, so everything this bundle
+ * pulls in is dead weight on the cold path. Splitting the eager imports into
+ * their own chunks means first paint waits on none of them.
+ *
+ *  - `ChatView` (chat home + all conversations) is the FIRST THING ON SCREEN.
+ *    The boot shell already holds the view's shape, and the shell is not
+ *    dismissed until React has actually painted, so a 500ms suspension here is
+ *    invisible — the sidebar footer skeleton and the auth plumbing can start
+ *    under the shell instead of after a 1.5MB parse. A `Suspense` at App level
+ *    (below) restores it instantly after the first visit, and warm prefetch at
+ *    idle covers the rest.
+ *  - Media's `HeroSection` and `BottomPanel` ship to every chat home visitor;
+ *    only Media mode renders them.
+ *  - The settings tabs, the project browser and the login page have their own
+ *    routes/mount points; login especially should not pay for the chat shell.
+ *
+ * `CodeWorkspaceSkeleton` is deliberately NOT split: it is tiny, and the Code
+ * tab's real fallback renders it while the code chunk streams in.
+ */
+const ChatView = React.lazy(() => import('@willow/chat/ChatView'));
+const HeroSection = React.lazy(() => import('@willow/media/MediaHome').then((m) => ({ default: m.HeroSection })));
+const BottomPanel = React.lazy(() => import('@willow/media/MediaShowcase').then((m) => ({ default: m.BottomPanel })));
+const SettingsModal = React.lazy(() => import('../settings/SettingsModal').then((m) => ({ default: m.SettingsModal })));
+const PersonalIntelligenceTab = React.lazy(() =>
+  import('../settings/tabs/personal-intelligence/PersonalIntelligenceTab').then((m) => ({ default: m.PersonalIntelligenceTab }))
+);
+const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
+const ConnectedAppsTab = React.lazy(() =>
+  import('../settings/tabs/connected-apps/ConnectedAppsTab').then((m) => ({ default: m.ConnectedAppsTab }))
+);
+const ProjectsPage = React.lazy(() => import('@willow/project-browser/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const LoginPage = React.lazy(() => import('@willow/account/LoginPage'));
+const Onboarding = React.lazy(() => import('@willow/onboarding/Onboarding').then((m) => ({ default: m.Onboarding })));
 // Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
 // never ships while on Home; resolve only after the default card images are
 // warmed so the bento grid appears fully formed (skeleton shows meanwhile).
@@ -540,34 +564,64 @@ const App: React.FC = () => {
     setSettingsInitialConnector(undefined);
   };
 
-  // Show loading screen while auth state is being determined
-  if (loading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#030303]">
-        <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-      </div>
-    );
-  }
+  /*
+   * Splitting the settings modal only pays off if its chunk is never fetched on
+   * the cold path, and `React.lazy` fetches on mount — not on `isOpen`. The
+   * modal renders null while closed, so mounting it at boot would download the
+   * whole settings bundle to display nothing. This latches on first open and
+   * stays mounted afterwards, because the modal animates its own close and
+   * unmounting it mid-transition would cut that animation off.
+   */
+  const [hasOpenedSettings, setHasOpenedSettings] = useState(false);
+  React.useEffect(() => {
+    if (isSettingsOpen) setHasOpenedSettings(true);
+  }, [isSettingsOpen]);
+
+  /*
+   * NO full-screen spinner while auth resolves.
+   *
+   * This used to `return` a centred spinner on `loading`, which meant the entire
+   * app — sidebar, composer, everything — waited on a Firebase session restore
+   * plus a Firestore profile read before a single pixel of real UI existed. On a
+   * cold load that spinner was the screen for most of the visible startup, and
+   * it replaced the boot shell in `index.html` with a *worse* placeholder than
+   * the one already on screen.
+   *
+   * Nothing below needs `user` to be resolved in order to render: the sidebar
+   * skeletons its own account row off `loading`, the chat surface is local, and
+   * the handful of account-only features gate themselves via `onAuthRequired`.
+   * The one thing that does need it is onboarding, hence the `loading` guard
+   * there — a signed-in first-run user must not see the shell flash before the
+   * onboarding takes over.
+   */
 
   // Show onboarding for new users
-  if (showOnboarding && user) {
-    return <Onboarding onComplete={() => setShowOnboarding(false)} />;
+  if (!loading && showOnboarding && user) {
+    return (
+      <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f]" aria-hidden="true" />}>
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      </Suspense>
+    );
   }
 
   const mainAppShell = (
     <>
       <TopLoadingBar
         active={isTopLoading}
-        leftOffset={!user || isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
+        leftOffset={isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
       />
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={handleSettingsClose} 
-        modelConfig={modelConfig}
-        setModelConfig={setModelConfig}
-        initialTab={settingsInitialTab}
-        initialConnector={settingsInitialConnector}
-      />
+      {hasOpenedSettings && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={handleSettingsClose}
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
+            initialTab={settingsInitialTab}
+            initialConnector={settingsInitialConnector}
+          />
+        </Suspense>
+      )}
       {!(currentView === 'home' && studioExperience === 'spark') && (
         <Suspense fallback={null}>
           <SparkWorkspace
@@ -592,7 +646,6 @@ const App: React.FC = () => {
             setIsSettingsOpen(true);
           }
         }}
-        isAuthenticated={!!user}
         studioMode={studioMode}
         onModeChange={handleStudioModeChange}
         studioExperience={studioExperience}
@@ -628,58 +681,78 @@ const App: React.FC = () => {
               <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
             </Suspense>
           ) : studioMode === 'chat' ? (
-            <ChatView
-              key={chatResetKey}
-              modelConfig={modelConfig}
-              selectedModelId={selectedModelId}
-              setSelectedModelId={setSelectedModelId}
-              isAuthenticated={!!user}
-              onAuthRequired={!user ? () => navigate('/login') : undefined}
-              onOpenDriveSettings={openDriveSettings}
-              isIncognito={isIncognito}
-              onChatStartedChange={setHasActiveChat}
-              isSidebarCollapsed={isSidebarCollapsed}
-              onCollapseSidebar={() => setIsSidebarCollapsed(true)}
-              workspaceColor={userProfile?.workspaceColor}
-            />
-          ) : studioMode === 'media' ? (
-            <div className="flex flex-col min-h-full" key="media">
-              <HeroSection
-                initialMode="design"
-                onPromptSubmit={(prompt) => {
-                  if (!user) {
-                     navigate('/login');
-                     return;
-                  }
-                  sessionStorage.setItem('staging-nav', 'true');
-                  navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
-                }}
-                onProjectSelect={(projectId, tempName) => {
-                  if (!user) {
-                     navigate('/login');
-                     return;
-                  }
-                  sessionStorage.setItem('staging-nav', 'true');
-                  const query = tempName 
-                    ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}` 
-                    : `?projectId=${encodeURIComponent(projectId)}`;
-                  navigate(`/media${query}`);
-                }}
+            /*
+             * ChatView is the first thing the user lands on, and its chunk is
+             * still fetching on the very first visit. While it suspends, keep
+             * the main area empty so the sidebar skeletons + background show
+             * through; once ChatView mounts it docks its composer with an empty
+             * thread (its own loading state) and then settles to centre, so the
+             * fallback and the component never fight over the same pixels.
+             */
+            <Suspense fallback={
+              <StudioLoadingFallback reason="chat-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <div className="h-full w-full" />
+              </StudioLoadingFallback>
+            }>
+              <ChatView
+                key={chatResetKey}
                 modelConfig={modelConfig}
                 selectedModelId={selectedModelId}
                 setSelectedModelId={setSelectedModelId}
-                onAuthRequired={!user ? () => navigate('/login') : undefined}
                 isAuthenticated={!!user}
-                studioMode="media"
+                onAuthRequired={!user ? () => navigate('/login') : undefined}
+                onOpenDriveSettings={openDriveSettings}
+                isIncognito={isIncognito}
+                onChatStartedChange={setHasActiveChat}
                 isSidebarCollapsed={isSidebarCollapsed}
+                onCollapseSidebar={() => setIsSidebarCollapsed(true)}
+                workspaceColor={userProfile?.workspaceColor}
               />
-              {/* Only show BottomPanel (projects showcase) when authenticated */}
-              {user && (
-                <div className="pb-20">
-                  <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
-                </div>
-              )}
-            </div>
+            </Suspense>
+          ) : studioMode === 'media' ? (
+            <Suspense fallback={
+              <StudioLoadingFallback reason="media-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <div className="flex h-full w-full items-center justify-center bg-transparent text-sm text-[#888]">Loading Media...</div>
+              </StudioLoadingFallback>
+            }>
+              <div className="flex flex-col min-h-full" key="media">
+                <HeroSection
+                  initialMode="design"
+                  onPromptSubmit={(prompt) => {
+                    if (!user) {
+                       navigate('/login');
+                       return;
+                    }
+                    sessionStorage.setItem('staging-nav', 'true');
+                    navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                  }}
+                  onProjectSelect={(projectId, tempName) => {
+                    if (!user) {
+                       navigate('/login');
+                       return;
+                    }
+                    sessionStorage.setItem('staging-nav', 'true');
+                    const query = tempName
+                      ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}`
+                      : `?projectId=${encodeURIComponent(projectId)}`;
+                    navigate(`/media${query}`);
+                  }}
+                  modelConfig={modelConfig}
+                  selectedModelId={selectedModelId}
+                  setSelectedModelId={setSelectedModelId}
+                  onAuthRequired={!user ? () => navigate('/login') : undefined}
+                  isAuthenticated={!!user}
+                  studioMode="media"
+                  isSidebarCollapsed={isSidebarCollapsed}
+                />
+                {/* Only show BottomPanel (projects showcase) when authenticated */}
+                {user && (
+                  <div className="pb-20">
+                    <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
+                  </div>
+                )}
+              </div>
+            </Suspense>
           ) : (
             <Suspense fallback={
               <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -705,17 +778,41 @@ const App: React.FC = () => {
             </Suspense>
           )
         ) : currentView === 'personal-intelligence' ? (
-          <PersonalIntelligenceTab />
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <PersonalIntelligenceTab />
+          </Suspense>
         ) : currentView === 'saved-info' ? (
-          <SavedInfoTab />
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <SavedInfoTab />
+          </Suspense>
         ) : currentView === 'connected-apps' ? (
-          <ConnectedAppsTab />
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <ConnectedAppsTab />
+          </Suspense>
         ) : currentView === 'gems' ? (
           <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
             <GemsView />
           </Suspense>
         ) : (
-          <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
+          <Suspense fallback={
+            <StudioLoadingFallback reason="projects-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
+          </Suspense>
         )}
       </StudioLayout>
     </>
@@ -738,13 +835,17 @@ const App: React.FC = () => {
         <Route path="/project1" element={
           <WorkbenchRouteGuard>
             <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
-              <SettingsModal
-                isOpen={isSettingsOpen}
-                onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
-                modelConfig={modelConfig}
-                setModelConfig={setModelConfig}
-                initialTab={settingsInitialTab}
-              />
+              {hasOpenedSettings && (
+                <Suspense fallback={null}>
+                  <SettingsModal
+                    isOpen={isSettingsOpen}
+                    onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
+                    modelConfig={modelConfig}
+                    setModelConfig={setModelConfig}
+                    initialTab={settingsInitialTab}
+                  />
+                </Suspense>
+              )}
               <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
                 <WorkbenchView
                   onSettingsClick={(tab?: string) => {
@@ -771,7 +872,11 @@ const App: React.FC = () => {
           </WorkbenchRouteGuard>
         } />
 
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={
+          <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f]" aria-hidden="true" />}>
+            <LoginPage />
+          </Suspense>
+        } />
         </Routes>
         </LocalFSProvider>
       </UserDataProvider>

@@ -38,11 +38,14 @@ export interface ToolMetadata {
 }
 
 export const TOOLS: Record<ToolId, ToolMetadata> = {
-  images: { id: 'images', label: 'Create image', chipLabel: 'Image', icon: ImagePlus },
-  video: { id: 'video', label: 'Create video', chipLabel: 'Video', icon: Video },
+  // chipLabel is what Gemini's own chip shows (read off the live chip, not the menu row):
+  // "Create image" -> "Images", "Create video" -> "Videos", "Music" -> "Music",
+  // "Canvas" -> "Canvas", "Deep research" -> "Deep research", "Guided learning" -> "Learn".
+  images: { id: 'images', label: 'Create image', chipLabel: 'Images', icon: ImagePlus },
+  video: { id: 'video', label: 'Create video', chipLabel: 'Videos', icon: Video },
   music: { id: 'music', label: 'Create music', chipLabel: 'Music', icon: Music },
   canvas: { id: 'canvas', label: 'Canvas', chipLabel: 'Canvas', icon: SquarePen },
-  research: { id: 'research', label: 'Deep research', chipLabel: 'Research', icon: Telescope },
+  research: { id: 'research', label: 'Deep research', chipLabel: 'Deep research', icon: Telescope },
   learn: { id: 'learn', label: 'Guided learning', chipLabel: 'Learn', icon: BookOpen },
 };
 

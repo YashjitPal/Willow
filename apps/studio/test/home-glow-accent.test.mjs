@@ -150,12 +150,28 @@ it('sets the accent on the glow host so ::before inherits it', () => {
   // It has to be the same element that carries `willow-gemini-home-glow`:
   // a custom property on a parent would inherit, but one on a child would not
   // reach the ::before at all.
+  //
+  // The class reaches the host through `glowClass` rather than inline, because
+  // it is now also gated on the greeting being ready — the glow and the heading
+  // are one visual event and must not arrive separately. So this checks the
+  // binding in two steps: the host interpolates `glowClass`, and `glowClass` is
+  // the glow class. Following the indirection keeps the original guarantee
+  // (same element carries both) instead of weakening it to "appears somewhere".
   const host = source.match(/<div\s+className=\{`flex-1 flex flex-col items-center[\s\S]{0,600}?\/>|<div\s+className=\{`flex-1 flex flex-col items-center[\s\S]{0,600}?>/);
   assert.ok(host, 'could not locate the glow host div');
-  assert.ok(/willow-gemini-home-glow/.test(host[0]),
+  assert.ok(/\$\{glowClass\}/.test(host[0]),
     'the glow class is not on the element that declares the accent');
   assert.ok(/--willow-home-glow-accent/.test(host[0]),
     'the accent property is not on the element that carries the glow class');
+
+  const glowClass = source.match(/const glowClass =([\s\S]{0,300}?);/);
+  assert.ok(glowClass, 'could not locate the glowClass binding');
+  assert.match(glowClass[1], /willow-gemini-home-glow/,
+    'glowClass no longer resolves to the glow class');
+  assert.match(glowClass[1], /initialMode === 'chat'/,
+    'the glow is no longer restricted to chat mode');
+  assert.match(glowClass[1], /isGreetingReady/,
+    'the glow no longer waits for the greeting — the two must arrive together');
 });
 
 it('keeps temporary chat on its literal gray at every workspace colour', () => {

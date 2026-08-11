@@ -8,17 +8,69 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Willow</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!--
+      NOTHING RENDER-BLOCKING BELONGS IN THIS <head>.
+
+      The first thing on screen is `#willow-boot` at the top of <body> — a static
+      copy of the app's own chrome (rail, wordmark, docked composer). It is drawn
+      from the inline <style> below and nothing else, so it can paint on the very
+      first parse of the document, before a single byte of JS or webfont arrives.
+
+      Two things used to stand in front of it:
+
+      1. `cdn.tailwindcss.com` sat here as a plain parser-blocking <script>, so
+         <body> was not even PARSED until it downloaded and ran. It has moved to
+         the end of <body>, together with the `tailwind.config` assignment that
+         has to follow it. Ordering is unchanged relative to the app: both are
+         still classic scripts, and `/src/main.tsx` is a module (deferred), so
+         Tailwind is fully initialised before React mounts exactly as before.
+      2. The two Google Fonts <link rel="stylesheet"> elements blocked FIRST PAINT
+         (stylesheets always do). They now load out of band via the
+         `media="print"` swap below, which the parser does not wait on.
+
+      The icon faces the shell actually uses — "Google Sans Flex", "Luminous
+      Symbols", "Google Symbols" — are declared as inline @font-face rules in the
+      <style> below, so they were never part of that blocking cost.
+    -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Auth is the long pole once the bundle has parsed: the session restore and
+      the Firestore profile read are two separate cross-origin round trips, and
+      the sidebar's account row stays a placeholder until they land. Warming the
+      connections here overlaps TLS with bundle download instead of paying for it
+      afterwards.
+    -->
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <!--
+      `media="print"` makes these non-matching, so the parser downloads them
+      without blocking render; `onload` flips them live the moment they arrive.
+      The <noscript> copy keeps them blocking-but-present without JS.
+    -->
     <link
       href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
     <link
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+        rel="stylesheet"
+      />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet"
+      />
+    </noscript>
     <style>
       @font-face {
         font-family: "Google Sans Flex";
@@ -36,6 +88,17 @@
         font-family: "Luminous Symbols";
         font-style: normal;
         font-weight: 100 700;
+        /*
+         * `block` here, `swap` would be wrong. These are ICON faces: every glyph
+         * is addressed by ligature name ("side_nav_expand", "gemini_chat"), so a
+         * fallback render does not show a fallback icon — it shows the literal
+         * words "side nav expand" in the sidebar until the font lands, which is
+         * far worse than a brief gap where the icon will be.
+         *
+         * What `block` costs is bounded: a 3s block period, then swap. It is not
+         * on the first-paint path either way, because the boot shell below draws
+         * its own icons as inline SVG for exactly this reason.
+         */
         font-display: block;
         src: url("https://fonts.gstatic.com/l/font?kit=daaDSSYgOGmYaRLpq55MPuzv2kUK2zvmTflyWwG1oySatCZuAYA-8NIsLW680OBb5BBuQa5Dapuzovt2J0psqvrJKUiguriqj38pHhH1_FWVNba9XW1Z0j1SYPtVC_039jdnbiSlMoNYz-sc0l6o2XJnFRZd3LtfgXCEn5sBwOYz9JY-vfCcEZCekq8BFb41oUHJ21PTFnZb2RMMwYCzB7F1mdUaFrYUswpxtQdEmjoEM8p6oWeeN_ktEB1SdkIa-kcux3UrQOn_dQjRWbZcMVX1_RESDzbwHtbyk5rWjbipp7mDJwP4NckVMay3Le8j78DOKTOoejXKXxhX1w78YI4BFD7bbtw99OVHnoVj&skey=bef131c18897d264&v=v38") format("woff2");
       }
@@ -96,9 +159,111 @@
       @media (prefers-reduced-motion: reduce) {
         .willow-dictation-bar { animation: none; }
       }
+
+      /* ------------------------------------------------------------------
+       * BOOT SHELL
+       *
+       * Static markup at the top of <body>: a full-width empty surface with
+       * the composer docked at the bottom, horizontally centred. No sidebar,
+       * no placeholder rows, no shimmer.
+       *
+       * Why it exists at all: a spinner is drawn BY React, so it cannot appear
+       * until the main bundle has been downloaded, parsed and executed — the
+       * exact interval it was meant to cover. This is plain HTML with inline
+       * CSS, so it paints on the document's first parse and waits on nothing.
+       *
+       * Why NO SIDEBAR: the app genuinely has no sidebar yet at this point, so
+       * drawing one would be a promise the next frame has to keep. The real
+       * sequence is the honest one — the surface is full-width with the
+       * composer centred across it, then the rail slides in empty, then its
+       * rows arrive as their data does. Because the shell reserves no rail
+       * width, the composer's centre shifts once when the rail appears; that
+       * shift is the app arriving, not a correction of a wrong guess.
+       *
+       * Why NO SKELETON SHIMMER: a pulsing grey box is the most attention-
+       * grabbing thing that can be on a screen where nothing has happened yet.
+       * Empty space reads as "not yet"; an animated placeholder reads as
+       * "working, and slow". Elements simply appear as they become real.
+       *
+       * Why the composer starts DOCKED at the bottom: that is the position the
+       * box holds in every loaded conversation, so if the session restores into
+       * a chat, nothing moves. If it resolves to a new chat instead, the box
+       * rises to centre — `ChatView` runs that transition off `isThreadDocked`,
+       * so the motion is the app's own, continuing from where the shell left
+       * it. Starting centred would mean the more common case began with a
+       * downward jump.
+       *
+       * Dimensions are copied from `Composer.tsx`: max-width 660px, radius
+       * 32px, #1e1f21, min-height 64px, 49px of bottom padding. Drift here
+       * shows up as a jump at handoff.
+       * ------------------------------------------------------------------ */
+      #willow-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+        display: flex;
+        background: #0f0f0f;
+        /* Icon faces may still be blocked; the shell never waits on them. */
+        font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", -apple-system, sans-serif;
+        /* 120ms is short enough to feel like the shell resolving into the app
+         * rather than a second screen being dismissed. */
+        transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      #willow-boot[data-dismissed="true"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .willow-boot-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        align-items: center;
+        /* Matches the docked composer's `pb-[49px]`. */
+        padding: 0 16px 49px;
+        background: #0f0f0f;
+      }
+
+      /* An empty box at the composer's exact resting size. It carries the
+       * surface colour and the radius and nothing else — no inner bars — so it
+       * reads as the composer already being there, unfilled, rather than as a
+       * loading graphic. */
+      .willow-boot-composer {
+        width: 100%;
+        max-width: 660px;
+        min-height: 64px;
+        border-radius: 32px;
+        background: #1e1f21;
+        box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #willow-boot { transition: none; }
+      }
     </style>
     <script>
-      tailwind.config = {
+      /*
+       * Held on our own global, then assigned to `tailwind.config` at the end of
+       * <body> once the CDN script has run.
+       *
+       * It cannot be assigned here any more. The Play CDN ends with
+       *
+       *   window.tailwind = new Proxy({ config: {}, ... }, ...)
+       *
+       * which is unconditional — it REPLACES the global, so a config set before
+       * the script loads is silently discarded and every custom colour, keyframe
+       * and animation below reverts to stock Tailwind. Verified against the
+       * fetched bundle, not assumed.
+       *
+       * The same proxy has a `set` trap on `config` that re-runs the compile, so
+       * assigning after load is the supported path and costs one extra pass over
+       * an empty `#root`. Keeping the object here rather than moving it wholesale
+       * keeps this a two-line change to a 100-line literal.
+       */
+      window.__WILLOW_TW_CONFIG__ = {
         theme: {
           extend: {
             fontFamily: {
@@ -487,7 +652,39 @@
     </style>
   </head>
   <body>
+    <!--
+      First paint. See the BOOT SHELL block in <head> for why this is static
+      HTML rather than something React draws, why there is no sidebar and no
+      shimmer, and why the composer starts docked. `#root` mounts underneath it
+      and the shell fades out from `main.tsx` once React has actually painted a
+      frame.
+
+      `aria-hidden` + `inert`: this is decoration standing in for UI that does
+      not exist yet, so it must not be reachable by a screen reader or by Tab.
+      The `<div role="status">` carries the only thing worth announcing.
+    -->
+    <div id="willow-boot" aria-hidden="true" inert>
+      <div class="willow-boot-main">
+        <div class="willow-boot-composer"></div>
+      </div>
+    </div>
+    <div class="sr-only" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">Loading Willow</div>
+
     <div id="root"></div>
+
+    <!--
+      Moved out of <head>: as a plain classic script it blocks the parser, and in
+      <head> that meant nothing above could paint. Down here everything above has
+      already been parsed and painted, and it still runs before `/src/main.tsx`
+      (a module, therefore deferred), so React continues to mount into a fully
+      configured Tailwind exactly as it did before.
+    -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Must follow the CDN script — it replaces `window.tailwind` wholesale.
+      // See the note on `__WILLOW_TW_CONFIG__` in <head>.
+      tailwind.config = window.__WILLOW_TW_CONFIG__;
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

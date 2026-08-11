@@ -161,13 +161,18 @@ const AppCard: React.FC<CardProps> = ({ app, connected, expanded, onToggle, onTo
       {hasExpandedContent ? (
         <div className="ca-expanded-content">
           <div className="ca-expanded-inner">
-            <hr className="ca-divider" />
+            {/* One rule per section, as a leading separator — cards with no
+                can/cannot list (Search services, Canva) would otherwise show
+                two adjacent dividers above "Prompts to try". */}
             {app.can?.length ? (
-              <CapabilityList
-                icon="check"
-                items={app.can}
-                title={`Using the ${app.name} app, Willow can:`}
-              />
+              <>
+                <hr className="ca-divider" />
+                <CapabilityList
+                  icon="check"
+                  items={app.can}
+                  title={`Using the ${app.name} app, Willow can:`}
+                />
+              </>
             ) : null}
             {app.cannot?.length ? (
               <>

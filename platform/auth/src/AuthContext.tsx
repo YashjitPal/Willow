@@ -77,6 +77,57 @@ const createEmptyUserProfile = (): UserProfile => ({
   description: null,
 });
 
+/*
+ * Last-known profile, per account.
+ *
+ * The profile lives in Firestore, so `fetchUserProfile` is a network round
+ * trip, and `loading` waits on it. That one request was the reason a refresh
+ * showed the greeting without a name and then had it appear, the workspace name
+ * resolve late, and Recents pause: everything downstream of the profile was
+ * waiting on a server on every single load, for data that had not changed since
+ * the last one.
+ *
+ * The cache is a HINT, never the truth. The network fetch still runs on every
+ * load and still overwrites this; the cache only decides what is on screen
+ * during the round trip. Worst case (profile edited from another device) a
+ * refresh shows the previous name for the length of one request and then
+ * corrects itself — the same correction that happens today, minus the empty
+ * state before it.
+ *
+ * Keyed by uid so a shared machine cannot show one account's name to another,
+ * and read through the same validation path as a fresh fetch so a hand-edited
+ * or stale-shaped entry degrades to "no cache" rather than to a broken profile.
+ */
+const PROFILE_CACHE_PREFIX = 'willow_profile_cache:';
+
+const readCachedUserProfile = (uid: string): UserProfile | null => {
+  try {
+    const raw = localStorage.getItem(`${PROFILE_CACHE_PREFIX}${uid}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    // Field-wise adoption: anything missing or of the wrong type falls back to
+    // the empty profile's value, so a schema change cannot surface `undefined`.
+    const base = createEmptyUserProfile();
+    const profile = { ...base };
+    for (const field of USER_PROFILE_FIELDS) {
+      const value = (parsed as Record<string, unknown>)[field];
+      if (typeof value === typeof base[field] || value === null || typeof base[field] === 'object') {
+        (profile as Record<string, unknown>)[field] = value ?? base[field];
+      }
+    }
+    return profile;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedUserProfile = (uid: string, profile: UserProfile): void => {
+  try {
+    localStorage.setItem(`${PROFILE_CACHE_PREFIX}${uid}`, JSON.stringify(profile));
+  } catch {}
+};
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
@@ -156,15 +207,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(firebaseUser);
 
       if (firebaseUser) {
-        // Only show the blocking loader for a real sign-in. App renders a bare
-        // spinner while `loading` is true, which UNMOUNTS the whole tree —
-        // LocalFSProvider and ChatView included — so flipping it on a
-        // same-account re-fire destroyed the live conversation and dropped the
-        // user back on the home screen. The profile below is still refreshed;
-        // it just happens without ripping the UI down first.
-        if (!isSameAccountRefire) setLoading(true);
+        /*
+         * Adopt the cached profile first, then fetch.
+         *
+         * `loading` gates the sidebar's account row, the workspace name (and so
+         * the chat scope, and so Recents), and the chat greeting. Holding all of
+         * that behind a Firestore round trip meant every refresh had a visible
+         * "no name yet" phase. With a cache hit the profile is present in the
+         * first commit and `loading` never blocks on the network at all; the
+         * fetch below still runs and still wins, it just no longer decides when
+         * the UI may exist.
+         *
+         * On a cache miss (first load on this device, or a cleared store) this
+         * is exactly the old behaviour.
+         */
+        const cached = readCachedUserProfile(firebaseUser.uid);
+        if (cached) {
+          setUserProfile((prev) => (prev && isSameUserProfile(prev, cached) ? prev : cached));
+          setLoading(false);
+        } else if (!isSameAccountRefire) {
+          // Only show the blocking loader for a real sign-in. App renders a bare
+          // spinner while `loading` is true, which UNMOUNTS the whole tree —
+          // LocalFSProvider and ChatView included — so flipping it on a
+          // same-account re-fire destroyed the live conversation and dropped the
+          // user back on the home screen. The profile below is still refreshed;
+          // it just happens without ripping the UI down first.
+          setLoading(true);
+        }
         const profile = await fetchUserProfile(firebaseUser.uid);
         if (authGenerationRef.current !== generation) return;
+        writeCachedUserProfile(firebaseUser.uid, profile);
         // Keep the previous object when nothing actually changed. fetchUserProfile
         // always returns a fresh object, and several consumers derive useCallback
         // identities from `userProfile` — notably the local-FS provider, whose

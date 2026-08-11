@@ -105,8 +105,16 @@ it('scopes the Code-mode body backfill to the visible window', () => {
 it('blanks the thread while a selected chat loads, without moving the composer', () => {
   const source = CHAT_VIEW();
 
-  assert.match(source, /const showBlankThread = isChatLoading;/,
-    'the blank-thread state is gone — the previous chat stays painted during a load');
+  // `isBootHydrating` is the second term: the same blank thread is what the app
+  // boots into, so the composer starts docked over an empty pane and rises to
+  // centre only once the registry and the profile have both landed. Asserted as
+  // a set so either term going missing fails, rather than matching a prefix.
+  const blank = source.match(/const showBlankThread =([^;]*);/);
+  assert.ok(blank, 'the blank-thread state is gone — the previous chat stays painted during a load');
+  assert.match(blank[1], /isChatLoading/,
+    'the blank-thread state no longer covers chat loads — stale content stays painted');
+  assert.match(blank[1], /isBootHydrating/,
+    'the blank-thread state no longer covers boot — the composer centres over an empty pane');
   // Both render branches must be suppressed, or a loading chat falls through to
   // the "new chat" greeting.
   assert.match(source, /\{!hasStarted && !showBlankThread && \(/,
