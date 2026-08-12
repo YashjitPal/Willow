@@ -249,11 +249,29 @@
   caret-color: rgb(230, 230, 230);
 }
 
+@keyframes willow-mat-menu-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.willow-gdlg-surface--closing {
+  transform: none;
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
+}
+
+.willow-gdlg-backdrop--closing {
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
+}
+
 /* Repo convention, as in Sidebar.css and CopyToast.css. Not measured — Gemini
    ships no reduced-motion rule for the dialog. */
 @media (prefers-reduced-motion: reduce) {
   .willow-gdlg-backdrop,
-  .willow-gdlg-surface {
+  .willow-gdlg-surface,
+  .willow-gdlg-surface--closing,
+  .willow-gdlg-backdrop--closing {
     transition-duration: 1ms;
+    animation: none;
   }
 }
+

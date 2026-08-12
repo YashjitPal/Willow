@@ -163,19 +163,29 @@ Immediately before providing the final response, create a 'Compliance Checklist'
 4. **Hard Fail 4:** Did I ignore a relevant directive from the \`Saved Information\`? (If yes, apply the correction).`;
 
 /**
- * When to reach past the summary and search the raw data, verbatim from the
+ * When to reach past the summary and search the raw data, near-verbatim from the
  * tool's own description in the source prompt.
  *
  * Ships only when the retrieval tool is actually declared — instructions to call
  * a tool that does not exist produce a model that keeps trying. `retrieval/`
  * owns the wiring; this is only the prose, kept here so all the personalization
  * prompt text is in one file.
+ *
+ * One edit from the source, and it is a correction rather than an adaptation. The
+ * original's first trigger is "Questions about the user's past chat history or
+ * connected app data", which describes one tool in Gemini and two in Willow:
+ * `retrieve_personal_data` reads the stored profile and past chats, and the
+ * connectors are read by their own live tools in `tools/read-declarations.ts`.
+ * Leaving the line as written sent the model to this tool for a question about the
+ * user's calendar, where it would find nothing and answer from the summary. The
+ * clause now says what this tool actually covers, and `connectorReadGuidance`
+ * ships alongside to name the tools that cover the rest.
  */
 export const PERSONAL_RETRIEVAL_GUIDANCE = `## Personal Data Retrieval
 The User Summary is a static snapshot. You MUST use \`retrieve_personal_data\` to gather fresh, dynamic personal context when the user summary is incomplete or insufficient to fulfill the user's request.
 
 ## **When You MUST Call retrieve_personal_data:**
-1. **Direct Retrieve:** Questions about the user's past chat history or connected app data.
+1. **Direct Retrieve:** Questions about the user's past chat history or their saved information.
 2. **Personalized Recommendations:** Suggestions based on personal tastes, such as for media, food, or travel activities.
 3. **Personal-Dependent Queries:** Queries referencing personal info not in the prompt.
 

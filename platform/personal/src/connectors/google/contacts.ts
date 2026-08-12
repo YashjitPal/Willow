@@ -92,3 +92,54 @@ export const contactsConnector: ConnectorReader = {
   id: 'contacts',
   readSignals: readContactsSignals,
 };
+
+// ---------------------------------------------------------------------------
+// Live reads.
+// ---------------------------------------------------------------------------
+
+/** More than the profile's six, because a reply has no section budget. */
+const LIVE_LIMIT = 30;
+
+export interface LabelledRelation {
+  name: string;
+  /** The plain-word label, from `RELATION_LABELS`. */
+  relation: string;
+}
+
+/**
+ * Contacts the user labelled with a relationship, or `null` if the call failed.
+ *
+ * The same single field as the profile reader, and for the same reason: an address
+ * book is other people's data, and the one thing in it that is a fact about *this*
+ * user is a relationship they typed themselves. Being a live read changes the cap
+ * and nothing else — names, phone numbers, addresses and birthdays of people who
+ * never agreed to any of this are as far out of bounds in a reply as in a file.
+ */
+export const listLabelledRelations = async (
+  fetchJson: ConnectorFetch,
+  options: { signal?: AbortSignal } = {},
+): Promise<LabelledRelation[] | null> => {
+  const url = `${PEOPLE_API}/people/me/connections${query({
+    personFields: 'names,relations',
+    pageSize: PAGE_SIZE,
+    sortOrder: 'LAST_MODIFIED_DESCENDING',
+  })}`;
+
+  const page = await fetchJson<{ connections?: Person[] }>(url, { signal: options.signal });
+  if (!page) return null;
+
+  const relations: LabelledRelation[] = [];
+  for (const person of page.connections ?? []) {
+    const name = person.names?.[0]?.displayName?.trim();
+    if (!name) continue;
+    for (const relation of person.relations ?? []) {
+      const label = RELATION_LABELS[relation.type ?? ''];
+      if (!label) continue;
+      relations.push({ name, relation: label });
+      break;
+    }
+    if (relations.length >= LIVE_LIMIT) break;
+  }
+
+  return relations;
+};

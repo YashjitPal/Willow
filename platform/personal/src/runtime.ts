@@ -25,6 +25,7 @@ import { collectConnectorSignals } from './connectors/signals';
 import { commitBuildResult, profileStore } from './profile/profile-store';
 import { invalidatePersonalIndex, retrievePersonalData } from './retrieval/personal-context';
 import { createPersonalActions } from './tools/actions';
+import { createPersonalReads } from './tools/reads';
 import { executePersonalTool, type ToolCallResult } from './tools/executor';
 
 export interface PersonalRuntimeDeps {
@@ -165,6 +166,7 @@ export const runPersonalTool = async (
   return executePersonalTool(name, args, {
     chats: deps.chats,
     actions: createPersonalActions(),
+    reads: createPersonalReads(),
   });
 };
 

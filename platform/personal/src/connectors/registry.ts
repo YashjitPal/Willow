@@ -118,6 +118,15 @@ export const scopeUrls = (ids: ConnectorId[], kind: 'read' | 'write'): string[] 
 };
 
 /**
+ * The scopes a connector's read tools need.
+ *
+ * These are granted at connect time, unlike the write scopes below — connecting a
+ * product is the user saying Willow may read it, so a read tool never needs to ask
+ * for anything and never opens a popup.
+ */
+export const readScopesFor = (id: ConnectorId): string[] => scopeUrls([id], 'read');
+
+/**
  * The scopes needed to run an action tool.
  *
  * Write access is requested when a tool first needs it rather than at connect
