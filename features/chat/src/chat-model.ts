@@ -9,6 +9,8 @@ import {
   type SavedInfoState,
 } from '@willow/core/saved-info-store';
 import {
+  connectionsStore,
+  connectorReadGuidance,
   PERSONAL_DATA_LADDER,
   PERSONAL_RETRIEVAL_GUIDANCE,
   profileBlock,
@@ -672,12 +674,13 @@ export type PromptContext = {
    */
   personalize?: boolean;
   /**
-   * Whether `retrieve_personal_data` is declared for this turn.
+   * Whether the personalization tools are declared for this turn.
    *
-   * The retrieval guidance ships only when the tool does. Instructions telling a
-   * model it MUST call a tool that was never declared produce a model that keeps
-   * trying and then apologises — so the caller that pushes the declaration is the
-   * caller that sets this, and the two move together or not at all.
+   * The retrieval guidance and the connector-read guidance both ship only when the
+   * tools do. Instructions telling a model it MUST call a tool that was never
+   * declared produce a model that keeps trying and then apologises — so the caller
+   * that pushes the declarations is the caller that sets this, and the two move
+   * together or not at all.
    */
   personalTool?: boolean;
 };
@@ -695,6 +698,13 @@ export type PromptContext = {
  *
  * Order matches the source: the summary first, then the guidelines that govern
  * it, then the tool guidance that says where to go when the summary runs out.
+ *
+ * The connector guidance is last for the same reason it is last in that sentence.
+ * It is the widest exit from the summary — the summary describes the user, the
+ * retrieval tool searches what they have told Willow, and the read tools reach the
+ * actual accounts. It is built from the same connection state the declarations are
+ * built from, so it names exactly the tools that were offered and returns nothing
+ * when none were.
  */
 const personalContextBlock = ({ personalize, personalTool }: PromptContext): string => {
   if (!personalize) return '';
@@ -703,6 +713,9 @@ const personalContextBlock = ({ personalize, personalTool }: PromptContext): str
 
   const parts = [profileBlock(state), PERSONAL_DATA_LADDER];
   if (personalTool) parts.push(PERSONAL_RETRIEVAL_GUIDANCE);
+  // Gated on `personalTool` as well: it is the flag saying this turn declared the
+  // personalization tools at all, and the read tools ride in the same block.
+  if (personalTool) parts.push(connectorReadGuidance(connectionsStore.get().enabled));
   return parts.filter(Boolean).join('\n\n');
 };
 

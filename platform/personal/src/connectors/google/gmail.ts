@@ -172,3 +172,94 @@ export const gmailConnector: ConnectorReader = {
   id: 'gmail',
   readSignals: readGmailSignals,
 };
+
+// ---------------------------------------------------------------------------
+// Live reads — recent headers, for a question asked right now.
+// ---------------------------------------------------------------------------
+
+/**
+ * How many messages a live read will fetch.
+ *
+ * Low, and not for quota reasons. The Gmail API has no batch metadata endpoint,
+ * so this is one HTTP round trip per message with the user watching a cursor
+ * blink. Fifteen headers answer "what came in today"; a hundred would answer the
+ * same question a minute later.
+ */
+const LIVE_DEFAULT = 15;
+const LIVE_MAX = 30;
+
+export interface MailHeader {
+  /** Display name if the sender set one, else the local part of their address. */
+  from: string;
+  /** The sending domain — enough to recognise a service or an institution. */
+  domain: string;
+  subject: string;
+  /** The `Date` header, verbatim, because it is what Gmail returned. */
+  date: string;
+  unread: boolean;
+}
+
+/**
+ * Recent message headers, or `null` if the search failed.
+ *
+ * Still metadata only, and still enforced by Google rather than by this file:
+ * `gmail.metadata` cannot return a body no matter what is requested here. So the
+ * live tool is honestly limited in the same way the card says it is — Willow can
+ * tell the user who wrote and what the subject line was, and genuinely cannot tell
+ * them what the message said.
+ *
+ * Addresses are reduced to a name and a domain. The full address is contact data,
+ * and the sentence that needs it ("did the college email me") is answered by the
+ * domain alone. That is the same rule the stored profile follows, kept here even
+ * though nothing is written to disk, because the model's reply is saved with the
+ * chat and sent to a provider either way.
+ */
+export const listRecentMail = async (
+  fetchJson: ConnectorFetch,
+  options: { search?: string; limit?: number; signal?: AbortSignal } = {},
+): Promise<MailHeader[] | null> => {
+  const limit = Math.min(Math.max(options.limit ?? LIVE_DEFAULT, 1), LIVE_MAX);
+  // The caller's search is appended to the standing filter rather than replacing
+  // it, so no tool call can reach into spam or trash.
+  const search = (options.search ?? '').trim();
+  const q = search ? `${QUERY} ${search}` : QUERY;
+
+  const found = await fetchJson<{ messages?: MessageRef[] }>(
+    `${GMAIL_API}/messages${query({ q, maxResults: limit })}`,
+    { signal: options.signal },
+  );
+  if (!found) return null;
+
+  const ids = (found.messages ?? [])
+    .map((ref) => ref.id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return [];
+
+  const headerParams = ['From', 'Subject', 'Date']
+    .map((header) => `metadataHeaders=${header}`)
+    .join('&');
+
+  const headers: MailHeader[] = [];
+  for (const id of ids) {
+    if (options.signal?.aborted) break;
+    const message = await fetchJson<MessageMetadata>(
+      `${GMAIL_API}/messages/${id}?format=metadata&${headerParams}`,
+      { signal: options.signal },
+    );
+    if (!message) continue;
+    const { name, email, domain } = parseAddress(headerValue(message, 'From'));
+    if (!email) continue;
+    headers.push({
+      from: name || (email.split('@')[0] ?? email),
+      domain,
+      subject: headerValue(message, 'Subject') || '(no subject)',
+      date: headerValue(message, 'Date'),
+      unread: Boolean(message.labelIds?.includes('UNREAD')),
+    });
+  }
+
+  // The search worked and every header request failed — a broken connection, not
+  // an empty inbox.
+  if (headers.length === 0) return null;
+  return headers;
+};

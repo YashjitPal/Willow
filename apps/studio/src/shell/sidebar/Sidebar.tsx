@@ -881,7 +881,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setShouldRenderRename(false);
       setIsRenameClosing(false);
       setEditingChatId(null);
-    }, 75);
+    }, 125);
   };
 
   // handleRenameSave reads `editingChatId`/`editValue` off this render's closure,
@@ -938,7 +938,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setShouldRenderDelete(false);
       setIsDeleteClosing(false);
       setChatToDelete(null);
-    }, 75);
+    }, 125);
   };
 
   const confirmDeleteChat = async () => {

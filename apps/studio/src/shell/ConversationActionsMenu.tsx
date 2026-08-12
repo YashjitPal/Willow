@@ -72,19 +72,30 @@ export interface ConversationActionsMenuProps {
 export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = ({ chatId }) => {
   const { chatScopeId } = useLocalFS();
   const [isOpen, setIsOpen] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   // Read at open rather than held as state: Pin/Unpin closes the pane, so a
   // mounted pane is always looking at storage as it was a frame ago and there is
   // nothing to invalidate. Sidebar remains the only writer.
   const [isPinned, setIsPinned] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
+  const triggerClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setShouldRender(false);
+      setIsClosing(false);
+      setIsOpen(false);
+    }, 125);
+  };
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const onDocumentClick = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setIsOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) triggerClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
+      if (event.key === 'Escape') triggerClose();
     };
     window.addEventListener('click', onDocumentClick);
     window.addEventListener('keydown', onKeyDown);
@@ -92,13 +103,17 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
       window.removeEventListener('click', onDocumentClick);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [isOpen]);
+  }, [shouldRender, isClosing]);
 
   // A chat switch while the pane is open would leave it acting on the old id.
-  useEffect(() => setIsOpen(false), [chatId]);
+  useEffect(() => {
+    setIsOpen(false);
+    setShouldRender(false);
+    setIsClosing(false);
+  }, [chatId]);
 
   const run = (action: () => void) => () => {
-    setIsOpen(false);
+    triggerClose();
     action();
   };
 
@@ -185,11 +200,18 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
         type="button"
         aria-label="Open menu for conversation actions."
         aria-haspopup="menu"
-        aria-expanded={isOpen}
+        aria-expanded={shouldRender && !isClosing}
         onClick={(event) => {
           event.stopPropagation();
-          if (!isOpen) setIsPinned(isChatPinned(chatScopeId, chatId));
-          setIsOpen((open) => !open);
+          const nextOpen = !(shouldRender && !isClosing);
+          if (nextOpen) {
+            setIsPinned(isChatPinned(chatScopeId, chatId));
+            setShouldRender(true);
+            setIsClosing(false);
+            setIsOpen(true);
+          } else {
+            triggerClose();
+          }
         }}
         className="relative flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-1.5 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:transition-opacity before:content-[''] hover:before:opacity-[0.08]"
       >
@@ -219,10 +241,12 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
         * `gem-menu` itself, but both share the same 203.26x268 box and the same
         * 20px radius, so one node carries both here.
         */}
-      {isOpen && (
+      {shouldRender && (
         <div
           role="menu"
-          className="willow-conv-menu absolute top-[40px] right-0 flex flex-col rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)]"
+          className={`willow-conv-menu absolute top-[40px] right-0 flex flex-col rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)] ${
+            isClosing ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'
+          }`}
           onClick={(event) => event.stopPropagation()}
         >
           {rows.map((row) => (

@@ -39,24 +39,25 @@ export interface Task {
   completed?: string;
 }
 
-/** The user's task lists, newest first. Used by both halves. */
+/** The user's task lists, newest first, or `null` if the call failed. */
 export const listTaskLists = async (
   fetchJson: ConnectorFetch,
   signal?: AbortSignal,
-): Promise<TaskList[]> => {
+): Promise<TaskList[] | null> => {
   const page = await fetchJson<{ items?: TaskList[] }>(
     `${TASKS_API}/users/@me/lists${query({ maxResults: MAX_LISTS })}`,
     { signal },
   );
-  return page?.items ?? [];
+  if (!page) return null;
+  return page.items ?? [];
 };
 
-/** Open tasks on one list. */
+/** Open tasks on one list, or `null` if the call failed. */
 export const listTasks = async (
   fetchJson: ConnectorFetch,
   listId: string,
   options: { includeCompleted?: boolean; signal?: AbortSignal } = {},
-): Promise<Task[]> => {
+): Promise<Task[] | null> => {
   const page = await fetchJson<{ items?: Task[] }>(
     `${TASKS_API}/lists/${encodeURIComponent(listId)}/tasks${query({
       maxResults: PAGE_SIZE,
@@ -65,7 +66,8 @@ export const listTasks = async (
     })}`,
     { signal: options.signal },
   );
-  return page?.items ?? [];
+  if (!page) return null;
+  return page.items ?? [];
 };
 
 export const readTasksSignals = async (
@@ -73,7 +75,7 @@ export const readTasksSignals = async (
   signal?: AbortSignal,
 ): Promise<ConnectorSignal[]> => {
   const lists = await listTaskLists(fetchJson, signal);
-  if (lists.length === 0) return [];
+  if (!lists || lists.length === 0) return [];
 
   const now = Date.now();
   const horizon = now + LOOK_AHEAD_DAYS * DAY_MS;
@@ -84,7 +86,7 @@ export const readTasksSignals = async (
     if (!list.id) continue;
     const tasks = await listTasks(fetchJson, list.id, { signal });
 
-    for (const task of tasks) {
+    for (const task of tasks ?? []) {
       const title = (task.title ?? '').trim();
       if (!title || task.status === 'completed') continue;
       if (!task.due) continue;
@@ -121,7 +123,7 @@ export const createTask = async (
   let listId = input.listId;
   if (!listId) {
     const lists = await listTaskLists(fetchJson, signal);
-    listId = lists[0]?.id;
+    listId = lists?.[0]?.id;
   }
   if (!listId) return null;
 
@@ -159,3 +161,91 @@ export const tasksConnector: ConnectorReader = {
   id: 'tasks',
   readSignals: readTasksSignals,
 };
+
+// ---------------------------------------------------------------------------
+// Live reads — the actual list, for a question asked right now.
+// ---------------------------------------------------------------------------
+
+/** Notes are kept for a live read but clipped; see `listOpenTasks`. */
+const NOTE_LIMIT = 200;
+
+/** Enough to answer "what have I got on"; not enough to mirror the whole app. */
+const LIVE_TASK_LIMIT = 40;
+
+export interface OpenTask {
+  title: string;
+  /** Which of the user's lists it sits on. */
+  list: string;
+  /** `YYYY-MM-DD`, when the task has a due date at all. */
+  due?: string;
+  notes?: string;
+  completed: boolean;
+}
+
+/**
+ * Every task across the user's lists, or `null` if the lists could not be read.
+ *
+ * Three deliberate differences from `readTasksSignals`, all following from the
+ * same fact — this answers a question instead of writing a file:
+ *
+ * - **Undated tasks are included.** The profile skips them because a someday-list
+ *   item is not a fact about a person's current life. "What are my tasks" wants
+ *   them.
+ * - **Notes are included**, clipped to a couple of lines. The profile refuses them
+ *   because they are where people paste account numbers and whole messages, and
+ *   that must not land in a stored file. Here the user asked to see their own
+ *   tasks, so withholding the detail they wrote themselves would be the wrong call
+ *   — but the clip stays, because a pasted wall of text is not an answer either.
+ * - **No cap of six.** A profile section has a budget; a reply does not.
+ */
+export const listOpenTasks = async (
+  fetchJson: ConnectorFetch,
+  options: { includeCompleted?: boolean; signal?: AbortSignal } = {},
+): Promise<OpenTask[] | null> => {
+  const lists = await listTaskLists(fetchJson, options.signal);
+  if (!lists) return null;
+  if (lists.length === 0) return [];
+
+  const collected: OpenTask[] = [];
+  let anyListRead = false;
+
+  for (const list of lists) {
+    if (options.signal?.aborted) break;
+    if (!list.id) continue;
+    const tasks = await listTasks(fetchJson, list.id, {
+      includeCompleted: options.includeCompleted,
+      signal: options.signal,
+    });
+    if (!tasks) continue;
+    anyListRead = true;
+
+    for (const task of tasks) {
+      const title = (task.title ?? '').trim();
+      if (!title) continue;
+      const due = task.due?.slice(0, 10);
+      const notes = (task.notes ?? '').trim();
+      collected.push({
+        title,
+        list: (list.title ?? 'Tasks').trim() || 'Tasks',
+        ...(due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? { due } : {}),
+        ...(notes ? { notes: notes.slice(0, NOTE_LIMIT) } : {}),
+        completed: task.status === 'completed',
+      });
+      if (collected.length >= LIVE_TASK_LIMIT) return sortByDue(collected);
+    }
+  }
+
+  // Lists read fine but every task request failed: that is a broken connection,
+  // not an empty task list, and the two must not produce the same answer.
+  if (!anyListRead) return null;
+  return sortByDue(collected);
+};
+
+/** Dated tasks first, soonest first; undated ones after, in list order. */
+const sortByDue = (tasks: OpenTask[]): OpenTask[] =>
+  [...tasks].sort((a, b) => {
+    if (a.due && b.due) return a.due.localeCompare(b.due);
+    if (a.due) return -1;
+    if (b.due) return 1;
+    return 0;
+  });

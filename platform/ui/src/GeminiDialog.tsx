@@ -69,14 +69,14 @@ export const GeminiDialog: React.FC<GeminiDialogProps> = ({
     <div className="willow-gdlg-host">
       <div
         aria-hidden="true"
-        className={`willow-gdlg-backdrop${shown && !closing ? ' willow-gdlg-backdrop--shown' : ''}`}
+        className={`willow-gdlg-backdrop${shown && !closing ? ' willow-gdlg-backdrop--shown' : ''}${closing ? ' willow-gdlg-backdrop--closing' : ''}`}
         onClick={onDismiss}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`willow-gdlg-surface${shown ? ' willow-gdlg-surface--shown' : ''}`}
+        className={`willow-gdlg-surface${shown && !closing ? ' willow-gdlg-surface--shown' : ''}${closing ? ' willow-gdlg-surface--closing' : ''}`}
         style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
       >

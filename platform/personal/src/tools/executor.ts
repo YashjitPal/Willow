@@ -2,8 +2,10 @@
  * Running a personal tool call and shaping the result.
  *
  * The chat pipeline hands over a tool name and arguments; this returns text. It
- * is the only place that knows both halves, which is what keeps `platform/ai`
- * free of any knowledge of profiles, connectors or OAuth.
+ * is the only place that knows every kind — retrieval over the stored profile,
+ * live reads of the user's Google products, and the actions that write to them —
+ * which is what keeps `platform/ai` free of any knowledge of profiles, connectors
+ * or OAuth.
  *
  * Every result is a string, including every failure. A tool that throws breaks
  * the turn; a tool that returns "that didn't work because X" lets the model tell
@@ -21,6 +23,8 @@ export interface PersonalToolDeps extends PersonalContextDeps {
    * in builds with no OAuth client id.
    */
   actions?: PersonalActions;
+  /** Live connector reads, injected on the same terms as `actions`. */
+  reads?: PersonalReads;
 }
 
 /** The action side, kept behind an interface so the executor never imports OAuth. */
@@ -31,6 +35,28 @@ export interface PersonalActions {
   }) => Promise<string>;
   createDocument: (input: { title: string; body?: string }) => Promise<string>;
   createPlaylist: (input: { title: string; description?: string }) => Promise<string>;
+}
+
+/**
+ * The live-read side: the user's Google products, read at the moment they ask.
+ *
+ * Separate from the profile on purpose, and the difference is what the whole read
+ * surface exists for. The profile is a small stored description of the person,
+ * built in the background and deliberately aggregated — it knows the user watches
+ * science videos, and it threw the titles away. These read the real thing, once,
+ * for one reply, and keep the detail: the titles, the events, the subject lines.
+ *
+ * Every method returns text, including every failure, for the same reason as the
+ * actions: "your YouTube connection expired, reconnect it in Settings" is an answer
+ * the user can act on, and a thrown error is a broken turn.
+ */
+export interface PersonalReads {
+  listLikedVideos: (input: { limit?: number }) => Promise<string>;
+  listSubscriptions: (input: { limit?: number }) => Promise<string>;
+  listCalendarEvents: (input: { daysAhead?: number; daysBack?: number }) => Promise<string>;
+  listTasks: (input: { includeCompleted?: boolean }) => Promise<string>;
+  listRecentEmails: (input: { search?: string; limit?: number }) => Promise<string>;
+  listRelationships: () => Promise<string>;
 }
 
 export interface ToolCallResult {
@@ -57,6 +83,30 @@ const readString = (args: Record<string, unknown>, key: string): string | undefi
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
+/**
+ * A number argument, however the model spelled it.
+ *
+ * Models hand back `"7"` about as often as `7`, and a limit that arrives as a
+ * string turns into `NaN` two functions later where it is much harder to see.
+ */
+const readNumber = (args: Record<string, unknown>, key: string): number | undefined => {
+  const value = args[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
+const readBoolean = (args: Record<string, unknown>, key: string): boolean | undefined => {
+  const value = args[key];
+  if (typeof value === 'boolean') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+};
+
 /** Action tool names, kept together so the gating in `chat.ts` is one check. */
 export const ACTION_TOOLS = {
   createTask: 'create_task',
@@ -65,8 +115,88 @@ export const ACTION_TOOLS = {
   createPlaylist: 'create_youtube_playlist',
 } as const;
 
+/** Live-read tool names. Same arrangement as `ACTION_TOOLS`, same reason. */
+export const READ_TOOLS = {
+  listLikedVideos: 'list_liked_videos',
+  listSubscriptions: 'list_youtube_subscriptions',
+  listCalendarEvents: 'list_calendar_events',
+  listTasks: 'list_tasks',
+  listRecentEmails: 'list_recent_emails',
+  listRelationships: 'list_contact_relationships',
+} as const;
+
 export const isPersonalActionCall = (name: string | undefined): boolean =>
   Object.values(ACTION_TOOLS).includes(name as never);
+
+export const isPersonalReadCall = (name: string | undefined): boolean =>
+  Object.values(READ_TOOLS).includes(name as never);
+
+/**
+ * Run one live read.
+ *
+ * Split out of `executePersonalTool` because the two halves fail differently. An
+ * action that cannot run has changed nothing and says so; a read that cannot run
+ * has to be unmistakable about it, because the alternative is a model that treats
+ * silence as "no liked videos" and answers a question about the user's own account
+ * with an invention. Hence a sentence naming the product and what to do about it,
+ * never an empty result.
+ */
+const runRead = async (
+  name: string,
+  args: unknown,
+  deps: PersonalToolDeps,
+): Promise<ToolCallResult> => {
+  const reads = deps.reads;
+  if (!reads) {
+    return {
+      name,
+      text: 'That app is not connected, so there is nothing to read. The user can connect it in Settings → Connected Apps. Do not guess at what it would have contained.',
+    };
+  }
+
+  const fields = asRecord(args);
+
+  try {
+    switch (name) {
+      case READ_TOOLS.listLikedVideos:
+        return { name, text: await reads.listLikedVideos({ limit: readNumber(fields, 'limit') }) };
+      case READ_TOOLS.listSubscriptions:
+        return { name, text: await reads.listSubscriptions({ limit: readNumber(fields, 'limit') }) };
+      case READ_TOOLS.listCalendarEvents:
+        return {
+          name,
+          text: await reads.listCalendarEvents({
+            daysAhead: readNumber(fields, 'days_ahead'),
+            daysBack: readNumber(fields, 'days_back'),
+          }),
+        };
+      case READ_TOOLS.listTasks:
+        return {
+          name,
+          text: await reads.listTasks({ includeCompleted: readBoolean(fields, 'include_completed') }),
+        };
+      case READ_TOOLS.listRecentEmails:
+        return {
+          name,
+          text: await reads.listRecentEmails({
+            search: readString(fields, 'search'),
+            limit: readNumber(fields, 'limit'),
+          }),
+        };
+      case READ_TOOLS.listRelationships:
+        return { name, text: await reads.listRelationships() };
+      default:
+        // Unreachable while `READ_TOOLS` and this switch agree, which
+        // `isPersonalReadCall` is what guarantees.
+        return { name, text: 'That read is not available.' };
+    }
+  } catch {
+    return {
+      name,
+      text: 'That could not be read. The connection may have expired — the user can reconnect it in Settings → Connected Apps. Do not guess at the contents.',
+    };
+  }
+};
 
 /**
  * Execute a tool call, or return `null` if it is not one of ours.
@@ -85,6 +215,8 @@ export const executePersonalTool = async (
     const result = await retrievePersonalData(query, deps);
     return { name: RETRIEVE_PERSONAL_DATA, text: result.text, matches: result.matches };
   }
+
+  if (isPersonalReadCall(name)) return runRead(name, args, deps);
 
   if (!isPersonalActionCall(name)) return null;
 

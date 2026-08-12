@@ -64,3 +64,30 @@
 .willow-conv-menu-icon {
   color: rgb(227, 227, 227);
 }
+
+@keyframes willow-mat-menu-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes willow-mat-menu-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.willow-mat-menu-enter {
+  animation: willow-mat-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: top right;
+}
+
+.willow-mat-menu-exit {
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-mat-menu-enter,
+  .willow-mat-menu-exit {
+    animation: none;
+  }
+}
+

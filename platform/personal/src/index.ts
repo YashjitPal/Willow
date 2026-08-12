@@ -71,6 +71,7 @@ export {
   CONNECTORS,
   canProvideSignals,
   connectorById,
+  readScopesFor,
   scopeUrls,
   writeScopesFor,
 } from './connectors/registry';
@@ -130,10 +131,27 @@ export {
   openaiActionTools,
 } from './tools/action-declarations';
 
+/**
+ * The live read tools. Separate from the actions because they answer questions
+ * rather than change anything, and separate from `retrieve_personal_data` because
+ * they read the user's Google products directly instead of the stored profile.
+ */
+export {
+  anthropicReadTools,
+  connectorForRead,
+  connectorReadGuidance,
+  geminiReadTools,
+  hasReadTools,
+  openaiReadTools,
+} from './tools/read-declarations';
+
 export {
   ACTION_TOOLS,
   isPersonalActionCall,
+  isPersonalReadCall,
+  READ_TOOLS,
   type PersonalActions,
+  type PersonalReads,
   type ToolCallResult,
 } from './tools/executor';
 

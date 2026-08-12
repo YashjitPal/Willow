@@ -142,7 +142,7 @@ const namesSearchToolRejection = (error: any): boolean => {
   ].filter((part) => typeof part === 'string');
   if (!parts.length) return false;
   const text = parts.join(' ');
-  return /web[\s._-]*search|x[\s._-]*search|search_parameters|\bweb_search_options\b|\btools?\b/i.test(text);
+  return /web[\s._-]*search|x[\s._-]*search|search_parameters|\bweb_search_options\b|\btools?\b|422|Unprocessable/i.test(text);
 };
 
 /**
@@ -1379,7 +1379,7 @@ Adhere to the following rules and guidelines:
     // and `createWithSearchFallback` turns the rejection into one wasted request
     // rather than a failed turn. The rejection arrives before any token, so the
     // retry cannot duplicate output.
-    const openaiSearchEnabled = options.enableSearch !== false;
+    const openaiSearchEnabled = provider !== 'spacexai' && options.enableSearch !== false;
     const openaiSearchTools = [{ type: 'web_search' }];
 
     const chatCompletionParams = {
