@@ -33,8 +33,8 @@ const MOONSHOT_MODELS = [
 
 const SPACEXAI_MODELS: Array<GeminiModel & { defaultThinkingLevel: number }> = [
   {
-    id: 'grok-4.5',
-    name: 'Grok 4.5',
+    id: 'grok-4.6',
+    name: 'Grok 4.6',
     maxLevels: 3,
     hasNone: false,
     defaultThinkingLevel: 3,
@@ -81,6 +81,7 @@ const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean
 export const getModelPricing = (modelId: string, provider: string): string => {
   const prices: Record<string, string> = {
     // Gemini
+    'gemini-3.7-flash': '$0.15/$0.60',
     'gemini-3.6-flash': '$0.15/$0.60',
     'gemini-3.5-flash': '$0.15/$0.60',
     'gemini-3.5-flash-lite': '$0.075/$0.30',
@@ -116,7 +117,7 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'moonshot-v1-32k': '$0.80/$2.40',
     'moonshot-v1-128k': '$1.50/$4.50',
     // SpaceXAI / xAI
-    'grok-4.5': '$3.00/$15.00',
+    'grok-4.6': '$3.00/$15.00',
     'grok-voice': '$2.00/$8.00',
     'grok-imagine': '$2.00/$8.00',
     // Zhipu
@@ -1369,13 +1370,15 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       ...modelConfig.openai.savedModels,
                       ...modelConfig.anthropic.savedModels
                     ].find(m => m.modelId === modelConfig.systemDefaults?.chatRenaming)?.name
-                      || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3.1-flash-lite'
-                        ? 'Gemini 3.1 Flash Lite'
-                        : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.5-flash-lite'
-                          ? 'Gemini 3.5 Flash Lite'
-                          : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.6-flash'
-                            ? 'Gemini 3.6 Flash'
-                            : modelConfig.systemDefaults?.chatRenaming)
+                      || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3.7-flash'
+                        ? 'Gemini 3.7 Flash'
+                        : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.1-flash-lite'
+                          ? 'Gemini 3.1 Flash Lite'
+                          : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.5-flash-lite'
+                            ? 'Gemini 3.5 Flash Lite'
+                            : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.6-flash'
+                              ? 'Gemini 3.6 Flash'
+                              : modelConfig.systemDefaults?.chatRenaming)
                       || 'Select model'}
                   </span>
                   <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />

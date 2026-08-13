@@ -1,4 +1,4 @@
-import { canProvideSignals, type ConnectorId } from '@willow/personal';
+import type { ConnectorId } from '@willow/personal';
 
 /**
  * Bridges this tab's card ids to the connectors that actually exist.
@@ -42,25 +42,11 @@ export const connectorsForCard = (cardId: string): ConnectorId[] => CARD_CONNECT
 /** Whether this card can be connected at all. Drives the inert state in the UI. */
 export const isCardConnectable = (cardId: string): boolean => connectorsForCard(cardId).length > 0;
 
-/**
- * Whether any connector behind this card feeds the profile.
+/*
+ * There is no `cardProvidesSignals` any more, and its absence is the point.
  *
- * Read from the registry rather than hardcoded, so a connector that flips
- * `providesSignals` does not need a second edit here. Drive and Docs are `false`
- * there deliberately — they are never read for personalization, which is a
- * different statement from "not implemented yet".
+ * It existed to decide whether to draw a card's second switch, the one asking
+ * whether that product could describe the user. One switch per card now: whether a
+ * product feeds the profile is `providesSignals` in the registry, a property of the
+ * product rather than a preference, and Drive and Docs still never describe anyone.
  */
-export const cardProvidesSignals = (cardId: string): boolean =>
-  connectorsForCard(cardId).some((id) => canProvideSignals(id));
-
-/**
- * Just the connectors behind this card that can feed the profile.
- *
- * The Workspace card is why this is separate from `connectorsForCard`: its one
- * "Use for personalization" switch covers five products, of which Drive and Docs
- * are never read for personalization. Flipping that switch over the whole list
- * would mark them as profile sources, which is the exact thing the registry set
- * out to prevent.
- */
-export const signalConnectorsForCard = (cardId: string): ConnectorId[] =>
-  connectorsForCard(cardId).filter((id) => canProvideSignals(id));

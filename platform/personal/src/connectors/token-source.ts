@@ -17,7 +17,7 @@
  * only a user gesture may do, because it opens a popup.
  */
 
-import type { ConnectorId } from './types';
+import type { ConnectorId, ConnectorProvider } from './types';
 
 export interface TokenSource {
   /**
@@ -49,13 +49,30 @@ export const NO_TOKENS: TokenSource = {
   invalidate: () => {},
 };
 
-let active: TokenSource = NO_TOKENS;
+/**
+ * One source per provider.
+ *
+ * This was a single global, which was right while Google was the only provider and
+ * became a bug the moment it wasn't: a Spotify token is not a Google token, and a
+ * connector asking the one global source for Spotify scopes would get a Google
+ * popup listing scope URLs Google has never heard of.
+ *
+ * `google` keeps the plain `tokenSource()` / `setTokenSource()` spelling so nothing
+ * that predates the second provider has to change, and so tests that install a fake
+ * source keep working.
+ */
+const sources = new Map<ConnectorProvider, TokenSource>();
 
-export const setTokenSource = (source: TokenSource | null): void => {
-  active = source ?? NO_TOKENS;
+export const setTokenSource = (
+  source: TokenSource | null,
+  provider: ConnectorProvider = 'google',
+): void => {
+  if (source) sources.set(provider, source);
+  else sources.delete(provider);
 };
 
-export const tokenSource = (): TokenSource => active;
+export const tokenSource = (provider: ConnectorProvider = 'google'): TokenSource =>
+  sources.get(provider) ?? NO_TOKENS;
 
 /**
  * Token cache keyed by scope set.

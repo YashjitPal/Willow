@@ -17,19 +17,30 @@
  * - Memory on → the retrieval tool, always. It searches saved chats as well as
  *   the profile, so there is something to find from the first conversation
  *   onward and the feature does not need seeding before it works.
- * - Read and action tools → only for products actually connected, decided per
- *   product by `geminiReadTools` and `geminiActionTools`.
+ * - Read and action tools → only for products connected *and currently holding a
+ *   token*, which is `usableConnectors()` rather than the raw connection list.
  *
- * The read tools are gated on the same switch as everything else here, which is a
- * deliberate answer to a question that could have gone the other way. They read
- * live and store nothing, so they are not "learning about you" in the sense the
- * profile is — but the switch says Willow does not know who the user is, and an app
- * that still reaches into their calendar when it is off is not honouring that.
+ * That last distinction is the one worth pausing on, because getting it wrong is
+ * what produced this, verbatim, from a real turn:
  *
- * They are *not* gated on the per-product "feeds my profile" toggle, which is a
- * different promise: that toggle governs what gets written into the stored profile
- * in the background. Answering a question the user just asked is not that, and the
- * action tools have always worked the same way.
+ *   "My YouTube connection has expired, so I can't check what you've been liking.
+ *    You'll need to reconnect it in Settings → Connected Apps."
+ *
+ * Nothing there is a lie, and the whole exchange is still waste. The token had died
+ * with the previous tab; the connection list, which is persistent, still said
+ * YouTube. So the tool was declared, the prompt described it, the model spent a
+ * call on it, and the only thing that came back was an apology. Gating on the token
+ * instead means the model is never told about a product it cannot reach — it
+ * answers from what it does have, and the reconnect prompt appears where it can
+ * actually be acted on, which is the Connected Apps card and not the middle of a
+ * reply.
+ *
+ * The read tools are gated on the same personalization switch as everything else
+ * here, which is a deliberate answer to a question that could have gone the other
+ * way. They read live and store nothing, so they are not "learning about you" in
+ * the sense the profile is — but the switch says Willow does not know who the user
+ * is, and an app that still reaches into their calendar when it is off is not
+ * honouring that.
  *
  * This lives in the chat feature rather than in `@willow/personal` because the
  * decision needs the turn's own context (temporary chat or not), which the
@@ -37,11 +48,11 @@
  */
 
 import {
-  connectionsStore,
   geminiActionTools,
   geminiPersonalTool,
   geminiReadTools,
   profileStore,
+  usableConnectors,
 } from '@willow/personal';
 
 export interface PersonalToolContext {
@@ -57,7 +68,7 @@ export const personalChatTools = (
   const profile = profileStore.get();
   if (!profile.enabled) return [];
 
-  const connected = connectionsStore.get().enabled;
+  const connected = usableConnectors();
   const blocks: { functionDeclarations: any[] }[] = [];
 
   // Retrieval ships whenever Memory is on. It reads the user's own past chats as

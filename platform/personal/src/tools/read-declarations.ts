@@ -112,6 +112,46 @@ const SCHEMAS: ReadToolSchema[] = [
     properties: {},
     required: [],
   },
+  {
+    name: READ_TOOLS.listTopMusic,
+    connector: 'spotify',
+    description:
+      "Read what the user actually listens to on Spotify: their most-played artists (with Spotify's own genre labels) or their most-played tracks, over a choice of time windows. This is the strongest taste signal available anywhere in Willow — Spotify computes it from real listening, where YouTube can only show what was explicitly liked. Use it for music recommendations and for any question about what they are into.",
+    properties: {
+      kind: {
+        type: 'string',
+        description:
+          '"artists" for artists with genres, or "tracks" for individual songs. Defaults to artists, which is more informative per call.',
+      },
+      time_range: {
+        type: 'string',
+        description:
+          'One of "short_term" (last 4 weeks), "medium_term" (last 6 months), "long_term" (several years). Defaults to medium_term. Use short_term for "lately" and long_term for "generally".',
+      },
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 30.' },
+    },
+    required: [],
+  },
+  {
+    name: READ_TOOLS.listSavedTracks,
+    connector: 'spotify',
+    description:
+      "List the tracks the user saved to their Spotify library, most recently saved first. Saving is a deliberate act where playing is a habit, so this and top tracks answer different questions — prefer this one for \"what do I like\" and top tracks for \"what am I listening to\".",
+    properties: {
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 25.' },
+    },
+    required: [],
+  },
+  {
+    name: READ_TOOLS.listSpotifyPlaylists,
+    connector: 'spotify',
+    description:
+      "List the user's Spotify playlists with their names and track counts. Use it before creating a playlist so a near-duplicate of one they already have is not made, and to understand how they organise their music.",
+    properties: {
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 25.' },
+    },
+    required: [],
+  },
 ];
 
 const forConnectors = (connected: ConnectorId[]): ReadToolSchema[] =>

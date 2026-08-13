@@ -48,7 +48,7 @@ export const isGeminiFlashFamily = (model: ModelEffortRecord): boolean => {
  *  - OpenAI / GPT: `reasoningEffortMap[0]` is `'none'`. Supported.
  *  - OpenAI-compatible (Zhipu/GLM, Kimi): `compatibleReasoningEffortMap[0]` is
  *    `'none'`. Supported.
- *  - Grok 4.5: `grok45ReasoningEffortMap` starts at 1 and defaults to `'high'`.
+ *  - Grok 4.6: `grokReasoningEffortMap` starts at 1 and defaults to `'high'`.
  *    NOT supported — matches `hasNone: false` in the settings catalog.
  *  - Anthropic / Claude: the Messages call sends no thinking parameter at all,
  *    so level 0 is accepted and nothing is requested. Supported.

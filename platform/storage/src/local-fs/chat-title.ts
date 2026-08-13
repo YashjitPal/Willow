@@ -81,6 +81,9 @@ export const generateChatTitleWith = async (
   } else if (chatNamingSelectionId === 'gemini-3.5-flash-lite') {
     targetProvider = 'gemini';
     targetModelId = 'gemini-3.5-flash-lite';
+  } else if (chatNamingSelectionId === 'gemini-3.7-flash') {
+    targetProvider = 'gemini';
+    targetModelId = 'gemini-3.7-flash';
   } else if (chatNamingSelectionId === 'gemini-3.6-flash') {
     targetProvider = 'gemini';
     targetModelId = 'gemini-3.6-flash';

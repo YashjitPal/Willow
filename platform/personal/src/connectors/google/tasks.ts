@@ -13,7 +13,7 @@
  * is one of the few requests where doing it beats describing how.
  */
 
-import { query } from '../google-fetch';
+import { query } from '../authorized-fetch';
 import type { ConnectorFetch, ConnectorReader, ConnectorSignal } from '../types';
 
 const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';

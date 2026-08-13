@@ -565,35 +565,103 @@ it('keeps Drive and Docs out of the profile even when connected', async () => {
     }
   }
 
+  const { activeSignalConnectors } = await importTs(personalFile('connectors', 'signals.ts'));
+
   await connectProducts(['drive'], { tokens: grantingTokens() });
   assert.equal(store.isConnected('drive'), true);
-  assert.equal(store.isSignalSource('drive'), false,
+  // Connecting Drive is allowed and reading it for the profile is not, and there
+  // is no switch in between: `providesSignals` is a property of the product.
+  assert.equal(activeSignalConnectors().includes('drive'), false,
     'connecting Drive made it a profile source');
+
+  await connectProducts(['calendar'], { tokens: grantingTokens() });
+  assert.equal(activeSignalConnectors().includes('calendar'), true,
+    'a connected Calendar does not feed the profile');
 
   await resetConnections();
 });
 
-it('needs both lists before a product may describe the user', async () => {
+it('offers no tool for a connected product whose token has gone', async () => {
   const store = await resetConnections();
   const { connectProducts } = await importTs(personalFile('connectors', 'connect.ts'));
+  const auth = await importTs(personalFile('connectors', 'authorization.ts'));
+  const { geminiReadTools } = await importTs(personalFile('tools', 'read-declarations.ts'));
 
-  await connectProducts(['calendar'], { tokens: grantingTokens() });
-  assert.equal(store.isSignalSource('calendar'), true, 'a connected Calendar defaults to feeding');
+  /*
+   * The bug this pins, in the words the user reported it in: "My YouTube
+   * connection has expired, so I can't check what you've been liking right now."
+   *
+   * Connected is persistent, authorized is not — the token dies with the tab and
+   * Google issues browser clients no refresh token. Building the tool surface from
+   * `enabled` alone declares a tool, ships a prompt block naming it, has the model
+   * call it, and only then discovers there is nothing behind it. The whole point of
+   * the second store is that the model is never told about a door it cannot open.
+   */
+  await connectProducts(['youtube'], { tokens: grantingTokens() });
+  assert.equal(store.isConnected('youtube'), true);
+  assert.equal(auth.authorizationOf('youtube'), 'authorized',
+    'a granted connect did not record authorization');
+  assert.deepEqual(auth.usableConnectors(), ['youtube']);
+  assert.ok(geminiReadTools(auth.usableConnectors()), 'no read tool for a live YouTube');
 
-  // Turning personalization off leaves the connection intact: Willow can still
-  // see the user's week without their meeting titles becoming stored facts.
-  store.setFeedsProfile('calendar', false);
-  assert.equal(store.isConnected('calendar'), true, 'declining personalization disconnected the app');
-  assert.equal(store.isSignalSource('calendar'), false);
+  // What a 401 surviving its retry does. The product stays connected — the user
+  // did connect it, and the card still shows it — but nothing is declared.
+  auth.authLossHandler('youtube')();
+  assert.equal(store.isConnected('youtube'), true,
+    'losing a token disconnected the product instead of marking it expired');
+  assert.deepEqual(auth.usableConnectors(), []);
+  assert.deepEqual(auth.expiredConnectors(), ['youtube']);
+  assert.equal(geminiReadTools(auth.usableConnectors()), null,
+    'an expired YouTube still had its read tools declared');
 
-  // And the reverse: a product that is not connected cannot be a signal source
-  // by leftover state.
-  store.setFeedsProfile('calendar', true);
-  store.disconnect('calendar');
-  assert.equal(store.isSignalSource('calendar'), false,
-    'a disconnected product is still listed as feeding the profile');
+  // And the prompt block goes with them, or the model is told to call tools it
+  // was never given.
+  const { connectorReadGuidance } = await importTs(personalFile('tools', 'read-declarations.ts'));
+  assert.equal(connectorReadGuidance(auth.usableConnectors()), '');
+
+  // A silent refresh that finds a token puts it back, with no popup and no
+  // reconnect. This is the ordinary reload, and it must not cost a click.
+  await auth.refreshAuthorizations(grantingTokens());
+  assert.deepEqual(auth.usableConnectors(), ['youtube']);
+
+  // A refresh that finds nothing is the expired case, reached without prompting.
+  await auth.refreshAuthorizations({
+    get: async () => null, request: async () => 'token', invalidate: () => {},
+  });
+  assert.deepEqual(auth.expiredConnectors(), ['youtube']);
 
   await resetConnections();
+  auth.forgetAuthorization('youtube');
+});
+
+it('asks for YouTube separately, because Google refuses it alongside other scopes', async () => {
+  await resetConnections();
+  const auth = await importTs(personalFile('connectors', 'authorization.ts'));
+  const { connectProducts } = await importTs(personalFile('connectors', 'connect.ts'));
+
+  await connectProducts(['youtube', 'calendar', 'tasks'], { tokens: grantingTokens() });
+
+  // One request per batch, and YouTube is always its own batch: a combined
+  // request dies on `invalid_request` naming two scopes Willow never meant to
+  // pair, which is the error the user hit as "scopes that cannot be requested
+  // together: [youtube.readonly, drive.file]".
+  const asked = [];
+  await auth.refreshAuthorizations({
+    get: async (scopes) => { asked.push(scopes); return 'token'; },
+    request: async () => 'token',
+    invalidate: () => {},
+  });
+
+  const youtubeBatches = asked.filter((scopes) => scopes.some((url) => url.includes('youtube')));
+  assert.equal(youtubeBatches.length, 1, 'YouTube was asked for in more than one batch');
+  assert.deepEqual(
+    youtubeBatches[0].filter((url) => !url.includes('youtube')),
+    [],
+    'a YouTube scope request carried another product along with it',
+  );
+
+  await resetConnections();
+  for (const id of ['youtube', 'calendar', 'tasks']) auth.forgetAuthorization(id);
 });
 
 // ── 7. There is one personal method, and it only reads ───────────────────────

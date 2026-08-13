@@ -2,21 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
 import {
+  authorizationStore,
   connectProducts,
   connectionsStore,
   connectorsConfigured,
   disconnectProduct,
   initBrowserTokenSource,
-  setFeedsProfile,
   type ConnectOutcome,
 } from '@willow/personal';
 
-import {
-  cardProvidesSignals,
-  connectorsForCard,
-  isCardConnectable,
-  signalConnectorsForCard,
-} from './connector-map';
+import { connectorsForCard, isCardConnectable } from './connector-map';
 
 /**
  * The Connected Apps tab's state, kept out of the tab itself.
@@ -29,6 +24,13 @@ import {
  * boolean cannot express: which card is mid-request, why the last attempt did
  * nothing, and whether connectors are configured at all.
  *
+ * There is one switch per card. There used to be two — connect, and a second one
+ * for whether the product could describe the user — and the second is gone. It
+ * asked the user to maintain a distinction the app did not really keep: a
+ * connected product was readable by the live tools whatever that switch said, so
+ * it governed the stored profile while appearing to govern access. What a product
+ * may contribute is now a property of the product, in the registry.
+ *
  * The tab renders; this decides.
  */
 
@@ -38,11 +40,24 @@ export type ConfiguredState = boolean | null;
 export interface CardConnectionState {
   /** There is at least one real connector behind this card. */
   connectable: boolean;
+  /**
+   * What the switch shows: connected *and* readable.
+   *
+   * Not the stored connection list. Google issues no refresh token to a browser
+   * app, so access lasts about an hour and does not survive the tab — a switch
+   * wired to the stored list sits proudly on while every tool behind it is
+   * withdrawn, which is a lie the user can see. Off is the honest reading, and it
+   * makes the fix the obvious gesture: switch it back on.
+   */
   connected: boolean;
-  /** Whether this card's data may describe the user. */
-  feedsProfile: boolean;
-  /** Whether it could, if the user allowed it. */
-  providesSignals: boolean;
+  /**
+   * The stored connection is still there; only the token lapsed.
+   *
+   * Drives the notice at the top of the tab, and nothing else. The distinction
+   * never reaches the card, because on the card there is nothing to say — the
+   * switch is off and turning it on is the same click either way.
+   */
+  expired: boolean;
   busy: boolean;
 }
 
@@ -68,6 +83,7 @@ const declineNotice = (name: string, outcome: ConnectOutcome): string | null => 
 export const useConnections = () => {
   const { user } = useAuth();
   const connections = useStore(connectionsStore);
+  const authorization = useStore(authorizationStore);
   const [configured, setConfigured] = useState<ConfiguredState>(() =>
     connectorsConfigured() ? null : false,
   );
@@ -82,6 +98,9 @@ export const useConnections = () => {
    * login hint removes the account chooser. Re-running on an account switch is
    * the point of the dependency — the hint is baked into the source, and a stale
    * one sends the previous user's email to the consent screen.
+   *
+   * Installing also kicks a silent check of which grants survived the reload,
+   * which is what fills in `expired` below without anyone clicking anything.
    */
   useEffect(() => {
     if (!connectorsConfigured()) {
@@ -103,19 +122,29 @@ export const useConnections = () => {
    * `every` rather than `some`, because of the Workspace card, whose single
    * switch stands for five products. Showing it on because Gmail alone was
    * connected would claim four grants that were never made.
+   *
+   * `expired` is `some`, and the asymmetry is deliberate: one lapsed product out
+   * of five is enough to take the switch off, because the switch stands for all
+   * five and four-fifths of a connection is not a state the card can show.
+   *
+   * Note which way `unknown` falls. At load the silent refresh has not answered
+   * yet, and treating that as expired would flick every switch off and back on a
+   * second later on every visit. Only an explicit `expired` turns a card off, so
+   * the in-flight case shows the last thing that was true.
    */
   const stateFor = useCallback(
     (cardId: string): CardConnectionState => {
       const ids = connectorsForCard(cardId);
+      const stored = ids.length > 0 && ids.every((id) => connections.enabled.includes(id));
+      const expired = stored && ids.some((id) => authorization[id] === 'expired');
       return {
         connectable: isCardConnectable(cardId),
-        connected: ids.length > 0 && ids.every((id) => connections.enabled.includes(id)),
-        feedsProfile: ids.some((id) => connections.signalSources.includes(id)),
-        providesSignals: cardProvidesSignals(cardId),
+        connected: stored && !expired,
+        expired,
         busy: busyCardId === cardId,
       };
     },
-    [busyCardId, connections],
+    [busyCardId, connections, authorization],
   );
 
   /**
@@ -127,6 +156,14 @@ export const useConnections = () => {
    * of five separate requests would open five popups and the browser would block
    * four of them, leaving the user staring at a switch that half-worked.
    *
+   * `isOn` has to be read the way the switch is drawn, not from the stored list.
+   * A card whose access lapsed shows off while its ids are still stored, so
+   * reading the store here would make the click that looks like "connect this"
+   * run the disconnect branch — the switch would refuse to move and the user
+   * would have deleted their connection to find that out. Reconnecting is then
+   * the same code path as connecting, and usually costs no consent screen at all,
+   * since the grant still stands on Google's side.
+   *
    * This must run straight off the click. Anything that awaits before calling
    * `request` loses the user-gesture the browser requires for a popup, and the
    * failure is silent.
@@ -136,7 +173,7 @@ export const useConnections = () => {
       const ids = connectorsForCard(cardId);
       if (ids.length === 0 || busyCardId) return;
 
-      const isOn = ids.every((id) => connectionsStore.get().enabled.includes(id));
+      const isOn = stateFor(cardId).connected;
       if (isOn) {
         // Local only: this stops Willow using the token, and leaves revoking the
         // grant itself to the user's own Google account page.
@@ -154,23 +191,8 @@ export const useConnections = () => {
         setBusyCardId(null);
       }
     },
-    [busyCardId],
+    [busyCardId, stateFor],
   );
-
-  /**
-   * Whether a connected product may describe the user.
-   *
-   * A separate decision from connecting it, and separately reversible. Someone
-   * can connect Calendar so Willow can see their week without agreeing that
-   * their meeting titles become stored facts about them.
-   */
-  const toggleFeedsProfile = useCallback((cardId: string) => {
-    const ids = signalConnectorsForCard(cardId);
-    if (ids.length === 0) return;
-    const { signalSources } = connectionsStore.get();
-    const feeds = ids.some((id) => signalSources.includes(id));
-    for (const id of ids) setFeedsProfile(id, !feeds);
-  }, []);
 
   return {
     configured,
@@ -178,6 +200,5 @@ export const useConnections = () => {
     dismissNotice: useCallback(() => setNotice(null), []),
     stateFor,
     toggleConnection,
-    toggleFeedsProfile,
   };
 };

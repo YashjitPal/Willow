@@ -10,8 +10,17 @@
  *
  * Connection state is intentionally not the same thing as authorization. A
  * connector is *enabled* here because the user asked for it; whether a usable
- * token exists is a question for `TokenSource`, answered fresh each time. Storing
- * "authorized" would be storing a fact with a one-hour shelf life.
+ * token exists is a question for `authorization.ts`, answered fresh each load.
+ * Storing "authorized" would be storing a fact with a one-hour shelf life.
+ *
+ * There used to be a second list here, `signalSources`, so that connecting a
+ * product and letting it describe you were separate switches. It is gone. Two
+ * toggles on one card asked the user to hold a distinction the app itself barely
+ * maintained — a connected product was already readable by the live tools whatever
+ * the second switch said, so the switch governed the stored profile and nothing
+ * else while appearing to govern access. One switch per product, and what a
+ * product may contribute is the registry's `providesSignals` — a property of the
+ * product, not a preference. Drive and Docs still never describe the user.
  */
 
 import { atom } from 'nanostores';
@@ -23,37 +32,33 @@ const STORAGE_KEY = 'willow:personal-connections';
 export interface ConnectionsState {
   /** Connectors the user has enabled, in the order they enabled them. */
   enabled: ConnectorId[];
-  /**
-   * Connectors whose read data may feed the profile.
-   *
-   * A separate list from `enabled` because connecting a product and letting it
-   * describe you are different decisions. Someone can connect Calendar so Willow
-   * can create events without agreeing that their meeting titles become bullets
-   * in a stored profile.
-   */
-  signalSources: ConnectorId[];
 }
 
 const VALID: ReadonlySet<string> = new Set<ConnectorId>([
   'calendar', 'gmail', 'youtube', 'contacts', 'tasks', 'drive', 'docs',
 ]);
 
-const EMPTY: ConnectionsState = { enabled: [], signalSources: [] };
+const EMPTY: ConnectionsState = { enabled: [] };
 
 const asIds = (value: unknown): ConnectorId[] =>
   Array.isArray(value)
     ? Array.from(new Set(value.filter((entry): entry is ConnectorId => typeof entry === 'string' && VALID.has(entry))))
     : [];
 
+/**
+ * Reads the stored shape, including the older two-list one.
+ *
+ * `signalSources` is ignored rather than migrated. Someone who had connected a
+ * product but left it out of that list keeps the product connected, which is the
+ * reading that loses nothing: the live tools could already reach it, so treating
+ * the narrower list as authoritative would disconnect products that were working.
+ */
 const readStored = (): ConnectionsState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as Partial<ConnectionsState>;
-    return {
-      enabled: asIds(parsed?.enabled),
-      signalSources: asIds(parsed?.signalSources),
-    };
+    return { enabled: asIds(parsed?.enabled) };
   } catch {
     return EMPTY;
   }
@@ -73,31 +78,15 @@ const commit = (next: ConnectionsState): void => {
 export const isConnected = (id: ConnectorId): boolean =>
   connectionsStore.get().enabled.includes(id);
 
-export const isSignalSource = (id: ConnectorId): boolean => {
+/** Mark a connector connected. */
+export const connect = (id: ConnectorId): void => {
   const state = connectionsStore.get();
-  return state.enabled.includes(id) && state.signalSources.includes(id);
+  if (state.enabled.includes(id)) return;
+  commit({ enabled: [...state.enabled, id] });
 };
 
 /**
- * Mark a connector connected.
- *
- * `feedsProfile` defaults to true for products whose whole purpose here is
- * personalization, and the caller passes false for the ones the user connected
- * to get work done. The registry decides which is which; this function just
- * records it.
- */
-export const connect = (id: ConnectorId, { feedsProfile = true } = {}): void => {
-  const state = connectionsStore.get();
-  commit({
-    enabled: state.enabled.includes(id) ? state.enabled : [...state.enabled, id],
-    signalSources: feedsProfile && !state.signalSources.includes(id)
-      ? [...state.signalSources, id]
-      : state.signalSources,
-  });
-};
-
-/**
- * Disconnect, and stop it feeding the profile.
+ * Disconnect.
  *
  * Bullets already derived from it are left alone. They are still true, still
  * shown with their source, and still individually deletable — silently deleting
@@ -106,20 +95,5 @@ export const connect = (id: ConnectorId, { feedsProfile = true } = {}): void => 
  */
 export const disconnect = (id: ConnectorId): void => {
   const state = connectionsStore.get();
-  commit({
-    enabled: state.enabled.filter((entry) => entry !== id),
-    signalSources: state.signalSources.filter((entry) => entry !== id),
-  });
-};
-
-/** Toggle whether an already-connected product feeds the profile. */
-export const setFeedsProfile = (id: ConnectorId, feeds: boolean): void => {
-  const state = connectionsStore.get();
-  if (!state.enabled.includes(id)) return;
-  commit({
-    ...state,
-    signalSources: feeds
-      ? Array.from(new Set([...state.signalSources, id]))
-      : state.signalSources.filter((entry) => entry !== id),
-  });
+  commit({ enabled: state.enabled.filter((entry) => entry !== id) });
 };

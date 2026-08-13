@@ -9,12 +9,12 @@ import {
   type SavedInfoState,
 } from '@willow/core/saved-info-store';
 import {
-  connectionsStore,
   connectorReadGuidance,
   PERSONAL_DATA_LADDER,
   PERSONAL_RETRIEVAL_GUIDANCE,
   profileBlock,
   profileStore,
+  usableConnectors,
 } from '@willow/personal';
 
 /**
@@ -702,9 +702,11 @@ export type PromptContext = {
  * The connector guidance is last for the same reason it is last in that sentence.
  * It is the widest exit from the summary — the summary describes the user, the
  * retrieval tool searches what they have told Willow, and the read tools reach the
- * actual accounts. It is built from the same connection state the declarations are
- * built from, so it names exactly the tools that were offered and returns nothing
- * when none were.
+ * actual accounts. It is built from `usableConnectors()`, the same list the
+ * declarations are built from, so it names exactly the tools that were offered and
+ * returns nothing when none were. A product whose token has expired is absent from
+ * both, which is the point: prose describing a tool the model was not given is
+ * prompt the model cannot act on, and it tries to act on it anyway.
  */
 const personalContextBlock = ({ personalize, personalTool }: PromptContext): string => {
   if (!personalize) return '';
@@ -715,7 +717,7 @@ const personalContextBlock = ({ personalize, personalTool }: PromptContext): str
   if (personalTool) parts.push(PERSONAL_RETRIEVAL_GUIDANCE);
   // Gated on `personalTool` as well: it is the flag saying this turn declared the
   // personalization tools at all, and the read tools ride in the same block.
-  if (personalTool) parts.push(connectorReadGuidance(connectionsStore.get().enabled));
+  if (personalTool) parts.push(connectorReadGuidance(usableConnectors()));
   return parts.filter(Boolean).join('\n\n');
 };
 

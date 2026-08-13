@@ -1,10 +1,16 @@
 /**
  * The authorized fetch every connector uses.
  *
- * One place that knows about bearer headers, 401 retries and Google's error
- * shape. Connectors get a function that takes a URL and returns parsed JSON or
+ * One place that knows about bearer headers, 401 retries and the shape of an API
+ * error. Connectors get a function that takes a URL and returns parsed JSON or
  * null, which is what makes each connector file readable as a list of endpoints
  * instead of a pile of error handling.
+ *
+ * Nothing in here is Google-specific, which is why Spotify uses it unchanged: a
+ * bearer token in a header and a 401 meaning "that token is finished" is the whole
+ * of OAuth 2 as a client experiences it. It was called `google-fetch` while Google
+ * was the only provider, and a Spotify connector importing that would have been the
+ * first line of a slow drift back towards one hardcoded provider.
  *
  * Everything fails soft. A connector that returns nothing contributed nothing to
  * this build; a connector that threw would take the whole build with it, and the
@@ -15,10 +21,10 @@
 import type { ConnectorFetch } from './types';
 import type { TokenSource } from './token-source';
 
-/** Google's APIs are consistently fast or consistently down; 15s covers both. */
+/** These APIs are consistently fast or consistently down; 15s covers both. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
-export interface GoogleFetchOptions {
+export interface AuthorizedFetchOptions {
   tokens: TokenSource;
   scopes: string[];
   /** Fired when a request fails because access was revoked or expired, so the
@@ -34,7 +40,7 @@ export interface GoogleFetchOptions {
  * If the second attempt also 401s the grant is gone, and retrying further would
  * be a loop against Google's rate limiter.
  */
-export const createGoogleFetch = ({ tokens, scopes, onAuthLost }: GoogleFetchOptions): ConnectorFetch => {
+export const createAuthorizedFetch = ({ tokens, scopes, onAuthLost }: GoogleFetchOptions): ConnectorFetch => {
   const run = async <T,>(url: string, init: RequestInit | undefined, retrying: boolean): Promise<T | null> => {
     const token = await tokens.get(scopes);
     if (!token) return null;

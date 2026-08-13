@@ -10,8 +10,14 @@
  * builder's:
  *
  * 1. The connector is enabled.
- * 2. The user left it feeding the profile.
+ * 2. The product is one that may describe the user at all.
  * 3. A token for its scopes already exists.
+ *
+ * Rule two used to be a second per-card toggle. It is now a property of the
+ * product: Drive and Docs hold everything a person has ever written and never feed
+ * the profile, and the rest do. Asking the user to make that call per product, on a
+ * card that already had a connect switch, was asking them to maintain a distinction
+ * the live tools did not honour anyway.
  *
  * Rule three is the one that matters most. A profile build runs by itself in the
  * background, and a background job must never open an OAuth popup — so this asks
@@ -20,10 +26,11 @@
  * which is quiet and correct, rather than a popup appearing mid-sentence.
  */
 
+import { authLossHandler } from './authorization';
+import { createAuthorizedFetch } from './authorized-fetch';
 import { connectionsStore } from './connections-store';
-import { createGoogleFetch } from './google-fetch';
-import { canProvideSignals, connectorById, scopeUrls } from './registry';
-import { tokenSource, type TokenSource } from './token-source';
+import { canProvideSignals, connectorById, scopeUrls, tokensFor } from './registry';
+import { type TokenSource } from './token-source';
 import type { ConnectorId, ConnectorSignal } from './types';
 import type { CandidateBullet } from '../profile/types';
 
@@ -36,12 +43,8 @@ export interface CollectOptions {
 }
 
 /** Connectors eligible to describe the user right now. */
-export const activeSignalConnectors = (): ConnectorId[] => {
-  const state = connectionsStore.get();
-  return state.enabled.filter(
-    (id) => state.signalSources.includes(id) && canProvideSignals(id),
-  );
-};
+export const activeSignalConnectors = (): ConnectorId[] =>
+  connectionsStore.get().enabled.filter((id) => canProvideSignals(id));
 
 /** A signal is already shaped like a candidate; its `section` is the same union
  *  the profile uses, so nothing needs coercing here. */
@@ -71,7 +74,7 @@ export const readConnector = async (
   const reader = READERS[id];
   if (!reader) return [];
 
-  const tokens = options.tokens ?? tokenSource();
+  const tokens = options.tokens ?? tokensFor(id);
   const scopes = scopeUrls([id], 'read');
   if (scopes.length === 0) return [];
 
@@ -80,10 +83,13 @@ export const readConnector = async (
   const token = await tokens.get(scopes);
   if (!token) return [];
 
-  const fetchJson = createGoogleFetch({
+  const fetchJson = createAuthorizedFetch({
     tokens,
     scopes,
-    onAuthLost: () => options.onAuthLost?.(id),
+    onAuthLost: () => {
+      authLossHandler(id)();
+      options.onAuthLost?.(id);
+    },
   });
 
   try {

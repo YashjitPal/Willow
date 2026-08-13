@@ -14,7 +14,7 @@
  * exactly the kind of thing this feature must not write into a file.
  */
 
-import { paginate, query } from '../google-fetch';
+import { paginate, query } from '../authorized-fetch';
 import type { ConnectorFetch, ConnectorReader, ConnectorSignal } from '../types';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';

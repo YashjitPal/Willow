@@ -14,7 +14,7 @@
  * rest of the drive even by mistake.
  */
 
-import { query } from '../google-fetch';
+import { query } from '../authorized-fetch';
 import type { ConnectorFetch } from '../types';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';

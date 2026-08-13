@@ -223,10 +223,11 @@ const App: React.FC = () => {
   // (local-only, same policy as API keys — never sent to Willow servers).
   const DEFAULT_MODEL_CONFIG = {
     gemini: {
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
         baseUrl: 'https://generativelanguage.googleapis.com',
         savedModels: [
+          { id: 'default-flash-37', name: 'Gemini 3.7 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.7-flash' },
           { id: 'default-flash-36', name: 'Gemini 3.6 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.6-flash' },
           { id: 'default-flash-35-lite', name: 'Gemini 3.5 Flash Lite', thinkingLevel: 1, thinkingLabel: 'Low', modelId: 'gemini-3.5-flash-lite' },
           { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.1-pro-preview' }
@@ -251,7 +252,7 @@ const App: React.FC = () => {
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     spacexai: {
-        model: 'grok-4.5',
+        model: 'grok-4.6',
         thinkingLevel: 0,
         baseUrl: 'https://api.x.ai/v1',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>

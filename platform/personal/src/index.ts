@@ -87,10 +87,25 @@ export type {
 export {
   connectionsStore,
   isConnected,
-  isSignalSource,
-  setFeedsProfile,
   type ConnectionsState,
 } from './connectors/connections-store';
+
+/**
+ * Whether a connected product can be read *right now*.
+ *
+ * `connectionsStore` says what the user connected and is persistent;
+ * these say whether a token is behind it, and are not. The tool surface is built
+ * from `usableConnectors`, never from the raw list — see `authorization.ts`.
+ */
+export {
+  authorizationOf,
+  authorizationStore,
+  expiredConnectors,
+  markExpired,
+  refreshAuthorizations,
+  usableConnectors,
+  type AuthorizationState,
+} from './connectors/authorization';
 
 /** The connect flow. The only exported functions that can open a popup, and so
  *  the only ones that must be called from a click. */
