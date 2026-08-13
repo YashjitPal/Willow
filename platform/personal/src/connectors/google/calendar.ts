@@ -12,7 +12,7 @@
  * a capped slot a real upcoming commitment should have.
  */
 
-import { paginate, query } from '../google-fetch';
+import { paginate, query } from '../authorized-fetch';
 import type { ConnectorFetch, ConnectorReader, ConnectorSignal } from '../types';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';

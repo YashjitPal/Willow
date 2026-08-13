@@ -13,13 +13,20 @@
  */
 
 import { SCOPES } from './scopes';
-import type { ConnectorDefinition, ConnectorId, ConnectorReader } from './types';
+import { tokenSource, type TokenSource } from './token-source';
+import type {
+  ConnectorDefinition,
+  ConnectorId,
+  ConnectorProvider,
+  ConnectorReader,
+} from './types';
 
 import { calendarConnector } from './google/calendar';
 import { contactsConnector } from './google/contacts';
 import { gmailConnector } from './google/gmail';
 import { tasksConnector } from './google/tasks';
 import { youtubeConnector } from './google/youtube';
+import { spotifyConnector } from './spotify/spotify';
 
 export const CONNECTORS: ConnectorDefinition[] = [
   {
@@ -80,6 +87,17 @@ export const CONNECTORS: ConnectorDefinition[] = [
     writeScopes: SCOPES.docs.write,
     providesSignals: false,
   },
+  {
+    id: 'spotify',
+    provider: 'spotify',
+    label: 'Spotify',
+    description: 'Your top artists and tracks, saved music, and creating playlists.',
+    readScopes: SCOPES.spotify.read,
+    writeScopes: SCOPES.spotify.write,
+    providesSignals: true,
+    caveat:
+      'Spotify limits unreviewed apps to a list of named users, and the app owner needs Premium.',
+  },
 ];
 
 /** Readers, keyed by id. Only signal connectors appear here. */
@@ -89,10 +107,24 @@ export const READERS: Partial<Record<ConnectorId, ConnectorReader>> = {
   youtube: youtubeConnector,
   contacts: contactsConnector,
   tasks: tasksConnector,
+  spotify: spotifyConnector,
 };
 
 export const connectorById = (id: ConnectorId): ConnectorDefinition | undefined =>
   CONNECTORS.find((connector) => connector.id === id);
+
+/**
+ * Which provider issues this connector's tokens. Google unless stated.
+ *
+ * The default is what keeps `provider` off six of the seven original entries: they
+ * were all Google, they still are, and an explicit `provider: 'google'` on each
+ * would be six lines of noise to make one new connector look symmetrical.
+ */
+export const providerOf = (id: ConnectorId): ConnectorProvider =>
+  connectorById(id)?.provider ?? 'google';
+
+/** The token source for whichever provider owns this connector. */
+export const tokensFor = (id: ConnectorId): TokenSource => tokenSource(providerOf(id));
 
 /** Whether a product can describe the user at all, regardless of user settings. */
 export const canProvideSignals = (id: ConnectorId): boolean =>

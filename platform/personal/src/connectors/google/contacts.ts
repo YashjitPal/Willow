@@ -13,7 +13,7 @@
  * name in an address book says nothing about the relationship.
  */
 
-import { query } from '../google-fetch';
+import { query } from '../authorized-fetch';
 import type { ConnectorFetch, ConnectorReader, ConnectorSignal } from '../types';
 
 const PEOPLE_API = 'https://people.googleapis.com/v1';

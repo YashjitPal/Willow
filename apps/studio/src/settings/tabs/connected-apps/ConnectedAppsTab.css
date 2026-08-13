@@ -634,17 +634,10 @@
 
 /* ---------- Personalization opt-in (second switch on a connected card) ---------- */
 
-.connected-apps-container .ca-feeds-row {
-  display: flex;
-  align-items: center;
-  gap: var(--ca-spacing-m);
-  margin-bottom: var(--ca-spacing-m);
-}
-
-.connected-apps-container .ca-feeds-label {
-  flex: 1;
-  min-width: 0;
-  color: var(--ca-on-surface-variant);
+/* The expired-session notice. Tinted rather than loud: nothing broke and nothing
+   was lost, an hour simply went by, and the fix is a switch on this same page. */
+.connected-apps-container .ca-banner-attention {
+  background: color-mix(in srgb, var(--ca-on-surface-variant) 10%, transparent);
 }
 
 .connected-apps-container .ca-parent-note {

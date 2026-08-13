@@ -26,7 +26,42 @@ export type ConnectorId =
   | 'contacts'
   | 'tasks'
   | 'drive'
-  | 'docs';
+  | 'docs'
+  | 'spotify';
+
+/**
+ * Who issues the token — and, in practice, which OAuth flow the connector rides.
+ *
+ * Not decoration. Google is reachable from a browser through Google Identity
+ * Services, which hands back an access token from a popup and refuses to issue a
+ * refresh token to a client that cannot keep a secret. Spotify is reachable through
+ * authorization code with PKCE, which needs no secret either but *does* return a
+ * refresh token, so a Spotify connection survives a reload where a Google one has
+ * to be renewed silently on every load.
+ *
+ * Two providers, two token sources, one interface between them. Which is the point
+ * of naming the provider at all: `TokenSource` already hid whether a token came
+ * from a popup or a cache, and this extends that to whose popup it was.
+ *
+ * Providers that are *not* here are absent for a reason worth writing down, since
+ * the obvious reading of a short list is that nobody got round to the rest:
+ *
+ * - **GitHub** cannot do this from a browser. `api.github.com` sends
+ *   `access-control-allow-origin: *`, so the API half is fine, but
+ *   `github.com/login/oauth/access_token` sends no CORS headers at all and its CSP
+ *   is `connect-src 'self'` — the token exchange is server-side by design, and no
+ *   amount of client code changes that. It needs either a serverless function
+ *   holding the client secret or a personal access token the user pastes in.
+ * - **Notion** is the same story: its token endpoint answered a preflight with a
+ *   bare 400 and no CORS headers.
+ * - **Google Photos** is a different kind of no. The `photoslibrary.readonly`
+ *   scope was withdrawn on 31 March 2025; what remains is
+ *   `photoslibrary.readonly.appcreateddata`, which sees only what the app itself
+ *   uploaded. Willow has uploaded nothing, so a Photos connector would read an
+ *   empty library and describe the user from it. The Picker API replaced it and is
+ *   a per-session file chooser, not a source of standing signals.
+ */
+export type ConnectorProvider = 'google' | 'spotify';
 
 export interface ConnectorScope {
   /** The literal OAuth scope URL sent to Google. */
@@ -48,7 +83,12 @@ export interface ConnectorScope {
 
 export interface ConnectorDefinition {
   id: ConnectorId;
-  /** Product name as Google writes it. */
+  /**
+   * Who issues this connector's tokens. Defaults to Google when absent, which
+   * keeps the seven original entries reading exactly as they did.
+   */
+  provider?: ConnectorProvider;
+  /** Product name as its owner writes it. */
   label: string;
   /** One line under the name on the card. */
   description: string;

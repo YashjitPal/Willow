@@ -24,10 +24,11 @@
  * the subject lines, the actual events.
  */
 
+import { authLossHandler, markAuthorized, markExpired } from '../connectors/authorization';
+import { createAuthorizedFetch } from '../connectors/authorized-fetch';
 import { isConnected } from '../connectors/connections-store';
-import { createGoogleFetch } from '../connectors/google-fetch';
-import { readScopesFor } from '../connectors/registry';
-import { tokenSource, type TokenSource } from '../connectors/token-source';
+import { readScopesFor, tokensFor } from '../connectors/registry';
+import { type TokenSource } from '../connectors/token-source';
 import type { ConnectorFetch, ConnectorId } from '../connectors/types';
 import { listLabelledRelations as fetchRelations } from '../connectors/google/contacts';
 import { listScheduledEvents as fetchEvents } from '../connectors/google/calendar';
@@ -37,6 +38,13 @@ import {
   listLikedVideos as fetchLikedVideos,
   listSubscriptions as fetchSubscriptions,
 } from '../connectors/google/youtube';
+import {
+  listPlaylists as fetchPlaylists,
+  listSavedTracks as fetchSavedTracks,
+  listTopArtists as fetchTopArtists,
+  listTopTracks as fetchTopTracks,
+  type TimeRange,
+} from '../connectors/spotify/spotify';
 import { profileStore } from '../profile/profile-store';
 import type { PersonalReads } from './executor';
 
@@ -68,14 +76,24 @@ type Ready = { fetchJson: ConnectorFetch } | { error: string };
  * read better and would not narrow: `strictNullChecks` is off in this repo, and a
  * union discriminated on a boolean stays un-narrowed where an `in` check works.
  */
-const ready = async (id: ConnectorId, label: string, tokens: TokenSource): Promise<Ready> => {
+const ready = async (id: ConnectorId, label: string, override?: TokenSource): Promise<Ready> => {
   if (!profileStore.get().enabled) return { error: SWITCHED_OFF };
   if (!isConnected(id)) return { error: notConnected(label) };
   const scopes = readScopesFor(id);
   if (scopes.length === 0) return { error: notConnected(label) };
+  // Per connector, so a Spotify read asks Spotify. One global source would send
+  // `user-top-read` to Google, which has never heard of it.
+  const tokens = override ?? tokensFor(id);
   const token = await tokens.get(scopes);
-  if (!token) return { error: expired(label) };
-  return { fetchJson: createGoogleFetch({ tokens, scopes }) };
+  if (!token) {
+    // Withdraws the tool for the next turn. Reaching here at all means the tool
+    // was declared on stale authorization, so the useful thing is to make sure it
+    // is not declared again rather than to report the same failure every message.
+    markExpired(id);
+    return { error: expired(label) };
+  }
+  markAuthorized(id);
+  return { fetchJson: createAuthorizedFetch({ tokens, scopes, onAuthLost: authLossHandler(id) }) };
 };
 
 /** `2026-08-14T15:00:00-04:00` → `2026-08-14 15:00`; a plain date is left alone. */
@@ -96,9 +114,35 @@ const shortMailDate = (value: string): string => {
 
 const lines = (header: string, body: string[]): string => [header, ...body].join('\n');
 
-export const createPersonalReads = (
-  tokens: TokenSource = tokenSource(),
-): PersonalReads => ({
+/** How Spotify's three windows read in a sentence. */
+const TIME_RANGE_LABELS: Record<TimeRange, string> = {
+  short_term: 'the last four weeks',
+  medium_term: 'the last six months',
+  long_term: 'several years',
+};
+
+/**
+ * A model's `time_range` argument, or the sensible default.
+ *
+ * Six months is the default rather than Spotify's own `medium_term` naming being
+ * passed through blindly: it is long enough not to swing on one album and short
+ * enough to describe someone now. An unrecognised value falls back rather than
+ * failing — a model that writes "6months" should get an answer, not an error.
+ */
+const asTimeRange = (value: string | undefined): TimeRange =>
+  value === 'short_term' || value === 'long_term' || value === 'medium_term'
+    ? value
+    : 'medium_term';
+
+/**
+ * `tokens` is an override for tests only.
+ *
+ * Left undefined in the app, because the right source depends on the connector:
+ * Google's connectors share the GIS source and Spotify has its own PKCE one, and
+ * `ready` resolves that per call. A single source passed here would send Spotify
+ * requests a Google token and every read would 401.
+ */
+export const createPersonalReads = (tokens?: TokenSource): PersonalReads => ({
   listLikedVideos: async ({ limit }) => {
     const gate = await ready('youtube', 'YouTube', tokens);
     if ('error' in gate) return gate.error;
@@ -221,6 +265,71 @@ export const createPersonalReads = (
     return lines(
       'People the user labelled with a relationship in Google Contacts:',
       relations.map((entry) => `- ${entry.name} — ${entry.relation}`),
+    );
+  },
+
+  listTopMusic: async ({ kind, timeRange, limit }) => {
+    const gate = await ready('spotify', 'Spotify', tokens);
+    if ('error' in gate) return gate.error;
+
+    const range = asTimeRange(timeRange);
+    const window = TIME_RANGE_LABELS[range];
+
+    // Artists unless tracks were asked for. Artists are the better default: they
+    // carry genres, so one call describes taste rather than listing twenty songs.
+    if (kind === 'tracks') {
+      const tracks = await fetchTopTracks(gate.fetchJson, { limit, timeRange: range });
+      if (!tracks) return expired('Spotify');
+      if (tracks.length === 0) {
+        return `Spotify has no top tracks for the user over ${window}. This is usually a new or barely-used account rather than an error.`;
+      }
+      return lines(
+        `The user's most-played Spotify tracks over ${window}, most played first:`,
+        tracks.map((track) => `- "${track.title}" — ${track.artists}${track.album ? ` (${track.album})` : ''}`),
+      );
+    }
+
+    const artists = await fetchTopArtists(gate.fetchJson, { limit, timeRange: range });
+    if (!artists) return expired('Spotify');
+    if (artists.length === 0) {
+      return `Spotify has no top artists for the user over ${window}. This is usually a new or barely-used account rather than an error.`;
+    }
+    return lines(
+      `The user's most-played Spotify artists over ${window}, most played first. The genres are Spotify's own labels:`,
+      artists.map((artist) => {
+        const genres = artist.genres.slice(0, 3).join(', ');
+        return `- ${artist.name}${genres ? ` — ${genres}` : ''}`;
+      }),
+    );
+  },
+
+  listSavedTracks: async ({ limit }) => {
+    const gate = await ready('spotify', 'Spotify', tokens);
+    if ('error' in gate) return gate.error;
+
+    const tracks = await fetchSavedTracks(gate.fetchJson, { limit });
+    if (!tracks) return expired('Spotify');
+    if (tracks.length === 0) return 'The user has no saved tracks in their Spotify library.';
+
+    return lines(
+      // Worth distinguishing for the model: saving is a decision, playing is a
+      // habit, and "what do I like" is better answered by the first.
+      `Tracks the user saved to their Spotify library, most recent first. Saved is deliberate, unlike most-played:`,
+      tracks.map((track) => `- "${track.title}" — ${track.artists}${track.album ? ` (${track.album})` : ''}`),
+    );
+  },
+
+  listSpotifyPlaylists: async ({ limit }) => {
+    const gate = await ready('spotify', 'Spotify', tokens);
+    if ('error' in gate) return gate.error;
+
+    const playlists = await fetchPlaylists(gate.fetchJson, { limit });
+    if (!playlists) return expired('Spotify');
+    if (playlists.length === 0) return 'The user has no Spotify playlists.';
+
+    return lines(
+      'The user\'s Spotify playlists:',
+      playlists.map((playlist) => `- ${playlist.name} (${playlist.tracks} tracks)`),
     );
   },
 });

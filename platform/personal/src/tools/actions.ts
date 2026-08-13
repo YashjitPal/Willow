@@ -17,12 +17,13 @@
  *   feature does.
  */
 
-import { createGoogleFetch } from '../connectors/google-fetch';
+import { authLossHandler } from '../connectors/authorization';
+import { createAuthorizedFetch } from '../connectors/authorized-fetch';
 import { createTask as createGoogleTask } from '../connectors/google/tasks';
 import { createDocument as createGoogleDocument } from '../connectors/google/docs';
 import { isConnected } from '../connectors/connections-store';
-import { writeScopesFor } from '../connectors/registry';
-import { tokenSource, type TokenSource } from '../connectors/token-source';
+import { writeScopesFor, tokensFor } from '../connectors/registry';
+import { type TokenSource } from '../connectors/token-source';
 import type { ConnectorId } from '../connectors/types';
 import type { PersonalActions } from './executor';
 
@@ -44,13 +45,16 @@ const expired = (label: string): string =>
  * opens a popup. A tool call is not a user gesture, and a popup triggered by one
  * is both blocked by the browser and wrong in principle.
  */
-const writeFetch = async (id: ConnectorId, tokens: TokenSource) => {
+const writeFetch = async (id: ConnectorId, override?: TokenSource) => {
   if (!isConnected(id)) return null;
   const scopes = writeScopesFor(id);
   if (scopes.length === 0) return null;
+  // Per connector, not one global: a Spotify write scope asked of Google's token
+  // source would open a consent screen listing scopes Google does not publish.
+  const tokens = override ?? tokensFor(id);
   const token = await tokens.get(scopes);
   if (!token) return null;
-  return createGoogleFetch({ tokens, scopes });
+  return createAuthorizedFetch({ tokens, scopes, onAuthLost: authLossHandler(id) });
 };
 
 /** An all-day date, or a timestamp — Calendar wants different fields for each. */
@@ -63,9 +67,11 @@ const oneHourLater = (start: string): string => {
   return new Date(parsed + HOUR_MS).toISOString();
 };
 
-export const createPersonalActions = (
-  tokens: TokenSource = tokenSource(),
-): PersonalActions => ({
+/**
+ * @param tokens Overrides every provider's source. For tests — in the app this is
+ *   left out so each connector resolves its own, via `writeFetch`.
+ */
+export const createPersonalActions = (tokens?: TokenSource): PersonalActions => ({
   createTask: async ({ title, notes, due }) => {
     if (!isConnected('tasks')) return notConnected('Google Tasks');
     const fetchJson = await writeFetch('tasks', tokens);
@@ -141,5 +147,58 @@ export const createPersonalActions = (
 
     if (!created?.id) return 'The playlist could not be created. YouTube rejected the request.';
     return `Created the private playlist "${title}". It is empty — videos cannot be added automatically, so the user will need to add them.`;
+  },
+
+  createSpotifyPlaylist: async ({ title, description, tracks }) => {
+    if (!isConnected('spotify')) return notConnected('Spotify');
+    const fetchJson = await writeFetch('spotify', tokens);
+    if (!fetchJson) return expired('Spotify');
+
+    const created = await createSpotifyPlaylistApi(fetchJson, { title, description });
+    if (!created) return 'The playlist could not be created. Spotify rejected the request.';
+
+    const wanted = (tracks ?? []).filter((entry) => entry.trim()).slice(0, MAX_PLAYLIST_TRACKS);
+    if (wanted.length === 0) {
+      return `Created the private Spotify playlist "${title}"${created.url ? `: ${created.url}` : ''}. It is empty — no tracks were given.`;
+    }
+
+    /*
+     * One search per track, sequentially.
+     *
+     * Sequential because Spotify's rate limiter is per-application and a burst of
+     * twenty parallel searches from one user is how the limit gets hit for
+     * everybody. Slower and it is a background step inside one tool call.
+     *
+     * The first result is taken, which is a real limitation worth being honest
+     * about in the returned text: "Weird Fishes" matches the original and nine live
+     * versions, and Spotify's relevance ordering is the only judgement available
+     * here. Naming the artist in the search is what makes it reliable, which is why
+     * the tool description asks for "title — artist".
+     */
+    const uris: string[] = [];
+    const missing: string[] = [];
+    for (const entry of wanted) {
+      const results = await searchSpotifyTracks(fetchJson, { q: entry, limit: 1 });
+      const uri = results?.[0]?.uri;
+      if (uri) uris.push(uri);
+      else missing.push(entry);
+    }
+
+    if (uris.length === 0) {
+      return `Created the private Spotify playlist "${title}"${created.url ? `: ${created.url}` : ''}, but none of the ${wanted.length} tracks could be found on Spotify. Tell the user the playlist is empty and which tracks were not found: ${missing.join('; ')}.`;
+    }
+
+    const added = await addSpotifyPlaylistItems(fetchJson, {
+      playlistId: created.id,
+      uris,
+    });
+    if (!added) {
+      return `Created the private Spotify playlist "${title}"${created.url ? `: ${created.url}` : ''}, but adding the tracks failed. The playlist exists and is empty.`;
+    }
+
+    const shortfall = missing.length
+      ? ` ${missing.length} could not be found on Spotify: ${missing.join('; ')}.`
+      : '';
+    return `Created the private Spotify playlist "${title}" with ${uris.length} track${uris.length === 1 ? '' : 's'}${created.url ? `: ${created.url}` : ''}.${shortfall}`;
   },
 });

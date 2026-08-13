@@ -17,6 +17,7 @@
  * state rather than throwing on boot.
  */
 
+import { refreshAuthorizations } from './authorization';
 import { createTokenCache, setTokenSource, type CachedToken, type TokenSource } from './token-source';
 
 /** Set in the deployed app; normally unset in dev. */
@@ -274,6 +275,22 @@ export const initBrowserTokenSource = async (options: GisOptions = {}): Promise<
   lastHint = options.loginHint;
   installed = createGisTokenSource({ clientId, loginHint: options.loginHint });
   setTokenSource(installed);
+
+  /*
+   * Find out what still works, without asking.
+   *
+   * Tokens die with the tab, so every reload starts with connected products and
+   * no access. `refreshAuthorizations` tries a silent renewal of grants the user
+   * has already given — a hidden iframe, no popup, no click — and whatever comes
+   * back decides which connectors get tools this session.
+   *
+   * Not awaited. It is a network round trip, and the caller is a React effect
+   * deciding whether to render the "not configured" banner; blocking that on a
+   * token refresh would leave Connected Apps blank for as long as Google takes.
+   * The store it writes to is reactive, so the tools and the cards both follow
+   * along when it lands.
+   */
+  void refreshAuthorizations(installed);
   return true;
 };
 

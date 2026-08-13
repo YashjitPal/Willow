@@ -1652,12 +1652,12 @@ Adhere to the following rules and guidelines:
       4: 'max',
     };
     const reasoningEffort = compatibleReasoningEffortMap[options.thinkingLevel ?? 0] ?? 'medium';
-    const grok45ReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
+    const grokReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
       1: 'low',
       2: 'medium',
       3: 'high',
     };
-    const grok45ReasoningEffort = grok45ReasoningEffortMap[options.thinkingLevel ?? 3] ?? 'high';
+    const grokReasoningEffort = grokReasoningEffortMap[options.thinkingLevel ?? 3] ?? 'high';
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
@@ -1725,8 +1725,8 @@ Adhere to the following rules and guidelines:
         // Only attach reasoning effort to models that document this parameter.
         ...(provider === 'moonshot'
           ? { reasoning_effort: reasoningEffort }
-          : provider === 'spacexai' && model === 'grok-4.5'
-            ? { reasoning_effort: grok45ReasoningEffort }
+          : provider === 'spacexai' && (model === 'grok-4.6' || model === 'grok-4.5' || model.startsWith('grok-4'))
+            ? { reasoning_effort: grokReasoningEffort }
             : {}),
         ...(searchEnabled ? { tools: compatSearchTools[provider] } : {}),
         stream: true,

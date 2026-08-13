@@ -18,6 +18,7 @@
  * these scopes before, they see nothing at all.
  */
 
+import { markAuthorized, markExpired, forgetAuthorization } from './authorization';
 import { connect as markConnected, disconnect as markDisconnected } from './connections-store';
 import { connectorById, scopeUrls } from './registry';
 import { tokenSource, type TokenSource } from './token-source';
@@ -25,21 +26,12 @@ import type { ConnectorId } from './types';
 
 export type ConnectOutcome =
   /** Authorized, and recorded as connected. */
-  | { ok: true; feedsProfile: boolean }
+  | { ok: true }
   /** The user closed the popup, declined, or Google refused. */
   | { ok: false; reason: 'declined' | 'not-configured' | 'unknown-connector' };
 
 export interface ConnectOptions {
   tokens?: TokenSource;
-  /**
-   * Whether this product's data may describe the user.
-   *
-   * Defaults to the registry's `providesSignals`, which is the honest default:
-   * connecting Calendar for personalization should feed the profile, and
-   * connecting Drive to save a file should not. The UI passes an explicit value
-   * when the user has said otherwise on the card.
-   */
-  feedsProfile?: boolean;
 }
 
 /**
@@ -63,13 +55,19 @@ export const connectProduct = async (
   const scopes = scopeUrls([id], 'read');
   if (scopes.length === 0) return { ok: false, reason: 'unknown-connector' };
 
-  const tokens = options.tokens ?? tokenSource();
+  const tokens = options.tokens ?? tokensFor(id);
   const token = await tokens.request(scopes);
-  if (!token) return { ok: false, reason: 'declined' };
+  if (!token) {
+    // Declining leaves an already-connected product marked expired rather than
+    // untouched: the user was asked to reconnect and did not, so the tools should
+    // stay withdrawn instead of waiting for the next failed read to withdraw them.
+    markExpired(id);
+    return { ok: false, reason: 'declined' };
+  }
 
-  const feedsProfile = options.feedsProfile ?? definition.providesSignals;
-  markConnected(id, { feedsProfile });
-  return { ok: true, feedsProfile };
+  markConnected(id);
+  markAuthorized(id);
+  return { ok: true };
 };
 
 /**
@@ -86,7 +84,7 @@ export const authorizeWrites = async (
 ): Promise<boolean> => {
   const scopes = scopeUrls([id], 'write');
   if (scopes.length === 0) return false;
-  const tokens = options.tokens ?? tokenSource();
+  const tokens = options.tokens ?? tokensFor(id);
   return Boolean(await tokens.request(scopes));
 };
 
@@ -111,15 +109,31 @@ export const connectProducts = async (
   const scopes = scopeUrls(known, 'read');
   if (scopes.length === 0) return { ok: false, reason: 'unknown-connector' };
 
-  const tokens = options.tokens ?? tokenSource();
+  /*
+   * One provider per call.
+   *
+   * Every card in the UI maps to connectors from a single provider — the Workspace
+   * card is five Google products, the Spotify card is one Spotify product — so this
+   * is a guard against a future caller, not a case that happens today. It matters
+   * because the failure would be quiet and strange: the first provider's source
+   * would be handed the second provider's scope strings and the consent screen
+   * would list scopes that host has never heard of.
+   */
+  const providers = new Set(known.map((id) => providerOf(id)));
+  if (providers.size > 1) return { ok: false, reason: 'unknown-connector' };
+
+  const tokens = options.tokens ?? tokensFor(known[0]);
   const token = await tokens.request(scopes);
-  if (!token) return { ok: false, reason: 'declined' };
+  if (!token) {
+    for (const id of known) markExpired(id);
+    return { ok: false, reason: 'declined' };
+  }
 
   for (const id of known) {
-    const feedsProfile = options.feedsProfile ?? Boolean(connectorById(id)?.providesSignals);
-    markConnected(id, { feedsProfile });
+    markConnected(id);
+    markAuthorized(id);
   }
-  return { ok: true, feedsProfile: options.feedsProfile ?? true };
+  return { ok: true };
 };
 
 /**
@@ -142,4 +156,7 @@ export const disconnectProduct = (
   const scopes = [...scopeUrls([id], 'read'), ...scopeUrls([id], 'write')];
   if (scopes.length > 0) tokens.invalidate(scopes);
   markDisconnected(id);
+  // Cleared rather than marked expired: "expired" is a prompt to reconnect, and a
+  // product the user just switched off should not be asking them to switch it on.
+  forgetAuthorization(id);
 };

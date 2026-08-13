@@ -90,8 +90,64 @@ const docsWrite: ConnectorScope = {
   tier: 'sensitive',
 };
 
+/*
+ * Spotify.
+ *
+ * Spotify publishes no tier system, so `tier` records the honest equivalent: none
+ * of these carry a verification requirement, and the consent screen lists them
+ * plainly. The interesting constraint is elsewhere and is not about scopes at all —
+ * see `spotify/pkce-token-source.ts` on development mode.
+ *
+ * `user-top-read` is the one worth having. It is Spotify's own computed answer to
+ * "what does this person actually listen to", over a choice of time ranges, and
+ * there is no equivalent anywhere in Google's products — YouTube will not even say
+ * what was watched. `user-library-read` adds what they deliberately saved, which is
+ * a different and stronger signal than what they happened to play.
+ */
+const spotifyTopRead: ConnectorScope = {
+  url: 'user-top-read',
+  summary: 'Read your top artists and tracks',
+  tier: 'basic',
+};
+
+const spotifyLibraryRead: ConnectorScope = {
+  url: 'user-library-read',
+  summary: 'Read the music you have saved',
+  tier: 'basic',
+};
+
+const spotifyRecentRead: ConnectorScope = {
+  url: 'user-read-recently-played',
+  summary: 'Read what you played recently',
+  tier: 'basic',
+};
+
+const spotifyPlaylistRead: ConnectorScope = {
+  url: 'playlist-read-private',
+  summary: 'Read your playlists, including private ones',
+  tier: 'basic',
+};
+
+/**
+ * Both playlist write scopes, because Spotify splits them by visibility and a
+ * playlist Willow creates is private — `playlist-modify-public` alone would fail on
+ * exactly the playlists this is meant to create.
+ */
+const spotifyPlaylistWrite: ConnectorScope[] = [
+  {
+    url: 'playlist-modify-private',
+    summary: 'Create and edit your private playlists',
+    tier: 'basic',
+  },
+  {
+    url: 'playlist-modify-public',
+    summary: 'Create and edit your public playlists',
+    tier: 'basic',
+  },
+];
+
 export const SCOPES: Record<
-  'gmail' | 'calendar' | 'youtube' | 'contacts' | 'tasks' | 'drive' | 'docs',
+  'gmail' | 'calendar' | 'youtube' | 'contacts' | 'tasks' | 'drive' | 'docs' | 'spotify',
   { read: ConnectorScope[]; write: ConnectorScope[] }
 > = {
   gmail: { read: [gmailMetadata], write: [] },
@@ -101,4 +157,8 @@ export const SCOPES: Record<
   tasks: { read: [tasksRead], write: [tasksWrite] },
   drive: { read: [driveRead], write: [driveFile] },
   docs: { read: [], write: [docsWrite] },
+  spotify: {
+    read: [spotifyTopRead, spotifyLibraryRead, spotifyRecentRead, spotifyPlaylistRead],
+    write: spotifyPlaylistWrite,
+  },
 };

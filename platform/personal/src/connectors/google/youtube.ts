@@ -26,7 +26,7 @@
  * something based on what I like" cannot be answered from category counts.
  */
 
-import { paginate, query } from '../google-fetch';
+import { paginate, query } from '../authorized-fetch';
 import type { ConnectorFetch, ConnectorReader, ConnectorSignal } from '../types';
 
 const YOUTUBE_API = 'https://www.googleapis.com/youtube/v3';

@@ -103,8 +103,13 @@ interface CardProps {
   state: CardConnectionState;
   onToggle: (id: string, name: string) => void;
   onToggleExpanded: (id: string) => void;
-  onToggleFeeds: (id: string) => void;
 }
+
+/** `[a]` → `a`; `[a, b]` → `a and b`; `[a, b, c]` → `a, b and c`. */
+const listNames = (names: string[]): string =>
+  names.length <= 1
+    ? names[0] ?? ''
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
 /** Why a card's switch can't be used, or null when it can. */
 const disabledReason = (state: CardConnectionState, configured: boolean | null): string | null => {
@@ -115,33 +120,8 @@ const disabledReason = (state: CardConnectionState, configured: boolean | null):
   return null;
 };
 
-/**
- * The second switch, shown only once a product is connected and only for the
- * products Willow can actually learn from.
- *
- * Connecting Calendar and letting Calendar describe you are different decisions,
- * so they get different switches. Drive and Docs never show this row: they are
- * connected to get work done, and Willow deliberately never reads them to build
- * a profile.
- */
-const FeedsProfileRow: React.FC<{ app: ConnectedApp; state: CardConnectionState; onToggle: (id: string) => void }> = ({
-  app,
-  state,
-  onToggle,
-}) =>
-  state.connected && state.providesSignals ? (
-    <div className="ca-feeds-row">
-      <span className="ca-feeds-label ca-body-m">Use for personalization</span>
-      <Switch
-        checked={state.feedsProfile}
-        label={`Let ${app.name} inform what Willow remembers about you`}
-        onChange={() => onToggle(app.id)}
-      />
-    </div>
-  ) : null;
-
 /** The Workspace card: full grid width, description beside a grid of child apps. */
-const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle, onToggleFeeds }) => {
+const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle }) => {
   const reason = disabledReason(state, configured);
   return (
     <div className="ca-parent-card">
@@ -167,7 +147,6 @@ const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle, onT
           <div className="ca-parent-note ca-label-s">
             One permission screen covers every Workspace app listed here.
           </div>
-          <FeedsProfileRow app={app} onToggle={onToggleFeeds} state={state} />
         </div>
         <div className="ca-child-grid">
           {app.children?.map((child) => (
@@ -186,7 +165,6 @@ const AppCard: React.FC<CardProps> = ({
   state,
   onToggle,
   onToggleExpanded,
-  onToggleFeeds,
 }) => {
   const hasExpandedContent = Boolean(app.can?.length || app.cannot?.length || app.prompts?.length);
   const reason = disabledReason(state, configured);
@@ -211,7 +189,6 @@ const AppCard: React.FC<CardProps> = ({
         {app.handle ? <div className="ca-handle ca-label-s">{app.handle}</div> : null}
       </div>
 
-      <FeedsProfileRow app={app} onToggle={onToggleFeeds} state={state} />
 
       <div className="ca-collapsed-content">
         <div className="ca-description ca-body-m">{app.description}</div>
@@ -281,8 +258,7 @@ const AppCard: React.FC<CardProps> = ({
 };
 
 export const ConnectedAppsTab: React.FC = () => {
-  const { configured, notice, dismissNotice, stateFor, toggleConnection, toggleFeedsProfile } =
-    useConnections();
+  const { configured, notice, dismissNotice, stateFor, toggleConnection } = useConnections();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -292,6 +268,20 @@ export const ConnectedAppsTab: React.FC = () => {
     },
     [toggleConnection],
   );
+
+  /*
+   * Which apps went quiet, named.
+   *
+   * Their switches are already off — an app Willow cannot read is not connected in
+   * any sense the user cares about — so without this the tab would just show a
+   * switch that was on last time and is off now, with no account of why. Said once
+   * at the top rather than on each card: it is one fact with one cause, the tokens
+   * all expire together, and repeating it beside every switch turns a small piece
+   * of housekeeping into the loudest thing on the page.
+   */
+  const expiredNames = APP_CATEGORIES.flatMap((category) => category.apps)
+    .filter((app) => stateFor(app.id).expired)
+    .map((app) => app.name);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -352,6 +342,23 @@ export const ConnectedAppsTab: React.FC = () => {
           </div>
         ) : null}
 
+        {expiredNames.length > 0 ? (
+          <div className="ca-banner ca-banner-attention" role="status">
+            <MaterialSymbol
+              className="ca-banner-icon"
+              family="google-symbols"
+              name="link_off"
+              size={20}
+              weight={400}
+            />
+            <div className="ca-banner-text ca-body-m">
+              Your session expired for {listNames(expiredNames)}, so {expiredNames.length > 1 ? 'they have' : 'it has'}{' '}
+              been switched off. Turn {expiredNames.length > 1 ? 'them' : 'it'} back on to reconnect — you
+              won’t have to grant permission again.
+            </div>
+          </div>
+        ) : null}
+
         {notice ? (
           <div className="ca-banner" role="status">
             <MaterialSymbol
@@ -387,7 +394,6 @@ export const ConnectedAppsTab: React.FC = () => {
                   state: stateFor(app.id),
                   onToggle: handleToggle,
                   onToggleExpanded: toggleExpanded,
-                  onToggleFeeds: toggleFeedsProfile,
                 };
                 return app.children?.length ? (
                   <ParentCard key={app.id} {...props} />

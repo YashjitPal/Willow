@@ -35,6 +35,23 @@ export interface PersonalActions {
   }) => Promise<string>;
   createDocument: (input: { title: string; body?: string }) => Promise<string>;
   createPlaylist: (input: { title: string; description?: string }) => Promise<string>;
+  /**
+   * A Spotify playlist, filled in.
+   *
+   * `tracks` is a list of free-text searches — "Radiohead Weird Fishes" — not ids,
+   * because a model has titles and Spotify needs URIs. Resolving them is the
+   * action's job, and it reports which ones it could not find rather than quietly
+   * making a shorter playlist than was asked for.
+   *
+   * This is the one action that can do what its YouTube counterpart cannot: YouTube
+   * has no API for adding a video to a playlist on a user's behalf, so
+   * `createPlaylist` there creates an empty playlist and says so.
+   */
+  createSpotifyPlaylist: (input: {
+    title: string;
+    description?: string;
+    tracks?: string[];
+  }) => Promise<string>;
 }
 
 /**
@@ -57,6 +74,9 @@ export interface PersonalReads {
   listTasks: (input: { includeCompleted?: boolean }) => Promise<string>;
   listRecentEmails: (input: { search?: string; limit?: number }) => Promise<string>;
   listRelationships: () => Promise<string>;
+  listTopMusic: (input: { kind?: string; timeRange?: string; limit?: number }) => Promise<string>;
+  listSavedTracks: (input: { limit?: number }) => Promise<string>;
+  listSpotifyPlaylists: (input: { limit?: number }) => Promise<string>;
 }
 
 export interface ToolCallResult {
@@ -107,12 +127,54 @@ const readBoolean = (args: Record<string, unknown>, key: string): boolean | unde
   return undefined;
 };
 
+/**
+ * A list of strings, however the model spelled it.
+ *
+ * Three real shapes, all seen from production models: a proper array, a JSON array
+ * inside a string, and one comma-separated string. The last is the reason this is
+ * not a two-line function — a model asked for a playlist of five songs quite often
+ * sends `"a, b, c, d, e"`, and reading that as a single track title produces one
+ * failed search instead of five successful ones.
+ */
+const readStringArray = (args: Record<string, unknown>, key: string): string[] | undefined => {
+  const value = args[key];
+
+  const clean = (items: unknown[]): string[] =>
+    items.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
+
+  if (Array.isArray(value)) {
+    const items = clean(value);
+    return items.length > 0 ? items : undefined;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const text = value.trim();
+    if (text.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          const items = clean(parsed);
+          return items.length > 0 ? items : undefined;
+        }
+      } catch {
+        // Fall through to the comma split, which handles a malformed array better
+        // than giving up does.
+      }
+    }
+    const items = clean(text.split(','));
+    return items.length > 0 ? items : undefined;
+  }
+
+  return undefined;
+};
+
 /** Action tool names, kept together so the gating in `chat.ts` is one check. */
 export const ACTION_TOOLS = {
   createTask: 'create_task',
   createCalendarEvent: 'create_calendar_event',
   createDocument: 'create_document',
   createPlaylist: 'create_youtube_playlist',
+  createSpotifyPlaylist: 'create_spotify_playlist',
 } as const;
 
 /** Live-read tool names. Same arrangement as `ACTION_TOOLS`, same reason. */
@@ -123,6 +185,9 @@ export const READ_TOOLS = {
   listTasks: 'list_tasks',
   listRecentEmails: 'list_recent_emails',
   listRelationships: 'list_contact_relationships',
+  listTopMusic: 'list_top_music',
+  listSavedTracks: 'list_saved_tracks',
+  listSpotifyPlaylists: 'list_spotify_playlists',
 } as const;
 
 export const isPersonalActionCall = (name: string | undefined): boolean =>
@@ -185,6 +250,22 @@ const runRead = async (
         };
       case READ_TOOLS.listRelationships:
         return { name, text: await reads.listRelationships() };
+      case READ_TOOLS.listTopMusic:
+        return {
+          name,
+          text: await reads.listTopMusic({
+            kind: readString(fields, 'kind'),
+            timeRange: readString(fields, 'time_range'),
+            limit: readNumber(fields, 'limit'),
+          }),
+        };
+      case READ_TOOLS.listSavedTracks:
+        return { name, text: await reads.listSavedTracks({ limit: readNumber(fields, 'limit') }) };
+      case READ_TOOLS.listSpotifyPlaylists:
+        return {
+          name,
+          text: await reads.listSpotifyPlaylists({ limit: readNumber(fields, 'limit') }),
+        };
       default:
         // Unreachable while `READ_TOOLS` and this switch agree, which
         // `isPersonalReadCall` is what guarantees.
@@ -277,6 +358,21 @@ export const executePersonalTool = async (
           text: await actions.createPlaylist({
             title,
             description: readString(fields, 'description'),
+          }),
+        };
+      }
+      case ACTION_TOOLS.createSpotifyPlaylist: {
+        const title = readString(fields, 'title');
+        if (!title) return { name, text: 'A playlist needs a title.' };
+        return {
+          name,
+          text: await actions.createSpotifyPlaylist({
+            title,
+            description: readString(fields, 'description'),
+            // Tracks are optional, and an empty list is not an error: "make me a
+            // playlist for X" without named songs is a real request, and it gets an
+            // empty playlist plus a sentence saying so.
+            tracks: readStringArray(fields, 'tracks'),
           }),
         };
       }
