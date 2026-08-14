@@ -424,7 +424,7 @@ export const VoiceSettingsDialog: React.FC<VoiceSettingsDialogProps> = ({
                       <div className="flex min-h-[52px] items-center justify-between gap-4 border-b border-[#ffffff0d] last:border-b-0">
                         <div className="flex min-w-0 items-center gap-3">
                           <GlobeIcon size={SETTINGS_ROW_ICON_SIZE} className="shrink-0" />
-                          <span id={`${titleId}-language`} className="truncate text-white">
+                          <span id={`${titleId}-language`} className="truncate text-white select-none">
                             Language
                           </span>
                         </div>
