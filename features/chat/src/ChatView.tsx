@@ -3424,6 +3424,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
             <InputBar
               chatVariant
+              workspaceColor={workspaceColor}
               // Zero state has no disclaimer, matching Gemini, which keeps its
               // own in the bottom bar and out of the centred composer. It costs
               // no layout either way — the line is `absolute top-full`.

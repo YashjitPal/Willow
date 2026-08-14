@@ -337,11 +337,11 @@ export const SourceChip: React.FC<SourceChipProps> = ({ sources, ordinal = 0 }) 
   return (
     // The two spaces are content, not margin — Gemini emits a literal two-space
     // text node here (measured 7.47px at 17px), preserved by `white-space: pre-wrap`.
-    <span className="smd-src">
+    <span className="smd-src select-none">
       {'  '}
       <span
         ref={chipRef}
-        className="smd-src-chip smd-src-chip-enter"
+        className="smd-src-chip smd-src-chip-enter select-none"
         // Frozen at mount, matching `Word`'s settledAtMount idiom: if a later
         // render shifts this chip's ordinal, the delay must not change
         // mid-flight and restart the fade on an already-visible chip.
@@ -351,7 +351,7 @@ export const SourceChip: React.FC<SourceChipProps> = ({ sources, ordinal = 0 }) 
       >
         <button
           type="button"
-          className="smd-src-btn"
+          className="smd-src-btn select-none"
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? paneId : undefined}
@@ -363,9 +363,9 @@ export const SourceChip: React.FC<SourceChipProps> = ({ sources, ordinal = 0 }) 
             setOpen((value) => !value);
           }}
         >
-          <span className="smd-src-label">
-            <span className="smd-src-title">{primary}</span>
-            {extra > 0 && <span className="smd-src-count">{`+ ${extra}`}</span>}
+          <span className="smd-src-label select-none">
+            <span className="smd-src-title select-none">{primary}</span>
+            {extra > 0 && <span className="smd-src-count select-none">{`+ ${extra}`}</span>}
           </span>
         </button>
         {open && typeof document !== 'undefined' && createPortal(

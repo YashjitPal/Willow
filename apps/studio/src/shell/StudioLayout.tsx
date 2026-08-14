@@ -11,6 +11,7 @@ import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@
 import type { StudioExperience } from '@willow/core/types';
 import { useStore } from '@nanostores/react';
 import { $chatPanelOpen } from '@willow/chat/chat-panel-store';
+import { useAuth } from '@willow/auth/AuthContext';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -37,6 +38,12 @@ const BackgroundRenderer: React.FC<{ isSidebarCollapsed?: boolean }> = ({ isSide
     default:
       return null;
   }
+};const WORKSPACE_SELECTION_BG: Record<string, string> = {
+  yellow: 'rgba(253, 221, 65, 0.35)',
+  blue: 'rgba(168, 199, 250, 0.35)',
+  green: 'rgba(156, 228, 179, 0.35)',
+  pink: 'rgba(250, 178, 205, 0.35)',
+  orange: 'rgba(255, 202, 138, 0.35)',
 };
 
 export const StudioLayout: React.FC<{
@@ -74,7 +81,7 @@ export const StudioLayout: React.FC<{
   onIncognitoChat,
   isSidebarCollapsed,
   setIsSidebarCollapsed,
-  isSidebarHidden = false
+  isSidebarHidden = false,
 }) => {
   const { background } = useBackground();
   const { 
@@ -87,6 +94,10 @@ export const StudioLayout: React.FC<{
     disconnectLocalFolder
   } = useLocalFS();
 
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
+  const selectionBg = WORKSPACE_SELECTION_BG[effectiveWorkspaceColor] || WORKSPACE_SELECTION_BG.green;
+
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
@@ -94,8 +105,11 @@ export const StudioLayout: React.FC<{
   
   return (
     <div
-      className={`studio-layout studio-layout--${studioExperience} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] text-white selection:bg-pink-500/30 relative`}
-      style={{ '--studio-surface': studioSurface } as React.CSSProperties}
+      className={`studio-layout studio-layout--${studioExperience} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] text-white relative`}
+      style={{
+        '--studio-surface': studioSurface,
+        '--studio-selection-bg': selectionBg,
+      } as React.CSSProperties}
     >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
       {currentView === 'home' && isChatExperience && background === 'waves' && (

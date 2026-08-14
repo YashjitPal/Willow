@@ -881,7 +881,7 @@ const STYLE_CSS = [
   //   --lumi-sys-color--on-surface-low rgba(255,255,255,0.12)
   //   --gem-sys-color--on-surface #e3e3e3  --on-surface-variant #c4c7c5
   // Body-s is 13px/17px, body-m 15px/20px.
-  '.smd-src { white-space: pre-wrap; }',
+  '.smd-src { white-space: pre-wrap; user-select: none; -webkit-user-select: none; }',
   // Staggered entrance. NOT extracted from Gemini -- Gemini shows its chips with
   // no entrance animation at all (getAnimations() returned [] on a live capture).
   // This is a deliberate local divergence, requested to be tried.
@@ -912,6 +912,8 @@ const STYLE_CSS = [
   '  vertical-align: baseline;',
   '  margin-block: -8px;',
   '  margin-inline-start: 0;',
+  '  user-select: none;',
+  '  -webkit-user-select: none;',
   '}',
   '.smd-src-btn {',
   '  display: flex;',
@@ -931,6 +933,8 @@ const STYLE_CSS = [
   '  font: inherit;',
   '  -webkit-appearance: none;',
   '  appearance: none;',
+  '  user-select: none;',
+  '  -webkit-user-select: none;',
   '}',
   // Measured: the button has no hover, no active and no open state. Only
   // aria-expanded changes. Focus-visible is ours — Gemini relies on the UA ring.
@@ -943,6 +947,8 @@ const STYLE_CSS = [
   '  font-weight: 400;',
   '  line-height: 17px;',
   '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;',
+  '  user-select: none;',
+  '  -webkit-user-select: none;',
   '}',
   // max-width is an inline style on Gemini's span; 20ch measured to 168.61px.
   '.smd-src-title {',

@@ -635,6 +635,7 @@ const App: React.FC = () => {
       <TopLoadingBar
         active={isTopLoading}
         leftOffset={isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
+        workspaceColor={userProfile?.workspaceColor}
       />
       {hasOpenedSettings && (
         <Suspense fallback={null}>

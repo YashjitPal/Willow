@@ -86,7 +86,7 @@ export const ChatZeroStateGreeting: React.FC<{
   */
   <div
     key={isIncognito ? 'incognito' : 'normal'}
-    className="willow-lm-fade-in-up flex flex-col items-center w-full"
+    className="willow-lm-fade-in-up flex flex-col items-center w-full select-none"
     style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
   >
     {isIncognito && (
@@ -111,7 +111,7 @@ export const ChatZeroStateGreeting: React.FC<{
     )}
 
     <h1
-      className="text-[#e3e3e3] text-center"
+      className="text-[#e3e3e3] text-center select-none"
       style={{
         fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
         fontSize: '36px',
@@ -124,7 +124,7 @@ export const ChatZeroStateGreeting: React.FC<{
 
     {isIncognito && (
       <p
-        className="text-[#c4c7c5] text-center"
+        className="text-[#c4c7c5] text-center select-none"
         style={{
           // Gemini's `.gds-body-m.description` inside the temporary
           // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
@@ -219,7 +219,7 @@ export const PinnedChatGreeting: React.FC<{
 
   return (
     <div
-      className="absolute bottom-full left-0 right-0 flex flex-col items-center drop-shadow-sm"
+      className="absolute bottom-full left-0 right-0 flex flex-col items-center drop-shadow-sm select-none"
       style={{ marginBottom: `${isIncognito ? INCOGNITO_GREETING_GAP : GREETING_GAP}px` }}
     >
       <ChatZeroStateGreeting

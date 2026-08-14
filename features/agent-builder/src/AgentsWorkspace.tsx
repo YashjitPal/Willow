@@ -8,6 +8,8 @@ import {
   Workflow,
 } from 'lucide-react';
 import { AgentIcon } from '@willow/ui/AgentIcon';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import {
   getAgentBuilderClient,
@@ -55,10 +57,30 @@ function formatUpdatedAt(value: string): string {
   }).format(updatedAt)}`;
 }
 
+const AGENT_ICON_BG: Record<string, string> = {
+  yellow: '#fddd41', // Original creamy warm yellow
+  blue: '#a8c7fa',   // Creamy soft pastel blue
+  green: '#9ce4b3',  // Creamy soft pastel mint green
+  pink: '#fab2cd',   // Creamy soft pastel pink
+  orange: '#ffca8a', // Creamy soft pastel peach orange
+};
+
+export const getAgentIconBg = (color?: string): string => {
+  if (color && color in AGENT_ICON_BG) {
+    return AGENT_ICON_BG[color];
+  }
+  return AGENT_ICON_BG.yellow;
+};
+
 const AgentCard: React.FC<{
   workflow: WorkflowSummary;
+  workspaceColor?: string;
   onOpen: (id: string) => void;
-}> = ({ workflow, onOpen }) => {
+}> = ({ workflow, workspaceColor, onOpen }) => {
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const iconBg = getAgentIconBg(effectiveWorkspaceColor);
+
   return (
     <button
       type="button"
@@ -67,7 +89,10 @@ const AgentCard: React.FC<{
       data-testid={`agent-card-${workflow.id}`}
     >
       <div className="flex min-w-0 items-start justify-between gap-3 w-full">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#fddd41] text-black" style={{ willChange: 'transform' }}>
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-black transition-colors duration-200"
+          style={{ backgroundColor: iconBg, willChange: 'transform' }}
+        >
           <AgentIcon size={18} className="text-black block" />
         </div>
         <div className="flex items-center justify-center h-8 w-8 rounded-full bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity border border-white/5">
@@ -152,42 +177,84 @@ const STARTER_TEMPLATES = [
 
 const TemplateCard: React.FC<{
   template: { id: string; name: string; description: string; nodeCount: number };
+  workspaceColor?: string;
   onSelect: () => void;
-}> = ({ template, onSelect }) => (
-  <button
-    type="button"
-    onClick={onSelect}
-    className="group flex h-[150px] min-w-0 flex-col items-start justify-between rounded-[18px] bg-[#27272a]/50 hover:bg-[#27272a] p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 shadow-sm"
-  >
-    <div className="flex min-w-0 items-start justify-between gap-3 w-full">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#fddd41] text-black" style={{ willChange: 'transform' }}>
-        <AgentIcon size={18} className="text-black block" />
-      </div>
-      <div className="flex items-center justify-center h-8 w-8 rounded-full bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity border border-white/5">
-        <ArrowRight size={14} className="text-[#a1a1aa] transition-all group-hover:text-white" />
-      </div>
-    </div>
+}> = ({ template, workspaceColor, onSelect }) => {
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const iconBg = getAgentIconBg(effectiveWorkspaceColor);
 
-    <div className="w-full min-w-0">
-      <div className="truncate text-[14.5px] font-semibold text-[#fbfcfe] tracking-tight">
-        {template.name}
-      </div>
-      <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-[12px] font-medium text-[#a1a1aa] w-full">
-        <span className="truncate">{template.description}</span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-          }}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[#a1a1aa] hover:bg-white/10 hover:text-white transition-colors"
-          aria-label="Template options"
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex h-[150px] min-w-0 flex-col items-start justify-between rounded-[18px] bg-[#27272a]/50 hover:bg-[#27272a] p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 shadow-sm"
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3 w-full">
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-black transition-colors duration-200"
+          style={{ backgroundColor: iconBg, willChange: 'transform' }}
         >
-          <MoreHorizontal size={14} />
-        </button>
+          <AgentIcon size={18} className="text-black block" />
+        </div>
+        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity border border-white/5">
+          <ArrowRight size={14} className="text-[#a1a1aa] transition-all group-hover:text-white" />
+        </div>
       </div>
-    </div>
-  </button>
-);
+
+      <div className="w-full min-w-0">
+        <div className="truncate text-[14.5px] font-semibold text-[#fbfcfe] tracking-tight">
+          {template.name}
+        </div>
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-[12px] font-medium text-[#a1a1aa] w-full">
+          <span className="truncate">{template.description}</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[#a1a1aa] hover:bg-white/10 hover:text-white transition-colors"
+            aria-label="Template options"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        </div>
+      </div>
+    </button>
+  );
+};
+
+const AGENTS_HOME_GLOW: Record<string, string> = {
+  green: 'rgb(6, 78, 59)',
+  blue: 'rgb(20, 32, 79)',
+  pink: 'rgb(76, 9, 35)',
+  yellow: 'rgb(66, 54, 0)',
+  orange: 'rgb(72, 34, 0)',
+};
+
+const getAgentSubmitColorClass = (color?: string) => {
+  switch (color) {
+    case 'blue':
+      return 'bg-[#1b3f95] hover:bg-[#153277]';
+    case 'pink':
+      return 'bg-[#8c064b] hover:bg-[#70053c]';
+    case 'yellow':
+      return 'bg-[#7c6100] hover:bg-[#634e00]';
+    case 'orange':
+      return 'bg-[#863e00] hover:bg-[#6b3200]';
+    case 'green':
+    default:
+      return 'bg-[#127352] hover:bg-[#0d5c41]';
+  }
+};
+
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
+}
 
 const AgentsHome: React.FC<{
   workflows: WorkflowSummary[];
@@ -199,6 +266,22 @@ const AgentsHome: React.FC<{
   onOpen: (id: string) => void;
   onRetry: () => void;
 }> = ({ workflows, prompt, loading, error, onPromptChange, onCreate, onOpen, onRetry }) => {
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
+  const glowAccent = AGENTS_HOME_GLOW[effectiveWorkspaceColor] || AGENTS_HOME_GLOW.green;
+
+  const hasContent = Boolean(prompt.trim());
+  const previousHasContent = usePrevious(hasContent);
+  const [isSubmitControlContentGated, setIsSubmitControlContentGated] = useState(false);
+
+  useEffect(() => {
+    if (hasContent && !previousHasContent) {
+      setIsSubmitControlContentGated(true);
+    } else if (!hasContent) {
+      setIsSubmitControlContentGated(false);
+    }
+  }, [hasContent, previousHasContent]);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [activeCategory, setActiveCategory] = useState<'agents' | 'drafts' | 'templates'>('agents');
 
@@ -217,12 +300,9 @@ const AgentsHome: React.FC<{
   return (
     <div className="h-full w-full overflow-y-auto bg-[#0f0f0f] text-white no-scrollbar" data-testid="agents-home">
       <div className="mx-auto flex min-h-full w-full max-w-[1080px] flex-col px-6 pb-20 pt-16 sm:px-10 lg:px-12 relative">
-        {/* Subtle ambient glow in the background */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none rounded-full blur-[80px]" />
-
-        <header className="flex flex-col items-center text-center relative z-10">
+        <header className="flex flex-col items-center text-center relative z-10 select-none">
           <h1 
-            className="text-[34px] font-bold text-[#fbfcfe] antialiased"
+            className="text-[34px] font-bold text-[#ffffff] antialiased drop-shadow-sm select-none"
             style={{ 
               fontFamily: '"Plus Jakarta Sans", "Outfit", "Ginto", "ui-sans-serif", "system-ui", "sans-serif"', 
               lineHeight: '40px', 
@@ -232,7 +312,7 @@ const AgentsHome: React.FC<{
             Agents
           </h1>
           <p 
-            className="mt-2 text-[16px] text-[#a1a1aa] font-medium antialiased"
+            className="mt-2 text-[16px] text-[#a1a1aa] font-medium antialiased select-none"
             style={{ 
               fontFamily: '"Plus Jakarta Sans", "Outfit", "ui-sans-serif", "system-ui", "sans-serif"', 
             }}
@@ -241,41 +321,79 @@ const AgentsHome: React.FC<{
           </p>
         </header>
 
-        <form
-          className="mx-auto mt-8 w-full max-w-[760px] relative z-10"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <div className="rounded-[20px] bg-[#27272a]/80 p-2.5 shadow-2xl backdrop-blur-xl transition-all duration-300">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(event) => onPromptChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) event.preventDefault();
-              }}
-              aria-label="Describe an agent you want to build"
-              placeholder="Describe an agent you want to build..."
-              rows={1}
-              className="block min-h-[42px] max-h-[150px] w-full resize-none overflow-y-auto bg-transparent px-3 py-1.5 text-[14.5px] leading-relaxed tracking-normal text-[#fbfcfe] outline-none placeholder:text-[#71717a] font-medium"
-              data-testid="agents-prompt"
-              style={{ fontFamily: '"Plus Jakarta Sans", "Outfit", "ui-sans-serif", "system-ui", "sans-serif"' }}
-            />
-            <div className="mt-1 flex h-8 items-center justify-end pr-1">
-              <button
-                type="submit"
-                aria-label="Send agent prompt"
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${
-                  prompt.trim()
-                    ? 'bg-white text-black hover:bg-zinc-200 shadow-md scale-100'
-                    : 'bg-white/5 text-[#52525b] cursor-not-allowed scale-95'
-                }`}
-                disabled={!prompt.trim()}
-              >
-                <ArrowUp size={16} strokeWidth={2.5} />
-              </button>
+        <div className="mx-auto mt-8 w-full max-w-[760px] relative z-10">
+          {/* Glowing aura matching New Chat / Spark with dynamic workspace color */}
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[792px] h-[160px] rounded-full pointer-events-none blur-[100px] -z-10"
+            style={{
+              background: glowAccent,
+              animation: 'spark-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both',
+            }}
+          />
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (prompt.trim() && !loading) onCreate();
+            }}
+          >
+            <div className="rounded-[20px] bg-[#1e1f21] p-2.5 shadow-2xl backdrop-blur-xl transition-all duration-300">
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={(event) => onPromptChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    if (prompt.trim() && !loading) onCreate();
+                  }
+                }}
+                aria-label="Describe an agent you want to build"
+                placeholder="Describe an agent you want to build..."
+                rows={1}
+                className="block min-h-[42px] max-h-[150px] w-full resize-none overflow-y-auto bg-transparent px-3 py-1.5 text-[14.5px] leading-relaxed tracking-normal text-[#fbfcfe] outline-none placeholder:text-[#71717a] font-medium"
+                data-testid="agents-prompt"
+                style={{ fontFamily: '"Plus Jakarta Sans", "Outfit", "ui-sans-serif", "system-ui", "sans-serif"' }}
+              />
+              <div className="mt-1 flex h-8 items-center justify-end pr-1 gap-2">
+                <button
+                  type="button"
+                  aria-label="Microphone"
+                  title="Microphone"
+                  className="relative outline-none flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-200 text-[#e6e6e6] hover:bg-white/[0.08]"
+                >
+                  <MaterialSymbol
+                    family="luminous"
+                    name="mic"
+                    size={24}
+                    weight={300}
+                    roundness={100}
+                    opticalSize={24}
+                  />
+                </button>
+                {hasContent && (
+                  <button
+                    type="submit"
+                    aria-label="Send agent prompt"
+                    title="Submit"
+                    disabled={loading}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer text-white ${getAgentSubmitColorClass(effectiveWorkspaceColor)} ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''}`}
+                  >
+                    <MaterialSymbol
+                      family="luminous"
+                      name="arrow_upward"
+                      size={24}
+                      weight={300}
+                      roundness={100}
+                      opticalSize={24}
+                      className="text-white"
+                    />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </form>
+          </form>
+        </div>
 
         <section className="mt-16 w-full max-w-[1080px] mx-auto relative z-10">
           <div className="mb-6 flex items-center justify-between gap-4 relative">
