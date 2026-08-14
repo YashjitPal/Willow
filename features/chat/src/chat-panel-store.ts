@@ -11,3 +11,9 @@ import { atom } from 'nanostores';
  * already handles.
  */
 export const $chatPanelOpen = atom(false);
+
+/**
+ * Whether the voice mode is currently active (orb is visible). Written by ChatView, read by the shell's
+ * ConversationActionsMenu to hide itself while the voice settings icon is visible.
+ */
+export const $voiceModeActive = atom(false);

@@ -51,7 +51,7 @@ import { MARKDOWN_BLOCK_BLEED_PX } from '@willow/ui/streaming-markdown-styles';
 import { personalChatTools } from './personal-tools';
 import { waitForBrowserPaint } from './chat-timing';
 import { findDeepBlockAnchor } from './scroll-anchor';
-import { $chatPanelOpen } from './chat-panel-store';
+import { $chatPanelOpen, $voiceModeActive } from './chat-panel-store';
 import { useStore } from '@nanostores/react';
 
 import { VoiceFocusSurface, focusModeAtom } from './voice-orb/VoiceFocusSurface';
@@ -1284,6 +1284,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // that gives it an orb to draw.
   useEffect(() => {
     if (!showVoiceOrb) setIsVoiceSettingsOpen(false);
+  }, [showVoiceOrb]);
+
+  useEffect(() => {
+    $voiceModeActive.set(showVoiceOrb);
+    return () => { $voiceModeActive.set(false); };
   }, [showVoiceOrb]);
 
   useEffect(() => {

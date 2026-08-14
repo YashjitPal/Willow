@@ -10,7 +10,7 @@ import { ShaderAnimation } from '@willow/ui/shader-lines';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import type { StudioExperience } from '@willow/core/types';
 import { useStore } from '@nanostores/react';
-import { $chatPanelOpen } from '@willow/chat/chat-panel-store';
+import { $chatPanelOpen, $voiceModeActive } from '@willow/chat/chat-panel-store';
 import { useAuth } from '@willow/auth/AuthContext';
 
 /*
@@ -100,6 +100,7 @@ export const StudioLayout: React.FC<{
 
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
+  const voiceModeActive = useStore($voiceModeActive);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
   const studioSurface = '#0f0f0f';
   
@@ -258,7 +259,7 @@ export const StudioLayout: React.FC<{
           Gated to a real chat id: every row acts on a named chat, and
           `hasActiveChat` can be true for an unsaved one.
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && !chatPanelOpen && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && !chatPanelOpen && !voiceModeActive && (
           <ConversationActionsMenu chatId={activeChatId} />
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
