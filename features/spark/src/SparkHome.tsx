@@ -16,12 +16,14 @@ import {
 } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
+import { useAuth } from '@willow/auth/AuthContext';
 import './SparkHome.css';
 import { mergeSelectedFiles } from './spark-composer-chips';
 
 export interface SparkHomeProps {
   className?: string;
   tasks?: readonly SparkTask[];
+  workspaceColor?: string;
   onSubmitTask?: (prompt: string, attachments?: SparkTaskAttachment[], tools?: string[]) => void;
   onOpenTask?: (taskId: string) => void;
   onViewAllTasks?: () => void;
@@ -30,6 +32,30 @@ export interface SparkHomeProps {
   onMicClick?: () => void;
   onTrendingSelect?: (task: TrendingTask) => void;
 }
+
+const SPARK_HOME_GLOW: Record<string, string> = {
+  green: 'rgb(6, 78, 59)',
+  blue: 'rgb(20, 32, 79)',
+  pink: 'rgb(76, 9, 35)',
+  yellow: 'rgb(66, 54, 0)',
+  orange: 'rgb(72, 34, 0)',
+};
+
+export const getSparkSubmitColorClass = (color?: string) => {
+  switch (color) {
+    case 'blue':
+      return 'bg-[#1b3f95] hover:bg-[#153277]';
+    case 'pink':
+      return 'bg-[#8c064b] hover:bg-[#70053c]';
+    case 'yellow':
+      return 'bg-[#7c6100] hover:bg-[#634e00]';
+    case 'orange':
+      return 'bg-[#863e00] hover:bg-[#6b3200]';
+    case 'green':
+    default:
+      return 'bg-[#127352] hover:bg-[#0d5c41]';
+  }
+};
 
 const TRENDING_TASKS: TrendingTask[] = [
   {
@@ -58,9 +84,18 @@ const SPARK_TOOL_LABELS: Record<string, string> = {
   spotify: 'Spotify',
 };
 
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
+}
+
 export const SparkHome: React.FC<SparkHomeProps> = ({
   className = '',
   tasks = [],
+  workspaceColor,
   onSubmitTask,
   onOpenTask,
   onViewAllTasks,
@@ -69,6 +104,9 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   onMicClick,
   onTrendingSelect,
 }) => {
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const glowAccent = SPARK_HOME_GLOW[effectiveWorkspaceColor] || SPARK_HOME_GLOW.green;
   const [prompt, setPrompt] = useState('');
   const [plusOpen, setPlusOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -91,6 +129,17 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
     toggleDictation,
   } = useSparkDictation({ value: prompt, onChange: setPrompt });
   const composerError = dictationError || attachmentError;
+  const hasContent = Boolean(prompt.trim() || attachedFiles.length > 0 || selectedTool);
+  const previousHasContent = usePrevious(hasContent);
+  const [isSubmitControlContentGated, setIsSubmitControlContentGated] = useState(false);
+
+  useEffect(() => {
+    if (hasContent && !previousHasContent) {
+      setIsSubmitControlContentGated(true);
+    } else if (!hasContent) {
+      setIsSubmitControlContentGated(false);
+    }
+  }, [hasContent, previousHasContent]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -170,11 +219,14 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
       </div>
 
       <div className="spark-content">
-        <div className="spark-heading-block">
-          <h1 id={pageHeadingId}>Put Willow Spark to work for you</h1>
+        <div className="spark-heading-block select-none">
+          <h1 id={pageHeadingId} className="select-none">Put Willow Spark to work for you</h1>
         </div>
 
-        <div className={`spark-composer-anchor${composerError ? ' has-error' : ''}`}>
+        <div
+          className={`spark-composer-anchor${composerError ? ' has-error' : ''}`}
+          style={{ '--spark-home-glow': glowAccent } as React.CSSProperties}
+        >
           <form className="spark-composer" aria-busy={isSubmitting} onSubmit={submitPrompt}>
             <button
               ref={plusButtonRef}
@@ -304,10 +356,10 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
               />
             </div>
 
-            {prompt.trim() && !isDictating ? (
+            {hasContent && !isDictating ? (
               <button
                 type="submit"
-                className="spark-composer-send-button"
+                className={`spark-composer-send-button is-${effectiveWorkspaceColor} ${isSubmitControlContentGated ? 'spark-composer-send-enter' : ''}`}
                 aria-label="Create task"
                 title={isSubmitting ? 'Preparing files' : 'Create task'}
                 disabled={isSubmitting}
@@ -315,10 +367,11 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                 <MaterialSymbol
                   family="luminous"
                   name="arrow_upward"
-                  size={20}
-                  weight={320}
+                  size={24}
+                  weight={300}
                   roundness={100}
-                  opticalSize={20}
+                  opticalSize={24}
+                  className="text-white"
                 />
               </button>
             ) : (
@@ -341,7 +394,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                   family="luminous"
                   name="mic"
                   size={24}
-                  weight={320}
+                  weight={300}
                   roundness={100}
                   opticalSize={24}
                 />

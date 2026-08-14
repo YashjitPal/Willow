@@ -1,4 +1,4 @@
-/* Exact replication of Gemini Personalization settings stylesheet */
+/* Scoped replication of Gemini Personalization settings stylesheet */
 
 .personal-intelligence-container {
   --gem-sys-spacing--xxl: 24px;
@@ -22,7 +22,7 @@
   box-sizing: border-box;
 }
 
-.page-content {
+.personal-intelligence-container .page-content {
   height: fit-content;
   padding: 0 var(--gem-sys-spacing--xxl) var(--gem-sys-spacing--xxl);
   margin: 68px auto var(--gem-sys-spacing--xxl); /* Pushed down by 56px to offset Gemini top header height + 12px page margin */
@@ -31,18 +31,19 @@
   box-sizing: border-box;
 }
 
-.page-headline {
+.personal-intelligence-container .page-headline {
   margin-top: var(--gem-sys-spacing--m);
   margin-bottom: 0px;
 }
 
-.page-description {
+.personal-intelligence-container .page-description {
   margin-bottom: var(--gem-sys-spacing--xl);
   padding-bottom: var(--gem-sys-spacing--m);
   margin-top: var(--gem-sys-spacing--m);
+  color: #e3e3e3;
 }
 
-.section {
+.personal-intelligence-container .section {
   position: relative;
   background-color: var(--gem-sys-color--surface-container);
   border-radius: var(--gem-sys-shape--corner-medium);
@@ -55,49 +56,52 @@
   transition: background-color 0.2s ease;
 }
 
-.section:has(.section-link-overlay):hover {
+.personal-intelligence-container .section:has(.section-link-overlay):hover {
   background-color: #2a2b2c;
 }
 
-.header {
+.personal-intelligence-container .header {
   display: flex;
   align-items: center;
   min-height: 2rem;
 }
 
-.title-container {
+.personal-intelligence-container .title-container {
   flex-grow: 1;
 }
 
-.title-container .gds-title-l {
+.personal-intelligence-container .title-container .gds-title-l {
   margin-bottom: 0px;
 }
 
-.toggle-container {
+.personal-intelligence-container .toggle-container {
   margin-left: var(--gem-sys-spacing--l);
   width: 52px;
   height: 32px;
 }
 
-.description {
+.personal-intelligence-container .description {
   margin-top: var(--gem-sys-spacing--xs);
   color: var(--gem-sys-color--on-surface-variant);
 }
 
-.links {
+.personal-intelligence-container .links {
   margin-top: var(--gem-sys-spacing--l);
 }
 
-.links a {
+.personal-intelligence-container .links a {
   color: var(--gem-sys-color--primary);
   text-decoration: none;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 370;
 }
 
-.links a:hover {
+.personal-intelligence-container .links a:hover {
   text-decoration: underline;
 }
 
-.section-link-overlay {
+.personal-intelligence-container .section-link-overlay {
   position: absolute;
   top: 0px;
   right: 0px;
@@ -109,11 +113,11 @@
   cursor: pointer;
 }
 
-.space-filler {
+.personal-intelligence-container .space-filler {
   flex-grow: 1;
 }
 
-.link-icon-container {
+.personal-intelligence-container .link-icon-container {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -123,7 +127,7 @@
 }
 
 /* Material Design Typography Classes matching Gemini specs precisely */
-.gds-display-s {
+.personal-intelligence-container .gds-display-s {
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   font-size: 32px;
   line-height: 38px;
@@ -132,7 +136,7 @@
   letter-spacing: normal;
 }
 
-.gds-body-l {
+.personal-intelligence-container .gds-body-l {
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   font-size: 17px;
   line-height: 24px;
@@ -141,12 +145,7 @@
   letter-spacing: normal;
 }
 
-/* Page description color override */
-.page-description {
-  color: #e3e3e3;
-}
-
-.gds-title-l {
+.personal-intelligence-container .gds-title-l {
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   font-size: 20px;
   line-height: 24px;
@@ -156,7 +155,7 @@
   letter-spacing: normal;
 }
 
-.gds-label-m {
+.personal-intelligence-container .gds-label-m {
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   font-size: 15px;
   line-height: 20px;
@@ -165,15 +164,8 @@
   letter-spacing: normal;
 }
 
-.links a {
-  font-size: 15px;
-  line-height: 20px;
-  font-weight: 370;
-  color: #a8c7fa;
-}
-
 /* MatIcon / Lumi Symbols font configurations */
-.mat-icon {
+.personal-intelligence-container .mat-icon {
   font-family: 'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif;
   font-weight: 260;
   font-style: normal;
@@ -194,7 +186,7 @@
   height: 28px;
 }
 
-.gem-icon {
+.personal-intelligence-container .gem-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -203,18 +195,18 @@
 }
 
 /* MDC Slide Toggle styling matching Material Design 3 spec precisely */
-.mat-mdc-slide-toggle {
+.personal-intelligence-container .mat-mdc-slide-toggle {
   display: inline-block;
   -webkit-tap-highlight-color: transparent;
 }
 
-.mdc-form-field {
+.personal-intelligence-container .mdc-form-field {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
 }
 
-.mdc-switch {
+.personal-intelligence-container .mdc-switch {
   position: relative;
   width: 52px;
   height: 32px;
@@ -227,7 +219,7 @@
   align-items: center;
 }
 
-.mdc-switch__track {
+.personal-intelligence-container .mdc-switch__track {
   position: absolute;
   top: 0;
   left: 0;
@@ -240,12 +232,12 @@
   border: 2px solid #8e918f;
 }
 
-.mdc-switch--checked .mdc-switch__track {
+.personal-intelligence-container .mdc-switch--checked .mdc-switch__track {
   background-color: #a8c7fa;
   border-color: #a8c7fa;
 }
 
-.mdc-switch__handle-track {
+.personal-intelligence-container .mdc-switch__handle-track {
   position: absolute;
   top: 0;
   left: 0;
@@ -255,7 +247,7 @@
   transition: transform 75ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mdc-switch__handle {
+.personal-intelligence-container .mdc-switch__handle {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -269,7 +261,7 @@
   justify-content: center;
 }
 
-.mdc-switch--checked .mdc-switch__handle {
+.personal-intelligence-container .mdc-switch--checked .mdc-switch__handle {
   transform: translateX(20px);
   width: 24px;
   height: 24px;
@@ -278,7 +270,7 @@
   background-color: #003060;
 }
 
-.mdc-switch__icons {
+.personal-intelligence-container .mdc-switch__icons {
   position: absolute;
   width: 24px;
   height: 24px;
@@ -289,11 +281,11 @@
   transition: opacity 75ms;
 }
 
-.mdc-switch--checked .mdc-switch__icons {
+.personal-intelligence-container .mdc-switch--checked .mdc-switch__icons {
   opacity: 1;
 }
 
-.mdc-switch__icon {
+.personal-intelligence-container .mdc-switch__icon {
   width: 16px;
   height: 16px;
   fill: #003060;

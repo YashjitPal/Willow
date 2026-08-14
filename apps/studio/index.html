@@ -499,6 +499,17 @@
         }
       }
 
+      @keyframes spark-home-glow-grow {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+      }
+
       /*
        * The accent stop is Gemini's `--lumi-sys-color--surface-accent`, the one
        * token its own rule references. Willow drives it from the workspace
@@ -613,6 +624,42 @@
         background-color: rgba(227, 227, 227, 0.15);
         pointer-events: none;
         animation: geminiMicRipple 0.35s cubic-bezier(0.2, 0, 0, 1) forwards;
+      }
+
+      @keyframes willow-composer-send-enter {
+        0% {
+          opacity: 0;
+          animation-timing-function: linear;
+        }
+        20% {
+          opacity: 0;
+          animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .willow-composer-send-enter {
+        animation: willow-composer-send-enter 250ms linear both;
+      }
+
+      ::selection {
+        background-color: var(--studio-selection-bg, rgba(156, 228, 179, 0.35));
+      }
+      ::-moz-selection {
+        background-color: var(--studio-selection-bg, rgba(156, 228, 179, 0.35));
+      }
+
+      /* Disallow text selection on placeholder hints & zero-state static headings */
+      ::placeholder,
+      ::-webkit-input-placeholder,
+      ::-moz-placeholder,
+      :-ms-input-placeholder {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
       }
 
       /* Gemini-style speech dictation butterfly waveform */

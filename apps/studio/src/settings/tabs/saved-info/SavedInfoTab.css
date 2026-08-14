@@ -9,7 +9,7 @@
   justify-content: center;
 }
 
-.page-content {
+.saved-info-container .page-content {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -22,7 +22,7 @@
 }
 
 /* Header Grid Layout */
-.header.desktop {
+.saved-info-container .header.desktop {
   display: grid;
   grid-template-areas: 
     "title toggle"
@@ -35,11 +35,11 @@
   margin-bottom: 0px;
 }
 
-.page-title {
+.saved-info-container .page-title {
   grid-area: title;
 }
 
-.page-title h2 {
+.saved-info-container .page-title h2 {
   font-size: 32px;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   font-weight: 360;
@@ -48,13 +48,13 @@
   margin: 0;
 }
 
-.toggle-container {
+.saved-info-container .toggle-container {
   grid-area: toggle;
   align-self: start;
   margin-top: 4px;
 }
 
-.intro-text {
+.saved-info-container .intro-text {
   grid-area: intro;
   font-size: 17px;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
@@ -63,29 +63,29 @@
   color: #e3e3e3;
 }
 
-.intro-text a {
+.saved-info-container .intro-text a {
   color: #a8c7fa;
   text-decoration: none;
   font-weight: 370;
 }
 
-.intro-text a:hover {
+.saved-info-container .intro-text a:hover {
   text-decoration: underline;
 }
 
-.intro-text ul {
+.saved-info-container .intro-text ul {
   list-style-type: disc;
   padding-left: 24px;
   margin-top: 8px;
   margin-bottom: 8px;
 }
 
-.intro-text li {
+.saved-info-container .intro-text li {
   margin: 0px;
   padding-bottom: 4px;
 }
 
-.action-buttons-container {
+.saved-info-container .action-buttons-container {
   grid-area: buttons;
   display: flex;
   flex-direction: row;
@@ -96,7 +96,7 @@
 }
 
 /* Create button styles matching MD3 unelevated button */
-.create-memory-button {
+.saved-info-container .create-memory-button {
   background-color: #a8c7fa;
   color: #062e6f;
   border: none;
@@ -117,12 +117,12 @@
   user-select: none;
 }
 
-.create-memory-button:hover {
+.saved-info-container .create-memory-button:hover {
   background-color: #c3ddff;
 }
 
 /* Outlined Delete all button */
-.delete-all-memories-button {
+.saved-info-container .delete-all-memories-button {
   background-color: transparent;
   color: #a8c7fa;
   border: 0.8px solid #8e918f;
@@ -144,26 +144,26 @@
   margin-left: auto; /* Pushed to the far right edge of the header block */
 }
 
-.delete-all-memories-button:hover {
+.saved-info-container .delete-all-memories-button:hover {
   background-color: rgba(168, 199, 250, 0.08);
   border-color: #a8c7fa;
 }
 
 /* Memories Group Stack styling */
-.memories-groups {
+.saved-info-container .memories-groups {
   display: flex;
   flex-direction: column;
   gap: 28px;
   margin-top: 0px;
 }
 
-.memories-container {
+.saved-info-container .memories-container {
   display: flex;
   flex-direction: column;
   gap: 2px; /* Visual separator lines */
 }
 
-.memory {
+.saved-info-container .memory {
   display: flex;
   align-items: center;
   gap: 24px;
@@ -175,28 +175,28 @@
   transition: background-color 0.15s ease;
 }
 
-.memory:hover {
+.saved-info-container .memory:hover {
   background-color: #252627;
 }
 
 /* Rounded border radius stack settings */
-.first-item {
+.saved-info-container .first-item {
   border-radius: 12px 12px 4px 4px;
 }
 
-.middle-item {
+.saved-info-container .middle-item {
   border-radius: 4px;
 }
 
-.last-item {
+.saved-info-container .last-item {
   border-radius: 4px 4px 12px 12px;
 }
 
-.single-item {
+.saved-info-container .single-item {
   border-radius: 12px;
 }
 
-.memory-text {
+.saved-info-container .memory-text {
   flex: 1;
   font-size: 17px;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
@@ -208,7 +208,7 @@
   word-break: break-word;
 }
 
-.memory-actions-button {
+.saved-info-container .memory-actions-button {
   background-color: transparent;
   border: none;
   color: #c4c7c5;
@@ -226,12 +226,12 @@
   transition: background-color 0.2s ease;
 }
 
-.memory-actions-button:hover {
+.saved-info-container .memory-actions-button:hover {
   background-color: rgba(255, 255, 255, 0.08);
 }
 
 /* MDC Slide Toggle Styling (matches PersonalIntelligenceTab) */
-.mat-mdc-slide-toggle {
+.saved-info-container .mat-mdc-slide-toggle {
   display: inline-block;
   position: relative;
   width: 52px;
@@ -239,7 +239,7 @@
   user-select: none;
 }
 
-.mdc-form-field {
+.saved-info-container .mdc-form-field {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -247,7 +247,7 @@
   height: 100%;
 }
 
-.mdc-switch {
+.saved-info-container .mdc-switch {
   align-items: center;
   background: none;
   border: none;
@@ -261,7 +261,7 @@
   width: 52px;
 }
 
-.mdc-switch__track {
+.saved-info-container .mdc-switch__track {
   background-color: #1e1f20;
   border: 2px solid #8e918f;
   border-radius: 16px;
@@ -271,12 +271,12 @@
   transition: background-color 90ms cubic-bezier(0.4, 0, 0.2, 1), border-color 90ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mdc-switch--selected .mdc-switch__track {
+.saved-info-container .mdc-switch--selected .mdc-switch__track {
   background-color: #a8c7fa;
   border-color: #a8c7fa;
 }
 
-.mdc-switch__handle-track {
+.saved-info-container .mdc-switch__handle-track {
   height: 100%;
   position: absolute;
   top: 0;
@@ -285,7 +285,7 @@
   pointer-events: none;
 }
 
-.mdc-switch__handle {
+.saved-info-container .mdc-switch__handle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -299,7 +299,7 @@
   transition: transform 90ms cubic-bezier(0.4, 0, 0.2, 1), background-color 90ms cubic-bezier(0.4, 0, 0.2, 1), width 90ms ease, height 90ms ease, top 90ms ease, left 90ms ease;
 }
 
-.mdc-switch--selected .mdc-switch__handle {
+.saved-info-container .mdc-switch--selected .mdc-switch__handle {
   transform: translateX(20px);
   background-color: #062e6f;
   height: 24px;
@@ -308,7 +308,7 @@
   left: 4px;
 }
 
-.mdc-switch__icons {
+.saved-info-container .mdc-switch__icons {
   display: flex;
   position: absolute;
   width: 100%;
@@ -317,7 +317,7 @@
   justify-content: center;
 }
 
-.mdc-switch__icon {
+.saved-info-container .mdc-switch__icon {
   position: absolute;
   fill: #a8c7fa;
   width: 16px;
@@ -326,24 +326,24 @@
   transition: opacity 90ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mdc-switch--selected .mdc-switch__icon--on {
+.saved-info-container .mdc-switch--selected .mdc-switch__icon--on {
   opacity: 1;
 }
 
-.mdc-switch__icon--on {
+.saved-info-container .mdc-switch__icon--on {
   fill: #062e6f;
 }
 
-.mdc-switch__icon--off {
+.saved-info-container .mdc-switch__icon--off {
   display: none;
 }
 
-.mdc-switch__shadow {
+.saved-info-container .mdc-switch__shadow {
   display: none;
 }
 
 /* Modal Dialog Backdrop Precisely matching MD3 transition specs */
-.dialog-backdrop {
+.saved-info-container .dialog-backdrop {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.32);
@@ -353,12 +353,12 @@
   pointer-events: auto;
 }
 
-.dialog-backdrop.backdrop-show {
+.saved-info-container .dialog-backdrop.backdrop-show {
   opacity: 1;
 }
 
 /* Dialog Container Overlay Wrapper */
-.dialog-overlay-wrapper {
+.saved-info-container .dialog-overlay-wrapper {
   position: fixed;
   inset: 0;
   z-index: 1001;
@@ -370,7 +370,7 @@
 }
 
 /* Mat Dialog Container with entering scale and opacity transition */
-.mat-mdc-dialog-container {
+.saved-info-container .mat-mdc-dialog-container {
   background-color: #1e1f20;
   border-radius: 28px;
   width: 100%;
@@ -386,18 +386,18 @@
   pointer-events: auto;
 }
 
-.mat-mdc-dialog-container.dialog-open {
+.saved-info-container .mat-mdc-dialog-container.dialog-open {
   opacity: 1;
   transform: scale(1);
 }
 
-.mat-mdc-dialog-container.dialog-closing {
+.saved-info-container .mat-mdc-dialog-container.dialog-closing {
   opacity: 0;
   transform: scale(1);
   transition: opacity 75ms linear;
 }
 
-.mat-mdc-dialog-title {
+.saved-info-container .mat-mdc-dialog-title {
   box-sizing: border-box;
   padding: 8px 24px 13px 24px;
   margin: 0 0 1px 0;
@@ -412,7 +412,7 @@
 }
 
 /* Pseudo-element precisely matching MD3/Angular Material to push text baseline down */
-.mat-mdc-dialog-title::before {
+.saved-info-container .mat-mdc-dialog-title::before {
   display: inline-block;
   width: 0;
   height: 40px;
@@ -420,7 +420,7 @@
   vertical-align: 0px;
 }
 
-.mat-mdc-dialog-content {
+.saved-info-container .mat-mdc-dialog-content {
   box-sizing: border-box;
   padding: 0 24px;
   margin: 0;
@@ -431,7 +431,7 @@
 }
 
 /* Outlined Text Field wrapper */
-.edit-memory-field-wrapper {
+.saved-info-container .edit-memory-field-wrapper {
   box-sizing: border-box;
   width: 100%;
   height: 240px;
@@ -443,13 +443,13 @@
   display: flex;
 }
 
-.edit-memory-field-wrapper:focus-within {
+.saved-info-container .edit-memory-field-wrapper:focus-within {
   border: 2px solid #a8c7fa;
   padding: 15px; /* Subtract 1px to offset 2px border width change jitter */
 }
 
 /* Outlined Textarea input */
-.edit-memory-input {
+.saved-info-container .edit-memory-input {
   width: 100%;
   height: 100%;
   background-color: transparent;
@@ -464,7 +464,7 @@
   outline: none;
 }
 
-.mat-mdc-dialog-actions {
+.saved-info-container .mat-mdc-dialog-actions {
   box-sizing: border-box;
   padding: 24px;
   margin: 0;
@@ -473,7 +473,7 @@
   align-items: center;
 }
 
-.mat-mdc-dialog-actions button {
+.saved-info-container .mat-mdc-dialog-actions button {
   font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -489,28 +489,28 @@
   transition: background-color 0.2s, color 0.2s;
 }
 
-.mat-mdc-dialog-actions button.cancel-btn {
+.saved-info-container .mat-mdc-dialog-actions button.cancel-btn {
   background-color: transparent;
   color: #a8c7fa;
   padding: 10px 12px;
 }
 
-.mat-mdc-dialog-actions button.cancel-btn:hover {
+.saved-info-container .mat-mdc-dialog-actions button.cancel-btn:hover {
   background-color: rgba(168, 199, 250, 0.08);
 }
 
-.mat-mdc-dialog-actions button.submit-btn {
+.saved-info-container .mat-mdc-dialog-actions button.submit-btn {
   background-color: #a8c7fa;
   color: #062e6f;
   padding: 10px 24px;
   margin-left: 8px;
 }
 
-.mat-mdc-dialog-actions button.submit-btn:hover {
+.saved-info-container .mat-mdc-dialog-actions button.submit-btn:hover {
   background-color: #c3ddff;
 }
 
-.mat-mdc-dialog-actions button.submit-btn:disabled {
+.saved-info-container .mat-mdc-dialog-actions button.submit-btn:disabled {
   background-color: rgba(227, 227, 227, 0.12) !important;
   color: rgba(227, 227, 227, 0.38) !important;
   cursor: default;
@@ -518,8 +518,8 @@
 }
 
 /* Button Icon Spacings precisely matching MD3 spec */
-.create-memory-button .mat-icon,
-.delete-all-memories-button .mat-icon {
+.saved-info-container .create-memory-button .mat-icon,
+.saved-info-container .delete-all-memories-button .mat-icon {
   font-size: 18px !important;
   width: 18px !important;
   height: 18px !important;
@@ -530,10 +530,10 @@
   line-height: 1 !important;
 }
 
-.create-memory-button .mat-icon {
+.saved-info-container .create-memory-button .mat-icon {
   color: #062e6f !important;
 }
 
-.delete-all-memories-button .mat-icon {
+.saved-info-container .delete-all-memories-button .mat-icon {
   color: #a8c7fa !important;
 }

@@ -38,6 +38,7 @@ import { MicMutedSlash } from './MicMutedSlash';
 import { playMicToggleEarcon } from './mic-earcon';
 import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-store';
 import { profileStore, setProfileEnabled } from '@willow/personal';
+import { useAuth } from '@willow/auth/AuthContext';
 import { listVoiceModels } from '../voice-settings/voice-providers';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerModels } from './use-composer-models';
@@ -80,6 +81,61 @@ export const CHIP_LABEL_STYLE: React.CSSProperties = {
   fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
 };
 
+/**
+ * Transform from background glow accent to send/live button color in OKLCh space.
+ * Measured and calibrated from the reference pair:
+ *   Blue Background Glow (#14204f) -> Blue Button (#1b3f95).
+ *
+ * Lightness multiplier: ~1.5055 (L_btn = L_glow * 1.505535)
+ * Chroma multiplier:    ~1.6820 (C_btn = C_glow * 1.682025)
+ * Hue shift:            -5.0729° (h_btn = h_glow - 5.072855°)
+ */
+export const GLOW_TO_BUTTON_TRANSFORM = {
+  lightnessRatio: 1.5055348233608743,
+  chromaRatio: 1.6820248383608614,
+  hueShiftDeg: -5.072855244339735,
+} as const;
+
+export const CHAT_BUTTON_COLORS = {
+  blue: { bg: '#1b3f95', hover: '#153277' },
+  pink: { bg: '#8c064b', hover: '#70053c' },
+  yellow: { bg: '#7c6100', hover: '#634e00' },
+  orange: { bg: '#863e00', hover: '#6b3200' },
+  green: { bg: '#127352', hover: '#0d5c41' },
+} as const;
+
+export const getChatSubmitBg = (color?: string) => {
+  switch (color) {
+    case 'blue':
+      return 'bg-[#1b3f95] hover:bg-[#153277]';
+    case 'pink':
+      return 'bg-[#8c064b] hover:bg-[#70053c]';
+    case 'yellow':
+      return 'bg-[#7c6100] hover:bg-[#634e00]';
+    case 'orange':
+      return 'bg-[#863e00] hover:bg-[#6b3200]';
+    case 'green':
+    default:
+      return 'bg-[#127352] hover:bg-[#0d5c41]';
+  }
+};
+
+export const getChatTranscribingBg = (color?: string) => {
+  switch (color) {
+    case 'blue':
+      return 'bg-[#1b3f95]';
+    case 'pink':
+      return 'bg-[#8c064b]';
+    case 'yellow':
+      return 'bg-[#7c6100]';
+    case 'orange':
+      return 'bg-[#863e00]';
+    case 'green':
+    default:
+      return 'bg-[#127352]';
+  }
+};
+
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -94,6 +150,8 @@ export const InputBar: React.FC<{
   chatVariant?: boolean;
   /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
   showDisclaimer?: boolean;
+  /** Workspace swatch color to style the send / live button. */
+  workspaceColor?: string;
   /** Chat live-voice session wiring. When `liveActive`, the empty-state send
    *  button becomes a stop control; otherwise it starts the session. Only
    *  consulted in `chatVariant` — Develop / Workbench input is untouched. */
@@ -112,7 +170,9 @@ export const InputBar: React.FC<{
   /** Whether the user has added the Gemini Live model. When false and the
    *  prompt is empty, a dulled send button is shown instead of the live icon. */
   liveAvailable?: boolean;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false }) => {
+  const { userProfile } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -926,8 +986,8 @@ export const InputBar: React.FC<{
                     ? isGenerating || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
-                      ? 'bg-[#4a7c59]'
-                      : 'bg-[#4a7c59] hover:bg-[#3f694a]'
+                      ? getChatTranscribingBg(effectiveWorkspaceColor)
+                      : getChatSubmitBg(effectiveWorkspaceColor)
                     : isGenerating || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation

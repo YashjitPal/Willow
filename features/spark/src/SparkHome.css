@@ -120,19 +120,32 @@
   isolation: isolate;
 }
 
+@keyframes spark-home-glow-grow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -72px) scale(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -72px) scale(1);
+  }
+}
+
 .spark-composer-anchor::before {
   position: absolute;
   top: 0;
   left: 50%;
-  z-index: -1;
+  display: block;
   width: 792px;
   height: 160px;
   border-radius: 9999px;
-  background: rgb(20, 32, 79);
+  background: var(--spark-home-glow, rgb(6, 78, 59));
   content: "";
   filter: blur(100px);
   pointer-events: none;
   transform: translate(-50%, -72px);
+  z-index: -1;
+  animation: spark-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .spark-composer {
@@ -147,7 +160,6 @@
 }
 
 .spark-composer-icon-button,
-.spark-composer-send-button,
 .spark-composer-stop-button {
   display: inline-flex;
   width: 32px;
@@ -165,8 +177,72 @@
 }
 
 .spark-composer-send-button {
-  background: #a8c7fa;
-  color: #062e6f;
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #ffffff !important;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.spark-composer-send-button.is-blue {
+  background-color: #1b3f95 !important;
+}
+.spark-composer-send-button.is-blue:hover {
+  background-color: #153277 !important;
+}
+
+.spark-composer-send-button.is-green {
+  background-color: #127352 !important;
+}
+.spark-composer-send-button.is-green:hover {
+  background-color: #0d5c41 !important;
+}
+
+.spark-composer-send-button.is-pink {
+  background-color: #8c064b !important;
+}
+.spark-composer-send-button.is-pink:hover {
+  background-color: #70053c !important;
+}
+
+.spark-composer-send-button.is-yellow {
+  background-color: #7c6100 !important;
+}
+.spark-composer-send-button.is-yellow:hover {
+  background-color: #634e00 !important;
+}
+
+.spark-composer-send-button.is-orange {
+  background-color: #863e00 !important;
+}
+.spark-composer-send-button.is-orange:hover {
+  background-color: #6b3200 !important;
+}
+
+@keyframes spark-composer-send-enter {
+  0% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+  20% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.spark-composer-send-enter {
+  animation: spark-composer-send-enter 250ms linear both;
 }
 
 .spark-composer-stop-button {
@@ -184,10 +260,6 @@
 
 .spark-composer-icon-button:hover {
   background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-composer-send-button:hover {
-  background: #b8d2fa;
 }
 
 .spark-composer-stop-button:hover {
