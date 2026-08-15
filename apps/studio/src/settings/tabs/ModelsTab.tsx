@@ -147,6 +147,7 @@ interface GeminiModel {
   hasNone: boolean;
   noneLabel?: string;
   levelLabels?: Record<number, string>;
+  capabilities?: string[];
 }
 
 interface ModelsTabProps {
@@ -227,6 +228,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   const [transcriptionDropdownOpen, setTranscriptionDropdownOpen] = React.useState(false);
   const [transcriptionDirection, setTranscriptionDirection] = React.useState<'down' | 'up'>('down');
   const transcriptionRef = React.useRef<HTMLDivElement>(null);
+  const [chatSearchDropdownOpen, setChatSearchDropdownOpen] = React.useState(false);
+  const [chatSearchDirection, setChatSearchDirection] = React.useState<'down' | 'up'>('down');
+  const chatSearchRef = React.useRef<HTMLDivElement>(null);
   const [personalDropdownOpen, setPersonalDropdownOpen] = React.useState(false);
   const [personalDirection, setPersonalDirection] = React.useState<'down' | 'up'>('down');
   const personalRef = React.useRef<HTMLDivElement>(null);
@@ -253,6 +257,19 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     () => allSystemDefaultModels.filter(
       (model: any) => Boolean(providerState?.[model.provider]?.apiKey),
     ),
+    [allSystemDefaultModels, providerState],
+  );
+
+  const selectableEmbeddingModels = React.useMemo(
+    () => allSystemDefaultModels.filter((model: any) => (
+      Boolean(providerState?.[model.provider]?.apiKey?.trim()) &&
+      model.provider === 'gemini' &&
+      (
+        model.capabilities?.includes('embedding') ||
+        model.category === 'embedding' ||
+        /embed/i.test((model.modelId || model.id) || '')
+      )
+    )),
     [allSystemDefaultModels, providerState],
   );
 
@@ -288,6 +305,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     ? 'Gemini 3.5 Flash Lite'
     : modelConfig.systemDefaults?.transcription) || 'Select model';
 
+  const selectedChatSearchModelName = selectableEmbeddingModels.find(
+    (model: any) => model.modelId === modelConfig.systemDefaults?.chatSearch,
+  )?.name || 'Lexical search';
+
   const selectedPersonalModelName = isPersonalAutomatic
     ? (personalSelection?.name
         ? `${personalSelection.name} · automatic`
@@ -303,6 +324,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
       if (!target.closest('[data-dropdown="spacexai"]')) setSpacexaiDropdownOpen(false);
       if (!target.closest('[data-dropdown="zhipuai"]')) setZhipuaiDropdownOpen(false);
       if (!target.closest('[data-dropdown="transcription-model"]')) setTranscriptionDropdownOpen(false);
+      if (!target.closest('[data-dropdown="chat-search-model"]')) setChatSearchDropdownOpen(false);
       if (!target.closest('[data-dropdown="personal-intelligence-model"]')) setPersonalDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -503,8 +525,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                               id: Math.random().toString(36).substr(2, 9),
                               modelId: selectedModel.id,
                               name: selectedModel.name,
-                              thinkingLevel: 3,
-                              thinkingLabel: 'High'
+                              thinkingLevel: selectedModel.maxLevels > 0 ? 3 : 0,
+                              thinkingLabel: selectedModel.maxLevels > 0 ? 'High' : 'None',
+                              capabilities: selectedModel.capabilities
                             }
                           ]
                         }
@@ -1436,6 +1459,87 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           </button>
                         ))
                       )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Chat Search Model */}
+            <div className="flex items-center justify-between py-2">
+              <div className="flex flex-col">
+                <span className="text-[14px] font-semibold text-white">Chat Search Model</span>
+                <span className="text-[12px] text-zinc-500">Embedding model used to rank chat search results.</span>
+              </div>
+              <div
+                className="relative w-64"
+                ref={chatSearchRef}
+                data-dropdown="chat-search-model"
+              >
+                <button
+                  onClick={() => {
+                    if (chatSearchDropdownOpen) {
+                      setChatSearchDropdownOpen(false);
+                    } else {
+                      setChatSearchDirection(determineDirection(chatSearchRef));
+                      setChatSearchDropdownOpen(true);
+                    }
+                  }}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                >
+                  <span>{selectedChatSearchModelName}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-200 ${chatSearchDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {chatSearchDropdownOpen && (
+                  <div className={`absolute ${chatSearchDirection === 'up' ? 'bottom-full mb-2 origin-bottom animate-dropdownOpenUp' : 'top-full mt-2 origin-top animate-dropdownOpen'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden`}>
+                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                      <button
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setModelConfig((previous: any) => ({
+                            ...previous,
+                            systemDefaults: {
+                              ...previous.systemDefaults,
+                              chatSearch: 'linear',
+                            },
+                          }));
+                          setChatSearchDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${!selectableEmbeddingModels.some((model: any) => model.modelId === modelConfig.systemDefaults?.chatSearch) ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                      >
+                        <span className="font-medium">Lexical search</span>
+                        {!selectableEmbeddingModels.some((model: any) => model.modelId === modelConfig.systemDefaults?.chatSearch) && (
+                          <Check size={14} className="text-white" />
+                        )}
+                      </button>
+                      {selectableEmbeddingModels.map((model: any) => (
+                        <button
+                          key={`${model.provider}-${model.id || model.modelId}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setModelConfig((previous: any) => ({
+                              ...previous,
+                              systemDefaults: {
+                                ...previous.systemDefaults,
+                                chatSearch: model.modelId,
+                              },
+                            }));
+                            setChatSearchDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${modelConfig.systemDefaults?.chatSearch === model.modelId ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          <span className="font-medium">{model.name}</span>
+                          {modelConfig.systemDefaults?.chatSearch === model.modelId && (
+                            <Check size={14} className="text-white" />
+                          )}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}

@@ -188,8 +188,13 @@
   border-radius: 50%;
   color: #ffffff !important;
   cursor: pointer;
+  background-color: var(--spark-send-bg, #127352) !important;
   transition: background-color 200ms ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.spark-composer-send-button:hover {
+  background-color: var(--spark-send-hover, #0d5c41) !important;
 }
 
 .spark-composer-send-button.is-blue {
@@ -225,6 +230,34 @@
 }
 .spark-composer-send-button.is-orange:hover {
   background-color: #6b3200 !important;
+}
+
+.spark-composer-send-button.is-purple {
+  background-color: #512192 !important;
+}
+.spark-composer-send-button.is-purple:hover {
+  background-color: #450e83 !important;
+}
+
+.spark-composer-send-button.is-lilac {
+  background-color: #6f3c92 !important;
+}
+.spark-composer-send-button.is-lilac:hover {
+  background-color: #5f2c81 !important;
+}
+
+.spark-composer-send-button.is-coral {
+  background-color: #900021 !important;
+}
+.spark-composer-send-button.is-coral:hover {
+  background-color: #78001a !important;
+}
+
+.spark-composer-send-button.is-teal {
+  background-color: #00625c !important;
+}
+.spark-composer-send-button.is-teal:hover {
+  background-color: #00514c !important;
 }
 
 @keyframes spark-composer-send-enter {

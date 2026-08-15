@@ -1,4 +1,5 @@
 import React from 'react';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 
 interface TopLoadingBarProps {
   active: boolean;
@@ -27,28 +28,17 @@ export const TOP_LOADING_BAR_COLORS = {
   yellow: { bar: '#efdbae', shadow: 'rgba(239,219,174,0.85)' },
   orange: { bar: '#f6c5ac', shadow: 'rgba(246,197,172,0.85)' },
   green: { bar: '#4a7c59', shadow: 'rgba(74,124,89,0.85)' },
+  purple: { bar: '#c5b8fa', shadow: 'rgba(197,184,250,0.85)' },
+  lilac: { bar: '#dec7fb', shadow: 'rgba(222,199,251,0.85)' },
+  coral: { bar: '#ffb1b4', shadow: 'rgba(255,177,180,0.85)' },
+  teal: { bar: '#afdbd4', shadow: 'rgba(175,219,212,0.85)' },
 } as const;
-
-const getLoadingBarColorClass = (color?: string) => {
-  switch (color) {
-    case 'blue':
-      return 'bg-[#a8c7fa] shadow-[0_0_8px_rgba(168,199,250,0.85)]';
-    case 'pink':
-      return 'bg-[#fab2cd] shadow-[0_0_8px_rgba(250,178,205,0.85)]';
-    case 'yellow':
-      return 'bg-[#efdbae] shadow-[0_0_8px_rgba(239,219,174,0.85)]';
-    case 'orange':
-      return 'bg-[#f6c5ac] shadow-[0_0_8px_rgba(246,197,172,0.85)]';
-    case 'green':
-    default:
-      return 'bg-[#4a7c59] shadow-[0_0_8px_rgba(74,124,89,0.85)]';
-  }
-};
 
 export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset = 0, workspaceColor }) => {
   const [visible, setVisible] = React.useState(false);
   const [progress, setProgress] = React.useState(0.06);
   const [cycle, setCycle] = React.useState(0);
+  const theme = getWorkspaceTheme(workspaceColor);
 
   React.useEffect(() => {
     let leadFrame = 0;
@@ -58,17 +48,39 @@ export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset
 
     if (active) {
       setCycle((current) => current + 1);
-      setVisible(true);
       setProgress(0.06);
-      leadFrame = window.requestAnimationFrame(() => {
-        progressFrame = window.requestAnimationFrame(() => setProgress(0.72));
-      });
+      setVisible(true);
+
+      const leadSteps = [0.18, 0.32, 0.48];
+      let stepIndex = 0;
+
+      const advanceLead = () => {
+        if (stepIndex < leadSteps.length) {
+          setProgress(leadSteps[stepIndex]);
+          stepIndex += 1;
+          leadFrame = window.requestAnimationFrame(() => {
+            window.setTimeout(advanceLead, 120);
+          });
+        }
+      };
+
+      leadFrame = window.requestAnimationFrame(advanceLead);
+
       trickleTimer = window.setInterval(() => {
-        setProgress((current) => Math.min(0.92, current + (0.92 - current) * 0.14));
-      }, 420);
-    } else {
+        setProgress((current) => {
+          if (current >= 0.88) return current;
+          const remaining = 0.88 - current;
+          return current + Math.max(0.015, remaining * 0.12);
+        });
+      }, 260);
+    } else if (visible) {
       setProgress(1);
-      completionTimer = window.setTimeout(() => setVisible(false), 180);
+      completionTimer = window.setTimeout(() => {
+        setVisible(false);
+        progressFrame = window.requestAnimationFrame(() => {
+          setProgress(0.06);
+        });
+      }, 220);
     }
 
     return () => {
@@ -77,7 +89,7 @@ export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset
       if (trickleTimer) window.clearInterval(trickleTimer);
       if (completionTimer) window.clearTimeout(completionTimer);
     };
-  }, [active]);
+  }, [active, visible]);
 
   return (
     <div
@@ -90,9 +102,11 @@ export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset
     >
       <div
         key={cycle}
-        className={`h-full w-full origin-left ${getLoadingBarColorClass(workspaceColor)} motion-reduce:transition-none`}
+        className="h-full w-full origin-left motion-reduce:transition-none"
         style={{
           transform: `scaleX(${progress})`,
+          backgroundColor: theme.loadbar.hex,
+          boxShadow: `0 0 8px ${theme.loadbar.shadow}`,
           transition: progress === 1
             ? 'transform 180ms ease-out'
             : 'transform 720ms cubic-bezier(0.2, 0.75, 0.3, 1)',

@@ -84,7 +84,7 @@ it('anchors the transform on the Gemini pair it was measured from', () => {
 });
 
 it('keeps every derived accent equal to the derivation', () => {
-  for (const name of ['pink', 'yellow', 'orange']) {
+  for (const name of ['pink', 'yellow', 'orange', 'purple', 'lilac', 'coral', 'teal']) {
     assert.equal(
       HOME_GLOW_ACCENT[name],
       deriveGlowAccent(WORKSPACE_COLOR_HEX[name]),
@@ -111,7 +111,7 @@ it('holds green at the colour that ships today', () => {
 });
 
 it('falls back to green for a missing or unknown workspace colour', () => {
-  for (const value of [undefined, null, '', 'teal', 'GREEN']) {
+  for (const value of [undefined, null, '', 'magenta', 'GREEN']) {
     assert.equal(homeGlowAccent(value), DEFAULT_GLOW_ACCENT,
       `homeGlowAccent(${JSON.stringify(value)}) must fall back to the default green`);
   }

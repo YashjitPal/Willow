@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check } from 'lucide-react';
+import { WORKSPACE_COLOR_DEFINITIONS } from '@willow/core/workspace-theme';
 
 interface WorkspaceTabProps {
   localWorkspaceName: string;
@@ -7,7 +8,7 @@ interface WorkspaceTabProps {
   localWorkspaceDescription: string;
   setLocalWorkspaceDescription: (v: string) => void;
   localWorkspaceColor: string;
-  setLocalWorkspaceColor: (v: "green" | "pink" | "yellow" | "orange" | "blue") => void;
+  setLocalWorkspaceColor: (v: any) => void;
   workspaceSettingsChanged: boolean;
   setWorkspaceSettingsChanged: (v: boolean) => void;
   showWorkspaceColorPicker: boolean;
@@ -74,25 +75,20 @@ export const WorkspaceTab: React.FC<WorkspaceTabProps> = ({
 
             {/* Color Picker Slide-out */}
             {showWorkspaceColorPicker && (
-              <div className={`absolute left-12 top-0 bg-[#1a1a1a] border border-white/10 rounded-xl p-2 flex gap-2 shadow-xl z-50 ${colorPickerClosing ? 'animate-slide-out-left' : 'animate-slide-in-right'}`}>
-                {[
-                  { id: 'green', color: 'bg-[#4a7c59]', label: 'Willow Green' },
-                  { id: 'blue', color: 'bg-[#3b82f6]', label: 'Blue' },
-                  { id: 'pink', color: 'bg-[#ec4899]', label: 'Pink' },
-                  { id: 'yellow', color: 'bg-[#eab308]', label: 'Yellow' },
-                  { id: 'orange', color: 'bg-[#f97316]', label: 'Orange' },
-                ].map((option) => (
+              <div className={`absolute left-12 top-0 bg-[#1a1a1a] border border-white/10 rounded-xl p-2 flex gap-2 shadow-xl z-50 flex-wrap max-w-[280px] sm:max-w-none ${colorPickerClosing ? 'animate-slide-out-left' : 'animate-slide-in-right'}`}>
+                {WORKSPACE_COLOR_DEFINITIONS.map((option) => (
                   <button
                     key={option.id}
                     onClick={() => {
-                      setLocalWorkspaceColor(option.id as "green" | "pink" | "yellow" | "orange" | "blue");
+                      setLocalWorkspaceColor(option.id);
                       setWorkspaceSettingsChanged(true);
                       closeColorPicker();
                     }}
-                    className={`w-10 h-10 rounded-lg ${option.color} flex items-center justify-center transition-all hover:scale-110 ${localWorkspaceColor === option.id ? 'ring-2 ring-white ring-offset-2 ring-offset-[#1a1a1a]' : ''}`}
+                    style={{ backgroundColor: option.hex }}
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 shrink-0 ${localWorkspaceColor === option.id ? 'ring-2 ring-white ring-offset-2 ring-offset-[#1a1a1a]' : ''}`}
                     title={option.label}
                   >
-                    {localWorkspaceColor === option.id && <Check size={16} className="text-white" />}
+                    {localWorkspaceColor === option.id && <Check size={16} className="text-white drop-shadow-sm" />}
                   </button>
                 ))}
               </div>

@@ -136,6 +136,10 @@ export const WORKSPACE_COLOR_HEX = {
   pink: '#ec4899',
   yellow: '#eab308',
   orange: '#f97316',
+  purple: '#8b5cf6',
+  lilac: '#c084fc',
+  coral: '#f43f5e',
+  teal: '#14b8a6',
 } as const;
 
 export type WorkspaceColorName = keyof typeof WORKSPACE_COLOR_HEX;
@@ -203,7 +207,7 @@ export const deriveOrbPalette = (hex: string): Triple[] => {
  * recompute a value the shader already holds exactly when the requirement is that
  * blue keeps looking exactly as it does today.
  *
- * The other four are the derived palettes appended to the shader at 7..10. The
+ * The other colors are the derived palettes appended to the shader at 7..14. The
  * shipped hand-authored palettes at 1..6 are left in place and still reachable
  * through `PALETTE_INDEX_BY_NAME`.
  */
@@ -213,5 +217,9 @@ export const WORKSPACE_PALETTE_INDEX = {
   pink: 8,
   yellow: 9,
   orange: 10,
+  purple: 11,
+  lilac: 12,
+  coral: 13,
+  teal: 14,
 } as const satisfies Record<WorkspaceColorName, number>;
 

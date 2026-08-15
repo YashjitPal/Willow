@@ -19,9 +19,14 @@
  * `onClose` — unmounting immediately would cut the animation off.
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Plus, Search, Settings } from "lucide-react";
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import {
+  chooseMenuSide,
+  getViewportConstrainedOffset,
+  type MenuSide,
+} from '@willow/ui/models/menu-position';
 import {
   getModelGroupKey,
   getThinkingEffortLabel,
@@ -105,22 +110,10 @@ export const ModelsMenu: React.FC<{
     : savedModels.filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
 
   const [isEffortHovered, setIsEffortHovered] = useState(false);
+  const [isEffortPositionReady, setIsEffortPositionReady] = useState(false);
+  const effortMenuWrapperRef = useRef<HTMLDivElement>(null);
   const effortMenuRef = useRef<HTMLDivElement>(null);
   const [effortOffset, setEffortOffset] = useState(0);
-
-  useLayoutEffect(() => {
-    if (isEffortHovered && effortMenuRef.current) {
-      const rect = effortMenuRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      if (rect.bottom > viewportHeight - 16) {
-        setEffortOffset(viewportHeight - 16 - rect.bottom);
-      } else {
-        setEffortOffset(0);
-      }
-    } else {
-      setEffortOffset(0);
-    }
-  }, [isEffortHovered]);
 
   const seenModelKeys = new Set<string>();
   const ALL_MODELS = rawModels.filter((m: any) => {
@@ -131,7 +124,9 @@ export const ModelsMenu: React.FC<{
   });
 
   const [localSearchQuery, setLocalSearchQuery] = useState("");
-  const [side, setSide] = useState<"top" | "bottom">(geminiStyle ? "bottom" : "top");
+  const preferredSide: MenuSide = geminiStyle ? 'bottom' : 'top';
+  const [side, setSide] = useState<MenuSide>(preferredSide);
+  const [isPositionReady, setIsPositionReady] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -142,7 +137,7 @@ export const ModelsMenu: React.FC<{
     }, 150);
   };
 
-  const calculatePosition = () => {
+  const calculatePosition = useCallback(() => {
     if (!triggerRef.current || !menuRef.current) return;
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const menuHeight = menuRef.current.offsetHeight;
@@ -151,18 +146,93 @@ export const ModelsMenu: React.FC<{
     const spaceAbove = triggerRect.top;
     const spaceBelow = viewportHeight - triggerRect.bottom;
 
-    if (side === "top") {
-      if (spaceAbove < menuHeight + spacing && spaceBelow > spaceAbove)
-        setSide("bottom");
-    } else {
-      if (spaceBelow < menuHeight + spacing && spaceAbove > spaceBelow)
-        setSide("top");
-    }
-  };
+    const nextSide = chooseMenuSide({
+      preferredSide,
+      menuHeight,
+      spacing,
+      spaceAbove,
+      spaceBelow,
+    });
+    setSide((currentSide) => currentSide === nextSide ? currentSide : nextSide);
+  }, [geminiStyle, preferredSide, triggerRef]);
 
   useLayoutEffect(() => {
     calculatePosition();
-  }, []);
+
+    let firstFrameId = 0;
+    let secondFrameId = 0;
+    firstFrameId = window.requestAnimationFrame(() => {
+      calculatePosition();
+      secondFrameId = window.requestAnimationFrame(() => {
+        calculatePosition();
+        setIsPositionReady(true);
+      });
+    });
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(calculatePosition);
+    if (menuRef.current) observer?.observe(menuRef.current);
+    if (triggerRef.current) observer?.observe(triggerRef.current);
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      window.cancelAnimationFrame(secondFrameId);
+      observer?.disconnect();
+    };
+  }, [calculatePosition, triggerRef]);
+
+  useLayoutEffect(() => {
+    if (!isEffortHovered) {
+      setEffortOffset(0);
+      setIsEffortPositionReady(false);
+      return;
+    }
+
+    const calculateEffortPosition = () => {
+      const effortMenuWrapper = effortMenuWrapperRef.current;
+      const effortMenu = effortMenuRef.current;
+      if (!effortMenuWrapper || !effortMenu) return;
+
+      const previousTransform = effortMenuWrapper.style.transform;
+      effortMenuWrapper.style.transform = 'none';
+      const rect = effortMenu.getBoundingClientRect();
+      effortMenuWrapper.style.transform = previousTransform;
+
+      setEffortOffset(getViewportConstrainedOffset({
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+      }));
+    };
+
+    const modelMenu = menuRef.current;
+    const handleModelMenuAnimationEnd = (event: AnimationEvent) => {
+      if (event.target !== modelMenu) return;
+      calculateEffortPosition();
+      setIsEffortPositionReady(true);
+    };
+    modelMenu?.addEventListener('animationend', handleModelMenuAnimationEnd);
+    window.addEventListener('resize', calculateEffortPosition);
+
+    calculateEffortPosition();
+    const frameId = window.requestAnimationFrame(() => {
+      calculateEffortPosition();
+      const isAnimating = modelMenu?.getAnimations().some((animation) => animation.playState === 'running');
+      if (!isAnimating) setIsEffortPositionReady(true);
+    });
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(calculateEffortPosition);
+    if (effortMenuRef.current) observer?.observe(effortMenuRef.current);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      modelMenu?.removeEventListener('animationend', handleModelMenuAnimationEnd);
+      window.removeEventListener('resize', calculateEffortPosition);
+      observer?.disconnect();
+    };
+  }, [isEffortHovered, side]);
 
   useEffect(() => {
     const handleScroll = () => calculatePosition();
@@ -177,7 +247,7 @@ export const ModelsMenu: React.FC<{
         scrollContainer.removeEventListener("scroll", handleScroll);
       window.removeEventListener("resize", handleScroll);
     };
-  }, [side]);
+  }, [calculatePosition]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -305,8 +375,11 @@ export const ModelsMenu: React.FC<{
         ref={menuRef}
         role="menu"
         aria-label="Choose a model"
-        className={`absolute right-0 w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
-        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+        className={`absolute right-0 w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${!isPositionReady ? 'invisible' : ''} ${side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+        style={{
+          fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+          animationPlayState: isPositionReady ? undefined : 'paused',
+        }}
       >
         <div className="max-h-[208px] overflow-y-auto no-scrollbar">
           {groupedModels.length === 0 ? (
@@ -349,8 +422,14 @@ export const ModelsMenu: React.FC<{
             <div className="h-px bg-[#444746] my-2" role="separator" />
             <div 
               className="relative"
-              onMouseEnter={() => setIsEffortHovered(true)}
-              onMouseLeave={() => setIsEffortHovered(false)}
+              onMouseEnter={() => {
+                setIsEffortPositionReady(false);
+                setIsEffortHovered(true);
+              }}
+              onMouseLeave={() => {
+                setIsEffortPositionReady(false);
+                setIsEffortHovered(false);
+              }}
             >
               <button
                 type="button"
@@ -370,6 +449,7 @@ export const ModelsMenu: React.FC<{
 
               {isEffortHovered && (
                 <div 
+                  ref={effortMenuWrapperRef}
                   className={`pointer-events-auto absolute left-full -ml-2 pl-4 ${side === "top" ? "bottom-0" : "top-0"}`}
                   style={{ transform: `translateY(${effortOffset}px)` }}
                 >
@@ -377,7 +457,7 @@ export const ModelsMenu: React.FC<{
                     ref={effortMenuRef}
                     role="menu"
                     aria-label="Thinking Effort"
-                    className="pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar"
+                    className={`pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar ${!isEffortPositionReady ? 'invisible' : ''}`}
                   >
                   {selectedEfforts.map((model) => {
                     // Compare against the *resolved* effort, not the raw
@@ -419,7 +499,8 @@ export const ModelsMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${!isPositionReady ? 'invisible' : ''} ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      style={{ animationPlayState: isPositionReady ? undefined : 'paused' }}
     >
       <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
         <Search
