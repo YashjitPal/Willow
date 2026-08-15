@@ -12,6 +12,7 @@ import type { StudioExperience } from '@willow/core/types';
 import { useStore } from '@nanostores/react';
 import { $chatPanelOpen, $voiceModeActive } from '@willow/chat/chat-panel-store';
 import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -38,12 +39,6 @@ const BackgroundRenderer: React.FC<{ isSidebarCollapsed?: boolean }> = ({ isSide
     default:
       return null;
   }
-};const WORKSPACE_SELECTION_BG: Record<string, string> = {
-  yellow: 'rgba(253, 221, 65, 0.35)',
-  blue: 'rgba(168, 199, 250, 0.35)',
-  green: 'rgba(156, 228, 179, 0.35)',
-  pink: 'rgba(250, 178, 205, 0.35)',
-  orange: 'rgba(255, 202, 138, 0.35)',
 };
 
 export const StudioLayout: React.FC<{
@@ -64,6 +59,7 @@ export const StudioLayout: React.FC<{
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   isSidebarHidden?: boolean;
+  modelConfig: any;
 }> = ({
   isSearchOpen,
   setIsSearchOpen,
@@ -82,6 +78,7 @@ export const StudioLayout: React.FC<{
   isSidebarCollapsed,
   setIsSidebarCollapsed,
   isSidebarHidden = false,
+  modelConfig,
 }) => {
   const { background } = useBackground();
   const { 
@@ -95,8 +92,7 @@ export const StudioLayout: React.FC<{
   } = useLocalFS();
 
   const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
-  const selectionBg = WORKSPACE_SELECTION_BG[effectiveWorkspaceColor] || WORKSPACE_SELECTION_BG.green;
+  const selectionBg = getWorkspaceTheme(userProfile?.workspaceColor).creamy.rgba;
 
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
@@ -142,7 +138,10 @@ export const StudioLayout: React.FC<{
         </button>
       )}
       <Sidebar
-        onSearchClick={() => setIsSearchOpen(true)}
+        onSearchClick={() => {
+          setIsSearchOpen(false);
+          setCurrentView('search');
+        }}
         currentView={currentView}
         onViewChange={setCurrentView}
         studioMode={studioMode}
@@ -172,7 +171,7 @@ export const StudioLayout: React.FC<{
       )}
 
 
-      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} modelConfig={modelConfig} />
 
       {/* Persistent Authorize Sync Modal */}
       {isLocalFolderConnected && !isLocalFolderAuthorized && !isInitializingLocalFS && (

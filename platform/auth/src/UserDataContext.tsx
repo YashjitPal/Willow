@@ -15,17 +15,17 @@ interface UserSettings {
     gemini: {
       model: string;
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string; capabilities?: string[] }>;
     };
     openai: {
       model: string;
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string; capabilities?: string[] }>;
     };
     anthropic: {
       model: string;
       thinkingLevel: number;
-      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>;
+      savedModels: Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string; capabilities?: string[] }>;
     };
   };
   selectedModelId: string;

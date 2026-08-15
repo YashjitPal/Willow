@@ -16,6 +16,19 @@ effects — just the shared vocabulary that both `features/` and `platform/` dep
 | `src/dialog-focus.ts` | Focus-trap helpers for modals. |
 | `src/json-schema.ts` | JSON Schema → TypeScript type inference helpers. |
 | `src/error-store.ts` | Nanostore for global error toasts. |
+| `src/workspace-theme.ts` | Centralized workspace theme registry and automated OKLCh color engine. |
+
+## Adding Workspace Colors
+
+Willow workspace theming is 100% automated. All derivative assets (glow accents, send/submit button states, horizontal top loadbars, creamy agent card icons, text selection tints, logo filters, and settings swatches) are computed automatically using perceptual OKLCh formulas.
+
+To add a new workspace color in the future:
+1. Add an entry to `WORKSPACE_COLOR_DEFINITIONS` in `src/workspace-theme.ts`:
+   ```ts
+   { id: 'amber', label: 'Warm Amber', hex: '#f59e0b' }
+   ```
+2. Extend the `UserProfile.workspaceColor` union type in `platform/auth/src/AuthContext.tsx` if desired for strict typing.
+3. No UI components or CSS classes need manual editing — everything binds dynamically through `getWorkspaceTheme(color)`.
 
 ## Dependency constraint
 

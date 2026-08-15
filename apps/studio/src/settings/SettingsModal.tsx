@@ -272,7 +272,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const handleWorkspaceUpdate = async () => {
     await updateUserProfile({
       workspaceName: localWorkspaceName,
-      workspaceColor: localWorkspaceColor as 'green' | 'pink' | 'yellow' | 'orange' | 'blue',
+      workspaceColor: localWorkspaceColor as any,
       workspaceDescription: localWorkspaceDescription,
     });
     setWorkspaceSettingsChanged(false);
@@ -356,6 +356,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       case 'pink': return 'bg-[#ec4899]';
       case 'yellow': return 'bg-[#eab308]';
       case 'orange': return 'bg-[#f97316]';
+      case 'purple': return 'bg-[#8b5cf6]';
+      case 'lilac': return 'bg-[#c084fc]';
+      case 'coral': return 'bg-[#f43f5e]';
+      case 'teal': return 'bg-[#14b8a6]';
       case 'green':
       default: return 'bg-[#4a7c59]';
     }
@@ -766,6 +770,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   };
 
   const GEMINI_MODELS = [
+    {
+        id: 'gemini-embedding-2',
+        name: 'Gemini Embedding 2',
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None',
+        capabilities: ['embedding']
+    },
     { 
         id: 'gemini-3.7-flash',
         name: 'Gemini 3.7 Flash',

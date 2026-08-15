@@ -22,10 +22,11 @@ import { canAdoptLegacyCodeSession, claimLegacyCodeSession } from '@willow/proje
 import type { ChatAttachment } from '@willow/core/attachments';
 
 const DB_NAME = 'WillowDB';
-const DB_VERSION = 4; // v4 adds locally owned binary chat attachments
+const DB_VERSION = 5; // v5 adds cached chat-search embeddings
 const CHATS_STORE = 'chats';
 const CHAT_SCOPE_CLAIMS_STORE = 'chat_scope_claims';
 const CHAT_ATTACHMENTS_STORE = 'chat_attachments';
+const CHAT_EMBEDDINGS_STORE = 'chat_embeddings';
 const CODE_SESSIONS_STORE = 'code_sessions';
 const CODE_BLOBS_STORE = 'code_blobs';
 const DEFAULT_CODE_SESSION_SCOPE = 'signed-out::browser::My Willow';
@@ -61,6 +62,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(CHAT_ATTACHMENTS_STORE)) {
         db.createObjectStore(CHAT_ATTACHMENTS_STORE);
+      }
+      if (!db.objectStoreNames.contains(CHAT_EMBEDDINGS_STORE)) {
+        db.createObjectStore(CHAT_EMBEDDINGS_STORE);
       }
       if (!db.objectStoreNames.contains(CODE_SESSIONS_STORE)) {
         db.createObjectStore(CODE_SESSIONS_STORE);
@@ -134,6 +138,47 @@ export function buildChatStorageKey(chatId: string, scope?: ChatStorageScope): s
 
 function scopeIdentity(scope: ChatStorageScope): string {
   return `${encodeScopePart(scope.userId)}:${encodeScopePart(scope.rootId)}:${encodeScopePart(scope.workspaceId)}`;
+}
+
+/* ------------------------- chat-search embeddings ------------------------ */
+
+export interface ChatEmbeddingRecord {
+  scopeId: string;
+  chatId: string;
+  provider: string;
+  modelId: string;
+  contentHash: string;
+  vector: number[];
+  updatedAt: number;
+}
+
+function buildChatEmbeddingStorageKey(
+  scopeId: string,
+  provider: string,
+  modelId: string,
+  chatId: string,
+): string {
+  return [scopeId, provider, modelId, chatId].map(encodeURIComponent).join(':');
+}
+
+export async function loadChatEmbedding(
+  scopeId: string,
+  provider: string,
+  modelId: string,
+  chatId: string,
+): Promise<ChatEmbeddingRecord | null> {
+  return await idbGet<ChatEmbeddingRecord>(
+    CHAT_EMBEDDINGS_STORE,
+    buildChatEmbeddingStorageKey(scopeId, provider, modelId, chatId),
+  );
+}
+
+export async function saveChatEmbedding(record: ChatEmbeddingRecord): Promise<void> {
+  await idbPut(
+    CHAT_EMBEDDINGS_STORE,
+    buildChatEmbeddingStorageKey(record.scopeId, record.provider, record.modelId, record.chatId),
+    record,
+  );
 }
 
 /* -------------------------- binary chat attachments ---------------------- */

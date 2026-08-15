@@ -7,6 +7,7 @@ import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { GithubImportDialog } from '@willow/ui/github/GithubImportDialog';
 import './Composer.css';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import {
   Plus,
   FileText,
@@ -102,38 +103,20 @@ export const CHAT_BUTTON_COLORS = {
   yellow: { bg: '#7c6100', hover: '#634e00' },
   orange: { bg: '#863e00', hover: '#6b3200' },
   green: { bg: '#127352', hover: '#0d5c41' },
+  purple: { bg: '#512192', hover: '#450e83' },
+  lilac: { bg: '#6f3c92', hover: '#5f2c81' },
+  coral: { bg: '#900021', hover: '#78001a' },
+  teal: { bg: '#00625c', hover: '#00514c' },
 } as const;
 
 export const getChatSubmitBg = (color?: string) => {
-  switch (color) {
-    case 'blue':
-      return 'bg-[#1b3f95] hover:bg-[#153277]';
-    case 'pink':
-      return 'bg-[#8c064b] hover:bg-[#70053c]';
-    case 'yellow':
-      return 'bg-[#7c6100] hover:bg-[#634e00]';
-    case 'orange':
-      return 'bg-[#863e00] hover:bg-[#6b3200]';
-    case 'green':
-    default:
-      return 'bg-[#127352] hover:bg-[#0d5c41]';
-  }
+  const theme = getWorkspaceTheme(color);
+  return `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
 };
 
 export const getChatTranscribingBg = (color?: string) => {
-  switch (color) {
-    case 'blue':
-      return 'bg-[#1b3f95]';
-    case 'pink':
-      return 'bg-[#8c064b]';
-    case 'yellow':
-      return 'bg-[#7c6100]';
-    case 'orange':
-      return 'bg-[#863e00]';
-    case 'green':
-    default:
-      return 'bg-[#127352]';
-  }
+  const theme = getWorkspaceTheme(color);
+  return `bg-[${theme.sendButton.bg}]`;
 };
 
 export const InputBar: React.FC<{
@@ -638,16 +621,13 @@ export const InputBar: React.FC<{
             * radius. Gemini renders no such wrapper either: its `row-gap` rule keys off
             * `:has(.attachment-preview-wrapper)`, which only means anything if the wrapper
             * is absent when nothing is attached.
-            *
-            * `pr-[54px]` is ours, not Gemini's: the maximize toggle below is absolutely
-            * positioned at `right-[-7px] top-[8px]` at 40x40, so tiles must clear it.
-            * Gemini has no control there and uses a symmetric 12px.
+            * Uses symmetric 12px padding (`px-3`) matching Gemini's layout and mask fade.
             *
             * Vertical rhythm matches by construction: pt-3 + 112 + pb-2 == Gemini's
             * `padding-top: 12px` + 112 tile + `row-gap: 8px`.
             */}
           {hasActiveAttachments && (
-            <div className="-ml-[14px] -mr-[15px] flex max-h-[168px] gap-2 overflow-x-auto pb-2 pl-3 pr-[54px] pt-3 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent_0,#000_12px,#000_calc(100%_-_12px),transparent_100%)] [&::-webkit-scrollbar]:hidden">
+            <div className="-ml-[14px] -mr-[15px] flex max-h-[168px] gap-2 overflow-x-auto pb-2 px-3 pt-3 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent_0,#000_12px,#000_calc(100%_-_12px),transparent_100%)] [&::-webkit-scrollbar]:hidden">
               {attachments.map((att) => (
                 <div key={att.id} className="group relative flex-shrink-0">
                   <GeminiAttachmentCard
@@ -981,6 +961,11 @@ export const InputBar: React.FC<{
                       : undefined
                 }
                 aria-label={isGenerating ? 'Stop response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
+                style={
+                  chatVariant && !isGenerating && !liveActive && !isTranscribingDictation
+                    ? { backgroundColor: getWorkspaceTheme(effectiveWorkspaceColor).sendButton.bg }
+                    : undefined
+                }
                 className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? isGenerating || liveActive

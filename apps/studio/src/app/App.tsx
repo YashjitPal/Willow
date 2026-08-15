@@ -13,6 +13,7 @@ import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
+import { ChatEmbeddingIndexer, SearchChatsPage } from '../shell/SearchChats';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
 import { LocalFSProvider, useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { migrateProjectKinds, rebuildMediaIndex } from '@willow/storage/media-storage';
@@ -167,7 +168,15 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
   const [settingsInitialConnector, setSettingsInitialConnector] = useState<string | null | undefined>(undefined);
-  const [currentView, setCurrentView] = useState<ViewType>('home');
+  const [currentView, setCurrentView] = useState<ViewType>(() => {
+    if (location.pathname === '/search') return 'search';
+    if (location.pathname === '/personalization-settings') return 'personal-intelligence';
+    if (location.pathname === '/saved-info') return 'saved-info';
+    if (location.pathname === '/memory') return 'memory';
+    if (location.pathname === '/connected-apps') return 'connected-apps';
+    if (location.pathname.startsWith('/gems')) return 'gems';
+    return 'home';
+  });
   const [isTopLoading, setIsTopLoading] = useState(false);
   const topLoadingReasonsRef = React.useRef(new Set<string>());
   const topLoadingStartedAtRef = React.useRef(0);
@@ -426,6 +435,7 @@ const App: React.FC = () => {
     }
     if (sequence !== viewChangeSequenceRef.current) return false;
     if (view === 'agents') navigate('/?view=agents');
+    else if (view === 'search') navigate('/search');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
@@ -433,6 +443,7 @@ const App: React.FC = () => {
     else if (view === 'gems') navigate('/gems');
     else if (
       searchParams.get('view') === 'agents' ||
+      location.pathname === '/search' ||
       location.pathname === '/personalization-settings' ||
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
@@ -454,7 +465,28 @@ const App: React.FC = () => {
   }, [currentView, studioExperience, handleViewChange, startTopLoading]);
 
   React.useEffect(() => {
-    if (location.pathname === '/personalization-settings') {
+    // If a programmatic view change is in flight, wait until the URL matches intent
+    if (viewChangeIntentRef.current) {
+      const intent = viewChangeIntentRef.current;
+      const urlMatchesIntent =
+        (intent === 'search' && location.pathname === '/search') ||
+        (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
+        (intent === 'saved-info' && location.pathname === '/saved-info') ||
+        (intent === 'memory' && location.pathname === '/memory') ||
+        (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
+        (intent === 'gems' && location.pathname.startsWith('/gems')) ||
+        (intent === 'home' && location.pathname === '/');
+      if (urlMatchesIntent) {
+        viewChangeIntentRef.current = null;
+      }
+      return;
+    }
+
+    if (location.pathname === '/search') {
+      if (currentView !== 'search') {
+        setCurrentView('search');
+      }
+    } else if (location.pathname === '/personalization-settings') {
       if (currentView !== 'personal-intelligence') {
         setCurrentView('personal-intelligence');
       }
@@ -475,6 +507,7 @@ const App: React.FC = () => {
         setCurrentView('gems');
       }
     } else if (
+      currentView === 'search' ||
       currentView === 'personal-intelligence' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
@@ -685,7 +718,16 @@ const App: React.FC = () => {
         setIsSidebarCollapsed={setIsSidebarCollapsed}
         isSidebarHidden={isSidebarHidden}
       >
-        {currentView === 'agents' ? (
+        {currentView === 'search' ? (
+          <SearchChatsPage
+            modelConfig={modelConfig}
+            onOpenChat={() => {
+              setStudioExperience('chat');
+              setStudioMode('chat');
+              void handleViewChange('home');
+            }}
+          />
+        ) : currentView === 'agents' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
               <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
@@ -859,8 +901,10 @@ const App: React.FC = () => {
       <UserDataProvider>
         <LocalFSProvider modelConfig={modelConfig}>
           <DriveProjectDiscovery />
+          <ChatEmbeddingIndexer modelConfig={modelConfig} />
           <Routes>
            <Route path="/" element={mainAppShell} />
+           <Route path="/search" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/memory" element={mainAppShell} />

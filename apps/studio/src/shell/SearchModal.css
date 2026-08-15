@@ -62,6 +62,8 @@
   animation: modalScaleOut 0.15s ease-in forwards;
 }
 
+.willow-search-modal > .absolute { background: rgba(0, 0, 0, 0.62); }
+
 @keyframes modalScaleIn {
   from {
     opacity: 0;

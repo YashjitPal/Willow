@@ -10,6 +10,7 @@ import {
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import {
   getAgentBuilderClient,
@@ -57,20 +58,8 @@ function formatUpdatedAt(value: string): string {
   }).format(updatedAt)}`;
 }
 
-const AGENT_ICON_BG: Record<string, string> = {
-  yellow: '#fddd41', // Original creamy warm yellow
-  blue: '#a8c7fa',   // Creamy soft pastel blue
-  green: '#9ce4b3',  // Creamy soft pastel mint green
-  pink: '#fab2cd',   // Creamy soft pastel pink
-  orange: '#ffca8a', // Creamy soft pastel peach orange
-};
-
-export const getAgentIconBg = (color?: string): string => {
-  if (color && color in AGENT_ICON_BG) {
-    return AGENT_ICON_BG[color];
-  }
-  return AGENT_ICON_BG.yellow;
-};
+export const getAgentIconBg = (color?: string): string =>
+  getWorkspaceTheme(color).creamy.hex;
 
 const AgentCard: React.FC<{
   workflow: WorkflowSummary;
@@ -224,28 +213,9 @@ const TemplateCard: React.FC<{
   );
 };
 
-const AGENTS_HOME_GLOW: Record<string, string> = {
-  green: 'rgb(6, 78, 59)',
-  blue: 'rgb(20, 32, 79)',
-  pink: 'rgb(76, 9, 35)',
-  yellow: 'rgb(66, 54, 0)',
-  orange: 'rgb(72, 34, 0)',
-};
-
 const getAgentSubmitColorClass = (color?: string) => {
-  switch (color) {
-    case 'blue':
-      return 'bg-[#1b3f95] hover:bg-[#153277]';
-    case 'pink':
-      return 'bg-[#8c064b] hover:bg-[#70053c]';
-    case 'yellow':
-      return 'bg-[#7c6100] hover:bg-[#634e00]';
-    case 'orange':
-      return 'bg-[#863e00] hover:bg-[#6b3200]';
-    case 'green':
-    default:
-      return 'bg-[#127352] hover:bg-[#0d5c41]';
-  }
+  const theme = getWorkspaceTheme(color);
+  return `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
 };
 
 function usePrevious<T>(value: T): T | undefined {
@@ -268,7 +238,8 @@ const AgentsHome: React.FC<{
 }> = ({ workflows, prompt, loading, error, onPromptChange, onCreate, onOpen, onRetry }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
-  const glowAccent = AGENTS_HOME_GLOW[effectiveWorkspaceColor] || AGENTS_HOME_GLOW.green;
+  const theme = getWorkspaceTheme(effectiveWorkspaceColor);
+  const glowAccent = theme.glowAccent;
 
   const hasContent = Boolean(prompt.trim());
   const previousHasContent = usePrevious(hasContent);
@@ -377,7 +348,8 @@ const AgentsHome: React.FC<{
                     aria-label="Send agent prompt"
                     title="Submit"
                     disabled={loading}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer text-white ${getAgentSubmitColorClass(effectiveWorkspaceColor)} ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''}`}
+                    style={{ backgroundColor: theme.sendButton.bg }}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer text-white ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''}`}
                   >
                     <MaterialSymbol
                       family="luminous"

@@ -17,6 +17,7 @@ import {
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import './SparkHome.css';
 import { mergeSelectedFiles } from './spark-composer-chips';
 
@@ -39,6 +40,10 @@ const SPARK_HOME_GLOW: Record<string, string> = {
   pink: 'rgb(76, 9, 35)',
   yellow: 'rgb(66, 54, 0)',
   orange: 'rgb(72, 34, 0)',
+  purple: 'rgb(45, 17, 75)',
+  lilac: 'rgb(62, 32, 76)',
+  coral: 'rgb(78, 7, 10)',
+  teal: 'rgb(0, 53, 52)',
 };
 
 export const getSparkSubmitColorClass = (color?: string) => {
@@ -51,6 +56,14 @@ export const getSparkSubmitColorClass = (color?: string) => {
       return 'bg-[#7c6100] hover:bg-[#634e00]';
     case 'orange':
       return 'bg-[#863e00] hover:bg-[#6b3200]';
+    case 'purple':
+      return 'bg-[#512192] hover:bg-[#450e83]';
+    case 'lilac':
+      return 'bg-[#6f3c92] hover:bg-[#5f2c81]';
+    case 'coral':
+      return 'bg-[#900021] hover:bg-[#78001a]';
+    case 'teal':
+      return 'bg-[#00625c] hover:bg-[#00514c]';
     case 'green':
     default:
       return 'bg-[#127352] hover:bg-[#0d5c41]';
@@ -106,7 +119,8 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
 }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
-  const glowAccent = SPARK_HOME_GLOW[effectiveWorkspaceColor] || SPARK_HOME_GLOW.green;
+  const theme = getWorkspaceTheme(effectiveWorkspaceColor);
+  const glowAccent = theme.glowAccent;
   const [prompt, setPrompt] = useState('');
   const [plusOpen, setPlusOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -360,6 +374,10 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
               <button
                 type="submit"
                 className={`spark-composer-send-button is-${effectiveWorkspaceColor} ${isSubmitControlContentGated ? 'spark-composer-send-enter' : ''}`}
+                style={{
+                  '--spark-send-bg': theme.sendButton.bg,
+                  '--spark-send-hover': theme.sendButton.hover,
+                } as React.CSSProperties}
                 aria-label="Create task"
                 title={isSubmitting ? 'Preparing files' : 'Create task'}
                 disabled={isSubmitting}

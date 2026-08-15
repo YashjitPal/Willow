@@ -89,6 +89,30 @@ const HorizonPalette workspaceOrangePalette = HorizonPalette(
   vec4(1.0, 1.0, 1.0, 1.0),
   vec4(0.9889729582824206, 0.8489665066945756, 0.7205450785523978, 1.0)
 );
+const HorizonPalette workspacePurplePalette = HorizonPalette(
+  vec4(0.7196054069325533, 0.3632455040647451, 0.9163991507508644, 1.0),
+  vec4(0.6977767641009187, 0.5878281681832342, 0.9952978845592088, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.8909079836643332, 0.7904725582124975, 0.973713010803969, 1.0)
+);
+const HorizonPalette workspaceLilacPalette = HorizonPalette(
+  vec4(0.8876727230372945, 0.5182491301218135, 0.9174574986141382, 1.0),
+  vec4(0.8472612203644406, 0.6816029206763131, 1.0, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.9567864473242079, 0.838921333467344, 0.9719168371471404, 1.0)
+);
+const HorizonPalette workspaceCoralPalette = HorizonPalette(
+  vec4(0.9984320835473576, 0.34693146079469045, 0.17437480233212393, 1.0),
+  vec4(1.0, 0.5483523673638507, 0.5642604959007717, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(1.0, 0.7995084655182267, 0.7528405704071731, 1.0)
+);
+const HorizonPalette workspaceTealPalette = HorizonPalette(
+  vec4(0.12881005098425105, 0.7479501148400178, 0.7846491470211528, 1.0),
+  vec4(0.4923119973758692, 0.8197610584583386, 0.7754935604080178, 1.0),
+  vec4(1.0, 1.0, 1.0, 1.0),
+  vec4(0.7643785956140282, 0.9101353145419375, 0.9158445091913796, 1.0)
+);
 
 HorizonPalette materialPaletteForIndex(uint paletteIndex) {
   switch (paletteIndex) {
@@ -100,6 +124,14 @@ HorizonPalette materialPaletteForIndex(uint paletteIndex) {
       return workspaceYellowPalette;
     case 10u:
       return workspaceOrangePalette;
+    case 11u:
+      return workspacePurplePalette;
+    case 12u:
+      return workspaceLilacPalette;
+    case 13u:
+      return workspaceCoralPalette;
+    case 14u:
+      return workspaceTealPalette;
     case 1u:
       return materialBluePalette;
     case 2u:

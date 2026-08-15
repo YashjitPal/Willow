@@ -19,6 +19,7 @@ import { DiscordIcon } from './SidebarIcons';
 import logo from '@willow/assets/brand/logo.png';
 import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { useBackground, BackgroundType } from '../BackgroundContext';
 import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
@@ -590,7 +591,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems';
+export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -1159,17 +1160,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [isCollapsed]);
 
   // Dynamic logo color filter based on workspace color
-  const getLogoFilter = (color: string | null | undefined) => {
-    switch (color) {
-      case 'blue': return 'hue-rotate(160deg)';
-      case 'pink': return 'hue-rotate(220deg)';
-      case 'yellow': return 'hue-rotate(-64deg)';
-      case 'orange': return 'hue-rotate(-84deg)';
-      case 'green':
-      default: return 'hue-rotate(30deg)';
-    }
-  };
-
+  const getLogoFilter = (color: string | null | undefined) =>
+    getWorkspaceTheme(color).logoFilter;
 
   // Dynamically update favicon in the browser tab
   useEffect(() => {
@@ -1186,13 +1178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        let filterStr = 'hue-rotate(30deg)';
-        if (color === 'blue') filterStr = 'hue-rotate(160deg)';
-        else if (color === 'pink') filterStr = 'hue-rotate(220deg)';
-        else if (color === 'yellow') filterStr = 'hue-rotate(-64deg)';
-        else if (color === 'orange') filterStr = 'hue-rotate(-84deg)';
-
-        ctx.filter = filterStr;
+        ctx.filter = getWorkspaceTheme(color).logoFilter;
         ctx.drawImage(img, 0, 0, 32, 32);
 
         const dataURL = canvas.toDataURL('image/png');
@@ -1553,8 +1539,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {user && (
           <SidebarItem 
             symbol="search" 
-            label="Search" 
+            label="Search chats"
             isCollapsed={isCollapsed} 
+            active={currentView === 'search'}
             onClick={onSearchClick}
           />
         )}

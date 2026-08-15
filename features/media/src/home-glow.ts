@@ -105,6 +105,10 @@ export const HOME_GLOW_ACCENT = {
   pink: 'rgb(76, 9, 35)',
   yellow: 'rgb(66, 54, 0)',
   orange: 'rgb(72, 34, 0)',
+  purple: 'rgb(45, 17, 75)',
+  lilac: 'rgb(62, 32, 76)',
+  coral: 'rgb(78, 7, 10)',
+  teal: 'rgb(0, 53, 52)',
 } as const satisfies Record<WorkspaceColorName, string>;
 
 /**
