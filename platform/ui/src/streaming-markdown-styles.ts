@@ -60,8 +60,7 @@ const STYLE_CSS = [
   '}',
   '.smd-streaming .smd-w,',
   '.smd-streaming .smd-h,',
-  '.smd-streaming .smd-reveal-block:not(.smd-settled) > li::before,',
-  '.smd-streaming .smd-reveal-block,',
+  '.smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before,',
   '.smd-streaming .smd-code-block,',
   '.smd-streaming .smd-svg-preview-block,',
   '.smd-streaming .smd-table-block,',
@@ -69,19 +68,19 @@ const STYLE_CSS = [
   '.smd-streaming .smd-rich-resource-group,',
   '.smd-streaming .smd-math-display {',
   '  animation-duration: var(--animation-duration);',
-  '  animation-fill-mode: forwards;',
+  '  animation-delay: var(--smd-inner-delay, 0ms);',
+  '  animation-fill-mode: both;',
   '  animation-iteration-count: 1;',
   '  animation-name: smd-fade-in-text;',
   '  animation-timing-function: var(--fade-animation-function);',
   '}',
-  // Gemini promotes the outer block and its sentence span as two independent
-  // pending queue entries. `StreamingMarkdown` writes the measured adaptive
-  // queue cadence into --smd-inner-delay on each newly-mounted block.
-  '.smd-streaming .smd-reveal-block:not(.smd-settled) > li::before,',
+  // Each paragraph or list item owns one reveal slot. Words and the item's
+  // marker inherit the same delay, so no nested opacity layer can overtake an
+  // earlier block or make a marker appear ahead of its text.
+  '.smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before,',
   '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-w,',
   '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-h {',
   '  opacity: 0;',
-  '  animation-delay: var(--smd-inner-delay, 0ms);',
   '}',
   '.smd-streaming .smd-settled { animation: none; }',
   '.smd-heading {',
@@ -874,7 +873,7 @@ const STYLE_CSS = [
   '  .smd-table th, .smd-table td { min-width: 132px; }',
   '}',
   '@media (prefers-reduced-motion: reduce) {',
-  '  .smd-streaming .smd-w, .smd-streaming .smd-h, .smd-streaming .smd-reveal-block:not(.smd-settled) > li::before, .smd-streaming .smd-reveal-block, .smd-streaming .smd-code-block,',
+  '  .smd-streaming .smd-w, .smd-streaming .smd-h, .smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before, .smd-streaming .smd-code-block,',
   '  .smd-streaming .smd-table-block, .smd-streaming .smd-media-gallery, .smd-streaming .smd-math-display { animation: none !important; }',
   '  .smd-media-loading::before, .smd-media-loading::after { animation: none !important; }',
   // `animation: none` also drops the fill mode, so the chip returns to its

@@ -197,11 +197,15 @@ export const RichResourceGroup: React.FC<{
   resources: RichResource[];
   onOpen: (resource: RichResource) => void;
   settled?: boolean;
-}> = ({ resources, onOpen, settled }) => {
+  style?: React.CSSProperties;
+}> = ({ resources, onOpen, settled, style }) => {
   if (!resources.length) return null;
   const isYouTube = resources.every((resource) => resource.kind === 'youtube');
   return (
-    <div className={'smd-rich-resource-group' + (settled ? ' smd-settled' : '')}>
+    <div
+      className={'smd-rich-resource-group' + (settled ? ' smd-settled' : '')}
+      style={style}
+    >
       <div className="mb-4 flex items-start gap-2">
         {isYouTube ? (
           <img

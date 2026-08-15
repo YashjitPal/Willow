@@ -9,16 +9,10 @@
 export const STREAM_REVEAL_MIN_INTERVAL_MS = 50;
 export const STREAM_REVEAL_MAX_INTERVAL_MS = 320;
 
-/**
- * Gemini's scheduler adds 600ms to its rolling provider cadence before dividing
- * by the number of pending block/text nodes. The two live one-line captures
- * added 9ms and 13ms respectively, producing 609ms and 613ms fades. Ten is the
- * stable centre of those captures for a locally-buffered response.
- */
-export const GEMINI_REVEAL_WINDOW_MS = 610;
-export const GEMINI_DEFAULT_FADE_MS = 400;
-export const GEMINI_MIN_FADE_MS = 200;
-export const GEMINI_MAX_FADE_MS = 900;
+/** Shared timing for Willow's document-order reveal queue. */
+export const GEMINI_DEFAULT_FADE_MS = 610;
+export const GEMINI_REVEAL_BASE_DELAY_MS = 150;
+export const GEMINI_REVEAL_STAGGER_MS = 120;
 
 export interface GeminiBlockRevealTiming {
   durationMs: number;
@@ -27,48 +21,54 @@ export interface GeminiBlockRevealTiming {
 }
 
 /**
- * Gemini marks each block plus its text layer as pending. It promotes them in
- * DOM order. The wait before the next item is roughly
- * `(rolling provider cadence + 600) / (pending count + 1)`, and slow items get
- * a custom fade of `clamp(wait * 3, 200, 900)` instead of the default 400ms.
+ * Reveal units use one opacity animation. The base delay gives a newly-mounted
+ * unit time to enter after the provider's previous promotion, and the stagger
+ * keeps multiple units from the same parse in document order.
  */
-export const geminiBlockRevealTimings = (
-  source: string,
-): GeminiBlockRevealTiming[] => {
-  const paragraphs = source
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-  if (paragraphs.length === 0 && source.trim()) paragraphs.push(source.trim());
+const revealUnitCount = (source: string): number => {
+  const lines = source.split('\n');
+  let count = 0;
+  let paragraphOpen = false;
+  let fence = false;
 
-  // The live one-line capture had two pending DOM nodes: the paragraph and its
-  // inner text span. Punctuation inside that paragraph did not add another
-  // block-level queue item, which is why a two-sentence error uses the same
-  // 610ms + 305ms layered reveal as a one-sentence reply.
-  const unitCounts = paragraphs.map(() => 2);
-  const totalUnits = unitCounts.reduce((total, count) => total + count, 0);
-  let consumedUnits = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^```/.test(trimmed)) {
+      if (!fence) count += 1;
+      fence = !fence;
+      paragraphOpen = false;
+      continue;
+    }
+    if (fence) continue;
+    if (!trimmed) {
+      paragraphOpen = false;
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(trimmed) || /^([-+*]|\d+[.)])\s+/.test(trimmed)) {
+      count += 1;
+      paragraphOpen = true;
+      continue;
+    }
+    if (!paragraphOpen) {
+      count += 1;
+      paragraphOpen = true;
+    }
+  }
 
-  return unitCounts.map((unitCount) => {
-    const remainingBeforeBlock = Math.max(1, totalUnits - consumedUnits);
-    const blockCadence = GEMINI_REVEAL_WINDOW_MS / (remainingBeforeBlock + 1);
-    const durationMs = blockCadence > GEMINI_DEFAULT_FADE_MS / 3
-      ? Math.floor(Math.max(
-          GEMINI_MIN_FADE_MS,
-          Math.min(blockCadence * 3, GEMINI_MAX_FADE_MS),
-        ))
-      : GEMINI_DEFAULT_FADE_MS;
-    // Once the outer block is promoted, Gemini recomputes the queue with one
-    // fewer pending node. That next cadence is the block -> text stagger.
-    const innerDelayMs = Math.round(GEMINI_REVEAL_WINDOW_MS / remainingBeforeBlock);
-    consumedUnits += unitCount;
-    return {
-      durationMs,
-      innerDelayMs,
-      completionMs: durationMs + innerDelayMs,
-    };
-  });
+  return Math.max(1, count);
 };
+
+export const geminiRevealTimingAt = (index: number): GeminiBlockRevealTiming => {
+  const innerDelayMs = GEMINI_REVEAL_BASE_DELAY_MS + Math.max(0, index) * GEMINI_REVEAL_STAGGER_MS;
+  return {
+    durationMs: GEMINI_DEFAULT_FADE_MS,
+    innerDelayMs,
+    completionMs: innerDelayMs + GEMINI_DEFAULT_FADE_MS,
+  };
+};
+
+export const geminiBlockRevealTimings = (source: string): GeminiBlockRevealTiming[] =>
+  Array.from({ length: revealUnitCount(source) }, (_, index) => geminiRevealTimingAt(index));
 
 export const geminiRevealTailMs = (source: string): number => {
   const timings = geminiBlockRevealTimings(source);

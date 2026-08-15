@@ -21,6 +21,7 @@ import { SourceChip, type SourceChipItem } from './SourceChip';
 import {
   geminiBlockRevealTimings,
   geminiRevealTailMs,
+  geminiRevealTimingAt,
   type GeminiBlockRevealTiming,
   initialStreamingReveal,
   nextStreamingRevealDelayMs,
@@ -228,6 +229,14 @@ function RevealBlock({
   );
 }
 
+const revealTimingStyle = (timing?: GeminiBlockRevealTiming): React.CSSProperties | undefined =>
+  timing
+    ? {
+        '--animation-duration': `${timing.durationMs}ms`,
+        '--smd-inner-delay': `${timing.innerDelayMs}ms`,
+      } as React.CSSProperties
+    : undefined;
+
 const InlineCode = React.memo(
   function InlineCode({
     value,
@@ -251,12 +260,15 @@ const MathExpression = React.memo(
     value,
     display,
     settled,
+    revealTiming,
   }: {
     value: string;
     display?: boolean;
     settled?: boolean;
+    revealTiming?: GeminiBlockRevealTiming;
   }) {
     const settledAtMount = useRef(settled).current;
+    const timingAtMount = useRef(revealTiming).current;
     const rendered = useMemo(() => {
       try {
         return katex.renderToString(value, {
@@ -277,10 +289,16 @@ const MathExpression = React.memo(
     const Tag = display ? 'div' : 'span';
 
     if (!rendered) {
-      return <Tag className={className + ' smd-math-error'}>{value}</Tag>;
+      return <Tag className={className + ' smd-math-error'} style={revealTimingStyle(timingAtMount)}>{value}</Tag>;
     }
 
-    return <Tag className={className} dangerouslySetInnerHTML={{ __html: rendered }} />;
+    return (
+      <Tag
+        className={className}
+        style={revealTimingStyle(timingAtMount)}
+        dangerouslySetInnerHTML={{ __html: rendered }}
+      />
+    );
   },
   (previous, next) => previous.value === next.value && previous.display === next.display
 );
@@ -478,9 +496,11 @@ function svgPreviewDocument(source: string): string {
 const SvgPreview = React.memo(function SvgPreview({
   source,
   settled,
+  revealTiming,
 }: {
   source: string;
   settled?: boolean;
+  revealTiming?: GeminiBlockRevealTiming;
 }) {
   const [copied, setCopied] = useState(false);
   const documentSource = useMemo(() => svgPreviewDocument(source), [source]);
@@ -492,7 +512,10 @@ const SvgPreview = React.memo(function SvgPreview({
   };
 
   return (
-    <div className={'smd-svg-preview-block' + (settled ? ' smd-settled' : '')}>
+    <div
+      className={'smd-svg-preview-block' + (settled ? ' smd-settled' : '')}
+      style={revealTimingStyle(revealTiming)}
+    >
       <div className="smd-svg-preview-toolbar">
         <span className="smd-svg-preview-label">SVG</span>
         <div className="smd-svg-preview-actions">
@@ -540,10 +563,12 @@ const CodeBlock = React.memo(
     value,
     language,
     settled,
+    revealTiming,
   }: {
     value: string;
     language: string;
     settled?: boolean;
+    revealTiming?: GeminiBlockRevealTiming;
   }) {
     const [copied, setCopied] = useState(false);
     const settledAtMount = useRef(settled).current;
@@ -561,11 +586,16 @@ const CodeBlock = React.memo(
     };
 
     if (isSvg) {
-      return hasCompleteSvg ? <SvgPreview source={source} settled={settledAtMount} /> : null;
+      return hasCompleteSvg
+        ? <SvgPreview source={source} settled={settledAtMount} revealTiming={revealTiming} />
+        : null;
     }
 
     return (
-      <div className={'smd-code-block' + (settledAtMount ? ' smd-settled' : '')}>
+      <div
+        className={'smd-code-block' + (settledAtMount ? ' smd-settled' : '')}
+        style={revealTimingStyle(revealTiming)}
+      >
         <div className="smd-code-header">
           <span
             className="smd-code-language"
@@ -657,14 +687,17 @@ interface RenderContext {
   animating?: boolean;
   revealBlockTimings?: GeminiBlockRevealTiming[];
   revealBlockOrder?: { next: number };
+  revealWithinParent?: boolean;
 }
 
 const nextRevealBlockTiming = (
   context: RenderContext,
+  settled = false,
 ): GeminiBlockRevealTiming | undefined => {
+  if (settled) return undefined;
   const order = context.revealBlockOrder;
   if (!order) return undefined;
-  const timing = context.revealBlockTimings?.[order.next];
+  const timing = context.revealBlockTimings?.[order.next] || geminiRevealTimingAt(order.next);
   order.next += 1;
   return timing;
 };
@@ -808,16 +841,19 @@ const MediaGallery = React.memo(
     items,
     mediaItems,
     settled,
+    revealTiming,
   }: {
     items: MediaDescriptor[];
     mediaItems?: any[];
     settled?: boolean;
+    revealTiming?: GeminiBlockRevealTiming;
   }) {
     const settledAtMount = useRef(settled).current;
     return (
       <div
         className={'smd-media-gallery' + (settledAtMount ? ' smd-settled' : '')}
         data-count={String(items.length)}
+        style={revealTimingStyle(revealTiming)}
       >
         {items.map((item) => (
           <MediaCard key={item.key} descriptor={item} mediaItems={mediaItems} />
@@ -1042,9 +1078,11 @@ function richResourcesInNode(node: any, context: RenderContext): RichResource[] 
 function TableBlock({
   node,
   context,
+  revealTiming,
 }: {
   node: any;
   context: RenderContext;
+  revealTiming?: GeminiBlockRevealTiming;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1127,6 +1165,7 @@ function TableBlock({
         (scrollState.atStart ? ' is-at-scroll-start' : '') +
         (scrollState.atEnd ? ' is-at-scroll-end' : '')
       }
+      style={revealTimingStyle(revealTiming)}
     >
       <div ref={scrollRef} className="smd-table-content smd-scroll">
         <table className="smd-table">
@@ -1257,19 +1296,24 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
     }
     if (!inlineNodes.length) return;
     const paragraphStart = offsetOf(inlineNodes[0], offsetOf(node));
-    const revealTiming = nextRevealBlockTiming(context);
-    blocks.push(
+    const settled = paragraphStart < context.settledBefore;
+    const renderedInline = renderInlineNodes(inlineNodes, context);
+    blocks.push(context.revealWithinParent ? (
+      <p key={'paragraph-' + paragraphStart} className="smd-paragraph">
+        {renderedInline}
+      </p>
+    ) : (
       <RevealBlock
         as="p"
         key={'paragraph-' + paragraphStart}
         start={paragraphStart}
-        settled={paragraphStart < context.settledBefore}
-        revealTiming={revealTiming}
+        settled={settled}
+        revealTiming={nextRevealBlockTiming(context, settled)}
         className="smd-paragraph"
       >
-        {renderInlineNodes(inlineNodes, context)}
+        {renderedInline}
       </RevealBlock>
-    );
+    ));
     inlineNodes = [];
   };
 
@@ -1283,6 +1327,10 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
           value={child.value || ''}
           display
           settled={mathStart < context.settledBefore}
+          revealTiming={nextRevealBlockTiming(
+            context,
+            mathStart < context.settledBefore || context.revealWithinParent,
+          )}
         />
       );
       skipLeadingWhitespace = true;
@@ -1326,8 +1374,10 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
     );
     if (
       React.isValidElement(last)
-      && last.type === RevealBlock
-      && (last.props as any).as === 'p'
+      && (
+        (last.type === RevealBlock && (last.props as any).as === 'p')
+        || last.type === 'p'
+      )
     ) {
       const existing = (last.props as any).children;
       // Passing `existing` and `chip` as separate child arguments nests an
@@ -1342,18 +1392,25 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
         appendedChildren,
       );
     } else {
-      blocks.push(
+      blocks.push(context.revealWithinParent ? (
+        <p key={'paragraph-chip-' + offsetOf(node)} className="smd-paragraph">
+          {chip}
+        </p>
+      ) : (
         <RevealBlock
           as="p"
           key={'paragraph-chip-' + offsetOf(node)}
           start={offsetOf(node)}
           settled={offsetOf(node) < context.settledBefore}
-          revealTiming={nextRevealBlockTiming(context)}
+          revealTiming={nextRevealBlockTiming(
+            context,
+            offsetOf(node) < context.settledBefore || context.revealWithinParent,
+          )}
           className="smd-paragraph"
         >
           {chip}
         </RevealBlock>
-      );
+      ));
     }
   }
   const paragraph = blocks.length === 1
@@ -1361,13 +1418,18 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
     : <React.Fragment key={key}>{blocks}</React.Fragment>;
   if (!richResources.length || !context.onOpenResource) return paragraph;
   const firstStart = offsetOf(node);
+  const resourcesSettled = firstStart < context.settledBefore;
   return (
     <React.Fragment key={key}>
       {paragraph}
       <RichResourceGroup
         resources={richResources}
         onOpen={context.onOpenResource}
-        settled={firstStart < context.settledBefore}
+        settled={resourcesSettled}
+        style={revealTimingStyle(nextRevealBlockTiming(
+          context,
+          resourcesSettled || context.revealWithinParent,
+        ))}
       />
     </React.Fragment>
   );
@@ -1385,6 +1447,7 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
       const depth = Math.min(6, Math.max(1, node.depth || 1));
       const Tag = ('h' + depth) as React.ElementType;
       const metrics = HEADING_METRICS[depth];
+      const settled = start < context.settledBefore;
       const headingContext: RenderContext = {
         ...context,
         variant: 'h',
@@ -1393,8 +1456,12 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
         roundness: metrics.roundness,
       };
       return (
-        <Tag
+        <RevealBlock
+          as={Tag}
           key={key}
+          start={start}
+          settled={settled}
+          revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
           className={'smd-heading smd-heading-' + depth}
           style={{
             fontVariationSettings:
@@ -1404,21 +1471,16 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
           }}
         >
           {renderInlineNodes(node.children || [], headingContext)}
-        </Tag>
+        </RevealBlock>
       );
     }
     case 'list': {
       const ordered = Boolean(node.ordered);
       const Tag = ordered ? 'ol' : 'ul';
       const startNumber = ordered ? Math.max(1, node.start || 1) : 1;
-      const revealTiming = nextRevealBlockTiming(context);
       return (
-        <RevealBlock
-          as={Tag}
+        <Tag
           key={key}
-          start={start}
-          settled={start < context.settledBefore}
-          revealTiming={revealTiming}
           className={'smd-list ' + (ordered ? 'smd-list-ordered' : 'smd-list-unordered')}
           style={ordered ? { counterReset: 'smd-list-item ' + (startNumber - 1) } : undefined}
         >
@@ -1434,32 +1496,37 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
               ? ''
               : taskMatch?.[0] || (checked ? '[x]' : '[ ]');
             const taskMarkerStart = itemStart + (taskMatch?.index || 0);
+            const settled = itemStart < context.settledBefore;
+            const itemContext: RenderContext = {
+              ...context,
+              revealWithinParent: true,
+            };
             return (
-              <li key={itemStart}>
+              <RevealBlock
+                as="li"
+                key={itemStart}
+                start={itemStart}
+                settled={settled}
+                revealTiming={nextRevealBlockTiming(context, settled)}
+                className={checked !== undefined ? 'smd-task-item' : undefined}
+              >
                 <div className="smd-list-content">
                   {(item.children || []).map((child: any, childIndex: number) => {
                     if (checked !== undefined && childIndex === 0 && child.type === 'paragraph') {
                       return (
-                        <RevealBlock
-                          as="p"
-                          key={'task-' + offsetOf(child)}
-                          start={offsetOf(child)}
-                          settled={offsetOf(child) < context.settledBefore}
-                          revealTiming={nextRevealBlockTiming(context)}
-                          className="smd-paragraph"
-                        >
-                          {renderAnimatedText(taskMarker + ' ', taskMarkerStart, context)}
-                          {renderInlineNodes(child.children || [], context)}
-                        </RevealBlock>
+                        <p key={'task-' + offsetOf(child)} className="smd-paragraph">
+                          {renderAnimatedText(taskMarker + ' ', taskMarkerStart, itemContext)}
+                          {renderInlineNodes(child.children || [], itemContext)}
+                        </p>
                       );
                     }
-                    return renderBlockNode(child, context, childIndex);
+                    return renderBlockNode(child, itemContext, childIndex);
                   })}
                 </div>
-              </li>
+              </RevealBlock>
             );
           })}
-        </RevealBlock>
+        </Tag>
       );
     }
     case 'blockquote':
@@ -1479,40 +1546,56 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
         const cards = parseBentoCards(node.value || '');
         return cards ? <BentoCardGroup key={key} cards={cards} /> : null;
       }
+      const settled = start < context.settledBefore;
       return (
         <CodeBlock
           key={key}
           value={node.value || ''}
           language={node.lang || ''}
-          settled={start < context.settledBefore}
+          settled={settled}
+          revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
         />
       );
     }
-    case 'math':
+    case 'math': {
+      const settled = start < context.settledBefore;
       return (
         <MathExpression
           key={key}
           value={node.value || ''}
           display
-          settled={start < context.settledBefore}
+          settled={settled}
+          revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
         />
       );
-    case 'table':
-      return <TableBlock key={key} node={node} context={context} />;
+    }
+    case 'table': {
+      const settled = start < context.settledBefore;
+      return (
+        <TableBlock
+          key={key}
+          node={node}
+          context={context}
+          revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
+        />
+      );
+    }
     case 'thematicBreak':
       return null;
-    case 'html':
+    case 'html': {
+      const settled = start < context.settledBefore;
       return (
         <RevealBlock
           as="p"
           key={key}
           start={start}
-          settled={start < context.settledBefore}
-          revealTiming={nextRevealBlockTiming(context)}
+          settled={settled}
+          revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
         >
           {renderAnimatedText(node.value || '', start, context)}
         </RevealBlock>
       );
+    }
     case 'definition':
     case 'footnoteDefinition':
       return null;
@@ -1527,13 +1610,14 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
         );
       }
       if (typeof node.value === 'string') {
+        const settled = start < context.settledBefore;
         return (
           <RevealBlock
             as="p"
             key={key}
             start={start}
-            settled={start < context.settledBefore}
-            revealTiming={nextRevealBlockTiming(context)}
+            settled={settled}
+            revealTiming={nextRevealBlockTiming(context, settled || context.revealWithinParent)}
           >
             {renderAnimatedText(node.value, start, context)}
           </RevealBlock>
@@ -1677,12 +1761,14 @@ function renderRoot(tree: any, context: RenderContext): React.ReactNode[] {
     if (!pendingMedia.length) return;
     const items = pendingMedia;
     pendingMedia = [];
+    const settled = items[0].start < context.settledBefore;
     rendered.push(
       <MediaGallery
         key={'media-' + items[0].start}
         items={items}
         mediaItems={context.mediaItems}
-        settled={items[0].start < context.settledBefore}
+        settled={settled}
+        revealTiming={nextRevealBlockTiming(context, settled)}
       />
     );
   };
