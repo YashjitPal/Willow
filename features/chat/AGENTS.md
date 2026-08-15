@@ -387,12 +387,31 @@ Release is in a `finally`, and again on unmount. The top-loading reason lives in
 module-level store that outlives `key={chatResetKey}`, so a dropped reason leaves
 the green progress bar running forever.
 
+**An open lands, it does not travel.** `isFirstScrollRef` is armed only by a real
+chat load, and the scroll effect reads it as "this run is an opening, not a turn
+arriving": it writes `scrollTop` straight to the anchor and returns, ahead of both
+animated paths. There is nothing to animate into — the thread is already on
+screen and the user named it — and the position is identical to where the glide
+and `scrollIntoView` settle, so removing the movement changes only the movement.
+`skipNextNativeScrollRef` is still checked *first*: re-entering a chat with a
+running turn arms both flags and has always landed at `scrollTop` 0.
+
+**The progress bar is for crossing surfaces.** `App` suppresses the chat surface's
+own reasons (`chat-suspense`, `chat-load:`) for one frame after `chatResetKey`
+changes, because New Chat and the temporary-chat toggle rebuild the surface around
+an empty thread and there is nothing to wait for. Suppression is per reason, never
+per window: `studio-mode`/`studio-view` are raised by the same click when you
+arrive from Code or Media, and those still show. The frame (rather than the
+commit) is what `chat-load:` needs — it reaches `App` through the module-level
+store, so the mirroring effect converts it one commit later than the raise.
+
 **Chunked reveal.** A loaded thread paints its newest `REVEAL_INITIAL_COUNT`
 messages, then walks backwards a chunk per frame. Keep the first chunk ≥ 8: the
-open-scroll jump targets `messages[length - 1 - 4]`, and if that element is not
-mounted the jump silently no-ops and the chat opens scrolled to the *top*. Derive
-`messageIndex` from the full array (`revealOffset + visibleIndex`) or slice-index
-0 takes the `messageIndex === 0` branch and every chunk shifts the thread by 52px.
+open-scroll reposition anchors on the last *user* message and needs the rest of
+that turn mounted with it, or `scrollHeight` is short and the chat opens scrolled
+to the *top*. Derive `messageIndex` from the full array
+(`revealOffset + visibleIndex`) or slice-index 0 takes the `messageIndex === 0`
+branch and every chunk shifts the thread by 52px.
 Each chunk mounts *above* the viewport, so it must `flushSync` and then correct
 `scrollTop` by the height delta inside the same frame — the same cure the
 ResizeObservers use for the same class of jerk. The reveal is inert during

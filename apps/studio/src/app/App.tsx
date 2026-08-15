@@ -99,6 +99,20 @@ const StudioLoadingFallback: React.FC<{
   return <>{children}</>;
 };
 
+/**
+ * Reasons raised from *inside* the chat surface, as opposed to reasons that
+ * describe moving between surfaces.
+ *
+ * `chat-suspense` is the Suspense fallback for ChatView's own chunk;
+ * `chat-load:<chatId>` is ChatView reading a chat body. Both fire when the chat
+ * surface is rebuilt for a brand-new empty thread, where there is nothing for the
+ * user to wait on — see `silentChatSurfaceRef`. Everything else (`studio-mode`,
+ * `studio-view`, `studio-experience`, the other `*-suspense` boundaries) is a
+ * real transition and is never suppressed.
+ */
+const isChatSurfaceLoadingReason = (reason: string): boolean =>
+  reason === 'chat-suspense' || reason.startsWith('chat-load:');
+
 const ProjectIframe: React.FC = () => {
     const [searchParams] = useSearchParams();
     const prompt = searchParams.get('prompt') || '';
@@ -189,8 +203,28 @@ const App: React.FC = () => {
   const topLoadingReasonsRef = React.useRef(new Set<string>());
   const topLoadingStartedAtRef = React.useRef(0);
   const topLoadingHideTimerRef = React.useRef<number | undefined>(undefined);
+  /*
+   * Up for the one frame in which the chat surface is torn down and rebuilt with
+   * an empty thread — "New chat" and the temporary-chat toggle, both of which
+   * bump `chatResetKey`.
+   *
+   * That rebuild is not a route transition. Nothing is being fetched that the
+   * user is waiting on: the thread they asked for is empty by definition. But it
+   * still remounts a lazily-loaded subtree and re-runs the chat surface's own
+   * load effect, and either can raise a reason and flash the bar for the 280ms
+   * minimum. So reasons raised from INSIDE the chat surface stay silent while
+   * this is up.
+   *
+   * Deliberately scoped to those reasons. Arriving at New Chat from Code, Media
+   * or Agents runs the same reset, but the mode/view change on the way in raises
+   * `studio-mode`/`studio-view` — not chat-surface reasons — so that bar is
+   * untouched. Same for opening a saved chat from Recents, which is a
+   * `chat-load:` raised with no reset in flight.
+   */
+  const silentChatSurfaceRef = React.useRef(false);
 
   const startTopLoading = React.useCallback((reason: string) => {
+    if (silentChatSurfaceRef.current && isChatSurfaceLoadingReason(reason)) return;
     if (topLoadingHideTimerRef.current) {
       window.clearTimeout(topLoadingHideTimerRef.current);
       topLoadingHideTimerRef.current = undefined;
@@ -459,16 +493,40 @@ const App: React.FC = () => {
   }, [studioExperience, studioMode, finishTopLoading]);
 
   const handleNewChat = () => {
+    silentChatSurfaceRef.current = true;
     setChatResetKey((k) => k + 1);
     setHasActiveChat(false);
     setIsIncognito(false);
   };
 
   const handleIncognitoChat = () => {
+    silentChatSurfaceRef.current = true;
     setChatResetKey((k) => k + 1);
     setHasActiveChat(false);
     setIsIncognito(true);
   };
+
+  /*
+   * Stand the suppression down once the reset has finished landing.
+   *
+   * Not in this effect's body, because the two chat-surface reasons arrive at
+   * different times. The Suspense fallback calls `startTopLoading` directly, so
+   * `chat-suspense` lands in the reset commit itself (children's effects run
+   * before this one). `chat-load:` goes through the module-level store instead —
+   * ChatView writes the atom, the write re-renders App, and App's mirroring
+   * effect converts it to a reason one commit LATER. A body-level clear would
+   * already be down by then.
+   *
+   * One frame covers both and cannot swallow a real navigation: every reason this
+   * predicate matches is raised by the chat surface's own mount, and reaching the
+   * bar any other way takes a click, which is a later task.
+   */
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      silentChatSurfaceRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatResetKey]);
 
   const navigate = useNavigate();
   const viewChangeSequenceRef = React.useRef(0);
