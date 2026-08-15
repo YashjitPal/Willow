@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
 import { defaultApiFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
 import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type MessageCitations } from "./grounding";
+import type { CodeExecution } from "./code-execution";
 
 export interface Attachment {
   type: 'image' | 'text' | 'file';
@@ -644,7 +645,8 @@ const streamChatImpl: any = async (
   onPhase?: (phase: StreamPhase) => void,
   onToolCall?: (name: string, args: any) => Promise<any>,
   onThought?: (thought: string) => void,
-  onCitations?: (citations: MessageCitations) => void
+  onCitations?: (citations: MessageCitations) => void,
+  onCodeExecutions?: (executions: CodeExecution[]) => void
 ) => {
   const { provider, model, apiKey } = options;
   const messagesList: any = messages;
@@ -1084,6 +1086,14 @@ Adhere to the following rules and guidelines:
     // the response that produced them, so the iterations are merged (and their
     // indices re-based) once at the end rather than accumulated in place.
     const citationParts: MessageCitations[] = [];
+    // Code-execution blocks accumulate across tool-loop iterations, because a
+    // turn can run code, call a custom tool, then run more code. Each change
+    // re-emits the whole array (like `onCitations`), so a consumer only ever
+    // holds one authoritative list and never has to merge deltas itself.
+    const codeExecutions: CodeExecution[] = [];
+    const emitCodeExecutions = () => {
+      if (codeExecutions.length) onCodeExecutions?.(codeExecutions.map((e) => ({ ...e })));
+    };
     let answerText = '';
     const emitToken = (text: string) => {
       answerText += text;
@@ -1146,12 +1156,36 @@ Adhere to the following rules and guidelines:
           }
 
           // --- Code execution tool ---------------------------------------------
+          // The two halves arrive as separate parts, so the code is published
+          // immediately (the panel renders it while the sandbox is still running)
+          // and the result is attached to the newest block still awaiting one.
           if (part?.executableCode) {
             setPhase('executing');
+            const code = typeof part.executableCode.code === 'string' ? part.executableCode.code : '';
+            if (code) {
+              codeExecutions.push({
+                language: typeof part.executableCode.language === 'string'
+                  ? part.executableCode.language
+                  : '',
+                code,
+                position: iterationStart + iterationText.length,
+              });
+              emitCodeExecutions();
+            }
             continue;
           }
           if (part?.codeExecutionResult) {
             if (!hasEmittedText) setPhase('thinking');
+            // Search backwards: with parallel blocks the open one is the last.
+            const open = [...codeExecutions].reverse().find((e) => e.output === undefined);
+            if (open) {
+              const raw = part.codeExecutionResult.output;
+              open.output = typeof raw === 'string' ? raw : '';
+              if (typeof part.codeExecutionResult.outcome === 'string') {
+                open.outcome = part.codeExecutionResult.outcome;
+              }
+              emitCodeExecutions();
+            }
             continue;
           }
 

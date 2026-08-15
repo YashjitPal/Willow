@@ -181,7 +181,90 @@ const STYLE_CSS = [
   '  color: rgb(23, 23, 23);',
   '}',
   '.smd-task-box[data-checked="true"] { background: rgb(227, 227, 227); }',
-  '.smd-blockquote { display: block; margin: 0; padding: 0; border: 0; color: inherit; }',
+  // ── Blockquote ────────────────────────────────────────────────────────────
+  // Gemini sets a quote in *italic Google Sans Code* against a dotted vertical
+  // rail — not the conventional solid left border on body text. Three details
+  // are each easy to get wrong on their own:
+  //
+  //  • The rail is a repeating radial-gradient, not `border-left`: a 1.3px dot
+  //    every 4px, inset 6px from each end so it stops short of the first and
+  //    last line. A solid 1px border reads as a different component entirely.
+  //  • The italic must be a real face. Google Sans Code ships a separate italic
+  //    at MONO 0 (proportional), which index.html now requests; before that
+  //    Chrome synthesised an oblique from the monospaced upright.
+  //  • The 40px end margin is Chrome's UA default for <blockquote>, which
+  //    Gemini overrides only on the start side. It is restated here because
+  //    this rule replaces the UA margin wholesale, and dropping it lets quoted
+  //    lines run ~40px wider than Gemini's and wrap at different words.
+  '.smd-blockquote {',
+  '  position: relative;',
+  '  display: block;',
+  '  margin: 0 40px 0 7.5px;',
+  '  padding: 0 0 0 32.5px;',
+  '  border: 0;',
+  '  color: inherit;',
+  '  font-family: "Google Sans Code", monospace;',
+  '  font-size: 17px;',
+  '  font-style: italic;',
+  '  font-weight: 400;',
+  '  font-variation-settings: "MONO" 0, "wght" 400;',
+  '  letter-spacing: 0;',
+  '  line-height: 24px;',
+  '}',
+  '.smd-blockquote::before {',
+  '  position: absolute;',
+  '  top: 6px;',
+  '  bottom: 6px;',
+  '  left: 3px;',
+  '  width: 1.3px;',
+  '  background-image: radial-gradient(circle closest-side, rgb(230, 230, 230) 100%, transparent 100%);',
+  '  background-position: 0 0;',
+  '  background-repeat: repeat-y;',
+  '  background-size: 1.3px 4px;',
+  '  content: "";',
+  '}',
+  // A **label** inside a quote drops back to the upright sans body face, so the
+  // bold run contrasts with the italic around it. `font-variation-settings` is
+  // inherited and would otherwise pin this text to "wght" 400 — which silently
+  // beats `font-weight: 700` on a variable font and un-bolds the label.
+  '.smd-blockquote :is(b, strong) {',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 17px;',
+  '  font-style: normal;',
+  '  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;',
+  '  line-height: 24px;',
+  '}',
+  // A list inside a quote reverts to *native* markers — filled discs and plain
+  // decimals, tight against their text — rather than the ring bullet and
+  // 36px-offset counter used at the top level.
+  //
+  // This is not a special case invented here; it falls out of how Gemini scopes
+  // those markers. Every custom-marker rule requires the list chain to begin at
+  // a direct child of the markdown root (`& > ul > li::before`, `& > ol li`).
+  // A list inside a quote is `root > blockquote > ul`, matches none of them, and
+  // so lands on the plain `ul { list-style-type: disc; padding-inline-start:
+  // 27px }` base. Willow's markers are unconditional, hence this override.
+  //
+  // Item spacing follows from the same base rules: `ul, ol { margin: 8px 0 }`
+  // plus `li { margin: 8px 0 }`, whose adjacent margins collapse to a single
+  // 8px — not the 12px used between top-level items.
+  '.smd-blockquote .smd-list {',
+  '  margin: 8px 0;',
+  '  padding-left: 27px;',
+  '  list-style-position: outside;',
+  '}',
+  '.smd-blockquote .smd-list-ordered { padding-left: 28px; }',
+  '.smd-blockquote .smd-list-unordered,',
+  '.smd-blockquote .smd-list-unordered > li { list-style-type: disc; }',
+  '.smd-blockquote .smd-list-ordered,',
+  '.smd-blockquote .smd-list-ordered > li { list-style-type: decimal; }',
+  '.smd-blockquote .smd-list > li { margin: 8px 0; padding-left: 4px; }',
+  // Three depths, because the counter rules above are written for three and each
+  // selector here has to outweigh its counterpart to suppress the marker that
+  // would otherwise paint on top of the native one.
+  '.smd-blockquote .smd-list > li::before,',
+  '.smd-blockquote .smd-list .smd-list > li::before,',
+  '.smd-blockquote .smd-list .smd-list .smd-list > li::before { content: none; }',
   '.smd-hr {',
   '  width: 100%;',
   '  height: 1px;',
@@ -284,6 +367,72 @@ const STYLE_CSS = [
   '.smd-code-block .hljs-name, .smd-code-block .hljs-selector-tag { color: rgb(79, 160, 255); }',
   '.smd-code-block .hljs-meta, .smd-code-block .hljs-built_in, .smd-code-block .hljs-builtin-name, .smd-code-block .hljs-deletion { color: rgb(255, 90, 89); }',
   '.smd-code-block .hljs-meta .hljs-keyword { color: rgb(255, 90, 89); font-weight: 700; }',
+  // ── Code-execution panel ──────────────────────────────────────────────────
+  // Shares the code-block chrome above, but splits it across two elements the
+  // markdown block keeps as one: the reveal wrapper owns the full-bleed negative
+  // margin (which animates) while the panel owns the background and radius. The
+  // wrapper cannot own both, because animating the margin on the element that
+  // paints the background would slide the background as it grows.
+  '.smd-code-exec-reveal {',
+  '  display: none;',
+  // Bleed only — no vertical margin. Spacing above the panel is owned by the
+  // toggle row (a fixed 20px, measured off the live app) and below it by the
+  // turn's own rhythm. Keeping vertical margin off this element means the reveal
+  // animates height alone: nothing shifts the box's width or its neighbours
+  // mid-flight, so the measured target height stays exact.
+  '  margin: 0 -16px;',
+  // Radius matches the panel inside, so clipping the growing content costs
+  // nothing at the corners. At rest the height is auto and nothing is clipped.
+  '  border-radius: 40px;',
+  '  overflow: hidden;',
+  '}',
+  '.smd-code-exec-reveal.is-open { display: block; }',
+  '.smd-code-exec-panel {',
+  '  min-width: 0;',
+  '  overflow: clip;',
+  '  border-radius: 40px;',
+  '  background: rgb(23, 23, 23);',
+  // Bottom padding is 0 here, unlike `.smd-code-block`: whichever section ends
+  // the panel supplies its own 32px, so the panel closes correctly whether or
+  // not the output section is present.
+  '  padding: 26px 0 0 32px;',
+  '}',
+  '.smd-code-exec-code .smd-code-pre code { padding: 16px 0 32px 0; }',
+  '.smd-code-exec-output-header {',
+  '  display: flex;',
+  '  width: 100%;',
+  '  min-height: 24px;',
+  '  align-items: center;',
+  '  justify-content: space-between;',
+  '  background: rgb(23, 23, 23);',
+  '  padding: 0 0 16px 0;',
+  '  color: rgb(255, 255, 255);',
+  '  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;',
+  '  font-size: 15px;',
+  '  font-weight: 400;',
+  '  line-height: 20px;',
+  '}',
+  '.smd-code-exec-divider {',
+  '  height: 0;',
+  '  border: 0;',
+  '  border-top: 0.8px solid rgb(68, 71, 70);',
+  '  margin: 0;',
+  '}',
+  // The output uses a different mono face and leading to the code above it —
+  // Google Sans Mono 14/18 against Google Sans Code 14/21. Measured, not assumed.
+  '.smd-code-exec-output code {',
+  '  display: block;',
+  '  min-width: max-content;',
+  '  padding: 16px 0 32px 0;',
+  '  background: transparent;',
+  '  color: rgb(255, 255, 255);',
+  '  font-family: "Google Sans Mono", "Google Sans Code", ui-monospace, SFMono-Regular, Consolas, monospace;',
+  '  font-size: 14px;',
+  '  font-weight: 400;',
+  '  line-height: 18px;',
+  '  tab-size: 4;',
+  '}',
+  '.smd-code-exec-fade { opacity: 1; }',
   '.smd-svg-preview-block {',
   '  width: 100%;',
   '  min-width: 0;',

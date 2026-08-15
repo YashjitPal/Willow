@@ -1,6 +1,7 @@
 import { streamChat, isAbortError, type StreamPhase } from '@willow/ai/chat';
 import type { ProviderApiFormat, ProviderToolPolicy } from '@willow/ai/providers/profiles';
 import type { MessageCitations } from '@willow/ai/grounding';
+import type { CodeExecution } from '@willow/ai/code-execution';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
 import { runPersonalTool } from '@willow/personal';
 import { declaredToolNames } from './personal-tools';
@@ -97,6 +98,7 @@ const buildAssistantMessage = (record: ChatTurnRecord, content: string, wasStopp
   isError: record.isError,
   wasStopped,
   citations: record.citations,
+  codeExecutions: record.codeExecutions?.length ? record.codeExecutions : undefined,
 });
 
 const buildThread = (record: ChatTurnRecord, assistant: ChatMsg): any[] =>
@@ -191,6 +193,7 @@ export const runChatTurn = async (
     record.content = '';
     record.thinkingText = '';
     record.citations = undefined;
+    record.codeExecutions = undefined;
     record.phase = 'thinking';
     record.isThinking = true;
     record.thinkStartedAt = Date.now();
@@ -291,6 +294,14 @@ export const runChatTurn = async (
       if (!isCurrent(record, deps)) return;
       record.citations = citations;
     },
+    (executions: CodeExecution[]) => {
+      if (!isCurrent(record, deps)) return;
+      record.codeExecutions = executions;
+      // Unlike citations, these land mid-stream and are visible immediately, so
+      // the view has to be told rather than picking them up at settle time.
+      record.listener?.onPhase(record);
+      void checkpoint(record, deps);
+    },
   );
 
   try {
@@ -311,6 +322,7 @@ export const runChatTurn = async (
           record.content = '';
           record.thinkingText = '';
           record.citations = undefined;
+    record.codeExecutions = undefined;
           record.listener?.onText('');
           record.finalContent = friendlyChatErrorFor(record.historyBefore);
           break;

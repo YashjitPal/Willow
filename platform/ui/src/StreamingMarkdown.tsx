@@ -331,7 +331,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;');
 }
 
-async function copyToClipboard(value: string): Promise<void> {
+export async function copyToClipboard(value: string): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(value);
@@ -351,7 +351,7 @@ async function copyToClipboard(value: string): Promise<void> {
   textarea.remove();
 }
 
-function downloadText(filename: string, value: string, type: string): void {
+export function downloadText(filename: string, value: string, type: string): void {
   if (typeof document === 'undefined' || typeof URL === 'undefined') return;
   const blob = new Blob([value], { type });
   const url = URL.createObjectURL(blob);
@@ -444,17 +444,24 @@ function sourceLanguage(rawLanguage: string): string {
   return rawLanguage.trim().split(/\s+/)[0].replace(/^language-/, '').toLowerCase();
 }
 
-function highlightLanguage(rawLanguage: string): string {
+/** Download filename extension for a fenced language, `txt` when unrecognised. */
+export function codeFileExtension(rawLanguage: string): string {
+  return LANGUAGE_EXTENSIONS[sourceLanguage(rawLanguage)]
+    || LANGUAGE_EXTENSIONS[highlightLanguage(rawLanguage)]
+    || 'txt';
+}
+
+export function highlightLanguage(rawLanguage: string): string {
   const source = sourceLanguage(rawLanguage);
   return LANGUAGE_ALIASES[source] || source;
 }
 
-function displayLanguage(rawLanguage: string): string {
+export function displayLanguage(rawLanguage: string): string {
   const source = sourceLanguage(rawLanguage);
   return LANGUAGE_LABELS[source] || (source ? source.toUpperCase() : 'Code');
 }
 
-function highlightedCode(value: string, rawLanguage: string): string {
+export function highlightedCode(value: string, rawLanguage: string): string {
   const language = highlightLanguage(rawLanguage);
   if (!language || language === 'text' || language === 'txt' || language === 'plaintext') {
     return escapeHtml(value);

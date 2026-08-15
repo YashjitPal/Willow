@@ -1,6 +1,7 @@
 import { atom } from 'nanostores';
 import type { StreamPhase } from '@willow/ai/chat';
 import type { MessageCitations } from '@willow/ai/grounding';
+import type { CodeExecution } from '@willow/ai/code-execution';
 import type { ChatMsg } from './chat-message';
 
 /**
@@ -68,6 +69,8 @@ export interface ChatTurnRecord {
   content: string;
   thinkingText: string;
   citations?: MessageCitations;
+  /** Code-execution panels, republished whole on every change by the stream. */
+  codeExecutions?: CodeExecution[];
 
   // ── thinking row (was thinkTimer / thinkStart / thinkSecondsRef) ────────────
   phase: StreamPhase;

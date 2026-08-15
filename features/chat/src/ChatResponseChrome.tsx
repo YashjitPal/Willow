@@ -54,6 +54,67 @@ const RESPONSE_SYMBOL_PROPS = {
   opticalSize: 20,
 };
 
+/**
+ * The "Show code" / "Hide code" pill for a turn that ran code.
+ *
+ * Sits in the response header, right-aligned, above the body — Gemini puts it in
+ * `response-container-header`, not inside the panel, so it is one control per
+ * response rather than one per block.
+ *
+ * Measured: 32px tall, 0/16px padding, fully round, 5px between label and icon.
+ * The label is grey and the 16px icon beside it is blue — the button's own colour
+ * is the blue, and the label overrides itself back to grey.
+ *
+ * The icon is inline SVG rather than a symbol font on purpose: the bundled
+ * "Google Symbols" and "Luminous Symbols" faces are *subsetted* kits, and neither
+ * contains `code` / `code_off`, so a MaterialSymbol here rendered fallback blobs
+ * instead of a glyph. Drawing it also makes the optical centring exact, which the
+ * font route did not.
+ */
+const CodeGlyph: React.FC<{ struck: boolean }> = ({ struck }) => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M6.1 4.3 L2.5 8 L6.1 11.7" />
+    <path d="M9.9 4.3 L13.5 8 L9.9 11.7" />
+    {struck && <path d="M13.2 2.8 L2.8 13.2" />}
+  </svg>
+);
+
+export const ShowCodeToggle: React.FC<{ open: boolean; onToggle: () => void }> = ({
+  open,
+  onToggle,
+}) => (
+  <div className="flex h-8 items-center justify-end">
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      data-test-id="toggle-code-button"
+      className="flex h-8 items-center justify-center gap-[5px] rounded-full px-4 text-[#a8c7fa] transition-colors duration-150 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+    >
+      <span
+        className="text-[15px] font-[370] leading-5 text-[#e3e3e3]"
+        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 370' }}
+      >
+        {open ? 'Hide code' : 'Show code'}
+      </span>
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[#a8c7fa]">
+        <CodeGlyph struck={open} />
+      </span>
+    </button>
+  </div>
+);
+
 export const ResponseActions: React.FC<ResponseActionsProps> = ({
   reaction,
   listening,
