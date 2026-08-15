@@ -7,16 +7,18 @@ import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
+import { CodeExecutionPanel } from '@willow/ui/CodeExecutionPanel';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
-import { ResponseActions, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
+import { ResponseActions, ShowCodeToggle, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
 import { ThoughtSummaryLine, latestThoughtHeading } from './ThoughtSummaryLine';
 import { UserMessageBubble } from './UserMessageBubble';
 import { ResponseInfoLine } from './ResponseInfoLine';
 import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
 import type { MessageCitations } from '@willow/ai/grounding';
+import type { CodeExecution } from '@willow/ai/code-execution';
 import {
   GeminiLiveSession,
   LiveHistoryTurn,
@@ -30,7 +32,7 @@ import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-stor
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
 import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
-import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, serializeChatMessage } from './chat-message';
+import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
 import {
   attachChatTurnListener,
   countRunningChatTurns,
@@ -637,6 +639,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 wasInterrupted: m.wasInterrupted,
                 wasStopped: m.wasStopped,
                 citations: sanitizeSavedCitations(m.citations),
+                codeExecutions: sanitizeSavedCodeExecutions(m.codeExecutions, (m.content || '').length),
               })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             // Attachment hydration awaits one IndexedDB read per attachment, so
@@ -899,6 +902,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // messages are already settled and do not need an entry here.
   const [responseRevealComplete, setResponseRevealComplete] = useState<Record<string, boolean>>({});
   const [listeningId, setListeningId] = useState<string | null>(null);
+  // Which turns currently have their code panels shown. Keyed by message id
+  // because the toggle is per response, not per block — Gemini's control sits in
+  // the response header and reveals every block in that turn at once. Collapsed
+  // is the default, matching the live app.
+  const [codeShown, setCodeShown] = useState<Record<string, boolean>>({});
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
   const [openSourcesMessageId, setOpenSourcesMessageId] = useState<string | null>(null);
   // ── Panel quiet window ─────────────────────────────────────────────────────
@@ -1944,11 +1952,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
     wasStopped = false,
     citations?: MessageCitations,
     errorDetail?: string,
+    codeExecutions?: CodeExecution[],
   ) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail, codeExecutions }
           : m
       )
     );
@@ -1995,6 +2004,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
         thinkSecondsRef.current = record.thinkSeconds;
         setThinkSeconds(record.thinkSeconds);
       }
+      // Code panels land mid-stream, so they reach the message here rather than
+      // waiting for `finalizeAssistant` the way citations do — Gemini shows the
+      // toggle as soon as the first block arrives. The runner republishes a fresh
+      // array on every change, so identity is a sound change test, and returning
+      // `prev` unchanged lets React bail out of the once-a-second phase ticks.
+      const executions = record.codeExecutions;
+      if (executions) {
+        setMessages((prev) => (
+          prev.some((m) => m.id === record.assistantId && m.codeExecutions !== executions)
+            ? prev.map((m) => (m.id === record.assistantId ? { ...m, codeExecutions: executions } : m))
+            : prev
+        ));
+      }
     },
     onSettled: (record) => {
       if (attachedTurnIdRef.current !== turnId) return;
@@ -2018,6 +2040,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           record.wasStopped,
           record.citations,
           record.errorDetail,
+          record.codeExecutions,
         );
         setAttachedTurnId(null);
         attachedTurnIdRef.current = null;
@@ -3251,6 +3274,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }}
                   className={`w-full space-y-3 ${openResource ? 'ml-auto max-w-[476px]' : ''}`}
                 >
+                {/* Code-execution toggle. Gemini puts this in the response
+                    header, right-aligned above the body, and it appears only
+                    once the thinking dots give way to output — never alongside
+                    them — which is what `!showThinkingRow` encodes.
+
+                    20px to whatever paints underneath, measured off the live app
+                    in both states (it splits there as 4px + 16px). Set as a
+                    bottom margin so it collapses against the wrapper's 12px
+                    `space-y-3` rhythm to exactly 20 rather than adding to it. */}
+                {!!msg.codeExecutions?.length && !showThinkingRow && (
+                  <div style={{ marginBottom: 20 }}>
+                    <ShowCodeToggle
+                      open={!!codeShown[msg.id]}
+                      onToggle={() => setCodeShown((current) => ({
+                        ...current,
+                        [msg.id]: !current[msg.id],
+                      }))}
+                    />
+                  </div>
+                )}
+
                 {showThinkingRow && !isFirstTurnEntranceActive && (() => {
                   const active = generating && isThinking;
                   const statusHeading = active
@@ -3317,6 +3361,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </motion.div>
                   );
                 })()}
+
+                {/* Code-execution panels, in emission order.
+                    `display: contents` so the wrapper generates no box: the
+                    turn's `space-y-3` targets IT rather than the panels, which
+                    means a collapsed panel (display:none) contributes no phantom
+                    gap and the toggle's own 20px margin reaches the panel
+                    directly.
+
+                    They render as a group here rather than being spliced into
+                    `bodyText` at each `position`. For a Gemini turn those
+                    offsets are all 0 (the code parts precede the answer text),
+                    so this is the same result; a turn that wrote prose, ran
+                    code, then continued would show its panels above the prose.
+                    Splicing would mean slicing the body into several
+                    StreamingMarkdown instances, which would misalign citation
+                    offsets — the offsets are kept on disk so true interleaving
+                    can be added later without a data migration. */}
+                {!!msg.codeExecutions?.length && (
+                  <div className="contents">
+                    {[...msg.codeExecutions]
+                      .sort((a, b) => a.position - b.position)
+                      .map((execution, index) => (
+                        <CodeExecutionPanel
+                          key={`${msg.id}:${index}`}
+                          language={execution.language}
+                          code={execution.code}
+                          output={execution.output}
+                          open={!!codeShown[msg.id]}
+                        />
+                      ))}
+                  </div>
+                )}
 
                 {bodyText && (
                   <StreamingMarkdown

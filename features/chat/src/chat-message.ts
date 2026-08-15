@@ -10,6 +10,7 @@ import {
   toPersistedChatAttachment,
 } from '@willow/core/attachments';
 import type { MessageCitations } from '@willow/ai/grounding';
+import type { CodeExecution } from '@willow/ai/code-execution';
 
 export interface ChatMsg {
   id: string;
@@ -43,6 +44,9 @@ export interface ChatMsg {
   attachments?: ChatAttachment[];
   /** Grounded web sources, indexed against `content`, driving the inline chips. */
   citations?: MessageCitations;
+  /** Code the model ran and what it printed, indexed against `content` like
+   *  citations are, driving the "Show code" panels. */
+  codeExecutions?: CodeExecution[];
 }
 
 /**
@@ -53,11 +57,18 @@ export interface ChatMsg {
  * response" notice IS its content, and Gemini keeps such a turn in the thread.
  * Without this the whole turn was dropped on save, so the user's question came
  * back from disk with no response under it at all.
+ *
+ * A code-execution panel counts for exactly the same reason: a model that runs
+ * code and answers entirely through its output leaves `content` empty, and the
+ * panel is then the only thing the turn has to show.
  */
 export const hasSavedMessageContent = (
-  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped'>,
+  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped' | 'codeExecutions'>,
 ): boolean =>
-  message.content.trim().length > 0 || !!message.attachments?.length || !!message.wasStopped;
+  message.content.trim().length > 0
+  || !!message.attachments?.length
+  || !!message.wasStopped
+  || !!message.codeExecutions?.length;
 
 /** Strip the runtime-only flags so a reloaded chat never resumes mid-generation. */
 export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew' | 'errorDetail'> => {
@@ -129,6 +140,47 @@ export const sanitizeSavedCitations = (value: any): MessageCitations | undefined
     .filter((citation: any) => citation.sourceIndices.length > 0);
 
   return sources.length ? { sources, citations } : undefined;
+};
+
+/**
+ * Read code-execution panels back off disk.
+ *
+ * Re-checked field by field for the same reason citations are: the chat file is
+ * user-editable and predates this field. A block with no `code` is dropped —
+ * there is nothing to show — but a block with a bad `position` is *kept* and its
+ * offset repaired rather than discarded. That is the opposite call to
+ * `sanitizeSavedCitations`, deliberately: a mis-anchored citation chip points at
+ * the wrong sentence and is worse than none, whereas a mis-anchored panel still
+ * shows the right code and only sits in the wrong place in the turn. Dropping it
+ * would lose the code the model ran, which is the actual content here.
+ *
+ * `contentLength` clamps offsets against the text they index into, so a
+ * truncated `content` cannot push a panel past the end of the turn.
+ */
+export const sanitizeSavedCodeExecutions = (
+  value: any,
+  contentLength = Number.MAX_SAFE_INTEGER,
+): CodeExecution[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const executions = value
+    .filter((entry: any) => entry && typeof entry === 'object' && typeof entry.code === 'string' && entry.code.length > 0)
+    .map((entry: any) => {
+      const execution: CodeExecution = {
+        language: typeof entry.language === 'string' ? entry.language : '',
+        code: entry.code,
+        position: Number.isFinite(entry.position)
+          ? Math.min(Math.max(0, Math.floor(Number(entry.position))), contentLength)
+          : 0,
+      };
+      // Absent and empty are different states: absent means the sandbox never
+      // reported back, which is what the panel renders as still-running. A
+      // reloaded turn is never still running, so an absent output is left absent
+      // and the panel simply omits the output section.
+      if (typeof entry.output === 'string') execution.output = entry.output;
+      if (typeof entry.outcome === 'string' && entry.outcome) execution.outcome = entry.outcome;
+      return execution;
+    });
+  return executions.length ? executions : undefined;
 };
 
 /**

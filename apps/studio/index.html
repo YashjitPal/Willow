@@ -48,9 +48,20 @@
       `media="print"` makes these non-matching, so the parser downloads them
       without blocking render; `onload` flips them live the moment they arrive.
       The <noscript> copy keeps them blocking-but-present without JS.
+
+      Google Sans Code is requested twice on purpose, because Gemini pins the
+      family's MONO axis differently per style and the two cannot be expressed
+      in one tuple list:
+        • upright keeps the default (monospaced) axis value — this is the face
+          code blocks render in, so its URLs must not move;
+        • italic pins MONO 0, i.e. *proportional*, and is a genuinely separate
+          design rather than a slant of the upright face. Blockquotes and image
+          captions are set in it. Without this second request Chrome synthesises
+          an oblique from the monospaced upright and the letterforms are visibly
+          wrong. `1,0,300..400` reproduces Gemini's own italic file byte for byte.
     -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
@@ -63,7 +74,7 @@
     />
     <noscript>
       <link
-        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
         rel="stylesheet"
       />
       <link
