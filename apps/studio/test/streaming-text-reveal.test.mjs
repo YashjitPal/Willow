@@ -165,7 +165,7 @@ describe('Gemini-style streaming text reveal', () => {
     assert.match(chat, /height: actionsReady \? 'auto' : 0/);
   });
 
-  it('layers short Gemini responses using its adaptive pending-node queue', async () => {
+  it('uses one ordered fade for each newly-mounted reveal unit', async () => {
     const { geminiBlockRevealTimings, geminiRevealTailMs } = await loadReveal();
     const ui = fs.readFileSync(
       path.join(root, 'platform/ui/src/StreamingMarkdown.tsx'),
@@ -181,15 +181,24 @@ describe('Gemini-style streaming text reveal', () => {
     );
 
     assert.equal(timing.durationMs, 610);
-    assert.equal(timing.innerDelayMs, 305);
-    assert.equal(timing.completionMs, 915);
-    assert.equal(geminiRevealTailMs('Something went wrong. Please try again.'), 915);
+    assert.equal(timing.innerDelayMs, 150);
+    assert.equal(timing.completionMs, 760);
+    assert.equal(geminiRevealTailMs('Something went wrong. Please try again.'), 760);
     assert.match(ui, /smd-reveal-block/);
-    assert.match(styles, /\.smd-streaming \.smd-reveal-block/);
     assert.match(styles, /animation-delay: var\(--smd-inner-delay, 0ms\)/);
+    assert.doesNotMatch(
+      styles,
+      /\.smd-streaming \.smd-reveal-block,/,
+      'the reveal container must not add a second opacity fade around its words',
+    );
+    assert.match(
+      ui,
+      /<RichResourceGroup[\s\S]{0,220}style=\{revealTimingStyle\(nextRevealBlockTiming\(/,
+      'resource previews must consume the next reveal slot instead of starting at time zero',
+    );
   });
 
-  it('keeps dense multi-paragraph responses on Gemini default 400ms fades', async () => {
+  it('keeps reveal delays strictly increasing in document order', async () => {
     const { geminiBlockRevealTimings } = await loadReveal();
     const source = Array.from(
       { length: 12 },
@@ -198,25 +207,49 @@ describe('Gemini-style streaming text reveal', () => {
     const timings = geminiBlockRevealTimings(source);
 
     assert.equal(timings.length, 12);
-    assert.equal(timings[0].durationMs, 400);
-    assert.ok(timings[0].innerDelayMs < timings.at(-1).innerDelayMs);
-    assert.ok(timings.at(-1).durationMs > timings[0].durationMs);
+    assert.ok(timings.every((timing) => timing.durationMs === 610));
+    assert.equal(timings[0].innerDelayMs, 150);
+    assert.equal(timings.at(-1).innerDelayMs, 1470);
+    assert.ok(timings.every((timing, index) => (
+      index === 0 || timing.innerDelayMs > timings[index - 1].innerDelayMs
+    )));
+  });
+
+  it('counts every list item as its own reveal unit even without a blank line', async () => {
+    const { geminiBlockRevealTimings } = await loadReveal();
+    const timings = geminiBlockRevealTimings([
+      'Previous paragraph.',
+      '- First item.',
+      '- Second item.',
+    ].join('\n'));
+
+    assert.equal(timings.length, 3);
+    assert.deepEqual(timings.map((timing) => timing.innerDelayMs), [150, 270, 390]);
   });
 
   it('delays generated list markers with their accompanying text', () => {
+    const ui = fs.readFileSync(
+      path.join(root, 'platform/ui/src/StreamingMarkdown.tsx'),
+      'utf8',
+    );
     const styles = fs.readFileSync(
       path.join(root, 'platform/ui/src/streaming-markdown-styles.ts'),
       'utf8',
     );
-    const markerSelector = '.smd-streaming .smd-reveal-block:not(.smd-settled) > li::before';
+    const markerSelector = '.smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before';
 
     assert.equal(
       styles.split(markerSelector).length - 1,
       3,
-      'the marker must share the animation, inner delay, and reduced-motion rules',
+      'the marker must share the animation, hidden state, and reduced-motion rules',
     );
-    assert.match(styles, /li::before,'[\s\S]{0,220}opacity: 0/);
-    assert.match(styles, /li::before,'[\s\S]{0,300}animation-delay: var\(--smd-inner-delay, 0ms\)/);
+    assert.match(styles, /li\.smd-reveal-block[^']*::before,'[\s\S]{0,260}opacity: 0/);
+    assert.match(styles, /animation-delay: var\(--smd-inner-delay, 0ms\)/);
+    assert.match(
+      ui,
+      /<RevealBlock[\s\S]{0,180}as="li"[\s\S]{0,220}nextRevealBlockTiming\(context, settled\)/,
+      'each list item must consume its own reveal slot',
+    );
   });
 
   it('appends grounding pills without remounting the existing paragraph words', () => {
