@@ -83,6 +83,8 @@ export interface ChatTurnRecord {
   settledBy: 'runner' | 'view' | null;
   wasStopped: boolean;
   isError: boolean;
+  /** Raw final provider error, never persisted or rendered in the assistant bubble. */
+  errorDetail?: string;
   /** Final content, set at settle. Lets a late-attaching view render the result. */
   finalContent: string;
   /** False until the result reached disk. A settled-but-unpersisted record is

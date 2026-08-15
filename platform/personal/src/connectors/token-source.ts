@@ -34,6 +34,16 @@ export interface TokenSource {
   request: (scopes: string[]) => Promise<string | null>;
   /** Forget the cached token, e.g. after a 401. */
   invalidate: (scopes?: string[]) => void;
+  /**
+   * Drop any durable grant this source holds, so a disconnect really is off.
+   *
+   * Optional because most sources have nothing to drop: Google's token dies with
+   * the tab, so `invalidate` is the whole story there. Spotify's does not — it keeps
+   * a refresh token on disk precisely so a reload does not lose the connection, and
+   * a disconnect that left that behind would be a switch the user turned off while
+   * a working credential sat in their browser.
+   */
+  forget?: () => void;
 }
 
 /**

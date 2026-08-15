@@ -21,6 +21,11 @@ import { authLossHandler } from '../connectors/authorization';
 import { createAuthorizedFetch } from '../connectors/authorized-fetch';
 import { createTask as createGoogleTask } from '../connectors/google/tasks';
 import { createDocument as createGoogleDocument } from '../connectors/google/docs';
+import {
+  addPlaylistItems as addSpotifyPlaylistItems,
+  createPlaylist as createSpotifyPlaylistApi,
+  searchTracks as searchSpotifyTracks,
+} from '../connectors/spotify/spotify';
 import { isConnected } from '../connectors/connections-store';
 import { writeScopesFor, tokensFor } from '../connectors/registry';
 import { type TokenSource } from '../connectors/token-source';
@@ -31,6 +36,16 @@ const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const YOUTUBE_API = 'https://www.googleapis.com/youtube/v3';
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * How many tracks one `create_spotify_playlist` call will look up.
+ *
+ * A cap on searches, not on playlists. Each track costs one request, so an
+ * unbounded list is a model able to spend a hundred requests inside a single tool
+ * call — and a chat that asks for more than this is asking for a playlist nobody
+ * reviewed. The overflow is reported rather than dropped silently.
+ */
+const MAX_PLAYLIST_TRACKS = 30;
 
 const notConnected = (label: string): string =>
   `${label} is not connected. The user can connect it in Settings → Connected Apps.`;
@@ -157,7 +172,9 @@ export const createPersonalActions = (tokens?: TokenSource): PersonalActions => 
     const created = await createSpotifyPlaylistApi(fetchJson, { title, description });
     if (!created) return 'The playlist could not be created. Spotify rejected the request.';
 
-    const wanted = (tracks ?? []).filter((entry) => entry.trim()).slice(0, MAX_PLAYLIST_TRACKS);
+    const requested = (tracks ?? []).filter((entry) => entry.trim());
+    const wanted = requested.slice(0, MAX_PLAYLIST_TRACKS);
+    const overflow = requested.length - wanted.length;
     if (wanted.length === 0) {
       return `Created the private Spotify playlist "${title}"${created.url ? `: ${created.url}` : ''}. It is empty — no tracks were given.`;
     }
@@ -199,6 +216,11 @@ export const createPersonalActions = (tokens?: TokenSource): PersonalActions => 
     const shortfall = missing.length
       ? ` ${missing.length} could not be found on Spotify: ${missing.join('; ')}.`
       : '';
-    return `Created the private Spotify playlist "${title}" with ${uris.length} track${uris.length === 1 ? '' : 's'}${created.url ? `: ${created.url}` : ''}.${shortfall}`;
+    // Said out loud, because a playlist quietly one track short of what was asked
+    // for is a mistake the user only finds later, in Spotify.
+    const trimmed = overflow > 0
+      ? ` Only the first ${MAX_PLAYLIST_TRACKS} tracks were looked up; ${overflow} more were left out.`
+      : '';
+    return `Created the private Spotify playlist "${title}" with ${uris.length} track${uris.length === 1 ? '' : 's'}${created.url ? `: ${created.url}` : ''}.${shortfall}${trimmed}`;
   },
 });

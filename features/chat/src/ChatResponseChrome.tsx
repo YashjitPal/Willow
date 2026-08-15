@@ -451,12 +451,14 @@ export const SourcesSidebar: React.FC<{
 interface ThinkingStepsSidebarProps {
   thinkingText: string;
   modelLabel: string;
+  isError?: boolean;
   onClose: () => void;
 }
 
 export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
   thinkingText,
   modelLabel,
+  isError = false,
   onClose,
 }) => {
   const blocks = parseThoughtBlocks(thinkingText);
@@ -489,7 +491,10 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
                 )}
                 <p
                   className="whitespace-pre-wrap text-[15px] font-normal leading-5 text-white/55"
-                  style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                  style={{
+                    fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+                    overflowWrap: 'anywhere',
+                  }}
                 >
                   {block.body}
                 </p>
@@ -505,7 +510,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               <span className="flex h-5 w-5 items-center justify-center text-[#e3e3e3]">
                 <MaterialSymbol
                   family="google-symbols"
-                  name="check"
+                  name={isError ? 'close' : 'check'}
                   size={20}
                   weight={400}
                   roundness={0}
@@ -513,7 +518,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
                   opticalSize={20}
                 />
               </span>
-              <span>Done</span>
+              <span>{isError ? 'Error' : 'Done'}</span>
             </div>
             <div className="flex items-center gap-5">
               <span className="flex h-5 w-5 items-center justify-center text-[#e3e3e3]">

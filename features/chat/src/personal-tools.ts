@@ -88,3 +88,34 @@ export const personalChatTools = (
 
   return blocks;
 };
+
+/**
+ * The names this turn actually declared, as a set the executor can check.
+ *
+ * Declaring nothing is meant to make a tool uncallable, and for a well-behaved
+ * provider it does. It is not a guarantee. A model looking at a transcript where it
+ * called `list_liked_videos` three turns ago can emit that call again on a turn
+ * where the tool was never offered, and the runner would have happily executed it —
+ * so "personalization off" would have stopped the model being *told* about the
+ * user's connected apps without stopping it *reaching* them.
+ *
+ * That gap is the whole of the requirement this closes: with the switch off, no
+ * connected app is callable, not merely undeclared. Reading the answer back out of
+ * the declaration list rather than re-deriving it is what makes the two impossible
+ * to disagree — there is one decision, taken above, and this is a view of it.
+ *
+ * Derived from the Gemini shape because that is what `personalChatTools` returns;
+ * the other providers' declarations are translated from the same source, so the
+ * names are identical.
+ */
+export const declaredToolNames = (
+  blocks: { functionDeclarations: any[] }[] | undefined,
+): Set<string> => {
+  const names = new Set<string>();
+  for (const block of blocks ?? []) {
+    for (const declaration of block?.functionDeclarations ?? []) {
+      if (typeof declaration?.name === 'string') names.add(declaration.name);
+    }
+  }
+  return names;
+};

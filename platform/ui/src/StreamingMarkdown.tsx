@@ -18,10 +18,17 @@ import {
   resourceFromUrl,
 } from './RichResourcePreview';
 import { SourceChip, type SourceChipItem } from './SourceChip';
+import {
+  geminiBlockRevealTimings,
+  geminiRevealTailMs,
+  type GeminiBlockRevealTiming,
+  initialStreamingReveal,
+  nextStreamingRevealDelayMs,
+  nextStreamingRevealLength,
+  reconcileStreamingReveal,
+} from './streaming-text-reveal';
 
 import { useInjectStyles } from './streaming-markdown-styles';
-
-const STREAM_FADE_MS = 400;
 
 /** Mirrors `MessageCitations` from @willow/ai/grounding, declared structurally
  *  so this component keeps no dependency on the AI layer. */
@@ -182,6 +189,44 @@ const Word = React.memo(
     previous.width === next.width &&
     previous.roundness === next.roundness
 );
+
+function RevealBlock({
+  as: Tag,
+  start,
+  settled,
+  revealTiming,
+  className,
+  children,
+  ...props
+}: {
+  as: React.ElementType;
+  start: number;
+  settled?: boolean;
+  revealTiming?: GeminiBlockRevealTiming;
+  className?: string;
+  children: React.ReactNode;
+  [key: string]: any;
+}) {
+  const settledAtMount = useRef(settled).current;
+  const timingAtMount = useRef(revealTiming).current;
+  const mergedStyle = {
+    ...props.style,
+    ...(timingAtMount ? {
+      '--animation-duration': `${timingAtMount.durationMs}ms`,
+      '--smd-inner-delay': `${timingAtMount.innerDelayMs}ms`,
+    } : {}),
+  } as React.CSSProperties;
+  return (
+    <Tag
+      {...props}
+      style={mergedStyle}
+      className={(className || '') + ' smd-reveal-block' + (settledAtMount ? ' smd-settled' : '')}
+      data-reveal-start={start}
+    >
+      {children}
+    </Tag>
+  );
+}
 
 const InlineCode = React.memo(
   function InlineCode({
@@ -610,7 +655,19 @@ interface RenderContext {
    * are static.
    */
   animating?: boolean;
+  revealBlockTimings?: GeminiBlockRevealTiming[];
+  revealBlockOrder?: { next: number };
 }
+
+const nextRevealBlockTiming = (
+  context: RenderContext,
+): GeminiBlockRevealTiming | undefined => {
+  const order = context.revealBlockOrder;
+  if (!order) return undefined;
+  const timing = context.revealBlockTimings?.[order.next];
+  order.next += 1;
+  return timing;
+};
 
 function renderAnimatedText(value: string, start: number, context: RenderContext): React.ReactNode[] {
   // Settled body text needs no per-word handles: nothing addresses them once the
@@ -1200,10 +1257,18 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
     }
     if (!inlineNodes.length) return;
     const paragraphStart = offsetOf(inlineNodes[0], offsetOf(node));
+    const revealTiming = nextRevealBlockTiming(context);
     blocks.push(
-      <p key={'paragraph-' + paragraphStart} className="smd-paragraph">
+      <RevealBlock
+        as="p"
+        key={'paragraph-' + paragraphStart}
+        start={paragraphStart}
+        settled={paragraphStart < context.settledBefore}
+        revealTiming={revealTiming}
+        className="smd-paragraph"
+      >
         {renderInlineNodes(inlineNodes, context)}
-      </p>
+      </RevealBlock>
     );
     inlineNodes = [];
   };
@@ -1259,17 +1324,35 @@ function renderParagraphNode(node: any, context: RenderContext, key: string): Re
         ordinal={context.chipOrder ? context.chipOrder.next++ : 0}
       />
     );
-    if (React.isValidElement(last) && last.type === 'p') {
+    if (
+      React.isValidElement(last)
+      && last.type === RevealBlock
+      && (last.props as any).as === 'p'
+    ) {
       const existing = (last.props as any).children;
+      // Passing `existing` and `chip` as separate child arguments nests an
+      // existing child array, changing every word's React key path. Keep the
+      // list flat so adding a citation does not remount the paragraph text.
+      const appendedChildren = Array.isArray(existing)
+        ? [...existing, chip]
+        : [existing, chip];
       blocks[lastIndex] = React.cloneElement(
         last as React.ReactElement<any>,
         undefined,
-        existing,
-        chip,
+        appendedChildren,
       );
     } else {
       blocks.push(
-        <p key={'paragraph-chip-' + offsetOf(node)} className="smd-paragraph">{chip}</p>
+        <RevealBlock
+          as="p"
+          key={'paragraph-chip-' + offsetOf(node)}
+          start={offsetOf(node)}
+          settled={offsetOf(node) < context.settledBefore}
+          revealTiming={nextRevealBlockTiming(context)}
+          className="smd-paragraph"
+        >
+          {chip}
+        </RevealBlock>
       );
     }
   }
@@ -1328,9 +1411,14 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
       const ordered = Boolean(node.ordered);
       const Tag = ordered ? 'ol' : 'ul';
       const startNumber = ordered ? Math.max(1, node.start || 1) : 1;
+      const revealTiming = nextRevealBlockTiming(context);
       return (
-        <Tag
+        <RevealBlock
+          as={Tag}
           key={key}
+          start={start}
+          settled={start < context.settledBefore}
+          revealTiming={revealTiming}
           className={'smd-list ' + (ordered ? 'smd-list-ordered' : 'smd-list-unordered')}
           style={ordered ? { counterReset: 'smd-list-item ' + (startNumber - 1) } : undefined}
         >
@@ -1352,10 +1440,17 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
                   {(item.children || []).map((child: any, childIndex: number) => {
                     if (checked !== undefined && childIndex === 0 && child.type === 'paragraph') {
                       return (
-                        <p key={'task-' + offsetOf(child)} className="smd-paragraph">
+                        <RevealBlock
+                          as="p"
+                          key={'task-' + offsetOf(child)}
+                          start={offsetOf(child)}
+                          settled={offsetOf(child) < context.settledBefore}
+                          revealTiming={nextRevealBlockTiming(context)}
+                          className="smd-paragraph"
+                        >
                           {renderAnimatedText(taskMarker + ' ', taskMarkerStart, context)}
                           {renderInlineNodes(child.children || [], context)}
-                        </p>
+                        </RevealBlock>
                       );
                     }
                     return renderBlockNode(child, context, childIndex);
@@ -1364,7 +1459,7 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
               </li>
             );
           })}
-        </Tag>
+        </RevealBlock>
       );
     }
     case 'blockquote':
@@ -1407,7 +1502,17 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
     case 'thematicBreak':
       return null;
     case 'html':
-      return <p key={key}>{renderAnimatedText(node.value || '', start, context)}</p>;
+      return (
+        <RevealBlock
+          as="p"
+          key={key}
+          start={start}
+          settled={start < context.settledBefore}
+          revealTiming={nextRevealBlockTiming(context)}
+        >
+          {renderAnimatedText(node.value || '', start, context)}
+        </RevealBlock>
+      );
     case 'definition':
     case 'footnoteDefinition':
       return null;
@@ -1422,7 +1527,17 @@ function renderBlockNode(node: any, context: RenderContext, index: number): Reac
         );
       }
       if (typeof node.value === 'string') {
-        return <p key={key}>{renderAnimatedText(node.value, start, context)}</p>;
+        return (
+          <RevealBlock
+            as="p"
+            key={key}
+            start={start}
+            settled={start < context.settledBefore}
+            revealTiming={nextRevealBlockTiming(context)}
+          >
+            {renderAnimatedText(node.value, start, context)}
+          </RevealBlock>
+        );
       }
       return null;
   }
@@ -1809,6 +1924,16 @@ export interface StreamingMarkdownProps {
   text: string;
   isStreaming: boolean;
   animate?: boolean;
+  /**
+   * Pace incoming text through a pending queue before it becomes visible.
+   * Defaults to the live streaming animation state. It can also be enabled for
+   * a newly-created, hard-coded assistant message such as an inline error.
+   */
+  reveal?: boolean;
+  /** Reveal the complete source in one animated chunk instead of pacing sentences. */
+  revealAsSingleChunk?: boolean;
+  /** Fires after the pending reveal and its final fade have both finished. */
+  onRevealComplete?: () => void;
   className?: string;
   mediaItems?: any[];
   onOpenResource?: (resource: RichResource) => void;
@@ -1821,6 +1946,9 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     text,
     isStreaming,
     animate = true,
+    reveal,
+    revealAsSingleChunk = false,
+    onRevealComplete,
     className = '',
     mediaItems,
     onOpenResource,
@@ -1828,8 +1956,109 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
   }) {
     useInjectStyles();
 
-    const shown = text;
-    const shouldAnimateStream = animate && isStreaming;
+    const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+      typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+    useEffect(() => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const update = () => setPrefersReducedMotion(query.matches);
+      update();
+      query.addEventListener('change', update);
+      return () => query.removeEventListener('change', update);
+    }, []);
+
+    const revealRequested = !prefersReducedMotion && (reveal ?? (animate && isStreaming));
+    const [shown, setShown] = useState(() => initialStreamingReveal(
+      text,
+      revealRequested && !revealAsSingleChunk,
+    ));
+    const [revealActive, setRevealActive] = useState(revealRequested);
+    const previousText = useRef(text);
+    const previousRequest = useRef(revealRequested);
+    const latestText = useRef(text);
+    const revealTimer = useRef<number | null>(null);
+    latestText.current = text;
+
+    useLayoutEffect(() => {
+      const sourceChanged = previousText.current !== text;
+      const requestStarted = !previousRequest.current && revealRequested;
+      previousText.current = text;
+      previousRequest.current = revealRequested;
+
+      if (prefersReducedMotion) {
+        setShown(text);
+        setRevealActive(false);
+        return;
+      }
+
+      if (revealAsSingleChunk && revealRequested) {
+        setShown(text);
+        setRevealActive(false);
+        return;
+      }
+
+      // A live stream stays armed even when it momentarily catches up, ready to
+      // pace the next provider delta. A non-streaming reveal (an inline error)
+      // starts only once for that source and switches itself off after draining.
+      if (revealRequested && (isStreaming || sourceChanged || requestStarted)) {
+        setRevealActive(true);
+      }
+
+      setShown((current) => reconcileStreamingReveal(
+        current,
+        text,
+        revealActive || revealRequested,
+      ));
+    }, [isStreaming, prefersReducedMotion, revealActive, revealAsSingleChunk, revealRequested, text]);
+
+    // The ref means "a promotion is already scheduled", and the guard below
+    // trusts it. So clearing the timer MUST clear the ref: StrictMode runs this
+    // cleanup between the two dev mount passes, and leaving a stale handle here
+    // left the guard convinced a timer was pending that had just been cancelled
+    // — no promotion was ever scheduled again, so every response froze at its
+    // first chunk with `revealActive` stuck on.
+    useEffect(() => () => {
+      if (revealTimer.current !== null) {
+        window.clearTimeout(revealTimer.current);
+        revealTimer.current = null;
+      }
+    }, []);
+
+    useEffect(() => {
+      if (!revealActive) {
+        if (revealTimer.current !== null) {
+          window.clearTimeout(revealTimer.current);
+          revealTimer.current = null;
+        }
+        return;
+      }
+      if (shown === text) {
+        if (!isStreaming) setRevealActive(false);
+        return;
+      }
+      // Provider deltas often arrive faster than the visual cadence. Keep an
+      // already-scheduled promotion anchored instead of restarting its delay on
+      // every token, which could otherwise starve the reveal until generation
+      // stops completely.
+      if (revealTimer.current !== null) return;
+
+      revealTimer.current = window.setTimeout(() => {
+        revealTimer.current = null;
+        setShown((current) => {
+          const source = latestText.current;
+          const reconciled = reconcileStreamingReveal(current, source, true);
+          if (reconciled !== current) return reconciled;
+          const nextLength = nextStreamingRevealLength(source, current.length);
+          return source.slice(0, nextLength);
+        });
+      }, nextStreamingRevealDelayMs(text, shown.length));
+    }, [isStreaming, revealActive, shown, text]);
+
+    const effectiveStreaming = isStreaming || revealActive;
+    const shouldAnimateStream = (animate && isStreaming) || revealActive;
     const [keepTailAnimation, setKeepTailAnimation] = useState(shouldAnimateStream);
 
     useEffect(() => {
@@ -1838,14 +2067,28 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
         return;
       }
       if (!keepTailAnimation) return;
-      const timeoutId = window.setTimeout(() => setKeepTailAnimation(false), STREAM_FADE_MS);
+      const timeoutId = window.setTimeout(
+        () => setKeepTailAnimation(false),
+        geminiRevealTailMs(text),
+      );
       return () => window.clearTimeout(timeoutId);
-    }, [keepTailAnimation, shouldAnimateStream]);
+    }, [keepTailAnimation, shouldAnimateStream, text]);
 
     const animationEnabled = shouldAnimateStream || keepTailAnimation;
+    const revealCompletionSent = useRef(false);
+    useEffect(() => {
+      if (animationEnabled) {
+        revealCompletionSent.current = false;
+        return;
+      }
+      if (revealCompletionSent.current) return;
+      revealCompletionSent.current = true;
+      onRevealComplete?.();
+    }, [animationEnabled, onRevealComplete]);
+
     const tree = useMemo(() => {
       try {
-        const closed = isStreaming ? closeDangling(shown) : shown;
+        const closed = effectiveStreaming ? closeDangling(shown) : shown;
         const normalized = normalizeLatexDelimiters(closed);
         const parsed = MARKDOWN_PROCESSOR.parse(normalized.source) as any;
         remapTreeOffsets(parsed, normalized.boundaries, shown.length);
@@ -1860,7 +2103,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
           }],
         };
       }
-    }, [isStreaming, shown]);
+    }, [effectiveStreaming, shown]);
 
     const committedLength = useRef(0);
     useEffect(() => {
@@ -1873,8 +2116,8 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     // Chips only appear once the turn is complete: the citation offsets describe
     // the finished answer, and Gemini likewise shows none while text streams.
     const chipGroups = useMemo(
-      () => (isStreaming ? [] : buildChipGroups(citations)),
-      [isStreaming, citations],
+      () => (effectiveStreaming ? [] : buildChipGroups(citations)),
+      [effectiveStreaming, citations],
     );
     const context: RenderContext = {
       source: shown,
@@ -1889,6 +2132,8 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       roundness: ROOT_TYPOGRAPHY.roundness,
       chipGroups,
       animating: animationEnabled,
+      revealBlockTimings: geminiBlockRevealTimings(text),
+      revealBlockOrder: { next: 0 },
       // Fresh each render, so ordinals are recomputed from zero in document order
       // and stay stable for a given tree instead of drifting upward on re-render.
       chipOrder: { next: 0 },

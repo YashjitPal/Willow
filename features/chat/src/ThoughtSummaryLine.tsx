@@ -5,9 +5,11 @@ import './thought-summary.css';
 export { latestThoughtHeading };
 
 interface ThoughtSummaryLineProps {
-  /** The newest heading. Changing it plays out-wipe -> swap -> in-wipe. */
+  /** The newest heading. Gemini samples it after a minimum visible hold. */
   heading: string;
 }
+
+const MINIMUM_HEADING_HOLD_MS = 3000;
 
 /**
  * Gemini's one-line thought summary, with its exact wipe.
@@ -29,21 +31,56 @@ interface ThoughtSummaryLineProps {
  * The first heading of a generation only wipes in: Gemini has no preceding
  * text to wipe out, and neither do we, because `shown` is seeded from the
  * first `heading` rather than from empty.
+ *
+ * Gemini also holds each displayed heading for about three seconds. A live
+ * timestamped capture received six headings at 0ms, 1181ms, 2006ms, 2848ms,
+ * 3606ms and 4305ms. The UI showed heading 1 immediately, began its out-wipe at
+ * 2983ms, and swapped directly to heading 4 when that wipe ended. Headings 2
+ * and 3 never painted; 5 and 6 arrived during the next hold and the response
+ * ended before another swap. This is latest-only sampling, not a FIFO queue.
  */
 export const ThoughtSummaryLine = ({ heading }: ThoughtSummaryLineProps) => {
   const [shown, setShown] = useState(heading);
   const [leaving, setLeaving] = useState(false);
   const pendingRef = useRef(heading);
+  const shownAtRef = useRef(performance.now());
+  const holdTimerRef = useRef<number | null>(null);
+
+  const beginLeavingRef = useRef<() => void>(() => {});
+  beginLeavingRef.current = () => {
+    if (leaving || pendingRef.current === shown) return;
+
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    const remaining = MINIMUM_HEADING_HOLD_MS - (performance.now() - shownAtRef.current);
+    if (remaining > 0) {
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        beginLeavingRef.current();
+      }, remaining);
+      return;
+    }
+
+    setLeaving(true);
+  };
 
   useEffect(() => {
     pendingRef.current = heading;
-    if (heading !== shown) setLeaving(true);
-  }, [heading, shown]);
+    beginLeavingRef.current();
+  }, [heading, shown, leaving]);
+
+  useEffect(() => () => {
+    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
+  }, []);
 
   // Commit the newest pending heading, whichever path got us here. Held in a
   // ref so the backstop timer never closes over a stale `pendingRef` reader.
   const commitRef = useRef<() => void>(() => {});
   commitRef.current = () => {
+    shownAtRef.current = performance.now();
     setShown(pendingRef.current);
     setLeaving(false);
   };

@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { profileForModel, type ProviderApiFormat, type ProviderToolPolicy } from '@willow/ai/providers/profiles';
 import {
   savedInfoStore,
   savedInstructionDate,
@@ -789,6 +790,11 @@ export interface ResolvedChatModel {
   model: string;
   thinkingLevel: number;
   apiKey: string | undefined;
+  baseUrl?: string;
+  apiFormat?: ProviderApiFormat;
+  toolPolicy?: ProviderToolPolicy;
+  profileId?: string;
+  reasoningEffort?: string;
   /** Short display name plus effort suffix, e.g. `3.6 Flash Thinking`. */
   modelLabel: string;
 }
@@ -839,8 +845,12 @@ export const resolveChatModel = ({
   }
 
   const provider = (sel?.provider ?? 'gemini') as ChatProvider;
+  const profile = profileForModel(modelConfig, provider, sel?.profileId);
   const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
   const thinkingLevel: number = explicitThinkingLevel ?? sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
+  const reasoningEffort = Array.isArray(sel?.reasoningEfforts)
+    ? sel.reasoningEfforts.find((effort: any) => Number(effort.level) === thinkingLevel)?.value
+    : undefined;
 
   let model = rawModel;
   if (provider === 'openai' && (thinkingLevel === 6 || rawModel.endsWith('-pro'))) {
@@ -849,11 +859,23 @@ export const resolveChatModel = ({
     }
   }
 
-  const apiKey: string | undefined = apiKeys?.[provider]?.[0];
+  const keyMap = apiKeys as Record<string, string[] | undefined> | undefined;
+  const apiKey: string | undefined = keyMap?.[profile?.apiKeyId || provider]?.[0] ?? keyMap?.[provider]?.[0];
   const dummyObj = { ...sel, thinkingLevel, provider };
   // No-thinking selections add nothing to the label — see use-composer-models.
   const effortLabel = sel && !isNonThinkingEffort(dummyObj) ? getThinkingEffortLabel(dummyObj) : '';
   const baseLabel = getShortModelName(sel?.name || model);
   const modelLabel = `${baseLabel}${effortLabel ? ` ${effortLabel}` : ''}`;
-  return { provider, model, thinkingLevel, apiKey, modelLabel };
+  return {
+    provider,
+    model,
+    thinkingLevel,
+    apiKey,
+    modelLabel,
+    baseUrl: profile?.baseUrl || modelConfig?.[provider]?.baseUrl,
+    apiFormat: profile?.apiFormat,
+    toolPolicy: profile?.toolPolicy,
+    profileId: profile?.id,
+    reasoningEffort,
+  };
 };

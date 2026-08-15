@@ -73,10 +73,20 @@ export interface PersonalReads {
   listCalendarEvents: (input: { daysAhead?: number; daysBack?: number }) => Promise<string>;
   listTasks: (input: { includeCompleted?: boolean }) => Promise<string>;
   listRecentEmails: (input: { search?: string; limit?: number }) => Promise<string>;
-  listRelationships: () => Promise<string>;
   listTopMusic: (input: { kind?: string; timeRange?: string; limit?: number }) => Promise<string>;
   listSavedTracks: (input: { limit?: number }) => Promise<string>;
   listSpotifyPlaylists: (input: { limit?: number }) => Promise<string>;
+  /**
+   * Open pull requests, under one of four filters.
+   *
+   * `filter` is a loose string rather than a union because it arrives from a model.
+   * The implementation recognises the four it documents and falls back to the default
+   * for anything else, which is the right failure: a model that writes `"reviewer"`
+   * should get the pull requests waiting on the user, not an error message.
+   */
+  listPullRequests: (input: { filter?: string; limit?: number }) => Promise<string>;
+  listGithubIssues: (input: { limit?: number }) => Promise<string>;
+  listGithubRepos: (input: { limit?: number }) => Promise<string>;
 }
 
 export interface ToolCallResult {
@@ -184,10 +194,12 @@ export const READ_TOOLS = {
   listCalendarEvents: 'list_calendar_events',
   listTasks: 'list_tasks',
   listRecentEmails: 'list_recent_emails',
-  listRelationships: 'list_contact_relationships',
   listTopMusic: 'list_top_music',
   listSavedTracks: 'list_saved_tracks',
   listSpotifyPlaylists: 'list_spotify_playlists',
+  listPullRequests: 'list_pull_requests',
+  listGithubIssues: 'list_github_issues',
+  listGithubRepos: 'list_github_repos',
 } as const;
 
 export const isPersonalActionCall = (name: string | undefined): boolean =>
@@ -248,8 +260,6 @@ const runRead = async (
             limit: readNumber(fields, 'limit'),
           }),
         };
-      case READ_TOOLS.listRelationships:
-        return { name, text: await reads.listRelationships() };
       case READ_TOOLS.listTopMusic:
         return {
           name,
@@ -266,6 +276,18 @@ const runRead = async (
           name,
           text: await reads.listSpotifyPlaylists({ limit: readNumber(fields, 'limit') }),
         };
+      case READ_TOOLS.listPullRequests:
+        return {
+          name,
+          text: await reads.listPullRequests({
+            filter: readString(fields, 'filter'),
+            limit: readNumber(fields, 'limit'),
+          }),
+        };
+      case READ_TOOLS.listGithubIssues:
+        return { name, text: await reads.listGithubIssues({ limit: readNumber(fields, 'limit') }) };
+      case READ_TOOLS.listGithubRepos:
+        return { name, text: await reads.listGithubRepos({ limit: readNumber(fields, 'limit') }) };
       default:
         // Unreachable while `READ_TOOLS` and this switch agree, which
         // `isPersonalReadCall` is what guarantees.

@@ -1408,6 +1408,10 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       model: selectedModel.modelId,
       apiKey,
       thinkingLevel: selectedModel.thinkingLevel,
+      baseUrl: selectedModel.baseUrl || modelConfig?.[selectedModel.provider]?.baseUrl,
+      apiFormat: selectedModel.apiFormat,
+      toolPolicy: selectedModel.toolPolicy,
+      profileId: selectedModel.profileId,
     };
 
     // Store for queue processing

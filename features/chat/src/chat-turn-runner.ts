@@ -1,8 +1,16 @@
 import { streamChat, isAbortError, type StreamPhase } from '@willow/ai/chat';
+import type { ProviderApiFormat, ProviderToolPolicy } from '@willow/ai/providers/profiles';
 import type { MessageCitations } from '@willow/ai/grounding';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
 import { runPersonalTool } from '@willow/personal';
+import { declaredToolNames } from './personal-tools';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
+import {
+  formatUpstreamError,
+  friendlyChatErrorFor,
+  MAX_UPSTREAM_RETRIES,
+  UPSTREAM_RETRY_DELAYS_MS,
+} from './chat-errors';
 import {
   claimChatTurnSettlement,
   getChatTurn,
@@ -48,6 +56,10 @@ export interface ChatTurnRunnerDeps {
     apiKey: string;
     thinkingLevel: number;
     baseUrl?: string;
+    apiFormat?: ProviderApiFormat;
+    toolPolicy?: ProviderToolPolicy;
+    profileId?: string;
+    reasoningEffort?: string;
   };
   systemPrompt: string;
   /**
@@ -175,81 +187,149 @@ export const runChatTurn = async (
     record.isThinking = false;
   };
 
+  const resetForRetry = () => {
+    record.content = '';
+    record.thinkingText = '';
+    record.citations = undefined;
+    record.phase = 'thinking';
+    record.isThinking = true;
+    record.thinkStartedAt = Date.now();
+    record.listener?.onText('');
+    record.listener?.onThinking(record);
+    record.listener?.onPhase(record);
+  };
+
+  const waitForRetry = (delay: number): Promise<boolean> => new Promise((resolve) => {
+    if (record.abort.signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      record.abort.signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    }, delay);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    record.abort.signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+  const runStreamAttempt = () => streamChat(
+    deps.history,
+    // Chat mode: search grounding + native code execution both offered.
+    {
+      provider: options.provider,
+      model: options.model,
+      apiKey: options.apiKey,
+      thinkingLevel: options.thinkingLevel,
+      includeThoughts: options.thinkingLevel > 0,
+      enableSearch: true,
+      enableCodeExecution: true,
+      personalTools: deps.personalTools,
+      baseUrl: options.baseUrl,
+      apiFormat: options.apiFormat,
+      toolPolicy: options.toolPolicy,
+      profileId: options.profileId,
+      reasoningEffort: options.reasoningEffort,
+      signal: record.abort.signal,
+    },
+    (token: string) => {
+      if (!isCurrent(record, deps)) return;
+      if (record.isThinking) {
+        record.thinkSeconds = Math.max(1, Math.ceil((Date.now() - record.thinkStartedAt) / 1000));
+        stopThinking();
+      }
+      record.content += token;
+      record.listener?.onText(record.content);
+      void checkpoint(record, deps);
+    },
+    () => {},
+    deps.systemPrompt,
+    (phase: StreamPhase) => {
+      if (!isCurrent(record, deps)) return;
+      record.phase = phase;
+      record.listener?.onPhase(record);
+    },
+    async (name: string, args: any) => {
+      /*
+       * Refuse anything this turn did not declare, before it can run.
+       *
+       * Declaring no tools is supposed to make them uncallable, and usually does.
+       * But a model reading a transcript in which it called `list_liked_videos`
+       * three turns ago can emit that call again on a turn where the tool was never
+       * offered, and without this check it would execute — so turning
+       * personalization off would have stopped the model being told about the
+       * user's connected apps without stopping it reaching them.
+       *
+       * Cheap, and it fails the same way an unknown tool already does, so the model
+       * gets a reply it knows how to handle rather than a silent nothing.
+       */
+      const allowed = declaredToolNames(deps.personalTools);
+      if (!allowed.has(name)) {
+        return {
+          status: 'error',
+          error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
+        };
+      }
+
+      const result = await runPersonalTool(name, args);
+      if (!result) {
+        return {
+          status: 'error',
+          error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
+        };
+      }
+      return { status: 'ok', result: result.text };
+    },
+    (thoughtChunk: string) => {
+      if (!isCurrent(record, deps)) return;
+      record.thinkingText += thoughtChunk;
+      record.listener?.onThinking(record);
+    },
+    (citations: MessageCitations) => {
+      if (!isCurrent(record, deps)) return;
+      record.citations = citations;
+    },
+  );
+
   try {
     await deps.attachmentPersistence;
-    await streamChat(
-      deps.history,
-      // Chat mode: search grounding + native code execution both offered.
-      {
-        provider: options.provider,
-        model: options.model,
-        apiKey: options.apiKey,
-        thinkingLevel: options.thinkingLevel,
-        includeThoughts: options.thinkingLevel > 0,
-        enableSearch: true,
-        enableCodeExecution: true,
-        // Personalization tools, or none. Gated by the caller: empty in a
-        // temporary chat, empty when Memory is off, and empty when there is
-        // nothing stored and nothing connected — which is what keeps a model
-        // from being told it can look up a user it knows nothing about.
-        personalTools: deps.personalTools,
-        baseUrl: options.baseUrl,
-        signal: record.abort.signal,
-      },
-      (token: string) => {
-        if (!isCurrent(record, deps)) return;
-        if (record.isThinking) {
-          record.thinkSeconds = Math.max(1, Math.ceil((Date.now() - record.thinkStartedAt) / 1000));
-          stopThinking();
+    for (let retry = 0; retry <= MAX_UPSTREAM_RETRIES; retry += 1) {
+      try {
+        await runStreamAttempt();
+        // Some SDKs swallow the abort and return normally, so a clean return is
+        // not proof the turn ran to completion.
+        record.wasStopped = record.abort.signal.aborted;
+        record.finalContent = record.content;
+        break;
+      } catch (error: any) {
+        if (record.abort.signal.aborted || isAbortError(error)) throw error;
+        if (retry === MAX_UPSTREAM_RETRIES) {
+          record.isError = true;
+          record.errorDetail = formatUpstreamError(error);
+          record.content = '';
+          record.thinkingText = '';
+          record.citations = undefined;
+          record.listener?.onText('');
+          record.finalContent = friendlyChatErrorFor(record.historyBefore);
+          break;
         }
-        record.content += token;
-        // Only a watching view pushes into React. An unwatched turn just grows
-        // its accumulator, which is what keeps a background stream off the
-        // render path entirely.
-        record.listener?.onText(record.content);
-        void checkpoint(record, deps);
-      },
-      () => {},
-      deps.systemPrompt,
-      (phase: StreamPhase) => {
-        if (!isCurrent(record, deps)) return;
-        record.phase = phase;
-        record.listener?.onPhase(record);
-      },
-      // Tool executor. Only personal tools are declared on a chat turn, and
-      // `runPersonalTool` returns null for anything else, which surfaces to the
-      // model as the "tool not available" message rather than a silent success.
-      async (name: string, args: any) => {
-        const result = await runPersonalTool(name, args);
-        if (!result) {
-          return {
-            status: 'error',
-            error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
-          };
-        }
-        return { status: 'ok', result: result.text };
-      },
-      (thoughtChunk: string) => {
-        if (!isCurrent(record, deps)) return;
-        record.thinkingText += thoughtChunk;
-        record.listener?.onThinking(record);
-      },
-      (citations: MessageCitations) => {
-        if (!isCurrent(record, deps)) return;
-        record.citations = citations;
-      },
-    );
-    // Some SDKs swallow the abort and return normally instead of throwing, so a
-    // clean return is not proof the turn ran to completion.
-    record.wasStopped = record.abort.signal.aborted;
-    record.finalContent = record.content;
+        resetForRetry();
+        const continued = await waitForRetry(UPSTREAM_RETRY_DELAYS_MS[retry]);
+        if (!continued) throw new DOMException('The AI request was cancelled.', 'AbortError');
+      }
+    }
   } catch (error: any) {
     if (record.abort.signal.aborted || isAbortError(error)) {
       record.wasStopped = true;
       record.finalContent = record.content;
     } else {
       record.isError = true;
-      record.finalContent = `Something went wrong: ${error?.message || 'Unknown error.'}`;
+      record.errorDetail = formatUpstreamError(error);
+      record.content = '';
+      record.listener?.onText('');
+      record.finalContent = friendlyChatErrorFor(record.historyBefore);
     }
   } finally {
     clearInterval(thinkTimer);

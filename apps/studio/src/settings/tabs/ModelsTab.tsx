@@ -1,25 +1,25 @@
 import React from 'react';
-import { ChevronDown, Check, X, Lightbulb, ChevronLeft, ChevronRight, Loader2, Sparkles, Image as ImageIcon, Video, Music } from 'lucide-react';
+import { ChevronDown, Check, X, Lightbulb, ChevronLeft, ChevronRight, Loader2, Sparkles, Image as ImageIcon, Video, Music, Plus, GripVertical, Database } from 'lucide-react';
 import { AUTO_MODEL, resolveAutoModel } from '@willow/ai/models/auto-select';
-
-const getModelCategory = (id: string): 'text' | 'image' | 'video' | 'audio' => {
-  const lowercaseId = id.toLowerCase();
-  if (['gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'grok-imagine'].includes(lowercaseId)) return 'image';
-  if (['veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash'].includes(lowercaseId)) return 'video';
-  if (['lyria-3-pro', 'grok-voice'].includes(lowercaseId)) return 'audio';
-  if (lowercaseId.includes('imagine') || lowercaseId.includes('-image')) return 'image';
-  if (lowercaseId.includes('veo') || lowercaseId.includes('video')) return 'video';
-  if (lowercaseId.includes('lyria') || lowercaseId.includes('voice') || lowercaseId.includes('audio') || lowercaseId.includes('live')) return 'audio';
-  return 'text';
-};
+import { type ProviderId } from '@willow/ai/providers/endpoints';
+import { DEFAULT_PROFILE_IDS, defaultApiFormatForProvider, defaultToolPolicyForProvider } from '@willow/ai/providers/profiles';
+import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
 
 const ModelCategoryIcon: React.FC<{ modelId: string; className?: string; size?: number }> = ({ modelId, className = "text-zinc-500", size = 14 }) => {
   const category = getModelCategory(modelId);
   if (category === 'image') return <ImageIcon size={size} className={className} />;
   if (category === 'video') return <Video size={size} className={className} />;
   if (category === 'audio') return <Music size={size} className={className} />;
+  if (category === 'embedding') return <Database size={size} className={className} />;
   return <Sparkles size={size} className={className} />;
 };
+
+const DEFAULT_CUSTOM_REASONING_EFFORTS = [
+  { id: 'effort-none', level: '0', label: 'None', value: 'none' },
+  { id: 'effort-low', level: '1', label: 'Low', value: 'low' },
+  { id: 'effort-medium', level: '2', label: 'Medium', value: 'medium' },
+  { id: 'effort-high', level: '3', label: 'High', value: 'high' },
+];
 
 const MOONSHOT_MODELS = [
   {
@@ -234,19 +234,96 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   const [personalDropdownOpen, setPersonalDropdownOpen] = React.useState(false);
   const [personalDirection, setPersonalDirection] = React.useState<'down' | 'up'>('down');
   const personalRef = React.useRef<HTMLDivElement>(null);
+  const [customModelExpanded, setCustomModelExpanded] = React.useState(false);
+  const [draggedModelKey, setDraggedModelKey] = React.useState<string | null>(null);
+  const [dragOverModelKey, setDragOverModelKey] = React.useState<string | null>(null);
+  const [customModelDraft, setCustomModelDraft] = React.useState({
+    name: '',
+    modelId: '',
+    capabilities: 'text, tools',
+  });
+  const [customReasoningEfforts, setCustomReasoningEfforts] = React.useState(DEFAULT_CUSTOM_REASONING_EFFORTS);
+
+  const providerProfiles = Array.isArray(modelConfig.providerProfiles) ? modelConfig.providerProfiles : [];
+  const catalogModels = collectSavedModelsInCatalogOrder(modelConfig).map((model) => ({
+    ...model,
+    provider: model.providerId,
+  }));
+  const addCustomModel = () => {
+    if (!managingProvider) return;
+    const name = customModelDraft.name.trim();
+    const modelId = customModelDraft.modelId.trim();
+    if (!name || !modelId) return;
+    const profileId = DEFAULT_PROFILE_IDS[managingProvider as keyof typeof DEFAULT_PROFILE_IDS];
+    const profile = providerProfiles.find((candidate: any) => candidate.id === profileId);
+    const reasoningEfforts = Array.from(new Map(customReasoningEfforts
+      .map((effort) => ({
+        id: `${modelId}-effort-${Number(effort.level)}`,
+        level: Number(effort.level),
+        label: effort.label.trim(),
+        value: effort.value.trim(),
+      }))
+      .filter((effort) => Number.isFinite(effort.level) && effort.label)
+      .sort((a, b) => a.level - b.level)
+      .map((effort) => [effort.level, {
+        ...effort,
+        ...(effort.value ? { value: effort.value } : {}),
+      }])).values());
+    const defaultEffort = reasoningEfforts.find((effort) => effort.level > 0) || reasoningEfforts[0];
+    const capabilities = customModelDraft.capabilities.split(',').map((item) => item.trim()).filter(Boolean);
+
+    setModelConfig((prev: any) => ({
+      ...prev,
+      [managingProvider]: {
+        ...prev[managingProvider],
+        savedModels: [
+          ...(prev[managingProvider]?.savedModels || []).filter((model: any) => !(model.modelId === modelId && model.profileId === profileId)),
+          {
+            id: `custom-model-${Date.now().toString(36)}`,
+            name,
+            modelId,
+            profileId,
+            thinkingLevel: defaultEffort?.level ?? 0,
+            thinkingLabel: defaultEffort?.label,
+            effortLabel: defaultEffort?.label,
+            reasoningEfforts,
+            capabilities,
+            baseUrl: profile?.baseUrl,
+            apiFormat: profile?.apiFormat,
+            toolPolicy: profile?.toolPolicy,
+          },
+        ],
+      },
+      providerProfiles: (prev.providerProfiles || []).map((profile: any) => profile.id === profileId
+        ? { ...profile, modelIds: Array.from(new Set([...(profile.modelIds || []), modelId])), updatedAt: Date.now() }
+        : profile),
+    }));
+    setCustomModelDraft((current) => ({ ...current, name: '', modelId: '' }));
+    setCustomModelExpanded(false);
+  };
+
+  const reorderCatalogModel = (sourceKey: string, targetKey: string) => {
+    if (sourceKey === targetKey) return;
+    setModelConfig((prev: any) => {
+      const order = getNormalizedModelOrder(prev);
+      const sourceIndex = order.indexOf(sourceKey);
+      const targetIndex = order.indexOf(targetKey);
+      if (sourceIndex < 0 || targetIndex < 0) return prev;
+      const nextOrder = [...order];
+      const [moved] = nextOrder.splice(sourceIndex, 1);
+      nextOrder.splice(targetIndex, 0, moved);
+      return { ...prev, modelOrder: nextOrder };
+    });
+  };
 
   const allSystemDefaultModels = React.useMemo(() => {
-    const models = [
-      ...(modelConfig.gemini?.savedModels || []).map((model: any) => ({ ...model, provider: 'gemini' })),
-      ...(modelConfig.openai?.savedModels || []).map((model: any) => ({ ...model, provider: 'openai' })),
-      ...(modelConfig.anthropic?.savedModels || []).map((model: any) => ({ ...model, provider: 'anthropic' })),
-      ...(modelConfig.moonshot?.savedModels || []).map((model: any) => ({ ...model, provider: 'moonshot' })),
-      ...(modelConfig.spacexai?.savedModels || []).map((model: any) => ({ ...model, provider: 'spacexai' })),
-      ...(modelConfig.zhipuai?.savedModels || []).map((model: any) => ({ ...model, provider: 'zhipuai' })),
-    ];
+    const models = collectSavedModelsInCatalogOrder(modelConfig).map((model) => ({
+      ...model,
+      provider: model.providerId,
+    }));
     const seen = new Set<string>();
     return models.filter((model: any) => {
-      const key = model.modelId || model.id;
+      const key = `${model.provider}:${model.profileId || 'default'}:${model.modelId || model.id}`;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -412,6 +489,44 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 value={providerState[managingProvider].baseUrl}
                 onChange={(e) => handleUpdateConfig(managingProvider, { ...providerState[managingProvider], baseUrl: e.target.value })}
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-[12px] font-semibold text-zinc-400">API format</label>
+                <select
+                  value={providerProfiles.find((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider])?.apiFormat || defaultApiFormatForProvider(managingProvider as ProviderId)}
+                  onChange={(event) => setModelConfig((prev: any) => ({
+                    ...prev,
+                    providerProfiles: (prev.providerProfiles || []).map((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider]
+                      ? { ...profile, apiFormat: event.target.value, updatedAt: Date.now() }
+                      : profile),
+                  }))}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[13px] text-white focus:outline-none focus:border-white/20"
+                >
+                  <option value="native-gemini">Gemini Generate Content</option>
+                  <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                  <option value="anthropic-messages">Anthropic Messages</option>
+                  <option value="xai-chat-completions">xAI tools + Chat Completions</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[12px] font-semibold text-zinc-400">Tool translation</label>
+                <select
+                  value={providerProfiles.find((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider])?.toolPolicy || defaultToolPolicyForProvider(managingProvider as ProviderId)}
+                  onChange={(event) => setModelConfig((prev: any) => ({
+                    ...prev,
+                    providerProfiles: (prev.providerProfiles || []).map((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider]
+                      ? { ...profile, toolPolicy: event.target.value, updatedAt: Date.now() }
+                      : profile),
+                  }))}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[13px] text-white focus:outline-none focus:border-white/20"
+                >
+                  <option value="provider-native">Provider-native</option>
+                  <option value="function-calling">Function calling</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
             </div>
           </div>
           <p className="text-[12px] text-zinc-500 mt-4">
@@ -1001,6 +1116,118 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
             )}
           </div>
 
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={() => setCustomModelExpanded((expanded) => !expanded)}
+              aria-expanded={customModelExpanded}
+              className="w-full min-h-12 px-4 py-3 flex items-center justify-between gap-4 border border-white/10 rounded-xl text-left text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <span className="flex items-center gap-3 text-[13px] font-semibold">
+                <Plus size={17} /> Add custom model
+              </span>
+              <ChevronDown size={17} className={`text-zinc-500 transition-transform duration-200 ${customModelExpanded ? 'rotate-180' : ''}`} />
+            </button>
+
+            {customModelExpanded && (
+              <div className="mt-3 border border-white/10 rounded-xl bg-[#141414] p-5 space-y-4 animate-[fadeIn_150ms_ease-out]">
+                <p className="text-[12px] text-zinc-500">Add an unlisted model and define the reasoning choices Willow should show.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    value={customModelDraft.name}
+                    onChange={(event) => setCustomModelDraft((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="Display name"
+                    className="bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[13px] text-white focus:outline-none focus:border-white/20"
+                  />
+                  <input
+                    value={customModelDraft.modelId}
+                    onChange={(event) => setCustomModelDraft((current) => ({ ...current, modelId: event.target.value }))}
+                    placeholder="Model ID"
+                    className="bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[13px] text-white font-mono focus:outline-none focus:border-white/20"
+                  />
+                  <input
+                    value={customModelDraft.capabilities}
+                    onChange={(event) => setCustomModelDraft((current) => ({ ...current, capabilities: event.target.value }))}
+                    placeholder="text, vision, tools"
+                    className="col-span-2 bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-3 text-[13px] text-white focus:outline-none focus:border-white/20"
+                  />
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-[12px] font-semibold text-zinc-300">Reasoning efforts</div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5">These choices appear under the model in Willow's selector.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCustomReasoningEfforts((current) => [
+                        ...current,
+                        { id: `effort-${Date.now().toString(36)}`, level: String(current.length), label: '', value: '' },
+                      ])}
+                      className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg border border-white/10 text-zinc-300 hover:bg-white/5"
+                      title="Add reasoning effort"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {customReasoningEfforts.map((effort) => (
+                      <div key={effort.id} className="grid grid-cols-[72px_1fr_1fr_40px] gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          aria-label="Reasoning level"
+                          value={effort.level}
+                          onChange={(event) => setCustomReasoningEfforts((current) => current.map((candidate) => candidate.id === effort.id
+                            ? { ...candidate, level: event.target.value }
+                            : candidate))}
+                          className="min-w-0 bg-[#1c1c1c] border border-white/10 rounded-lg px-3 py-2.5 text-[12px] text-white focus:outline-none focus:border-white/20"
+                          placeholder="Level"
+                        />
+                        <input
+                          aria-label="Reasoning label"
+                          value={effort.label}
+                          onChange={(event) => setCustomReasoningEfforts((current) => current.map((candidate) => candidate.id === effort.id
+                            ? { ...candidate, label: event.target.value }
+                            : candidate))}
+                          className="min-w-0 bg-[#1c1c1c] border border-white/10 rounded-lg px-3 py-2.5 text-[12px] text-white focus:outline-none focus:border-white/20"
+                          placeholder="Label"
+                        />
+                        <input
+                          aria-label="Provider reasoning value"
+                          value={effort.value}
+                          onChange={(event) => setCustomReasoningEfforts((current) => current.map((candidate) => candidate.id === effort.id
+                            ? { ...candidate, value: event.target.value }
+                            : candidate))}
+                          className="min-w-0 bg-[#1c1c1c] border border-white/10 rounded-lg px-3 py-2.5 text-[12px] text-white font-mono focus:outline-none focus:border-white/20"
+                          placeholder="API value"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCustomReasoningEfforts((current) => current.filter((candidate) => candidate.id !== effort.id))}
+                          disabled={customReasoningEfforts.length === 1}
+                          className="w-10 h-10 flex items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none"
+                          title="Remove reasoning effort"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={addCustomModel}
+                  disabled={!customModelDraft.name.trim() || !customModelDraft.modelId.trim()}
+                  className="flex items-center gap-2 rounded-xl bg-white text-black px-4 py-2.5 text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Plus size={16} /> Add to model catalog
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Unified Global Models List */}
           <div className="mt-8 pt-8">
             <div className="h-[12px] w-full text-white/10 mb-8 overflow-hidden">
@@ -1021,27 +1248,35 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
             </div>
             <h2 className="text-[14px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Models:</h2>
             <div className="space-y-4">
-              {[
-                ...modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' as const })),
-                ...modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' as const })),
-                ...modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' as const })),
-                ...(modelConfig.moonshot?.savedModels || []).map(m => ({ ...m, provider: 'moonshot' as const })),
-                ...(modelConfig.spacexai?.savedModels || []).map(m => ({ ...m, provider: 'spacexai' as const })),
-                ...(modelConfig.zhipuai?.savedModels || []).map(m => ({ ...m, provider: 'zhipuai' as const }))
-              ].length === 0 ? (
+              {catalogModels.length === 0 ? (
                 <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl text-zinc-500 text-[13px]">
                   No model presets configured yet. Add one above to get started.
                 </div>
               ) : (
-                [
-                  ...modelConfig.gemini.savedModels.map(m => ({ ...m, provider: 'gemini' as const })),
-                  ...modelConfig.openai.savedModels.map(m => ({ ...m, provider: 'openai' as const })),
-                  ...modelConfig.anthropic.savedModels.map(m => ({ ...m, provider: 'anthropic' as const })),
-                  ...(modelConfig.moonshot?.savedModels || []).map(m => ({ ...m, provider: 'moonshot' as const })),
-                  ...(modelConfig.spacexai?.savedModels || []).map(m => ({ ...m, provider: 'spacexai' as const })),
-                  ...(modelConfig.zhipuai?.savedModels || []).map(m => ({ ...m, provider: 'zhipuai' as const }))
-                ].map((saved) => (
-                  <div key={saved.id} className="group relative bg-[#1c1c1c] border border-white/10 rounded-xl px-5 py-4 flex items-center justify-between transition-all hover:bg-white/5 shadow-sm">
+                catalogModels.map((saved) => {
+                  const modelKey = getModelCatalogKey(saved);
+                  return (
+                  <div
+                    key={modelKey}
+                    onDragEnter={() => draggedModelKey && setDragOverModelKey(modelKey)}
+                    onDragOver={(event) => {
+                      if (!draggedModelKey) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceKey = draggedModelKey || event.dataTransfer.getData('text/plain');
+                      if (sourceKey) reorderCatalogModel(sourceKey, modelKey);
+                      setDraggedModelKey(null);
+                      setDragOverModelKey(null);
+                    }}
+                    className={`group relative bg-[#1c1c1c] border rounded-xl px-5 py-4 flex items-center justify-between transition-all hover:bg-white/5 shadow-sm ${
+                      dragOverModelKey === modelKey && draggedModelKey !== modelKey
+                        ? 'border-white/35 translate-y-[1px]'
+                        : 'border-white/10'
+                    } ${draggedModelKey === modelKey ? 'opacity-55' : ''}`}
+                  >
                     <div className="flex items-center gap-4">
                       <div className={saved.provider === 'gemini' ? "text-[#fbbf24]" : "text-white"}>
                         {saved.provider === 'gemini' && (
@@ -1081,7 +1316,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[13px] font-mono font-medium text-zinc-300">
                         <ModelCategoryIcon modelId={saved.modelId} size={13} className="text-zinc-400" />
                         <span>{getModelPricing(saved.modelId, saved.provider)}</span>
@@ -1093,6 +1328,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             const provider = saved.provider;
                             return {
                               ...prev,
+                              modelOrder: (prev.modelOrder || []).filter((key: string) => key !== modelKey),
                               [provider]: {
                                 ...prev[provider],
                                 savedModels: prev[provider].savedModels.filter((m: any) => m.id !== saved.id)
@@ -1104,9 +1340,29 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       >
                         <X size={18} />
                       </button>
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', modelKey);
+                          setDraggedModelKey(modelKey);
+                          setDragOverModelKey(modelKey);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedModelKey(null);
+                          setDragOverModelKey(null);
+                        }}
+                        className="p-2 -mr-2 text-zinc-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-white hover:bg-white/5 rounded-lg cursor-grab active:cursor-grabbing transition-all"
+                        title="Reorder model"
+                        aria-label={`Reorder ${saved.name}`}
+                      >
+                        <GripVertical size={19} />
+                      </button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1116,7 +1372,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     ) : (
       // Overview Mode
       <div className={`space-y-10 ${wasManagingKeys ? 'animate-[fadeIn_150ms_ease-out]' : ''}`}>
-        
         {/* Provider Cards with Horizontal Pagination Wrapper */}
         <div className="relative">
           <div className="grid grid-cols-3 gap-4">

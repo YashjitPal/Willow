@@ -16,10 +16,22 @@
 import type { ConnectorId } from '../connectors/types';
 import { ACTION_TOOLS } from './executor';
 
+interface ToolProperty {
+  type: string;
+  description: string;
+  /**
+   * Element type, for `type: 'array'` only.
+   *
+   * Gemini rejects an array parameter with no `items`, so a tool declared without
+   * it is not a tool with a loose schema — it is a tool the model is never shown.
+   */
+  items?: { type: string };
+}
+
 interface ToolSchema {
   name: string;
   description: string;
-  properties: Record<string, { type: string; description: string }>;
+  properties: Record<string, ToolProperty>;
   required: string[];
   /** Which connector must be connected before this is offered. */
   connector: ConnectorId;
@@ -78,6 +90,37 @@ const SCHEMAS: ToolSchema[] = [
     },
     required: ['title'],
   },
+  {
+    name: ACTION_TOOLS.createSpotifyPlaylist,
+    connector: 'spotify',
+    /*
+     * The one action that does what its YouTube counterpart cannot.
+     *
+     * Spotify has a search endpoint and an add-tracks endpoint a user's own token
+     * may call, so `tracks` is free text — "Radiohead Weird Fishes" — and the action
+     * resolves each one. Titles are what a model has; URIs are what Spotify needs,
+     * and doing that lookup here rather than asking the model for ids is the only
+     * version of this that works.
+     *
+     * The 30 is real: `MAX_PLAYLIST_TRACKS` in `./actions.ts`, one
+     * search request each, sequentially, against a per-application rate limit. Saying
+     * so in the description is what keeps a "give me a 200-song playlist" turn from
+     * spending two minutes to be truncated anyway.
+     */
+    description:
+      "Create a private Spotify playlist for the user and fill it with the tracks given. Each track is searched by name, so write them as \"song title — artist\" and prefer the artist the user actually listens to. At most 30 tracks; anything beyond that is dropped. Tracks that cannot be found are reported back, so do not claim a playlist is complete until this says it is.",
+    properties: {
+      title: { type: 'string', description: 'Playlist title.' },
+      description: { type: 'string', description: 'Optional playlist description.' },
+      tracks: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Tracks to add, each as a search string like "Weird Fishes — Radiohead". Omit for an empty playlist.',
+      },
+    },
+    required: ['title'],
+  },
 ];
 
 const forConnectors = (connected: ConnectorId[]): ToolSchema[] =>
@@ -97,7 +140,14 @@ export const geminiActionTools = (connected: ConnectorId[]) => {
         properties: Object.fromEntries(
           Object.entries(schema.properties).map(([key, value]) => [
             key,
-            { type: value.type.toUpperCase(), description: value.description },
+            {
+              type: value.type.toUpperCase(),
+              description: value.description,
+              // Gemini's schema dialect is uppercase throughout, including the
+              // element type, and it rejects an ARRAY with no `items` outright —
+              // which fails the whole request, not just this one parameter.
+              ...(value.items ? { items: { type: value.items.type.toUpperCase() } } : {}),
+            },
           ]),
         ),
         required: schema.required,

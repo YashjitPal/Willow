@@ -1921,7 +1921,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       
       await streamChat(
         fullHistory,
-        { provider, model: modelId, apiKey, thinkingLevel: selected?.thinkingLevel || 0, signal: abortController.signal, baseUrl: (modelConfig as any)?.[provider]?.baseUrl },
+        {
+          provider,
+          model: modelId,
+          apiKey,
+          thinkingLevel: selected?.thinkingLevel || 0,
+          signal: abortController.signal,
+          baseUrl: selected?.baseUrl || (modelConfig as any)?.[provider]?.baseUrl,
+          apiFormat: selected?.apiFormat,
+          toolPolicy: selected?.toolPolicy,
+          profileId: selected?.profileId,
+        },
         (token) => {
           if (abortController.signal.aborted || !isCurrentRun()) return;
           // Use ref to avoid stale closure - state may not be updated yet
@@ -2126,7 +2136,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           model: modelId,
           apiKey: apiKey,
           thinkingLevel: selected?.thinkingLevel || 1,
-          signal: abortController.signal
+          signal: abortController.signal,
+          baseUrl: selected?.baseUrl || (modelConfig as any)?.[provider]?.baseUrl,
+          apiFormat: selected?.apiFormat,
+          toolPolicy: selected?.toolPolicy,
+          profileId: selected?.profileId,
         },
         (token) => {
           if (abortController.signal.aborted || !isCurrentRun()) return;

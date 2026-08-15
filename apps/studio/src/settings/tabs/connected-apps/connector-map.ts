@@ -1,4 +1,4 @@
-import type { ConnectorId } from '@willow/personal';
+import { providerOf, type ConnectorId, type ConnectorProvider } from '@willow/personal';
 
 /**
  * Bridges this tab's card ids to the connectors that actually exist.
@@ -33,7 +33,8 @@ export const CARD_CONNECTORS: Record<string, ConnectorId[]> = {
   drive: ['drive'],
   tasks: ['tasks'],
   youtube: ['youtube'],
-  contacts: ['contacts'],
+  spotify: ['spotify'],
+  github: ['github'],
 };
 
 /** Connectors a card controls, or `[]` when the card is a catalogue entry only. */
@@ -41,6 +42,22 @@ export const connectorsForCard = (cardId: string): ConnectorId[] => CARD_CONNECT
 
 /** Whether this card can be connected at all. Drives the inert state in the UI. */
 export const isCardConnectable = (cardId: string): boolean => connectorsForCard(cardId).length > 0;
+
+/**
+ * Which OAuth providers a card's switch depends on.
+ *
+ * Needed because "is OAuth set up?" stopped being one question when Spotify arrived.
+ * Google's client id and Spotify's are separate environment variables, either can be
+ * absent, and a card whose provider is unconfigured has to say so about *its*
+ * provider — telling a user their Spotify card needs a Google client id would send
+ * them to fix the wrong thing.
+ *
+ * A list rather than a single value, because nothing stops a future card from
+ * spanning two providers. Every card today has exactly one.
+ */
+export const providersForCard = (cardId: string): ConnectorProvider[] => [
+  ...new Set(connectorsForCard(cardId).map(providerOf)),
+];
 
 /*
  * There is no `cardProvidesSignals` any more, and its absence is the point.

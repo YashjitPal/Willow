@@ -87,6 +87,76 @@ function conditionalCrossOriginHeaders(): Plugin {
   };
 }
 
+function webSearchMiddleware(): Plugin {
+  return {
+    name: 'web-search-middleware',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/llm-search')) return next();
+
+        const url = new URL(req.url, 'http://localhost:3000');
+        const query = (url.searchParams.get('q') || '').trim();
+        const searchType = url.searchParams.get('type') || 'web_search';
+
+        if (!query) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing query parameter q', results: [] }));
+          return;
+        }
+
+        const results: { title: string; snippet: string; link: string }[] = [];
+        const seenLinks = new Set<string>();
+
+        // 1. If searching X (Twitter), provide targeted live search URL card
+        if (searchType === 'x_search') {
+          results.push({
+            title: `Live Posts & Discussions on X: "${query}"`,
+            snippet: `Search real-time tweets, verified updates, and community commentary on X (formerly Twitter) regarding ${query}.`,
+            link: `https://x.com/search?q=${encodeURIComponent(query)}&f=live`,
+          });
+        }
+
+        // 2. Wikipedia Real-Time Knowledge Search (Official, never blocked, instant)
+        try {
+          const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&utf8=1`;
+          const wikiRes = await fetch(wikiUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
+          });
+          if (wikiRes.ok) {
+            const wikiData = await wikiRes.json();
+            const hits = wikiData.query?.search || [];
+            for (const hit of hits.slice(0, 4)) {
+              const link = `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/ /g, '_'))}`;
+              if (!seenLinks.has(link)) {
+                seenLinks.add(link);
+                results.push({
+                  title: hit.title,
+                  snippet: (hit.snippet || '').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#039;/g, "'"),
+                  link,
+                });
+              }
+            }
+          }
+        } catch {}
+
+        // 3. Fallback direct web search URL for citation cards
+        if (results.length === 0) {
+          results.push({
+            title: `Web Search Results for "${query}"`,
+            snippet: `Comprehensive web search results for ${query}.`,
+            link: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+          });
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ query, results }));
+      });
+    },
+  };
+}
+
 // Vite plugin: Dynamic LLM proxy that routes requests to any user-specified
 // base URL. Unlike a static Vite proxy entry (which hardcodes the TLS target),
 // this middleware reads the real target from the `x-proxy-target` header and
@@ -180,7 +250,7 @@ export default defineConfig(() => {
         allow: [ROOT],
       },
     },
-    plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy()],
+    plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), webSearchMiddleware()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.

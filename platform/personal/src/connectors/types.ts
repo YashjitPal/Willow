@@ -23,11 +23,11 @@ export type ConnectorId =
   | 'calendar'
   | 'gmail'
   | 'youtube'
-  | 'contacts'
   | 'tasks'
   | 'drive'
   | 'docs'
-  | 'spotify';
+  | 'spotify'
+  | 'github';
 
 /**
  * Who issues the token — and, in practice, which OAuth flow the connector rides.
@@ -37,31 +37,47 @@ export type ConnectorId =
  * refresh token to a client that cannot keep a secret. Spotify is reachable through
  * authorization code with PKCE, which needs no secret either but *does* return a
  * refresh token, so a Spotify connection survives a reload where a Google one has
- * to be renewed silently on every load.
+ * to be renewed silently on every load. GitHub is reachable by neither, and rides a
+ * token the user creates and pastes — the whole of why is in
+ * `github/pat-token-source.ts`, and the short version is that its token-exchange
+ * endpoint sends no CORS headers, which no amount of client code works around.
  *
- * Two providers, two token sources, one interface between them. Which is the point
- * of naming the provider at all: `TokenSource` already hid whether a token came
- * from a popup or a cache, and this extends that to whose popup it was.
+ * Three providers, three token sources, one interface between them. Which is the
+ * point of naming the provider at all: `TokenSource` already hid whether a token came
+ * from a popup or a cache, and this extends that to whose popup it was — or whether
+ * there was a popup at all.
+ *
+ * They also differ in how long a connection lasts, which is worth holding in mind
+ * because it is behind most of the surprising behaviour in this package:
+ *
+ * - **Google** dies with the tab. No refresh token exists to renew it.
+ * - **Spotify** survives a reload, silently, from a refresh token on disk.
+ * - **GitHub** dies with the tab, because its token is deliberately kept in
+ *   `sessionStorage` rather than `localStorage` — a year-long credential for
+ *   someone's source code is not a thing to leave at rest in web storage.
  *
  * Providers that are *not* here are absent for a reason worth writing down, since
  * the obvious reading of a short list is that nobody got round to the rest:
  *
- * - **GitHub** cannot do this from a browser. `api.github.com` sends
- *   `access-control-allow-origin: *`, so the API half is fine, but
- *   `github.com/login/oauth/access_token` sends no CORS headers at all and its CSP
- *   is `connect-src 'self'` — the token exchange is server-side by design, and no
- *   amount of client code changes that. It needs either a serverless function
- *   holding the client secret or a personal access token the user pastes in.
- * - **Notion** is the same story: its token endpoint answered a preflight with a
- *   bare 400 and no CORS headers.
+ * - **Notion** is GitHub's problem without GitHub's escape hatch: its token endpoint
+ *   answered a preflight with a bare 400 and no CORS headers, and it has no
+ *   personal-access-token equivalent its API accepts on the same terms.
  * - **Google Photos** is a different kind of no. The `photoslibrary.readonly`
  *   scope was withdrawn on 31 March 2025; what remains is
  *   `photoslibrary.readonly.appcreateddata`, which sees only what the app itself
  *   uploaded. Willow has uploaded nothing, so a Photos connector would read an
  *   empty library and describe the user from it. The Picker API replaced it and is
  *   a per-session file chooser, not a source of standing signals.
+ * - **Google Contacts** is the only entry here that was built, worked, and was then
+ *   removed — on request, on 15 August 2026 — so what it did is written down rather
+ *   than left to the git log. It spent a sensitive scope (`contacts.readonly`) on one
+ *   narrow thing: the relationship labels the user had typed themselves, "partner",
+ *   "manager", "mum", capped at six. No names, addresses or numbers, because an
+ *   address book is mostly other people's personal data and not the user's. Building
+ *   it again means that scope, a reader, a `list_contact_relationships` read tool and
+ *   a card in `connectedAppsData.ts` — four files, none of them large.
  */
-export type ConnectorProvider = 'google' | 'spotify';
+export type ConnectorProvider = 'google' | 'spotify' | 'github';
 
 export interface ConnectorScope {
   /** The literal OAuth scope URL sent to Google. */

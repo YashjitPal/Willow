@@ -17,9 +17,9 @@
  * The descriptions do one extra job the action descriptions do not need to. Each
  * says what the tool *cannot* see, because every one of these has a real limit that
  * a model will otherwise paper over: there is no watch history, Gmail returns no
- * message bodies, and Contacts holds only the relationship labels the user typed
- * themselves. A tool described as "read the user's YouTube" invites an answer about
- * what they have been watching, which is not a thing any OAuth scope grants.
+ * message bodies, and GitHub returns names and counts rather than a line of anyone's
+ * code. A tool described as "read the user's YouTube" invites an answer about what
+ * they have been watching, which is not a thing any OAuth scope grants.
  */
 
 import { connectorById } from '../connectors/registry';
@@ -105,14 +105,6 @@ const SCHEMAS: ReadToolSchema[] = [
     required: [],
   },
   {
-    name: READ_TOOLS.listRelationships,
-    connector: 'contacts',
-    description:
-      "List the people in the user's Google Contacts who carry a relationship label the user set themselves — partner, mother, manager and so on. Only the name and the label are available: no addresses, phone numbers or birthdays, and contacts with no label are not returned at all.",
-    properties: {},
-    required: [],
-  },
-  {
     name: READ_TOOLS.listTopMusic,
     connector: 'spotify',
     description:
@@ -149,6 +141,41 @@ const SCHEMAS: ReadToolSchema[] = [
       "List the user's Spotify playlists with their names and track counts. Use it before creating a playlist so a near-duplicate of one they already have is not made, and to understand how they organise their music.",
     properties: {
       limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 25.' },
+    },
+    required: [],
+  },
+  {
+    name: READ_TOOLS.listPullRequests,
+    connector: 'github',
+    description:
+      "List the user's open GitHub pull requests, most recently updated first, with repository, number, title, author and whether each is a draft. This is the tool for \"what am I waiting on\", \"what needs my review\" and anything about work in progress. Willow can read pull requests but never open, merge, comment on or close one.",
+    properties: {
+      filter: {
+        type: 'string',
+        description:
+          'Which pull requests: "involves" for everything the user authored, was assigned, was mentioned in or was asked to review (the default); "review-requested" for the ones waiting on their review, which are the ones blocking someone else; "author" for only the ones they opened; "assigned" for only the ones assigned to them. Anything else falls back to "involves".',
+      },
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 20.' },
+    },
+    required: [],
+  },
+  {
+    name: READ_TOOLS.listGithubIssues,
+    connector: 'github',
+    description:
+      "List the open GitHub issues assigned to the user, most recently updated first. Assigned only — issues they merely opened or commented on are not returned, because \"what is on my plate\" is the question this answers.",
+    properties: {
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 20.' },
+    },
+    required: [],
+  },
+  {
+    name: READ_TOOLS.listGithubRepos,
+    connector: 'github',
+    description:
+      "List the GitHub repositories the user has access to, most recently pushed to first, with the primary language and whether each is private. Use it for \"what have I been working on lately\". It reads repository metadata only — no file contents, no commits, no diffs, so questions about what the code actually says cannot be answered from here.",
+    properties: {
+      limit: { type: 'integer', description: 'How many, 1 to 50. Defaults to 30.' },
     },
     required: [],
   },

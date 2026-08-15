@@ -24,6 +24,7 @@
 
 import { useEffect } from 'react';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
 
 export interface UseComposerModelsOptions {
   /** Provider settings from user data; shape is provider-defined. */
@@ -52,21 +53,17 @@ export const useComposerModels = ({
   setSelectedModelId,
 }: UseComposerModelsOptions): ComposerModels => {
   // Combine models to find the active one
-  const ALL_MODELS = [
-    ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-      ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-      ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
-      ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-      ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-      ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ].filter((m: any) => {
-    const id = (m.modelId || m.id || '').toLowerCase();
-    const name = (m.name || '').toLowerCase();
-    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return false;
-    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria') || id.includes('live')) return false;
-    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return false;
-    return true;
-  });
+  const providerLabels = {
+    gemini: 'Google',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    moonshot: 'Moonshot AI',
+    spacexai: 'SpaceXAI',
+    zhipuai: 'Zhipu AI',
+  } as const;
+  const ALL_MODELS = collectSavedModelsInCatalogOrder(modelConfig)
+    .filter(isChatCapableModel)
+    .map((model) => ({ ...model, provider: providerLabels[model.providerId] }));
 
   // Sync selection with available models
   useEffect(() => {
