@@ -23,6 +23,14 @@ import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writ
 import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-store';
 import { sparkLocation } from '@willow/spark/spark-store';
 import type { StudioExperience } from '@willow/core/types';
+import { createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
+import {
+  MODEL_CATALOG_UPDATED_EVENT,
+  MODEL_CONFIG_STORAGE_KEY,
+  extractModelCatalogSnapshot,
+  mergeModelCatalogSnapshot,
+  type ModelCatalogSnapshot,
+} from './model-catalog-storage';
 
 // Lazy-load WorkbenchView to prevent WebContainer boot on login page
 const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
@@ -282,13 +290,23 @@ const App: React.FC = () => {
       // install to one the user may hold no key for. A real id appears only once
       // the user picks one in Settings, and that pin is then permanent.
       personalIntelligence: AUTO_MODEL,
-    }
+    },
+    providerProfiles: createDefaultProviderProfiles({
+      gemini: 'https://generativelanguage.googleapis.com',
+      openai: 'https://api.openai.com/v1',
+      anthropic: 'https://api.anthropic.com',
+      moonshot: 'https://api.moonshot.cn/v1',
+      spacexai: 'https://api.x.ai/v1',
+      zhipuai: 'https://open.bigmodel.cn/api/paas/v4',
+    }),
+    resources: [],
+    modelOrder: [] as string[],
   };
 
   const dedupeSavedModels = (models: any[] = []) => {
     const seen = new Set<string>();
     return models.filter(m => {
-      const key = m.modelId || m.id;
+      const key = `${m.profileId || 'default'}:${m.modelId || m.id}`;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -297,7 +315,7 @@ const App: React.FC = () => {
 
   const [modelConfig, setModelConfig] = React.useState(() => {
     try {
-      const raw = localStorage.getItem('modelConfig');
+      const raw = localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         // Merge per-provider so new fields/defaults aren't lost if the stored
@@ -316,6 +334,9 @@ const App: React.FC = () => {
           moonshot: { ...moonshot, savedModels: dedupeSavedModels(moonshot.savedModels) },
           spacexai: { ...spacexai, savedModels: dedupeSavedModels(spacexai.savedModels) },
           zhipuai: { ...zhipuai, savedModels: dedupeSavedModels(zhipuai.savedModels) },
+          modelOrder: Array.isArray(parsed.modelOrder)
+            ? parsed.modelOrder.filter((key: unknown): key is string => typeof key === 'string')
+            : [],
           systemDefaults: {
             ...DEFAULT_MODEL_CONFIG.systemDefaults,
             ...(parsed.systemDefaults || {}),
@@ -327,6 +348,17 @@ const App: React.FC = () => {
               ? AUTO_MODEL
               : (parsed.systemDefaults?.personalIntelligence || AUTO_MODEL),
           },
+          ...normalizeProviderProfileState({
+            profiles: parsed.providerProfiles,
+            resources: parsed.resources,
+          }, {
+            gemini: 'https://generativelanguage.googleapis.com',
+            openai: 'https://api.openai.com/v1',
+            anthropic: 'https://api.anthropic.com',
+            moonshot: 'https://api.moonshot.cn/v1',
+            spacexai: 'https://api.x.ai/v1',
+            zhipuai: 'https://open.bigmodel.cn/api/paas/v4',
+          }),
         };
       }
     } catch { /* fall through */ }
@@ -342,8 +374,31 @@ const App: React.FC = () => {
   });
   // Persist model config + selection on every change.
   React.useEffect(() => {
-    try { localStorage.setItem('modelConfig', JSON.stringify(modelConfig)); } catch { /* ignore */ }
+    try { localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(modelConfig)); } catch { /* ignore */ }
   }, [modelConfig]);
+  React.useEffect(() => {
+    const applySnapshot = (snapshot: ModelCatalogSnapshot) => {
+      setModelConfig((current: any) => mergeModelCatalogSnapshot(current, snapshot));
+    };
+    const onCatalogUpdated = (event: Event) => {
+      const snapshot = (event as CustomEvent<ModelCatalogSnapshot>).detail;
+      if (snapshot) applySnapshot(snapshot);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== MODEL_CONFIG_STORAGE_KEY || !event.newValue) return;
+      try {
+        applySnapshot(extractModelCatalogSnapshot(JSON.parse(event.newValue)));
+      } catch {
+        // Ignore malformed writes from another tab.
+      }
+    };
+    window.addEventListener(MODEL_CATALOG_UPDATED_EVENT, onCatalogUpdated);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(MODEL_CATALOG_UPDATED_EVENT, onCatalogUpdated);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
   React.useEffect(() => {
     try { localStorage.setItem('selectedModelId', selectedModelId); } catch { /* ignore */ }
   }, [selectedModelId]);
@@ -595,6 +650,43 @@ const App: React.FC = () => {
     // so projects that already have media are reflected immediately.
     void rebuildMediaIndex();
   }, []);
+
+  /*
+   * Install the Connected Apps token sources, at boot.
+   *
+   * This is what tells Personal Intelligence which connections survived the
+   * reload. `connectionsStore` remembers what the user connected to and is
+   * persistent; the token behind it is not — Google gives a browser client no
+   * refresh token, so its access token dies with the tab, and Spotify's durable
+   * grant needs redeeming before it means anything. Installing the sources runs
+   * that silent check, and the model's connector tools are built from its answer.
+   *
+   * It used to run only from the Connected Apps settings tab, which is the bug
+   * this call fixes: a user who reloaded and went straight to the chat had every
+   * connector marked unauthorized, so every connector tool was withheld until they
+   * happened to open Settings.
+   *
+   * Imported dynamically, not at the top of this file. `@willow/personal` reaches
+   * the profile store, the builder and every connector; a static import would put
+   * all of it in the eager bundle that first paint waits on, for work that has no
+   * deadline. The install is idempotent, so the effect re-running on an account
+   * switch — and twice in development under StrictMode — costs nothing.
+   *
+   * `user?.email` is the login hint: it is what turns connecting into a single
+   * Allow click for an already-signed-in Google account rather than an account
+   * chooser. Not gated on `user` being present, because a signed-out user can
+   * still hold connections, and the hint is only ever a hint.
+   */
+  React.useEffect(() => {
+    let cancelled = false;
+    void import('@willow/personal').then(({ initConnectorTokenSources }) => {
+      if (cancelled) return;
+      void initConnectorTokenSources({ loginHint: user?.email ?? undefined });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email]);
 
   const handlePromptSubmit = (prompt: string, mode: string = 'ship', attachments?: any[]) => {
     if (!user) {

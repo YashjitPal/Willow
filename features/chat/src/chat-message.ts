@@ -25,6 +25,8 @@ export interface ChatMsg {
     thinkingLevel: number;
   };
   isError?: boolean;
+  /** Raw provider detail kept in memory for the opt-in error dialog only. */
+  errorDetail?: string;
   isGenerating?: boolean;
   /** User bubble is a live-voice utterance whose transcript hasn't arrived yet. */
   isTranscribing?: boolean;
@@ -58,12 +60,13 @@ export const hasSavedMessageContent = (
   message.content.trim().length > 0 || !!message.attachments?.length || !!message.wasStopped;
 
 /** Strip the runtime-only flags so a reloaded chat never resumes mid-generation. */
-export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew'> => {
+export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew' | 'errorDetail'> => {
   const {
     isGenerating: _isGenerating,
     isTranscribing: _isTranscribing,
     isLive: _isLive,
     isNew: _isNew,
+    errorDetail: _errorDetail,
     attachments,
     ...persisted
   } = message;

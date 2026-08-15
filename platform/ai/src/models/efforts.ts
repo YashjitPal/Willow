@@ -10,7 +10,7 @@ export interface ModelEffortRecord {
 }
 
 export const getModelGroupKey = (model: ModelEffortRecord) =>
-  `${model.provider || 'AI'}::${model.modelId || model.name}`;
+  `${model.provider || 'AI'}::${model.modelId || model.name}::${String(model.profileId || '')}`;
 
 /**
  * Identity text for capability matching: `modelId` plus `name`.
@@ -116,6 +116,10 @@ export const getThinkingEffortLabel = (model: ModelEffortRecord, shorten = false
   const level = Number(model.thinkingLevel || 0);
   const provider = String(model.provider || '').toLowerCase();
   const modelId = String(model.modelId || model.name || '').toLowerCase();
+  const customEffort = Array.isArray(model.reasoningEfforts)
+    ? (model.reasoningEfforts as Array<{ level?: number; label?: string }>).find((effort) => Number(effort.level) === level)
+    : undefined;
+  if (customEffort?.label) return customEffort.label;
 
   // Gemini flash / flash-lite call their floor "minimal", not "none" — that is
   // the literal value chat.ts sends (`flashMap[0] = 'minimal'`). Keep that name:

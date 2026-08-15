@@ -22,6 +22,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Plus, Search, Settings } from "lucide-react";
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
 import {
   chooseMenuSide,
   getViewportConstrainedOffset,
@@ -71,24 +72,18 @@ export const ModelsMenu: React.FC<{
 }> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels }) => {
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 
-  const isMediaModel = (m: any) => {
-    const id = (m.modelId || m.id || '').toLowerCase();
-    const name = (m.name || '').toLowerCase();
-    if (['grok-imagine', 'grok-voice', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-lite-image', 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash', 'lyria-3-pro'].includes(id)) return true;
-    if (id.includes('imagine') || id.includes('voice') || id.includes('banana') || id.includes('veo') || id.includes('lyria')) return true;
-    if (name.includes('imagine') || name.includes('voice') || name.includes('banana') || name.includes('veo') || name.includes('lyria')) return true;
-    return false;
-  };
-
-  // Combine all saved models from all providers and deduplicate by modelId
-  const savedModels = [
-    ...modelConfig.gemini.savedModels.map((m: any) => ({ ...m, provider: 'Google' })),
-    ...modelConfig.openai.savedModels.map((m: any) => ({ ...m, provider: 'OpenAI' })),
-    ...modelConfig.anthropic.savedModels.map((m: any) => ({ ...m, provider: 'Anthropic' })),
-    ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-    ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-    ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-  ];
+  const providerLabels = {
+    gemini: 'Google',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    moonshot: 'Moonshot AI',
+    spacexai: 'SpaceXAI',
+    zhipuai: 'Zhipu AI',
+  } as const;
+  const savedModels = collectSavedModelsInCatalogOrder(modelConfig).map((model) => ({
+    ...model,
+    provider: providerLabels[model.providerId],
+  }));
 
   /**
    * The live roster as picker rows.
@@ -97,7 +92,7 @@ export const ModelsMenu: React.FC<{
    * what the caller stores and what goes on the wire — a live model need not be
    * saved in Settings → Models at all. The saved entry is consulted only for its
    * display name, so a model the user has named keeps that name here. It scans
-   * the unfiltered saved list on purpose: `isMediaModel` drops anything
+   * the unfiltered saved list on purpose: the text filter drops anything
    * containing "voice", which is exactly the roster being matched.
    */
   const voiceRows = (voiceModels || []).map((m) => {
@@ -107,7 +102,7 @@ export const ModelsMenu: React.FC<{
 
   const rawModels = isVoiceRoster
     ? voiceRows
-    : savedModels.filter(m => !isMediaModel(m)).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
+    : savedModels.filter(isChatCapableModel).filter((v, i, a) => a.findIndex(t => (t.modelId === v.modelId)) === i);
 
   const [isEffortHovered, setIsEffortHovered] = useState(false);
   const [isEffortPositionReady, setIsEffortPositionReady] = useState(false);
@@ -283,6 +278,22 @@ export const ModelsMenu: React.FC<{
     const base = group.variants[0];
     const provider = String(base.provider || '').toLowerCase();
     const modelId = String(base.modelId || base.id || base.name || '').toLowerCase();
+
+    // Custom profiles can declare their own effort roster. Respect it before
+    // falling back to Willow's provider defaults so a model with 2 or 7 levels
+    // does not get an invented menu with the wrong wire values.
+    if (Array.isArray((base as any).reasoningEfforts) && (base as any).reasoningEfforts.length > 0) {
+      return [...(base as any).reasoningEfforts]
+        .filter((effort: any) => Number.isFinite(Number(effort.level)))
+        .sort((a: any, b: any) => Number(a.level) - Number(b.level))
+        .map((effort: any) => ({
+          ...base,
+          id: `${base.id}::effort-${Number(effort.level)}`,
+          thinkingLevel: Number(effort.level),
+          thinkingLabel: effort.label,
+          effortLabel: effort.label,
+        }));
+    }
 
     // A group with several saved variants already carries its own effort levels.
     // Only synthesise the "None" entry, and only when the model genuinely

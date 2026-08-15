@@ -289,8 +289,12 @@ export const initBrowserTokenSource = async (options: GisOptions = {}): Promise<
    * token refresh would leave Connected Apps blank for as long as Google takes.
    * The store it writes to is reactive, so the tools and the cards both follow
    * along when it lands.
+   *
+   * No argument, deliberately. Passing `installed` would override every provider's
+   * source, so Spotify's scopes would be asked of Google — which has never heard of
+   * `user-top-read` — and a live Spotify grant would be marked expired at boot.
    */
-  void refreshAuthorizations(installed);
+  void refreshAuthorizations();
   return true;
 };
 

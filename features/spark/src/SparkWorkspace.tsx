@@ -332,7 +332,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         model,
         Number(selected?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0),
       ),
-      baseUrl: modelConfig?.[provider]?.baseUrl,
+      baseUrl: selected?.baseUrl || modelConfig?.[provider]?.baseUrl,
+      apiFormat: selected?.apiFormat,
+      toolPolicy: selected?.toolPolicy,
+      profileId: selected?.profileId,
     };
   }, [apiKeys, modelConfig, selectedModelId]);
 
@@ -465,6 +468,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           enableSearch: execution.enableSearch,
           enableCodeExecution: execution.enableCodeExecution,
           baseUrl: execution.baseUrl,
+          apiFormat: execution.apiFormat,
+          toolPolicy: execution.toolPolicy,
+          profileId: execution.profileId,
           signal: controller.signal,
         },
         (token: string) => {
@@ -653,6 +659,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           enableSearch: execution.enableSearch,
           enableCodeExecution: execution.enableCodeExecution,
           baseUrl: execution.baseUrl,
+          apiFormat: execution.apiFormat,
+          toolPolicy: execution.toolPolicy,
+          profileId: execution.profileId,
           signal: controller.signal,
         },
         (token: string) => {

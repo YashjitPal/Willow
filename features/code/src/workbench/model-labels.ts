@@ -2,21 +2,27 @@
  * Turning saved model config into the labels the composer shows.
  */
 
+import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
+
 /**
  * Flattens every provider's saved models into one list, tagging each with the
  * display name of the provider it came from.
  *
- * Nano Banana Pro is filtered out here: it is an image model that ships in the
- * same config but must not appear in the chat model picker.
+ * Non-text models stay in the catalog but do not appear in the Workbench picker.
  */
-export const collectSavedModels = (modelConfig: any): any[] => [
-  ...(modelConfig?.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'Google' })),
-  ...(modelConfig?.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'OpenAI' })),
-  ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'Anthropic' })),
-  ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
-  ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-  ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
-].filter((m: any) => m.name !== "Nano Banana Pro");
+export const collectSavedModels = (modelConfig: any): any[] => {
+  const providerLabels = {
+    gemini: 'Google',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    moonshot: 'Moonshot AI',
+    spacexai: 'SpaceXAI',
+    zhipuai: 'Zhipu AI',
+  } as const;
+  return collectSavedModelsInCatalogOrder(modelConfig)
+    .filter(isChatCapableModel)
+    .map((model) => ({ ...model, provider: providerLabels[model.providerId] }));
+};
 
 /**
  * Shortens a model name to fit the composer button.

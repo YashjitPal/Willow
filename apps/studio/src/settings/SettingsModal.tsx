@@ -5,6 +5,7 @@ import { useAuth } from '@willow/auth/AuthContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab, PersonalIntelligenceTab } from './tabs/index';
 import { DEFAULT_BASE_URLS, resolveBaseUrl, type ProviderId } from '@willow/ai/providers/endpoints';
+import { DEFAULT_PROFILE_IDS } from '@willow/ai/providers/profiles';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -633,6 +634,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
             baseUrl: resolveBaseUrl(provider, loadedState[provider]?.baseUrl)
           };
         });
+        next.providerProfiles = (prev.providerProfiles || []).map((profile: any) => {
+          const provider = (Object.keys(DEFAULT_PROFILE_IDS) as ProviderId[]).find((candidate) => DEFAULT_PROFILE_IDS[candidate] === profile.id);
+          return provider
+            ? { ...profile, baseUrl: resolveBaseUrl(provider, loadedState[provider]?.baseUrl), updatedAt: Date.now() }
+            : profile;
+        });
         return next;
       });
     };
@@ -734,7 +741,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     // gateway stays live even though the input looks empty.
     setModelConfig((prev: any) => ({
       ...prev,
-      [provider]: { ...prev[provider], baseUrl: resolveBaseUrl(provider, config.baseUrl) }
+      [provider]: { ...prev[provider], baseUrl: resolveBaseUrl(provider, config.baseUrl) },
+      providerProfiles: (prev.providerProfiles || []).map((profile: any) => profile.id === DEFAULT_PROFILE_IDS[provider]
+        ? { ...profile, baseUrl: resolveBaseUrl(provider, config.baseUrl), updatedAt: Date.now() }
+        : profile),
     }));
     window.dispatchEvent(new Event('apikeys-updated'));
     scheduleProviderSave({

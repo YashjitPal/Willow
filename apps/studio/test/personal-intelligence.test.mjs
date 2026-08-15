@@ -552,7 +552,7 @@ it('keeps Drive and Docs out of the profile even when connected', async () => {
     assert.equal(canProvideSignals(id), false, `${id} may now describe the user`);
     assert.equal(READERS[id], undefined, `${id} gained a reader`);
   }
-  for (const id of ['gmail', 'calendar', 'youtube', 'contacts', 'tasks']) {
+  for (const id of ['gmail', 'calendar', 'youtube', 'tasks', 'spotify', 'github']) {
     assert.equal(canProvideSignals(id), true, `${id} can no longer feed the profile`);
     assert.ok(READERS[id], `${id} claims to provide signals but has no reader`);
   }
@@ -993,5 +993,1136 @@ it('drives the Memory toggle and the profile list from the store', async () => {
     'the Memory switch is not reading the profile store');
   assert.match(memory, /useStore\(\s*profileStore\s*\)/,
     'the Memory page is not reading the profile store');
+});
+
+/*
+ * Helpers for the three sections below, kept here rather than at the top of the
+ * file because nothing above needs them.
+ */
+
+/** Clear the in-memory authorization map, which `resetConnections` does not touch. */
+const resetAuthorizations = async () => {
+  const auth = await importTs(personalFile('connectors', 'authorization.ts'));
+  const { CONNECTORS } = await importTs(personalFile('connectors', 'registry.ts'));
+  for (const connector of CONNECTORS) auth.forgetAuthorization(connector.id);
+  return auth;
+};
+
+/** A TokenSource that grants silently, recording the scope batches `get` was asked for. */
+const silentTokens = () => {
+  const batches = [];
+  return {
+    batches,
+    get: async (scopes) => {
+      batches.push(scopes);
+      return 'token';
+    },
+    request: async () => 'token',
+    invalidate: () => {},
+  };
+};
+
+/**
+ * Stand up the browser storage the PKCE flow needs, and take it away again.
+ *
+ * Node has no `localStorage`, and every persistence branch in the Spotify token
+ * source is wrapped in a `catch` that costs persistence rather than correctness —
+ * so without a stub the refresh-token test below would pass while exercising
+ * nothing at all.
+ */
+const withBrowserStorage = async (body) => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  const previous = globalThis.localStorage;
+  const map = new Map();
+  const storage = {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => {
+      map.set(key, String(value));
+    },
+    removeItem: (key) => {
+      map.delete(key);
+    },
+  };
+  const install = (value) =>
+    Object.defineProperty(globalThis, 'localStorage', { value, configurable: true, writable: true });
+
+  install(storage);
+  try {
+    return await body(storage);
+  } finally {
+    if (had) install(previous);
+    else delete globalThis.localStorage;
+  }
+};
+
+/**
+ * A stand-in for `accounts.spotify.com/api/token`.
+ *
+ * Records what was posted and answers with whatever the test last set. A refused
+ * refresh and a network failure are deliberately the same path in `postToken`, so
+ * the only way to tell the two apart from outside is what the endpoint was asked.
+ */
+const withTokenEndpoint = async (body) => {
+  const previous = globalThis.fetch;
+  const calls = [];
+  let next = { ok: false, json: { error: 'invalid_grant' } };
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), grant: init?.body?.get?.('grant_type') });
+    const reply = next;
+    return { ok: reply.ok, json: async () => reply.json };
+  };
+  try {
+    return await body({ calls, reply: (value) => { next = value; } });
+  } finally {
+    globalThis.fetch = previous;
+  }
+};
+
+// ── 11. Personalization off means no connected app is callable ────────────────
+
+it('makes a connected app uncallable, not merely undeclared, with personalization off', async () => {
+  const { declaredToolNames, personalChatTools } = await importTs(
+    path.join(repoRoot, 'features', 'chat', 'src', 'personal-tools.ts'),
+  );
+  const { RETRIEVE_PERSONAL_DATA } = await importTs(personalFile('tools', 'declarations.ts'));
+  const { ACTION_TOOLS, READ_TOOLS } = await importTs(personalFile('tools', 'executor.ts'));
+  const { connectProducts } = await importTs(personalFile('connectors', 'connect.ts'));
+  const store = await resetProfile();
+  await resetConnections();
+  await resetAuthorizations();
+
+  const declared = (context) => declaredToolNames(personalChatTools(context));
+
+  assert.deepEqual([...declared({ personalize: true })], [RETRIEVE_PERSONAL_DATA],
+    'a fresh install offered something other than retrieval');
+
+  await connectProducts(['youtube'], { tokens: grantingTokens() });
+  const on = declared({ personalize: true });
+  assert.ok(on.has(READ_TOOLS.listLikedVideos), 'a connected YouTube declared no read tool');
+  assert.ok(on.has(ACTION_TOOLS.createPlaylist), 'a connected YouTube declared no action tool');
+
+  /*
+   * The requirement, in the words it was given in: no connected app should be
+   * callable when personalization is off.
+   *
+   * Undeclared is not the same as uncallable. A model looking at a transcript where
+   * it called `list_liked_videos` three turns ago can emit that call again on a turn
+   * where the tool was never offered, so the executor checks this set before it runs
+   * anything — and the set is read back out of the declarations rather than
+   * re-derived, so the two cannot disagree about what was offered.
+   */
+  store.setProfileEnabled(false);
+  assert.deepEqual([...declared({ personalize: true })], [],
+    'Memory was off and a connected app was still callable');
+
+  store.setProfileEnabled(true);
+  assert.deepEqual([...declared({ personalize: false })], [],
+    'a temporary chat could still call a connected app');
+
+  // The set is built from whatever shape the block happens to be in, because a
+  // provider translation layer between here and the model is free to reshape it.
+  assert.equal(declaredToolNames(undefined).size, 0);
+  assert.equal(declaredToolNames([]).size, 0);
+  assert.equal(declaredToolNames([{}, { functionDeclarations: [{}, { name: 'only_this' }] }]).size, 1);
+
+  await resetConnections();
+  await resetAuthorizations();
+});
+
+it('checks the allow-list before it runs a tool, not after', async () => {
+  const runner = codeOnly(read('features', 'chat', 'src', 'chat-turn-runner.ts'));
+  const gate = runner.indexOf('declaredToolNames(deps.personalTools)');
+  const run = runner.indexOf('runPersonalTool(');
+
+  assert.ok(gate > 0, 'the turn runner no longer consults the declared-tool set');
+  assert.ok(run > gate, 'a tool call ran before the allow-list was consulted');
+
+  // Both refusals say the same sentence on purpose: a tool withheld by the gate and
+  // a tool the executor does not recognise are the same fact from the model's side,
+  // and a model that can tell them apart can try to work out which one it hit.
+  assert.equal(runner.split('is not available in this context').length - 1, 2,
+    'the two refusal paths stopped saying the same thing');
+});
+
+// ── 12. Spotify ──────────────────────────────────────────────────────────────
+
+it('never asks one provider for another provider’s scopes', async () => {
+  const { providerOf } = await importTs(personalFile('connectors', 'registry.ts'));
+  const { connectProducts } = await importTs(personalFile('connectors', 'connect.ts'));
+  const auth = await resetAuthorizations();
+  await resetConnections();
+
+  assert.equal(providerOf('spotify'), 'spotify');
+  assert.equal(providerOf('youtube'), 'google', 'the unstated default stopped being Google');
+
+  for (const id of ['youtube', 'calendar', 'spotify']) {
+    await connectProducts([id], { tokens: grantingTokens() });
+  }
+
+  const tokens = silentTokens();
+  await auth.refreshAuthorizations(tokens);
+
+  /*
+   * Three batches, and the third is the one that matters. Spotify's scopes are bare
+   * words (`user-top-read`) where Google's are URLs, so a batch holding both would
+   * be a consent screen listing scopes that host has never heard of — and the
+   * failure would arrive as a puzzling 400 rather than as anything naming providers.
+   */
+  const isGoogle = (scope) => scope.startsWith('https://www.googleapis.com/');
+  for (const batch of tokens.batches) {
+    const mixed = batch.some(isGoogle) && batch.some((scope) => !isGoogle(scope));
+    assert.equal(mixed, false, `a scope batch mixed two providers: ${batch.join(' ')}`);
+  }
+
+  assert.equal(tokens.batches.length, 3,
+    'YouTube must be asked for alone, and Spotify separately from Google entirely');
+  assert.equal(tokens.batches.filter((batch) => batch.includes('user-top-read')).length, 1,
+    'Spotify’s scopes were requested more than once');
+  assert.equal(
+    tokens.batches.filter((batch) => batch.includes('https://www.googleapis.com/auth/youtube.readonly')).length,
+    1,
+  );
+  assert.equal(
+    tokens.batches.some((batch) =>
+      batch.includes('https://www.googleapis.com/auth/youtube.readonly')
+      && batch.includes('https://www.googleapis.com/auth/calendar.readonly')),
+    false,
+    'YouTube shared a batch with another Google API, which Google refuses outright',
+  );
+
+  assert.deepEqual(auth.usableConnectors().sort(), ['calendar', 'spotify', 'youtube'],
+    'a silent refresh that granted everything left something unusable');
+
+  await resetConnections();
+  await resetAuthorizations();
+});
+
+it('keeps a Spotify grant across a reload and drops it when refused', async () => {
+  const REFRESH_KEY = 'willow:spotify-refresh-token';
+  const { createSpotifyTokenSource, clearSpotifyGrant } = await importTs(
+    personalFile('connectors', 'spotify', 'pkce-token-source.ts'),
+  );
+
+  // No client id, no source. This is the whole of "Spotify is not set up in this
+  // build" — there is nothing to install, so the switches stay off rather than
+  // opening a consent screen that cannot be redeemed.
+  assert.equal(createSpotifyTokenSource(), null);
+
+  await withBrowserStorage(async (storage) => {
+    await withTokenEndpoint(async (endpoint) => {
+      const source = createSpotifyTokenSource({ clientId: 'test-client' });
+      const scopes = ['user-top-read'];
+
+      // Nothing stored: `get` must answer null without a network round trip. A
+      // request here would be a request on every load of an app nobody connected.
+      assert.equal(await source.get(scopes), null);
+      assert.equal(endpoint.calls.length, 0, 'a token was requested with no grant to redeem');
+
+      /*
+       * The durable half, and the reason a Spotify connection survives a reload
+       * where a Google one cannot: Google issues no refresh token to a browser
+       * client, Spotify does, so this mints an access token with no popup and no
+       * user present.
+       */
+      storage.setItem(REFRESH_KEY, 'durable');
+      endpoint.reply({ ok: true, json: { access_token: 'fresh', expires_in: 3600, scope: 'user-top-read' } });
+
+      assert.equal(await source.get(scopes), 'fresh');
+      assert.equal(endpoint.calls.length, 1);
+      assert.equal(endpoint.calls[0].grant, 'refresh_token');
+      assert.match(endpoint.calls[0].url, /accounts\.spotify\.com\/api\/token$/);
+
+      // Cached. Two tools reading Spotify in one turn is one token, not two.
+      assert.equal(await source.get(scopes), 'fresh');
+      assert.equal(endpoint.calls.length, 1, 'the access token was not cached');
+
+      /*
+       * A scoped invalidate is the fetch layer reacting to a single 401, where the
+       * refresh token is very likely still good. Dropping it there would turn a
+       * retryable blip into a reconnect the user has to notice and act on.
+       */
+      source.invalidate(scopes);
+      assert.equal(storage.getItem(REFRESH_KEY), 'durable',
+        'one 401 threw away the durable grant');
+
+      // A refused refresh is a revoked grant, not a blip: keeping it would mean
+      // retrying a dead credential on every read for the rest of the session.
+      endpoint.reply({ ok: false, json: { error: 'invalid_grant' } });
+      assert.equal(await source.get(scopes), null);
+      assert.equal(endpoint.calls.length, 2);
+      assert.equal(storage.getItem(REFRESH_KEY), null, 'a revoked refresh token was kept');
+
+      // Disconnect. `forget` is what makes the switch mean off — an access token
+      // dies with the tab, but a refresh token left behind is a live credential
+      // sitting in the browser of someone who turned the product off.
+      storage.setItem(REFRESH_KEY, 'durable-again');
+      endpoint.reply({ ok: true, json: { access_token: 'fresh-2', expires_in: 3600 } });
+      assert.equal(await source.get(scopes), 'fresh-2');
+
+      source.forget();
+      assert.equal(storage.getItem(REFRESH_KEY), null);
+      const before = endpoint.calls.length;
+      assert.equal(await source.get(scopes), null, 'a forgotten source still minted tokens');
+      assert.equal(endpoint.calls.length, before, 'a forgotten source still held a cached token');
+
+      // The disconnect hook, which runs without a source instance in hand.
+      storage.setItem(REFRESH_KEY, 'durable-again');
+      clearSpotifyGrant();
+      assert.equal(storage.getItem(REFRESH_KEY), null);
+    });
+  });
+});
+
+it('drops a provider’s durable grant only when nothing else is using it', async () => {
+  const { connectProducts, disconnectProduct } = await importTs(personalFile('connectors', 'connect.ts'));
+  await resetConnections();
+  await resetAuthorizations();
+
+  const recording = () => {
+    const record = { forgotten: 0, invalidated: [] };
+    return {
+      record,
+      get: async () => 'token',
+      request: async () => 'token',
+      invalidate: (scopes) => record.invalidated.push(scopes),
+      forget: () => { record.forgotten += 1; },
+    };
+  };
+
+  await connectProducts(['gmail'], { tokens: grantingTokens() });
+  await connectProducts(['calendar'], { tokens: grantingTokens() });
+
+  // Gmail and Calendar share one Google grant, so dropping it because Gmail was
+  // switched off would silently take Calendar's access with it.
+  const shared = recording();
+  disconnectProduct('gmail', { tokens: shared });
+  assert.equal(shared.record.forgotten, 0, 'disconnecting Gmail dropped the grant Calendar still needs');
+  assert.ok(shared.record.invalidated.length > 0, 'the disconnected product’s token was left cached');
+
+  const last = recording();
+  disconnectProduct('calendar', { tokens: last });
+  assert.equal(last.record.forgotten, 1, 'the last product on a provider left its grant in place');
+
+  // Spotify is one connector, so there is never anything left to share.
+  await connectProducts(['spotify'], { tokens: grantingTokens() });
+  const solo = recording();
+  disconnectProduct('spotify', { tokens: solo });
+  assert.equal(solo.record.forgotten, 1);
+
+  await resetConnections();
+  await resetAuthorizations();
+});
+
+it('declares Spotify’s tools only while a token is actually held', async () => {
+  const { declaredToolNames, personalChatTools } = await importTs(
+    path.join(repoRoot, 'features', 'chat', 'src', 'personal-tools.ts'),
+  );
+  const { ACTION_TOOLS, READ_TOOLS } = await importTs(personalFile('tools', 'executor.ts'));
+  const { geminiReadTools } = await importTs(personalFile('tools', 'read-declarations.ts'));
+  const { connectorForAction, geminiActionTools } = await importTs(
+    personalFile('tools', 'action-declarations.ts'),
+  );
+  const { connectProducts } = await importTs(personalFile('connectors', 'connect.ts'));
+  const auth = await resetAuthorizations();
+  await resetProfile();
+  await resetConnections();
+
+  assert.equal(geminiReadTools([]), null, 'an empty connector list produced an empty tool block');
+  assert.equal(geminiActionTools([]), null);
+
+  assert.deepEqual(
+    geminiReadTools(['spotify']).functionDeclarations.map((declaration) => declaration.name),
+    [READ_TOOLS.listTopMusic, READ_TOOLS.listSavedTracks, READ_TOOLS.listSpotifyPlaylists],
+  );
+  assert.deepEqual(
+    geminiActionTools(['spotify']).functionDeclarations.map((declaration) => declaration.name),
+    [ACTION_TOOLS.createSpotifyPlaylist],
+  );
+
+  // The two playlist actions are not interchangeable, and the scope request for one
+  // must never be made against the other's provider.
+  assert.equal(connectorForAction(ACTION_TOOLS.createSpotifyPlaylist), 'spotify');
+  assert.equal(connectorForAction(ACTION_TOOLS.createPlaylist), 'youtube');
+  assert.equal(connectorForAction('not_a_tool'), undefined);
+
+  await connectProducts(['spotify'], { tokens: grantingTokens() });
+  const on = declaredToolNames(personalChatTools({ personalize: true }));
+  assert.ok(on.has(READ_TOOLS.listTopMusic), 'a connected Spotify declared no read tool');
+  assert.ok(on.has(ACTION_TOOLS.createSpotifyPlaylist), 'a connected Spotify declared no action tool');
+
+  /*
+   * The whole point of separating connection from authorization, exercised: a 401
+   * that survived its retry marks the product expired, and the *next* turn stops
+   * being told the product exists. Before this, the connection list said Spotify,
+   * the tool was declared, the model spent a call on it, and the reply was an
+   * apology naming a setting.
+   */
+  auth.authLossHandler('spotify')();
+  const after = declaredToolNames(personalChatTools({ personalize: true }));
+  assert.equal(after.has(READ_TOOLS.listTopMusic), false,
+    'an expired Spotify was still offered as a readable product');
+  assert.equal(after.has(ACTION_TOOLS.createSpotifyPlaylist), false);
+  assert.equal(after.size, 1, 'only retrieval should survive an expired connection');
+
+  await resetConnections();
+  await resetAuthorizations();
+});
+
+it('declares every array parameter with an element type', async () => {
+  const { CONNECTORS } = await importTs(personalFile('connectors', 'registry.ts'));
+  const { anthropicActionTools, geminiActionTools, openaiActionTools } = await importTs(
+    personalFile('tools', 'action-declarations.ts'),
+  );
+  const { geminiReadTools } = await importTs(personalFile('tools', 'read-declarations.ts'));
+  const all = CONNECTORS.map((connector) => connector.id);
+
+  /*
+   * Gemini rejects an ARRAY parameter with no `items`, and rejects the whole
+   * request rather than that one parameter — so a tool declared without it is not a
+   * tool with a loose schema, it is a tool the model is never shown and a turn that
+   * fails for a reason naming nothing in particular. `create_spotify_playlist` was
+   * implemented, routed and never declared for exactly one release because of this.
+   */
+  const blocks = [geminiActionTools(all), geminiReadTools(all)];
+  for (const block of blocks) {
+    for (const declaration of block.functionDeclarations) {
+      for (const [key, property] of Object.entries(declaration.parameters.properties)) {
+        assert.equal(property.type, property.type.toUpperCase(),
+          `${declaration.name}.${key} is not in Gemini's uppercase dialect`);
+        if (property.type !== 'ARRAY') continue;
+        assert.equal(property.items?.type, 'STRING',
+          `${declaration.name}.${key} is an ARRAY with no element type`);
+      }
+    }
+  }
+
+  const tracks = geminiActionTools(['spotify']).functionDeclarations[0].parameters.properties.tracks;
+  assert.deepEqual(tracks.type, 'ARRAY');
+  assert.deepEqual(tracks.items, { type: 'STRING' });
+
+  // The other two providers take JSON Schema, where lowercase is correct and the
+  // property table passes through untranslated. Two dialects, one source table.
+  const openai = openaiActionTools(['spotify'])[0].function.parameters.properties.tracks;
+  const anthropic = anthropicActionTools(['spotify'])[0].input_schema.properties.tracks;
+  assert.equal(openai.type, 'array');
+  assert.deepEqual(openai.items, { type: 'string' });
+  assert.equal(anthropic.type, 'array');
+  assert.deepEqual(anthropic.items, { type: 'string' });
+});
+
+it('reads a track list however the model spelled it', async () => {
+  const { ACTION_TOOLS, READ_TOOLS, executePersonalTool } = await importTs(
+    personalFile('tools', 'executor.ts'),
+  );
+
+  const seen = [];
+  const deps = {
+    actions: {
+      createSpotifyPlaylist: async (input) => {
+        seen.push(input);
+        return 'Created it.';
+      },
+    },
+  };
+
+  const run = (args) => executePersonalTool(ACTION_TOOLS.createSpotifyPlaylist, args, deps);
+
+  /*
+   * Three shapes, all seen from production models. The comma-separated string is the
+   * reason this is not a two-line function: a model asked for a playlist of five
+   * songs quite often sends `"a, b, c, d, e"`, and reading that as one track title
+   * produces one failed search where five would have succeeded.
+   */
+  await run({ title: 'Mix', tracks: ['Weird Fishes — Radiohead', 'Nightcall — Kavinsky'] });
+  await run({ title: 'Mix', tracks: '["Weird Fishes — Radiohead", "Nightcall — Kavinsky"]' });
+  await run({ title: 'Mix', tracks: 'Weird Fishes — Radiohead, Nightcall — Kavinsky' });
+  for (const input of seen) {
+    assert.deepEqual(input.tracks, ['Weird Fishes — Radiohead', 'Nightcall — Kavinsky'],
+      'a track list arrived in a shape the action could not use');
+  }
+
+  // No tracks is a real request — "make me a playlist for studying" — and gets an
+  // empty playlist plus a sentence saying so, not an error.
+  await run({ title: 'Mix' });
+  assert.equal(seen[3].tracks, undefined);
+  await run({ title: 'Mix', tracks: [] });
+  assert.equal(seen[4].tracks, undefined);
+
+  const untitled = await run({ tracks: ['a'] });
+  assert.match(untitled.text, /needs a title/);
+  assert.equal(seen.length, 5, 'a titleless playlist reached the action layer');
+
+  /*
+   * Nothing injected means nothing connected, and both halves have to say so in a
+   * sentence. A read that answered with silence would be read as "no saved tracks",
+   * and a model that treats silence as data invents the contents of an account.
+   */
+  const action = await executePersonalTool(ACTION_TOOLS.createSpotifyPlaylist, { title: 'Mix' }, {});
+  assert.match(action.text, /Settings → Connected Apps/);
+  const list = await executePersonalTool(READ_TOOLS.listSavedTracks, {}, {});
+  assert.match(list.text, /not connected/);
+  assert.match(list.text, /Do not guess/);
+
+  // A call belonging to another executor must pass through, not be answered on that
+  // executor's behalf.
+  assert.equal(await executePersonalTool('generate_image', {}, {}), null);
+});
+
+it('turns Spotify listening into taste bullets and nothing finer', async () => {
+  const { readSpotifySignals } = await importTs(personalFile('connectors', 'spotify', 'spotify.ts'));
+
+  const requests = [];
+  const artists = [
+    { name: 'Neon Aqueduct', genres: ['synthwave', 'chiptune'] },
+    { name: 'Paper Lantern Orchestra', genres: ['synthwave', 'chiptune'] },
+    { name: 'Halcyon Drift', genres: ['synthwave'] },
+    { name: 'Umber Fields', genres: ['ambient'] },
+  ];
+  const fetchJson = async (url) => {
+    requests.push(url);
+    return { items: artists };
+  };
+
+  const signals = await readSpotifySignals(fetchJson);
+
+  // One request, for artists over the longest window. A four-week window would
+  // rewrite the profile every month on the strength of one album, and the profile is
+  // supposed to hold what is stable about someone.
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /\/me\/top\/artists\?/);
+  assert.match(requests[0], /time_range=long_term/);
+
+  /*
+   * Genres survive at three sightings, artists at three names. `chiptune` appears
+   * twice here and is dropped — two artists sharing a label is a coincidence, and a
+   * profile bullet is a claim about the person that outlives the conversation.
+   */
+  assert.deepEqual(signals.map((signal) => signal.text), [
+    'Listens to synthwave',
+    'Listens to Neon Aqueduct',
+    'Listens to Paper Lantern Orchestra',
+    'Listens to Halcyon Drift',
+  ]);
+  assert.equal(signals.some((signal) => /chiptune|ambient/.test(signal.text)), false,
+    'a genre below the threshold became a stated fact about the user');
+
+  for (const signal of signals) {
+    assert.equal(signal.section, 'interests');
+    assert.equal(signal.source, 'Spotify');
+    assert.ok(signal.evidence, 'a bullet with no evidence cannot be explained to the user');
+  }
+
+  // No listening, no claims. An account Willow cannot read contributes nothing
+  // rather than an empty-sounding bullet.
+  assert.deepEqual(await readSpotifySignals(async () => ({ items: [] })), []);
+  assert.deepEqual(await readSpotifySignals(async () => null), []);
+});
+
+// ── 13. Card ids, connector ids, and the three lists that must agree ─────────
+
+it('keeps the card map, the registry and the stored-id whitelist in step', async () => {
+  const { CARD_CONNECTORS, isCardConnectable, providersForCard } = await importTs(
+    path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'connected-apps', 'connector-map.ts'),
+  );
+  const { CONNECTORS } = await importTs(personalFile('connectors', 'registry.ts'));
+
+  assert.deepEqual(providersForCard('spotify'), ['spotify']);
+  assert.deepEqual(providersForCard('workspace'), ['google'],
+    'the Workspace card spans five products and exactly one consent screen');
+  assert.deepEqual(providersForCard('canva'), [],
+    'a catalogue-only card claimed a provider, which would give it a live switch');
+  assert.equal(isCardConnectable('spotify'), true);
+  assert.equal(isCardConnectable('canva'), false);
+
+  const registryIds = CONNECTORS.map((connector) => connector.id).sort();
+  const mapped = [...new Set(Object.values(CARD_CONNECTORS).flat())].sort();
+
+  /*
+   * Asserted in this direction only. The reverse — every key of `CARD_CONNECTORS` is
+   * a card id — is false on purpose: `gmail`, `calendar`, `docs`, `drive` and `tasks`
+   * are Workspace children, drawn by `ChildCard`, which has no switch. Their entries
+   * are there for a future standalone card and reach nothing today.
+   */
+  assert.deepEqual(mapped, registryIds,
+    'a connector exists that no card can reach, or a card maps an id that is not a connector');
+
+  /*
+   * `connections-store.ts` spells its whitelist out rather than importing the
+   * registry, because the registry reaches every connector module and several reach
+   * back — the import would be a cycle. The cost of the duplication is this test: a
+   * connector missing from that list connects, works for the session, and is
+   * silently dropped on the next load.
+   */
+  const store = codeOnly(read('platform', 'personal', 'src', 'connectors', 'connections-store.ts'));
+  const literal = store.match(/const VALID[^[]*\[([^\]]*)\]/);
+  assert.ok(literal, 'the stored-id whitelist is no longer a literal this test can read');
+  const valid = [...literal[1].matchAll(/'([^']+)'/g)].map(([, id]) => id).sort();
+  assert.deepEqual(valid, registryIds,
+    'the stored-connection whitelist and the registry disagree about which ids exist');
+});
+
+it('computes a switch’s disabled reason in the hook, and only reads it in the tab', async () => {
+  const hook = read('apps', 'studio', 'src', 'settings', 'tabs', 'connected-apps', 'use-connections.ts');
+  const tab = codeOnly(settingsTab('connected-apps', 'ConnectedAppsTab.tsx'));
+
+  /*
+   * Every input to "why is this switch dead" lives in the hook: which card is busy,
+   * whether it has a connector at all, which providers it needs, and whether those
+   * are configured. Recomputing that ladder in the tab would mean the tooltip and
+   * the `disabled` attribute could disagree, which reads as a switch that refuses to
+   * move for no reason.
+   */
+  assert.match(hook, /const disabledReason\s*=/, 'the disabled reason left the hook');
+  assert.equal(tab.split('state.disabledReason').length - 1, 2,
+    'both cards should read the reason, and neither should compute it');
+  assert.equal(/Getting ready/.test(tab), false, 'the tab restated a reason the hook owns');
+  assert.equal(/configured\s*===/.test(tab), false, 'the tab is deciding setup state again');
+
+  // One hint per provider, named by the variable that fixes it. A user sent to set
+  // the wrong client id goes looking for a problem that is not there.
+  assert.match(tab, /setupHints\.map\(/, 'the tab stopped showing the per-provider setup hints');
+  assert.match(hook, /VITE_GOOGLE_OAUTH_CLIENT_ID/);
+  assert.match(hook, /VITE_SPOTIFY_CLIENT_ID/);
+});
+
+// ── 14. GitHub, the provider with no browser sign-in ─────────────────────────
+
+/**
+ * Stand up `sessionStorage`, and take it away again.
+ *
+ * Node has neither storage object, and `session-store.ts` swallows the failure by
+ * design — it keeps an in-memory mirror so a browser with storage disabled still works
+ * for the life of the page. Which means a test without this stub would pass entirely on
+ * the mirror and prove nothing about where the token is actually kept. `localStorage` is
+ * installed alongside it precisely so the test can assert nothing lands there.
+ */
+const withSessionStorage = async (body) => {
+  const fakeStorage = () => {
+    const map = new Map();
+    return {
+      map,
+      getItem: (key) => (map.has(key) ? map.get(key) : null),
+      setItem: (key, value) => {
+        map.set(key, String(value));
+      },
+      removeItem: (key) => {
+        map.delete(key);
+      },
+    };
+  };
+  const had = ['sessionStorage', 'localStorage'].map((name) => [
+    name,
+    Object.prototype.hasOwnProperty.call(globalThis, name),
+    globalThis[name],
+  ]);
+  const session = fakeStorage();
+  const local = fakeStorage();
+  const install = (name, value) =>
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+
+  install('sessionStorage', session);
+  install('localStorage', local);
+  try {
+    return await body({ session, local });
+  } finally {
+    for (const [name, existed, previous] of had) {
+      if (existed) install(name, previous);
+      else delete globalThis[name];
+    }
+  }
+};
+
+it('asks GitHub once per read, and keeps “nothing matched” apart from “nothing worked”', async () => {
+  const {
+    isPullRequestFilter,
+    listActiveRepos,
+    listAssignedIssues,
+    listPullRequests,
+  } = await importTs(personalFile('connectors', 'github', 'github.ts'));
+
+  const urls = [];
+  const answering = (payload) => async (url) => {
+    urls.push(url);
+    return payload;
+  };
+
+  /*
+   * One request, not one per repository.
+   *
+   * The obvious shape — list the repositories, then list each one's pull requests —
+   * costs a request per repository against a rate limit counted per token, and misses
+   * everything in a repository the user does not own, which for anyone working with
+   * other people is most of what they care about.
+   */
+  const items = [
+    {
+      number: 12,
+      title: 'Fix the retry loop',
+      html_url: 'https://github.com/acme/api/pull/12',
+      repository_url: 'https://api.github.com/repos/acme/api',
+      user: { login: 'octocat' },
+      updated_at: '2026-08-14T10:00:00Z',
+      draft: true,
+      comments: 3,
+    },
+    // Junk from the API is dropped rather than turned into a line with `undefined` in
+    // it: a model shown "#undefined" reports it to the user as a real pull request.
+    { title: 'No number' },
+    null,
+  ];
+  const pulls = await listPullRequests(answering({ items }), { login: 'octocat' });
+  assert.equal(urls.length, 1, 'a read fanned out into a request per repository');
+  assert.deepEqual(pulls, [
+    {
+      number: 12,
+      title: 'Fix the retry loop',
+      url: 'https://github.com/acme/api/pull/12',
+      // Pulled out of `repository_url`, because the search API returns the repository
+      // as an API URL and `acme/api` is how a person refers to it.
+      repo: 'acme/api',
+      author: 'octocat',
+      updated: '2026-08-14T10:00:00Z',
+      draft: true,
+      comments: 3,
+    },
+  ]);
+
+  const q = (url) => decodeURIComponent(new URL(url).searchParams.get('q'));
+  assert.equal(q(urls[0]), 'is:pr is:open involves:octocat');
+  const params = new URL(urls[0]).searchParams;
+  assert.equal(params.get('sort'), 'updated', 'the newest activity has to come first');
+  assert.equal(params.get('per_page'), '20');
+
+  /*
+   * `involves` is GitHub's union of authored, assigned, mentioned and
+   * review-requested, which makes it the right default. `review-requested` is the one
+   * that answers the question people actually have, because a pull request waiting on
+   * your review is blocking somebody else — so the mapping onto GitHub's own qualifier
+   * names is checked rather than assumed. `assigned` is the one that differs.
+   */
+  urls.length = 0;
+  for (const filter of ['involves', 'author', 'assigned', 'review-requested']) {
+    await listPullRequests(answering({ items: [] }), { login: 'octocat', filter });
+  }
+  assert.deepEqual(urls.map(q), [
+    'is:pr is:open involves:octocat',
+    'is:pr is:open author:octocat',
+    'is:pr is:open assignee:octocat',
+    'is:pr is:open review-requested:octocat',
+  ]);
+
+  // The filter arrives from a model, so an unrecognised one has to be recognisable as
+  // such before it reaches the qualifier and quietly becomes `undefined:octocat`.
+  assert.equal(isPullRequestFilter('review-requested'), true);
+  assert.equal(isPullRequestFilter('reviewRequested'), false);
+  assert.equal(isPullRequestFilter(undefined), false);
+  assert.equal(isPullRequestFilter('constructor'), false,
+    'a prototype property passed for a filter name');
+
+  // Limits come from a model too. Clamped rather than trusted: a per_page of 5000 is a
+  // request GitHub rejects outright, and 0 reads nothing while looking like it worked.
+  urls.length = 0;
+  await listAssignedIssues(answering({ items: [] }), { login: 'octocat', limit: 5000 });
+  await listAssignedIssues(answering({ items: [] }), { login: 'octocat', limit: 0 });
+  await listAssignedIssues(answering({ items: [] }), { login: 'octocat', limit: -5 });
+  await listAssignedIssues(answering({ items: [] }), { login: 'octocat', limit: 7.6 });
+  assert.deepEqual(urls.map((url) => new URL(url).searchParams.get('per_page')),
+    ['50', '20', '1', '7']);
+  assert.equal(q(urls[0]), 'is:issue is:open assignee:octocat');
+
+  /*
+   * The distinction the whole connector rests on. An empty list is an answer — "you
+   * have nothing waiting" — and a null is a connection that needs attention. A layer
+   * that collapses the two tells someone they have no open pull requests because their
+   * token expired.
+   */
+  assert.deepEqual(await listPullRequests(answering({ items: [] }), { login: 'octocat' }), []);
+  assert.equal(await listPullRequests(answering(null), { login: 'octocat' }), null);
+  assert.equal(await listPullRequests(answering({}), { login: 'octocat' }), null,
+    'a response with no items array was read as “nothing waiting”');
+  assert.deepEqual(await listActiveRepos(answering([])), []);
+  assert.equal(await listActiveRepos(answering(null)), null);
+
+  // Organization membership included, because for most people the repositories that
+  // matter are not the ones they own.
+  urls.length = 0;
+  await listActiveRepos(answering([]));
+  assert.match(new URL(urls[0]).searchParams.get('affiliation'), /organization_member/);
+  assert.equal(new URL(urls[0]).searchParams.get('sort'), 'pushed');
+});
+
+it('turns GitHub into languages, and never into a repository name', async () => {
+  const { readGithubSignals } = await importTs(personalFile('connectors', 'github', 'github.ts'));
+
+  const repo = (name, language, isPrivate = false) => ({
+    full_name: name,
+    language,
+    private: isPrivate,
+    description: `The ${name} service`,
+    pushed_at: '2026-08-01T00:00:00Z',
+  });
+  const repos = [
+    repo('acme/api', 'TypeScript'),
+    repo('acme/web', 'TypeScript'),
+    repo('octocat/notes', 'TypeScript'),
+    repo('acme/project-thunderbird', 'Rust', true),
+    repo('acme/tools', 'Rust'),
+    repo('octocat/dotfiles', ''),
+  ];
+
+  const signals = await readGithubSignals(async () => repos);
+
+  /*
+   * Three repositories before a language becomes a claim. Everybody has a stray
+   * repository in something they tried for an evening, and a profile bullet claiming
+   * they write it is both wrong and hard for the user to trace back to its cause.
+   */
+  assert.deepEqual(signals.map((signal) => signal.text), ['Writes TypeScript']);
+  assert.equal(signals.some((signal) => /Rust/.test(signal.text)), false,
+    'a language below the threshold became a stated fact about the user');
+
+  /*
+   * The line this connector exists to hold. A fine-grained token usually sees private
+   * repositories, and their names are frequently the most sensitive string in the whole
+   * account — an unannounced product, a client, an acquisition. A profile bullet is a
+   * standing claim that gets resent to a model on later turns, so it carries languages
+   * and never a name, a description or a visibility flag.
+   */
+  const written = JSON.stringify(signals);
+  for (const name of ['acme/api', 'acme/web', 'project-thunderbird', 'dotfiles', 'service']) {
+    assert.equal(written.includes(name), false,
+      `a repository name or description reached the profile: ${name}`);
+  }
+  for (const signal of signals) {
+    assert.equal(signal.section, 'interests');
+    assert.equal(signal.source, 'GitHub');
+    assert.ok(signal.evidence, 'a bullet with no evidence cannot be explained to the user');
+  }
+
+  // Nothing readable, nothing claimed — including the failure case, which must not
+  // become "writes nothing".
+  assert.deepEqual(await readGithubSignals(async () => []), []);
+  assert.deepEqual(await readGithubSignals(async () => null), []);
+});
+
+it('keeps a pasted GitHub token in sessionStorage, and verifies it before storing it', async () => {
+  await withSessionStorage(async ({ session, local }) => {
+    const { createGithubTokenSource, saveGithubToken, verifyGithubToken } = await importTs(
+      personalFile('connectors', 'github', 'pat-token-source.ts'),
+    );
+    const store = await importTs(personalFile('connectors', 'github', 'session-store.ts'));
+    store.clearGithubGrant();
+
+    const asked = [];
+    const github = (reply) => async (url, init) => {
+      asked.push({ url: String(url), auth: init?.headers?.Authorization });
+      return reply;
+    };
+    const ok = { ok: true, json: async () => ({ login: 'octocat', name: 'The Octocat' }) };
+
+    /*
+     * Verification is the point; the login is a bonus. A pasted credential has no
+     * consent screen to fail against, so this is the only moment anything can tell the
+     * user they pasted the wrong thing — and a switch that flips on and then quietly
+     * reads nothing is the exact failure this feature keeps working to avoid.
+     */
+    assert.equal(await saveGithubToken('ghp_wrong', github({ ok: false, status: 401 })), null);
+    assert.equal(store.readGithubToken(), null, 'a token GitHub rejected was stored anyway');
+    assert.equal(await verifyGithubToken('   ', github(ok)), null);
+    assert.equal(asked.length, 1, 'a blank token was sent to GitHub');
+
+    const identity = await saveGithubToken('  ghp_real  ', github(ok));
+    assert.deepEqual(identity, { login: 'octocat', name: 'The Octocat' });
+    assert.match(asked[1].url, /api\.github\.com\/user$/);
+    assert.equal(asked[1].auth, 'Bearer ghp_real', 'the token was sent unwrapped or untrimmed');
+
+    /*
+     * sessionStorage, per tab, and this is the assertion that says so. A personal
+     * access token is a bearer credential for someone's source code and GitHub will
+     * mint one with a year's life; in `localStorage` it would sit in web storage
+     * indefinitely, readable by anything that ever runs script on the origin, long
+     * after the user stopped using the feature.
+     */
+    assert.equal(session.getItem('willow:github-token'), 'ghp_real');
+    assert.equal(session.getItem('willow:github-login'), 'octocat');
+    assert.equal(local.map.size, 0, 'a GitHub token was written to localStorage');
+
+    // The login is cached beside the token because every interesting read is a search
+    // naming the user, and looking it up per read doubles the requests against a rate
+    // limit counted per token.
+    assert.equal(store.readGithubLogin(), 'octocat');
+
+    const source = createGithubTokenSource();
+    assert.equal(await source.get([]), 'ghp_real');
+    // `get` and `request` are the same function here, which is the honest mapping: the
+    // two are split in the interface because asking costs a popup, and there is no
+    // popup to open. The asking happens in Settings, before the switch is allowed on.
+    assert.equal(await source.request([]), 'ghp_real');
+
+    /*
+     * Any invalidation drops it, unlike the other two providers. There is no cache to
+     * clear and nothing to renew — a 401 on a personal access token means revoked,
+     * expired or mistyped, and each of those is permanent until the user pastes a new
+     * one. Keeping it would mean retrying a dead token on every read for the session.
+     */
+    source.invalidate([]);
+    assert.equal(store.readGithubToken(), null);
+    assert.equal(session.getItem('willow:github-token'), null);
+
+    await saveGithubToken('ghp_real', github(ok));
+    source.forget();
+    assert.equal(store.readGithubToken(), null, 'a disconnect left the pasted token behind');
+    assert.equal(session.getItem('willow:github-login'), null);
+  });
+});
+
+it('spends 403 on a rate limit rather than on a dead GitHub token', async () => {
+  const { createAuthorizedFetch } = await importTs(personalFile('connectors', 'authorized-fetch.ts'));
+  const { authLossStatusesFor, promptsForConsent } = await importTs(
+    personalFile('connectors', 'registry.ts'),
+  );
+
+  /*
+   * A property of the provider, read from the registry by everything that builds a
+   * fetch. Google and Spotify both answer an under-scoped request with 403, so taking
+   * that as auth loss is what makes a half-granted consent screen visible instead of
+   * silent. GitHub spends 403 on rate limiting, both the hourly limit and the abuse
+   * one.
+   */
+  assert.deepEqual(authLossStatusesFor('github'), [401]);
+  assert.deepEqual(authLossStatusesFor('gmail'), [401, 403]);
+  assert.deepEqual(authLossStatusesFor('spotify'), [401, 403]);
+
+  const run = async (id, status) => {
+    const previous = globalThis.fetch;
+    let lost = 0;
+    let invalidated = 0;
+    globalThis.fetch = async () => ({ status, ok: false, json: async () => ({}) });
+    try {
+      const fetchJson = createAuthorizedFetch({
+        tokens: {
+          get: async () => 'token',
+          request: async () => 'token',
+          invalidate: () => { invalidated += 1; },
+        },
+        scopes: ['scope'],
+        authLossStatuses: authLossStatusesFor(id),
+        onAuthLost: () => { lost += 1; },
+      });
+      assert.equal(await fetchJson('https://example.test/x'), null);
+    } finally {
+      globalThis.fetch = previous;
+    }
+    return { lost, invalidated };
+  };
+
+  // On the default, a burst of reads would come back 403, the connector would be marked
+  // expired, and the user would be told to reconnect a token that was never the problem
+  // and would have worked again in a minute.
+  assert.deepEqual(await run('github', 403), { lost: 0, invalidated: 0 });
+  assert.deepEqual(await run('gmail', 403), { lost: 1, invalidated: 1 });
+
+  // 401 is auth loss everywhere, after exactly one retry — the common cause is a token
+  // that expired between being cached and being used.
+  assert.deepEqual(await run('github', 401), { lost: 1, invalidated: 2 });
+
+  /*
+   * And the matching fact about the other end of the flow: a `request` that comes back
+   * empty means the user closed the consent screen for Google and Spotify, and means
+   * there is no token pasted for GitHub. Telling someone their permission window was
+   * blocked when no window exists sends them hunting for a popup blocker.
+   */
+  assert.equal(promptsForConsent('gmail'), true);
+  assert.equal(promptsForConsent('spotify'), true);
+  assert.equal(promptsForConsent('github'), false);
+
+  const { connectProduct } = await importTs(personalFile('connectors', 'connect.ts'));
+  const empty = { get: async () => null, request: async () => null, invalidate: () => {} };
+  assert.deepEqual(await connectProduct('github', { tokens: empty }),
+    { ok: false, reason: 'needs-token' });
+  assert.deepEqual(await connectProduct('gmail', { tokens: empty }),
+    { ok: false, reason: 'declined' });
+
+  const hook = read('apps', 'studio', 'src', 'settings', 'tabs', 'connected-apps', 'use-connections.ts');
+  assert.match(hook, /case 'needs-token':/, 'the hook has no sentence for the GitHub refusal');
+});
+
+it('gives GitHub read tools and no write tool anywhere', async () => {
+  const { SCOPES } = await importTs(personalFile('connectors', 'scopes.ts'));
+  const { CONNECTORS, writeScopesFor } = await importTs(personalFile('connectors', 'registry.ts'));
+  const { READ_TOOLS } = await importTs(personalFile('tools', 'executor.ts'));
+  const { connectorForRead, geminiReadTools } = await importTs(
+    personalFile('tools', 'read-declarations.ts'),
+  );
+  const { geminiActionTools } = await importTs(personalFile('tools', 'action-declarations.ts'));
+
+  /*
+   * No writes, and not for lack of endpoints. Creating a pull request or commenting on
+   * an issue is a public act in someone else's repository, and a model doing that from
+   * a loosely-worded request is a different order of mistake from a wrongly-created
+   * calendar event: the user cannot quietly delete it, other people are already
+   * notified, and it is attached to their name. It also means the token only ever needs
+   * read permission, which is what makes asking them to paste one defensible.
+   */
+  assert.deepEqual(SCOPES.github.write, []);
+  assert.deepEqual(writeScopesFor('github'), []);
+  // `null`, not an empty block: Gemini rejects a `functionDeclarations` block with
+  // nothing in it, so "no action tools" has to be expressible as no block at all.
+  assert.equal(geminiActionTools(['github']), null);
+
+  const declared = geminiReadTools(['github']).functionDeclarations;
+  const names = declared.map((declaration) => declaration.name).sort();
+  assert.deepEqual(names, [READ_TOOLS.listGithubIssues, READ_TOOLS.listGithubRepos, READ_TOOLS.listPullRequests].sort());
+  for (const name of names) assert.equal(connectorForRead(name), 'github');
+
+  /*
+   * Every read tool says in its own description that Willow cannot act on GitHub. The
+   * model only ever sees the declarations, so a limit stated in a comment or in the
+   * settings card is a limit it has no way to know about — and the failure mode is it
+   * promising the user it will merge something.
+   */
+  for (const declaration of declared) {
+    assert.match(declaration.description, /never|cannot|only/i,
+      `${declaration.name} does not say what Willow cannot do on GitHub`);
+  }
+
+  const repos = declared.find((declaration) => declaration.name === READ_TOOLS.listGithubRepos);
+  assert.match(repos.description, /no file contents/i,
+    'the repository tool does not say it cannot read code');
+
+  // The registry's own caveat is what the Settings card shows, and the token's lifetime
+  // is the one surprise worth stating there rather than discovering on the next reload.
+  const github = CONNECTORS.find((connector) => connector.id === 'github');
+  assert.match(github.caveat, /this tab only/i);
+  assert.equal(github.providesSignals, true);
+});
+
+it('asks for a GitHub token on the card, with GitHub’s own permission names', async () => {
+  const { CONNECTORS } = await importTs(personalFile('connectors', 'registry.ts'));
+  const row = settingsTab('connected-apps', 'GithubTokenRow.tsx');
+  const data = settingsTab('connected-apps', 'connectedAppsData.ts');
+
+  /*
+   * The permissions come from the registry rather than being retyped here, and that is
+   * the point of the assertion: they are a checklist the user has to find and tick on
+   * GitHub's website, so a list that drifts from the scopes the connector actually
+   * needs sends them to grant the wrong three things.
+   */
+  assert.match(row, /connectorById\('github'\)\?\.readScopes/);
+  assert.equal(/repository:pull_requests:read/.test(row), false,
+    'a permission name was retyped in the UI instead of read from the registry');
+  const scopes = CONNECTORS.find((connector) => connector.id === 'github').readScopes;
+  assert.deepEqual(scopes.map((scope) => scope.url),
+    ['repository:metadata', 'repository:pull_requests:read', 'repository:issues:read']);
+
+  // The honest weakness of a pasted credential next to a consent screen: the
+  // permissions are chosen on GitHub's site, so if the user grants more, Willow can do
+  // more than it says — and nothing in the code can prevent that.
+  assert.match(row, /you choose them on/i);
+  assert.match(row, /github\.com\/settings\/personal-access-tokens\/new/);
+  // Not saved to disk, so the field has to be off the browser's own autofill too.
+  assert.match(row, /autoComplete="off"/);
+  assert.match(row, /type="password"/);
+
+  /*
+   * Gemini's GitHub card describes a different product — theirs imports a repository
+   * and reads the code in it, and its "cannot" list says in so many words that it
+   * cannot retrieve pull requests. Willow's connector is the exact inverse, so keeping
+   * the captured copy would have told the user the opposite of the truth twice over.
+   */
+  const card = data.slice(data.indexOf("id: 'github'"), data.indexOf("id: 'canva'"));
+  assert.match(card, /defaultConnected: false/,
+    'a card with a live switch was drawn as connected before anything was connected');
+  assert.match(card, /pull requests/i);
+  assert.match(card, /Read any file, commit or diff/);
+  assert.equal(/Import code from/.test(card), false, 'the captured Gemini copy is still there');
+  assert.equal(/Suggest code additions/.test(card), false);
+});
+
+
+
+/* ---------------------------------------------------------------------------
+ * 15. Six cards that were removed on purpose.
+ * ------------------------------------------------------------------------- */
+
+/*
+ * Google Photos, Google Business Profile, KBC, Contacts, Verify AI and Wix were all
+ * on this list once and were taken off on request. Five of them were inert — a card
+ * and a dead switch, no connector behind them — so the only way to tell "removed" from
+ * "never extracted" later is to say so here.
+ *
+ * Two of the six are worth more than that, because someone will eventually try to put
+ * them back and both have a real answer waiting:
+ *
+ * - **Photos** cannot be built at all. Google withdrew `photoslibrary.readonly` on
+ *   31 March 2025; the surviving `…readonly.appcreateddata` sees only what the app
+ *   itself uploaded, so a Photos connector would read an empty library and then
+ *   describe the user from it. That is the worse of the two failures, because
+ *   everything downstream would look like it was working.
+ * - **Contacts** worked. It is the one entry that was deleted rather than never
+ *   written, and its scope, reader, read tool and card all went together — a card with
+ *   no connector is a dead switch, and a connector with no card can never be enabled.
+ *   `connectors/types.ts` keeps the description of what its reader read.
+ */
+const REMOVED_CARDS = ['photos', 'business-profile', 'kbc', 'contacts', 'verify-ai', 'wix'];
+
+it('keeps the six removed apps out of the catalogue and the connectors', async () => {
+  const { connectorsForCard, isCardConnectable } = await importTs(
+    path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'connected-apps', 'connector-map.ts'),
+  );
+  const { CONNECTORS } = await importTs(personalFile('connectors', 'registry.ts'));
+  const data = settingsTab('connected-apps', 'connectedAppsData.ts');
+
+  for (const id of REMOVED_CARDS) {
+    assert.equal(data.includes(`id: '${id}'`), false, `the ${id} card came back`);
+    assert.deepEqual(connectorsForCard(id), [], `${id} is mapped to a connector again`);
+    assert.equal(isCardConnectable(id), false, `${id} draws a live switch again`);
+    assert.equal(CONNECTORS.some((connector) => connector.id === id), false,
+      `a ${id} connector appeared without a card to enable it`);
+  }
+
+  // The shorter list is deliberate, and the file says which cards are missing —
+  // otherwise the next comparison against Gemini's settings reads as a bad extraction.
+  assert.match(data, /Closely, not exactly/);
+  for (const name of ['Photos', 'Business Profile', 'KBC', 'Contacts', 'Verify AI', 'Wix']) {
+    assert.ok(data.includes(name), `the catalogue no longer records dropping ${name}`);
+  }
+});
+
+it('leaves no Contacts or Photos machinery behind', async () => {
+  const { SCOPES } = await importTs(personalFile('connectors', 'scopes.ts'));
+  const { READ_TOOLS } = await importTs(personalFile('tools', 'executor.ts'));
+
+  assert.equal(SCOPES.contacts, undefined, 'the Contacts scope entry survived its connector');
+  assert.equal(READ_TOOLS.listRelationships, undefined);
+  assert.equal(Object.values(READ_TOOLS).includes('list_contact_relationships'), false,
+    'the relationships read tool is still declarable');
+
+  assert.equal(
+    fs.existsSync(personalFile('connectors', 'google', 'contacts.ts')), false,
+    'the Contacts reader is still on disk with nothing importing it',
+  );
+
+  /*
+   * No scope for either product anywhere in the package. For Contacts this is what
+   * makes the removal real rather than cosmetic: `contacts.readonly` is a sensitive
+   * scope, and a consent screen that still asks for it after the feature is gone is
+   * asking for someone's address book to feed nothing.
+   */
+  for (const file of PERSONAL_SOURCES) {
+    const source = codeOnly(fs.readFileSync(file, 'utf8'));
+    const name = path.basename(file);
+    assert.equal(/photoslibrary/.test(source), false, `${name} asks for a Photos scope`);
+    assert.equal(/auth\/contacts/.test(source), false, `${name} asks for a Contacts scope`);
+    assert.equal(/people\.googleapis\.com/.test(source), false, `${name} still calls the People API`);
+  }
+
+  // Both facts are written down where the next person looks, which is the connector
+  // types rather than a test they have no reason to open.
+  const types = read('platform', 'personal', 'src', 'connectors', 'types.ts');
+  assert.match(types, /Google Photos/);
+  assert.match(types, /Google Contacts/);
+  assert.match(types, /contacts\.readonly/,
+    'the record no longer says which scope Contacts spent');
 });
 

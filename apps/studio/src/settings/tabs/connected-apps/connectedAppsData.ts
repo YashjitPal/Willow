@@ -2,9 +2,17 @@
  * Connected Apps catalogue.
  *
  * Card copy, logo URLs and capability lists were extracted from Gemini's live
- * Connected Apps page (gemini.google.com/apps) so the clone matches it exactly.
+ * Connected Apps page (gemini.google.com/apps) so the clone matches it closely.
  * Product-name mentions in the copy are rebranded to Willow; everything else is
  * verbatim.
+ *
+ * Closely, not exactly. Six of Gemini's cards were dropped on purpose — Google
+ * Photos, Google Business Profile, KBC, Contacts, Verify AI and Wix — so this list
+ * is shorter than theirs and that is not an extraction that went wrong. Five of the
+ * six were inert here: catalogue entries with no connector behind them, drawing a
+ * dead switch for a product Willow was never going to reach. Contacts was the one
+ * that worked, and it went with them; `connectors/types.ts` records what its reader
+ * did, so there is something to read before anyone builds it a second time.
  *
  * Logos are hotlinked from www.gstatic.com. There is no CSP in this app and the
  * same approach is already used for the Google product icons in
@@ -65,22 +73,39 @@ const LOGOS = {
   tasks:
     'https://www.gstatic.com/images/branding/productlogos/tasks_2026/v2/web-96dp/logo_tasks_2026_color_2x_web_96dp.png',
   googleG: 'https://www.gstatic.com/images/branding/productlogos/googleg/v6/192px.svg',
-  photos: 'https://www.gstatic.com/images/branding/product/1x/photos_2025_64dp.png',
   youtube: 'https://www.gstatic.com/images/branding/productlogos/youtube/v9/192px.svg',
   youtubeMusic: 'https://www.gstatic.com/chromecast/thirdparty/yt_music_icon.png',
-  businessProfile:
-    'https://www.gstatic.com/images/branding/productlogos/google_my_business/v7/web-96dp/logo_google_my_business_color_2x_web_96dp.png',
-  kbc: 'https://www.gstatic.com/lamda/images/tools/logo_kbc_quiz_a5ffacc989962859bb07.png',
   github: 'https://www.gstatic.com/lamda/images/tools/logo_github_dark_018b0501d5dc2dd3e532c.svg',
   canva: 'https://www.gstatic.com/lamda/images/tools/logo_canva_27c834f6923acc1f886fe.svg',
-  contacts: 'https://www.gstatic.com/images/branding/productlogos/contacts_2022/v2/192px.svg',
-  verifyAi: 'https://www.gstatic.com/lamda/images/tools/synth_id_logo_dark_mode_fe9c8db14b797dfadf63c.svg',
-  wix: 'https://www.gstatic.com/lamda/images/tools/logo_wix_707cd7537d41175b605c8.png',
 } as const;
 
 export const LEARN_MORE_URL = 'https://support.google.com/gemini?p=lm_gpi_apps';
 export const PRIVACY_HUB_URL = 'https://support.google.com/gemini?p=privacy_help';
 export const SUBSCRIPTIONS_URL = 'https://myaccount.google.com/subscriptions?utm_source=gemini';
+
+/**
+ * Spotify's mark, drawn here rather than hotlinked.
+ *
+ * Every other logo on this page comes from www.gstatic.com because every other app
+ * on this page is one Gemini shows, so Google hosts the artwork. Spotify is Willow's
+ * own addition, so there is no equivalent URL — and pointing at Spotify's CDN would
+ * make a settings screen depend on a third party's asset paths staying put.
+ *
+ * Built with `encodeURIComponent` instead of a hand-encoded data URI. The escaping a
+ * data URI needs (`#` in particular) makes the markup unreadable, and unreadable
+ * markup is markup nobody will ever correct.
+ */
+const SPOTIFY_MARK = `data:image/svg+xml,${encodeURIComponent(
+  [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">',
+    '<circle cx="48" cy="48" r="48" fill="#1ED760"/>',
+    '<g fill="none" stroke="#000" stroke-linecap="round">',
+    '<path d="M25 35c15-4 33-3 46 4" stroke-width="9"/>',
+    '<path d="M29 50c12-3 27-2 38 4" stroke-width="7.5"/>',
+    '<path d="M32 63c10-2 21-1 29 3" stroke-width="6"/>',
+    '</g></svg>',
+  ].join(''),
+)}`;
 
 const FROM_GOOGLE: ConnectedApp[] = [
   {
@@ -111,22 +136,6 @@ const FROM_GOOGLE: ConnectedApp[] = [
       'What should be my next hobby?',
       'Create my birthday wishlist',
     ],
-    defaultConnected: true,
-  },
-  {
-    id: 'photos',
-    name: 'Google Photos',
-    logo: LOGOS.photos,
-    description:
-      'Get personalized insights based on your Photos. Find photos of a person, place, moment, and more.',
-    heroPrompt: 'Plan a vacation itinerary for me this winter, inspired by photos of my prior trips.',
-    can: [
-      'Personalize your experience with insights about you and others from your library',
-      'Find specific photos and videos based on people, location, or a description',
-      'Help with writing that’s inspired by your photos, like caption ideas for social media',
-    ],
-    cannot: ['Use Photos editing features', 'Add labels, like names or locations', 'Create new albums or edit existing ones'],
-    prompts: ['Plan a trip based on my photos', 'Find hidden gems in my city', 'Write a poem about my life'],
     defaultConnected: true,
   },
   {
@@ -170,56 +179,88 @@ const FROM_GOOGLE: ConnectedApp[] = [
     prompts: ['Search for songs', 'Discover music you\'d love', 'Play a radio for any mood'],
     defaultConnected: true,
   },
-  {
-    id: 'business-profile',
-    name: 'Google Business Profile',
-    handle: '@Google Business Profile',
-    logo: LOGOS.businessProfile,
-    description:
-      'Manage your Business Profile with Willow. Analyze reviews, interpret performance trends, and update your storefront with ease.',
-    heroPrompt: 'Analyze my business performance for the last 30D',
-    can: [
-      'Update business details, like hours or holiday hours',
-      'Analyze and summarize customer reviews and sentiment',
-      'Interpret performance trends to provide strategic business insights',
-      'Draft and publish engaging posts and updates for your storefront',
-      'Offer "contextual help" for operational questions',
-      'Upload photos to your storefront',
-    ],
-    prompts: ['Analyze performance', 'Attract customers', 'Keep information up to date'],
-    defaultConnected: true,
-  },
-  {
-    id: 'kbc',
-    name: 'KBC',
-    handle: '@KBC',
-    logo: LOGOS.kbc,
-    description: 'Play the Kaun Banega Crorepati quiz game.',
-    defaultConnected: true,
-  },
 ];
 
 const OTHER: ConnectedApp[] = [
+  /*
+   * Not one of Gemini's cards. Willow's own, and the first non-Google connector
+   * here, which is why its copy is written rather than captured.
+   *
+   * The lists below describe what the code actually does — `create_spotify_playlist`
+   * really does search for each title and really does make the playlist private, and
+   * the cannot list is the set of things that were considered and are absent. Worth
+   * keeping honest: this is the only place the user finds out that a playlist Willow
+   * makes is private, or that it cannot touch a playlist they already had.
+   */
+  {
+    id: 'spotify',
+    name: 'Spotify',
+    handle: '@Spotify',
+    logo: SPOTIFY_MARK,
+    description:
+      'Get recommendations and playlists based on what you actually listen to. Willow reads your top artists and tracks and can build new playlists for you. Spotify has not reviewed this app yet, so it only works for accounts the app owner has added by hand.',
+    heroPrompt: 'Make me a playlist based on what I’ve been listening to',
+    can: [
+      'See your top artists and tracks across your whole listening history',
+      'List the music you have saved and the playlists you have made',
+      'Build a new private playlist from a description, searching Spotify for each track',
+      'Describe your taste in music using the genres of the artists you listen to most',
+    ],
+    cannot: [
+      'Play, pause, or control what is playing on any of your devices',
+      'Show your full listening history — Spotify publishes no API for it',
+      'Change, rename, or delete a playlist you already had',
+      'See your email address, country, or subscription tier',
+    ],
+    prompts: [
+      'Describe my taste in music',
+      'Make me a playlist for focusing',
+      'What have I been listening to lately?',
+    ],
+    defaultConnected: false,
+  },
+  /*
+   * Also written rather than captured, and the rewrite mattered here more than most.
+   *
+   * Gemini has a GitHub card and it describes a different product: theirs imports a
+   * repository and answers questions about the code, and its "cannot" list says in so
+   * many words that it cannot retrieve pull requests or other metadata. Willow's
+   * connector is the exact inverse — metadata only, no file contents anywhere — so
+   * keeping Gemini's copy would have told the user the opposite of the truth in both
+   * directions at once.
+   *
+   * `defaultConnected: false`, like Spotify's, because this switch is real. The
+   * catalogue's `true` means "Gemini shows this on", which is fine for a card that
+   * cannot be connected and wrong for one that can.
+   */
   {
     id: 'github',
     name: 'GitHub',
     handle: '@GitHub',
     logo: LOGOS.github,
-    description: 'Import code from public or private repositories, and ask questions about it.',
-    heroPrompt: 'What external libraries are used in the attached code?',
+    description:
+      'Keep track of what is waiting on you. Willow reads open pull requests and issues that involve you, and the names and languages of your repositories. It never reads your code. GitHub has no browser sign-in, so this one needs an access token you create and paste, and it is kept for this tab only.',
+    heroPrompt: 'What pull requests are waiting on my review?',
     can: [
-      'Help developers better understand the codebase',
-      'Answer questions about specific functions',
-      'Suggest code additions and improvements',
-      'Debug issues',
+      'List open pull requests you opened, were assigned, were mentioned in, or were asked to review',
+      'List open pull requests waiting on someone else’s review',
+      'List open issues assigned to you',
+      'List your repositories by name, language and when they were last pushed to',
+      'Note which languages you work in most, as part of your profile',
     ],
     cannot: [
-      'Retrieve commit history, PRs, or other metadata',
-      'Read a repository by including a GitHub URL in the prompt',
-      'Write to a code repository',
+      'Read any file, commit or diff — Willow only ever sees names and counts',
+      'Open, merge, comment on, close or review a pull request',
+      'Create, edit or close an issue',
+      'See a repository you did not select when you created the token',
+      'Keep working after you close the tab — the token is deliberately not saved to disk',
     ],
-    prompts: ['Understand code', 'Improve code', 'Generate code'],
-    defaultConnected: true,
+    prompts: [
+      'What’s waiting on my review?',
+      'What issues am I assigned?',
+      'What have I been working on lately?',
+    ],
+    defaultConnected: false,
   },
   {
     id: 'canva',
@@ -230,46 +271,6 @@ const OTHER: ConnectedApp[] = [
     heroPrompt: '@Canva generate an Instagram story for my Barbeque party this weekend',
     prompts: ['Create a new design', 'Managing assets'],
     defaultConnected: true,
-  },
-  {
-    id: 'contacts',
-    name: 'Contacts',
-    logo: LOGOS.contacts,
-    description:
-      'Get personalized insights and responses based on your contacts. Add or find people in your contacts, and more.',
-    can: [
-      'Add new contacts, or delete or modify your contacts',
-      'Find contacts by name, number, or email in your Google Contacts or on your device',
-      'Get specific answers based on your contacts',
-      'Personalize responses and suggestions based on your contacts when you refer to them',
-      'Remind you about important dates you’ve saved to your contacts, like birthdays',
-      'Share your contacts with other apps or other contacts when you ask',
-      'Suggest information to save to your contacts',
-      'Suggest contacts to reach out to or add as VIPs',
-    ],
-    prompts: [
-      'Look up a contact’s phone number',
-      'Draft an email to a contact',
-      'Schedule a meeting with a contact',
-    ],
-    defaultConnected: true,
-  },
-  {
-    id: 'verify-ai',
-    name: 'Verify AI',
-    handle: '@Verify AI',
-    logo: LOGOS.verifyAi,
-    description:
-      'Tool to verify provenance of media. Can read C2PA content credentials and detect the SynthID watermark used by Google AI.',
-    defaultConnected: true,
-  },
-  {
-    id: 'wix',
-    name: 'Wix',
-    handle: '@Wix',
-    logo: LOGOS.wix,
-    description: 'Modular Conversational Website Design.',
-    defaultConnected: false,
   },
 ];
 

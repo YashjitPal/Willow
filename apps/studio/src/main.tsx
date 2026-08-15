@@ -6,9 +6,23 @@ import { AuthProvider } from '@willow/auth/AuthContext';
 import { GlobalTooltips } from '@willow/ui/Tooltip';
 import { GlobalCopyToast } from '@willow/ui/CopyToast';
 import { configureImageProxy } from '@willow/ui/image-source';
+import { handleSpotifyCallback } from '@willow/personal';
 // Side-effect import: lets features register with platform machinery before
 // anything renders. Must stay above the render call.
 import './app/register-features';
+
+/*
+ * The OAuth popup, handled before anything else exists.
+ *
+ * Spotify sends its consent popup back to `/oauth/spotify?code=…`, which the SPA
+ * rewrite serves `index.html` — so without this check the popup would boot a second
+ * complete copy of Willow to read two query parameters and close itself. Instead it
+ * posts the code to the window that opened it and stops here.
+ *
+ * Above `configureImageProxy` and the render on purpose: everything below is setup
+ * for a UI this window will never show.
+ */
+const isOAuthPopup = handleSpotifyCallback();
 
 // Where remote images are fetched from. `platform/ui` reads no environment of
 // its own — it also runs under Node in the test suite, where `import.meta.env`
@@ -51,28 +65,34 @@ const dismissBootShell = () => {
   window.setTimeout(remove, 400);
 };
 
-const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    {/*
-      Replaces the browser's native `title=` bubble with Gemini's tooltip
-      app-wide. Mounted here rather than inside App so it survives every route,
-      and outside the router because it needs neither. See platform/ui/Tooltip.
-    */}
-    <GlobalTooltips />
-    {/*
-      Gemini's "Copied to clipboard" snackbar. Mounted at the root for the same
-      reason as the tooltips — it is raised from `features/chat` through a
-      `platform/ui` store and rendered into its own overlay host on `<body>`,
-      so it needs neither the router nor App state.
-    */}
-    <GlobalCopyToast />
-    <AuthProvider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </AuthProvider>
-  </React.StrictMode>
-);
+// Wrapped rather than returned early — a module has no top level to return from,
+// and `if (isOAuthPopup) throw` would put a red error in the popup's console for a
+// flow that worked. The popup has already posted its code and called `close()`;
+// this branch is only what stops the closing window from mounting React first.
+if (!isOAuthPopup) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(
+    <React.StrictMode>
+      {/*
+        Replaces the browser's native `title=` bubble with Gemini's tooltip
+        app-wide. Mounted here rather than inside App so it survives every route,
+        and outside the router because it needs neither. See platform/ui/Tooltip.
+      */}
+      <GlobalTooltips />
+      {/*
+        Gemini's "Copied to clipboard" snackbar. Mounted at the root for the same
+        reason as the tooltips — it is raised from `features/chat` through a
+        `platform/ui` store and rendered into its own overlay host on `<body>`,
+        so it needs neither the router nor App state.
+      */}
+      <GlobalCopyToast />
+      <AuthProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AuthProvider>
+    </React.StrictMode>
+  );
 
-requestAnimationFrame(() => requestAnimationFrame(dismissBootShell));
+  requestAnimationFrame(() => requestAnimationFrame(dismissBootShell));
+}

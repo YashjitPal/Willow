@@ -234,14 +234,37 @@ it('falls back to the shimmer only for a provider that cannot section', () => {
   // The summary is only attempted while actually thinking...
   assert.match(
     view,
-    /const summaryHeading = active && thinkingPhase === 'thinking'\s*\?\s*latestThoughtHeading\(msg\.thinkingText \|\| ''\)\s*:\s*null;/,
+    /const thoughtHeading = active && thinkingPhase === 'thinking'\s*\?\s*latestThoughtHeading\(msg\.thinkingText \|\| ''\)\s*:\s*null;/,
   );
   // ...and a null heading falls through to TextShimmer, not to a blank row —
   // but only once `suppressLabel` has had its say.
   assert.match(
     view,
-    /summaryHeading \? \(\s*<ThoughtSummaryLine heading=\{summaryHeading\} \/>\s*\) : suppressLabel \? null : active \? \(\s*<TextShimmer/,
+    /summaryHeading \? \(\s*<ThoughtSummaryLine[\s\S]{0,300}?heading=\{summaryHeading\}\s*\/>\s*\) : suppressLabel \? null : active \? \(\s*<TextShimmer/,
   );
+});
+
+it('renders tool states as animated summary headings without replacing the dots', () => {
+  const view = codeOnly(VIEW());
+
+  assert.match(view, /thinkingPhase === 'searching' \? 'Searching the web'/);
+  assert.match(view, /thinkingPhase === 'executing' \? 'Running code'/);
+  assert.match(view, /const summaryHeading = statusHeading\s*\?\? thoughtHeading;/);
+  assert.match(
+    view,
+    /key=\{statusHeading \? `status:\$\{statusHeading\}` : 'thought-summary'\}/,
+    'tool statuses must bypass the thought-heading hold via their own React identity',
+  );
+  assert.match(view, /<GeminiThinkingVisualizer \/>\s*\{summaryHeading \? \(/);
+  assert.doesNotMatch(view, /const phaseSymbol/);
+  assert.doesNotMatch(view, /<MaterialSymbol name=\{phaseSymbol\}/);
+});
+
+it('does not guess image analysis from an attached image', () => {
+  const view = codeOnly(VIEW());
+
+  assert.doesNotMatch(view, /const isAnalyzingImage/);
+  assert.doesNotMatch(view, /Analyzing image/);
 });
 
 it('never shows a generic label on a Gemini turn, before the heading or after', () => {
@@ -288,4 +311,20 @@ it('swaps the text when the out-wipe ends, not on an independent timer', () => {
   // The two key spaces must not collide, or a heading literally named "out"
   // would skip its own wipe — hence the prefix on the showing branch.
   assert.match(source, /key=\{leaving \? 'out' : `in:\$\{shown\}`\}/);
+});
+
+it('holds a heading for three seconds and then samples only the newest replacement', () => {
+  const source = codeOnly(LINE());
+
+  assert.match(source, /const MINIMUM_HEADING_HOLD_MS = 3000/);
+  assert.match(source, /const shownAtRef = useRef\(performance\.now\(\)\)/);
+  assert.match(
+    source,
+    /const remaining = MINIMUM_HEADING_HOLD_MS - \(performance\.now\(\) - shownAtRef\.current\)/,
+  );
+  assert.match(source, /window\.setTimeout\(\(\) => \{\s*holdTimerRef\.current = null;\s*beginLeavingRef\.current\(\);\s*\}, remaining\)/);
+  assert.match(source, /pendingRef\.current = heading/);
+  assert.match(source, /setShown\(pendingRef\.current\)/);
+  assert.match(source, /shownAtRef\.current = performance\.now\(\)/);
+  assert.doesNotMatch(source, /pendingQueue|push\(heading\)|shift\(\)/);
 });

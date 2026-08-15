@@ -19,16 +19,39 @@
  */
 
 import { markAuthorized, markExpired, forgetAuthorization } from './authorization';
-import { connect as markConnected, disconnect as markDisconnected } from './connections-store';
-import { connectorById, scopeUrls } from './registry';
-import { tokenSource, type TokenSource } from './token-source';
+import {
+  connect as markConnected,
+  connectionsStore,
+  disconnect as markDisconnected,
+} from './connections-store';
+import { connectorById, promptsForConsent, providerOf, scopeUrls, tokensFor } from './registry';
+import { type TokenSource } from './token-source';
 import type { ConnectorId } from './types';
+
+/** Whether any *other* still-connected product draws on the same provider's grant. */
+const otherConnectorSharesProvider = (id: ConnectorId): boolean => {
+  const provider = providerOf(id);
+  return connectionsStore
+    .get()
+    .enabled.some((other) => other !== id && providerOf(other) === provider);
+};
 
 export type ConnectOutcome =
   /** Authorized, and recorded as connected. */
   | { ok: true }
-  /** The user closed the popup, declined, or Google refused. */
-  | { ok: false; reason: 'declined' | 'not-configured' | 'unknown-connector' };
+  /**
+   * Nothing was granted. Which of the three depends on how the provider grants:
+   *
+   * - `declined` — a consent screen was closed, declined, or blocked.
+   * - `needs-token` — the provider has no consent screen and no token is stored, so
+   *   there was nothing to grant. GitHub only, and the fix is to paste one.
+   * - `not-configured` / `unknown-connector` — the build, not the user.
+   */
+  | { ok: false; reason: 'declined' | 'needs-token' | 'not-configured' | 'unknown-connector' };
+
+/** What an empty `request` means for this provider. See `promptsForConsent`. */
+const refusalReason = (id: ConnectorId): 'declined' | 'needs-token' =>
+  promptsForConsent(id) ? 'declined' : 'needs-token';
 
 export interface ConnectOptions {
   tokens?: TokenSource;
@@ -62,7 +85,7 @@ export const connectProduct = async (
     // untouched: the user was asked to reconnect and did not, so the tools should
     // stay withdrawn instead of waiting for the next failed read to withdraw them.
     markExpired(id);
-    return { ok: false, reason: 'declined' };
+    return { ok: false, reason: refusalReason(id) };
   }
 
   markConnected(id);
@@ -126,7 +149,7 @@ export const connectProducts = async (
   const token = await tokens.request(scopes);
   if (!token) {
     for (const id of known) markExpired(id);
-    return { ok: false, reason: 'declined' };
+    return { ok: false, reason: refusalReason(known[0]) };
   }
 
   for (const id of known) {
@@ -139,10 +162,15 @@ export const connectProducts = async (
 /**
  * Disconnect a product and drop its token.
  *
- * The token is invalidated locally, which stops Willow using it, but Google's
- * grant survives — revoking that is a page on the user's own account and not
- * something an app should do silently on their behalf. What this does guarantee
+ * The token is invalidated locally, which stops Willow using it, but the
+ * provider's grant survives — revoking that is a page on the user's own account and
+ * not something an app should do silently on their behalf. What this does guarantee
  * is that nothing in this session reads the product again.
+ *
+ * `forget()` is the part that matters for a provider holding a durable grant. Google
+ * has none, so invalidating the scopes is the end of it; Spotify keeps a refresh
+ * token on disk, and leaving that in place would mean a switch the user turned off
+ * with a live credential still sitting behind it.
  *
  * Bullets already derived from it stay. They are still true, still labelled with
  * their source, and still individually deletable; deleting them here would mean
@@ -152,9 +180,13 @@ export const disconnectProduct = (
   id: ConnectorId,
   options: { tokens?: TokenSource } = {},
 ): void => {
-  const tokens = options.tokens ?? tokenSource();
+  const tokens = options.tokens ?? tokensFor(id);
   const scopes = [...scopeUrls([id], 'read'), ...scopeUrls([id], 'write')];
   if (scopes.length > 0) tokens.invalidate(scopes);
+  // Only when no other connector shares this provider's grant. Disconnecting Gmail
+  // must not drop the credential Calendar is still using; Spotify is one connector,
+  // so there is never anything left to share.
+  if (!otherConnectorSharesProvider(id)) tokens.forget?.();
   markDisconnected(id);
   // Cleared rather than marked expired: "expired" is a prompt to reconnect, and a
   // product the user just switched off should not be asking them to switch it on.

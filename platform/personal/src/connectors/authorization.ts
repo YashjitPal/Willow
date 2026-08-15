@@ -131,8 +131,23 @@ const batchesFor = (ids: ConnectorId[]): ConnectorId[][] => {
  * Batched rather than one request per product: five connectors would otherwise mean
  * five hidden iframes and five round trips at load, and one token covering the union
  * of scopes satisfies every connector's later lookup from cache.
+ *
+ * Single-flighted, because two providers install their token sources independently
+ * at boot and each one wants to know what survived. Without this, whichever
+ * installed second would run a second set of silent refreshes over the same
+ * connectors — the answer would be identical and the iframes would not be.
  */
+let inFlight: Promise<void> | null = null;
+
 export const refreshAuthorizations = async (tokens?: TokenSource): Promise<void> => {
+  if (inFlight) return inFlight;
+  inFlight = runRefresh(tokens).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+};
+
+const runRefresh = async (tokens?: TokenSource): Promise<void> => {
   const enabled = connectionsStore.get().enabled;
   if (enabled.length === 0) return;
 

@@ -1,7 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { isOfficialEndpoint, resolveEndpointTransport } from "./providers/endpoints";
+import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
+import { defaultApiFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
 import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type MessageCitations } from "./grounding";
 
 export interface Attachment {
@@ -37,6 +38,10 @@ export interface AiOptions {
   enableSearch?: boolean;
   enableCodeExecution?: boolean;
   baseUrl?: string;
+  apiFormat?: ProviderApiFormat;
+  toolPolicy?: ProviderToolPolicy;
+  profileId?: string;
+  reasoningEffort?: string;
   signal?: AbortSignal;
   maxToolIterations?: number;
   /**
@@ -235,12 +240,12 @@ export const getGeminiClient = (apiKey: string): any => {
   return client;
 };
 
-const getOpenAIClient = (apiKey: string, baseUrl?: string): OpenAI => {
-  const cacheKey = `${apiKey}::${baseUrl || ''}`;
+const getOpenAIClient = (apiKey: string, baseUrl?: string, endpointProvider: ProviderId = 'openai'): OpenAI => {
+  const cacheKey = `${endpointProvider}::${apiKey}::${baseUrl || ''}`;
   if (clientCache.openai?.key === cacheKey) {
     return clientCache.openai.client;
   }
-  const { url, headers } = resolveEndpointTransport('openai', baseUrl, 'v1');
+  const { url, headers } = resolveEndpointTransport(endpointProvider, baseUrl, 'v1');
   const client = new OpenAI({
     apiKey,
     baseURL: url,
@@ -645,6 +650,16 @@ const streamChatImpl: any = async (
   const messagesList: any = messages;
   const signal = options.signal;
   const maxToolIterations = Math.max(1, options.maxToolIterations ?? 32);
+  // A profile's wire format is authoritative. Provider names identify the
+  // credential/transport bucket; they must not override an explicit adapter
+  // choice (for example, an xAI-format model routed through an OpenAI key).
+  const configuredFormat = options.apiFormat || defaultApiFormatForProvider(provider as ProviderId);
+  const usesGeminiAdapter = configuredFormat === 'native-gemini';
+  const usesOpenAIAdapter = configuredFormat === 'openai-chat-completions'
+    || configuredFormat === 'openai-responses';
+  const usesAnthropicAdapter = configuredFormat === 'anthropic-messages';
+  const usesXaiAdapter = configuredFormat === 'xai-chat-completions';
+  const toolsAllowed = options.toolPolicy !== 'disabled';
 
   if (!apiKey) {
     throw new Error(`API Key for ${provider} is missing.`);
@@ -656,7 +671,7 @@ const streamChatImpl: any = async (
 
   onStart();
 
-  if (provider === 'gemini') {
+  if (usesGeminiAdapter) {
     const genAI = getGeminiClient(apiKey);
     
     // Map numeric UI levels to Gemini string labels
@@ -675,8 +690,8 @@ const streamChatImpl: any = async (
     }
     console.log(`[AI] Gemini model: ${model}, thinkingLevel: ${options.thinkingLevel} -> "${geminiThinkingLevel}"`);
 
-    const searchEnabled = options.enableSearch !== false;
-    const codeExecEnabled = options.enableCodeExecution === true;
+    const searchEnabled = toolsAllowed && options.enableSearch !== false;
+    const codeExecEnabled = toolsAllowed && options.enableCodeExecution === true;
     const tools: any[] = [];
     if (searchEnabled) {
       tools.push(model.includes('1.5') ? { googleSearchRetrieval: {} } : { googleSearch: {} });
@@ -1277,8 +1292,8 @@ Adhere to the following rules and guidelines:
       if (merged.citations.length) onCitations?.(merged);
     }
     return historyContents;
-  } else if (provider === 'openai') {
-    const openai = getOpenAIClient(apiKey, options.baseUrl);
+  } else if (usesOpenAIAdapter) {
+    const openai = getOpenAIClient(apiKey, options.baseUrl, provider as ProviderId);
 
     // Map UI thinking levels to OpenAI reasoning_effort values.
     const reasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "xhigh" | "max"> = {
@@ -1290,7 +1305,7 @@ Adhere to the following rules and guidelines:
         5: "max",
         6: "max"
     };
-    const reasoningEffort = reasoningEffortMap[options.thinkingLevel ?? 1] ?? "medium";
+    const reasoningEffort = options.reasoningEffort || reasoningEffortMap[options.thinkingLevel ?? 1] || "medium";
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
@@ -1379,7 +1394,9 @@ Adhere to the following rules and guidelines:
     // and `createWithSearchFallback` turns the rejection into one wasted request
     // rather than a failed turn. The rejection arrives before any token, so the
     // retry cannot duplicate output.
-    const openaiSearchEnabled = provider !== 'spacexai' && options.enableSearch !== false;
+    const openaiSearchEnabled = toolsAllowed
+      && options.toolPolicy !== 'function-calling'
+      && options.enableSearch !== false;
     const openaiSearchTools = [{ type: 'web_search' }];
 
     const chatCompletionParams = {
@@ -1400,7 +1417,7 @@ Adhere to the following rules and guidelines:
     const openaiHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
     let openaiAnswerText = '';
 
-    if (model === "gpt-5.5-pro" || hasOpenAIFileInput) {
+    if (configuredFormat === 'openai-responses' || model === "gpt-5.5-pro" || hasOpenAIFileInput) {
       let response = await createWithSearchFallback(
         (searchEnabled) => openai.responses.create({
           model,
@@ -1489,7 +1506,7 @@ Adhere to the following rules and guidelines:
       const resolved = resolveCompatCitations(openaiHarvest, openaiAnswerText);
       if (resolved.sources.length) onCitations?.(resolved);
     }
-  } else if (provider === 'anthropic') {
+  } else if (usesAnthropicAdapter) {
     // Both native Anthropic and custom gateways speak the Messages API; the
     // client resolves whether to call upstream directly or via the dev proxy.
     const anthropic = getAnthropicClient(apiKey, options.baseUrl);
@@ -1552,7 +1569,7 @@ Adhere to the following rules and guidelines:
     // echoes the prompt, every turn renders as the same message with no error. If
     // replies through a gateway ever look templated and identical, turn search off
     // before looking anywhere else.
-    const anthropicSearchEnabled = options.enableSearch !== false;
+    const anthropicSearchEnabled = toolsAllowed && options.enableSearch !== false;
     const anthropicTools = anthropicSearchEnabled
       ? [{ type: 'web_search_20250305', name: 'web_search' }]
       : [];
@@ -1627,8 +1644,8 @@ Adhere to the following rules and guidelines:
       // no inline chips instead of losing the search entirely.
       if (resolved.sources.length) onCitations?.(resolved);
     }
-  } else if (provider === 'moonshot' || provider === 'spacexai' || provider === 'zhipuai') {
-    // OpenAI-compatible providers (Moonshot/Kimi, SpaceXAI/Grok, Zhipu AI/GLM)
+  } else if (provider === 'moonshot' || provider === 'zhipuai') {
+    // OpenAI-compatible providers (Moonshot/Kimi, Zhipu AI/GLM)
     const { url: compatibleBaseUrl, headers: compatibleHeaders } =
       resolveEndpointTransport(provider, options.baseUrl, 'v1');
 
@@ -1636,9 +1653,6 @@ Adhere to the following rules and guidelines:
     const client = new OpenAI({
         apiKey: compatibleApiKey,
         baseURL: compatibleBaseUrl,
-        // Reasoning models can spend more than the SDK's default request window
-        // thinking before they emit their final answer. Keep long code-generation
-        // streams alive instead of surfacing a misleading generic network error.
         timeout: 60 * 60 * 1000,
         dangerouslyAllowBrowser: true,
         ...(compatibleHeaders ? { defaultHeaders: compatibleHeaders } : {})
@@ -1651,13 +1665,7 @@ Adhere to the following rules and guidelines:
       3: 'high',
       4: 'max',
     };
-    const reasoningEffort = compatibleReasoningEffortMap[options.thinkingLevel ?? 0] ?? 'medium';
-    const grokReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
-      1: 'low',
-      2: 'medium',
-      3: 'high',
-    };
-    const grokReasoningEffort = grokReasoningEffortMap[options.thinkingLevel ?? 3] ?? 'high';
+    const reasoningEffort = (options.reasoningEffort as any) || compatibleReasoningEffortMap[options.thinkingLevel ?? 0] || 'medium';
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
@@ -1689,32 +1697,13 @@ Adhere to the following rules and guidelines:
 
     const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
 
-    // Server-side search, per provider, under the shared `enableSearch` toggle.
-    //
-    // xAI: `tools: [{ type: 'web_search' }]`, which supersedes the older
-    // `search_parameters` / `return_citations` / `mode: 'auto'` block. Grok also
-    // documents `x_search` for posts; only web search is sent here because that
-    // is the one whose results fill a source card the same way the other
-    // providers' do.
-    //
-    // Zhipu/GLM: the tool carries its own nested config object, and
-    // `search_result: 'True'` is what makes the endpoint return the result list
-    // at all -- without it the model searches and reports nothing citable. The
-    // string-typed booleans are Zhipu's own documented spelling, not a mistake.
-    //
-    // Moonshot/Kimi is deliberately absent. Its `$web_search` builtin could not
-    // be verified against Moonshot's current docs, and sending a guessed schema
-    // to a relay is how a working turn becomes a 400. Its replies are still read
-    // for citations below, so a relay that searches on its own still shows
-    // sources; only the request-side opt-in is missing.
     const compatSearchTools: Record<string, any[]> = {
-      spacexai: [{ type: 'web_search' }],
       zhipuai: [{
         type: 'web_search',
         web_search: { enable: 'True', search_result: 'True' },
       }],
     };
-    const compatSearchEnabled = options.enableSearch !== false
+    const compatSearchEnabled = toolsAllowed && options.enableSearch !== false
       && !!compatSearchTools[provider];
 
     const stream = await createWithSearchFallback<any>(
@@ -1722,12 +1711,7 @@ Adhere to the following rules and guidelines:
         model,
         // @ts-ignore
         messages: [...systemMessages, ...formattedMessages],
-        // Only attach reasoning effort to models that document this parameter.
-        ...(provider === 'moonshot'
-          ? { reasoning_effort: reasoningEffort }
-          : provider === 'spacexai' && (model === 'grok-4.6' || model === 'grok-4.5' || model.startsWith('grok-4'))
-            ? { reasoning_effort: grokReasoningEffort }
-            : {}),
+        ...(provider === 'moonshot' ? { reasoning_effort: reasoningEffort } : {}),
         ...(searchEnabled ? { tools: compatSearchTools[provider] } : {}),
         stream: true,
       } as any, signal ? { signal } : undefined) as any,
@@ -1742,9 +1726,6 @@ Adhere to the following rules and guidelines:
 
     for await (const chunk of stream) {
       throwIfAborted(signal);
-      // Read for every compatible provider, including the ones no tool was sent
-      // for: a relay is free to search on its own initiative, and reading costs
-      // nothing when it does not.
       harvestCompatSearchChunk(chunk, compatHarvest);
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
@@ -1753,7 +1734,6 @@ Adhere to the following rules and guidelines:
       if (reasoningContent) {
         if (!hasEmittedThought) {
           hasEmittedThought = true;
-          // (Optional) Signal thought start if we wanted, but onThought appends
         }
         onThought?.(reasoningContent);
       }
@@ -1771,8 +1751,295 @@ Adhere to the following rules and guidelines:
 
     if (compatHarvest.annotations.length || compatHarvest.sources.length) {
       const resolved = resolveCompatCitations(compatHarvest, compatAnswerText);
-      // xAI and Zhipu send no offsets at all, so requiring citations here would
-      // mean their search never rendered anything.
+      if (resolved.sources.length) onCitations?.(resolved);
+    }
+  } else if (usesXaiAdapter) {
+    // ============ SPACEXAI / GROK DEDICATED PIPELINE ============
+    const { url: compatibleBaseUrl, headers: compatibleHeaders } =
+      resolveEndpointTransport(provider as ProviderId, options.baseUrl, 'v1');
+
+    const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);
+    const client = new OpenAI({
+      apiKey: compatibleApiKey,
+      baseURL: compatibleBaseUrl,
+      timeout: 60 * 60 * 1000,
+      dangerouslyAllowBrowser: true,
+      ...(compatibleHeaders ? { defaultHeaders: compatibleHeaders } : {}),
+    });
+
+    const grokReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
+      0: 'low',
+      1: 'low',
+      2: 'medium',
+      3: 'high',
+      4: 'high',
+    };
+    const grokReasoningEffort = (options.reasoningEffort as any) || grokReasoningEffortMap[options.thinkingLevel ?? 3] || 'high';
+
+    const formattedMessages: any[] = messages.map(m => {
+      let cleanContent = m.content || '';
+      if (m.role === 'assistant' || (m.role as any) === 'model') {
+        cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
+      }
+      if (!m.attachments || m.attachments.length === 0) {
+        return { role: m.role === 'assistant' ? 'assistant' : 'user', content: cleanContent };
+      }
+      const contentParts: any[] = [{ type: 'text', text: cleanContent }];
+      m.attachments.forEach(att => {
+        if (att.type === 'image') {
+          contentParts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${att.mimeType};base64,${att.data}`
+            }
+          });
+        } else if (att.type === 'text') {
+          const label = att.name || att.mimeType;
+          contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
+        } else {
+          const label = att.name || att.mimeType;
+          contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType})]`;
+        }
+      });
+      return { role: m.role === 'assistant' ? 'assistant' : 'user', content: contentParts };
+    });
+
+    const conversationHistory: any[] = [
+      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+      ...formattedMessages,
+    ];
+
+    // Build native function tool declarations for Grok
+    const grokTools: any[] = [];
+    if (toolsAllowed && options.enableSearch !== false) {
+      grokTools.push(
+        {
+          type: 'function',
+          function: {
+            name: 'web_search',
+            description: 'Search the public web for real-time news, articles, websites, and documentation.',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Web search query' },
+              },
+              required: ['query'],
+            },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'x_search',
+            description: 'Search X (Twitter) for real-time posts, tweets, and trending community discussions.',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'X (Twitter) search query' },
+              },
+              required: ['query'],
+            },
+          },
+        }
+      );
+    }
+
+    if (options.enableMediaTools && onToolCall) {
+      grokTools.push(
+        {
+          type: 'function',
+          function: {
+            name: 'generate_image',
+            description: 'Handles text-to-image (T2I) and image generation.',
+            parameters: {
+              type: 'object',
+              properties: {
+                prompt: { type: 'string', description: 'Descriptive text prompt for generating image' },
+                aspect_ratio: { type: 'string', description: 'Aspect ratio, e.g., 16:9, 1:1, 9:16' },
+              },
+              required: ['prompt'],
+            },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'generate_video_from_text',
+            description: 'Text-to-video (T2V) generation.',
+            parameters: {
+              type: 'object',
+              properties: {
+                prompt: { type: 'string', description: 'Text description of video' },
+                aspect_ratio: { type: 'string', description: 'Target aspect ratio: 16:9, 9:16' },
+              },
+              required: ['prompt'],
+            },
+          },
+        }
+      );
+    }
+
+    let keepRunning = true;
+    let toolIterations = 0;
+    let hasEmittedText = false;
+    let hasEmittedThought = false;
+    const compatHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
+    let compatAnswerText = '';
+
+    while (keepRunning) {
+      throwIfAborted(signal);
+      if (++toolIterations > maxToolIterations) {
+        throw new Error(`Grok tool loop exceeded the ${maxToolIterations}-iteration safety limit.`);
+      }
+
+      const stream: any = await client.chat.completions.create({
+        model,
+        messages: conversationHistory,
+        ...(model === 'grok-4.6' || model === 'grok-4.5' || model.startsWith('grok-4')
+          ? { reasoning_effort: grokReasoningEffort }
+          : {}),
+        ...(grokTools.length > 0 ? { tools: grokTools } : {}),
+        stream: true,
+      } as any, signal ? { signal } : undefined);
+
+      let accumulatedContent = '';
+      let accumulatedReasoning = '';
+      const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
+
+      for await (const chunk of stream) {
+        throwIfAborted(signal);
+        harvestCompatSearchChunk(chunk, compatHarvest);
+
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+
+        if (delta.reasoning_content) {
+          if (!hasEmittedThought) {
+            hasEmittedThought = true;
+            onPhase?.('thinking');
+          }
+          accumulatedReasoning += delta.reasoning_content;
+          onThought?.(delta.reasoning_content);
+        }
+
+        if (delta.content) {
+          if (!hasEmittedText) {
+            hasEmittedText = true;
+            onPhase?.('responding');
+          }
+          accumulatedContent += delta.content;
+          compatAnswerText += delta.content;
+          onToken(delta.content);
+        }
+
+        if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const index = tc.index ?? 0;
+            if (!toolCallsMap[index]) {
+              toolCallsMap[index] = {
+                id: tc.id || `call_${index}_${Date.now()}`,
+                name: tc.function?.name || '',
+                arguments: tc.function?.arguments || '',
+              };
+            } else {
+              if (tc.id) toolCallsMap[index].id = tc.id;
+              if (tc.function?.name) toolCallsMap[index].name += tc.function.name;
+              if (tc.function?.arguments) toolCallsMap[index].arguments += tc.function.arguments;
+            }
+          }
+        }
+      }
+
+      const toolCallsList = Object.values(toolCallsMap).filter(tc => tc.name);
+
+      if (toolCallsList.length > 0) {
+        const isSearchOnly = toolCallsList.every(tc => tc.name === 'web_search' || tc.name === 'x_search');
+        onPhase?.(isSearchOnly ? 'searching' : 'executing');
+
+        const assistantMsg: any = {
+          role: 'assistant',
+          content: accumulatedContent || null,
+          tool_calls: toolCallsList.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: tc.arguments,
+            },
+          })),
+        };
+        conversationHistory.push(assistantMsg);
+
+        for (const tc of toolCallsList) {
+          throwIfAborted(signal);
+          let parsedArgs: any = {};
+          try {
+            parsedArgs = JSON.parse(tc.arguments || '{}');
+          } catch {
+            parsedArgs = { query: tc.arguments };
+          }
+
+          let toolResult: any;
+          if (tc.name === 'web_search' || tc.name === 'x_search') {
+            try {
+              const queryStr = parsedArgs.query || parsedArgs.search_query || '';
+              const searchRes = await fetch(`/llm-search?q=${encodeURIComponent(queryStr)}&type=${tc.name}`);
+              if (searchRes.ok) {
+                const searchData = await searchRes.json();
+                toolResult = searchData;
+                if (Array.isArray(searchData.results)) {
+                  for (const r of searchData.results) {
+                    if (r.link) {
+                      compatHarvest.sources.push({
+                        title: r.title || r.link,
+                        url: r.link,
+                        snippet: r.snippet || '',
+                      });
+                    }
+                  }
+                }
+              } else {
+                toolResult = { error: `Search failed with status ${searchRes.status}` };
+              }
+            } catch (err: any) {
+              toolResult = { error: err.message || 'Live search execution failed' };
+            }
+          } else if (onToolCall) {
+            try {
+              toolResult = await onToolCall(tc.name, parsedArgs);
+            } catch (err: any) {
+              toolResult = { error: err.message || 'Tool execution failed' };
+            }
+          } else {
+            toolResult = {
+              status: 'executed',
+              query: parsedArgs.query || parsedArgs,
+              note: `Tool "${tc.name}" executed.`,
+            };
+          }
+
+          if (toolResult && typeof toolResult === 'object') {
+            if (toolResult.media_id) {
+              onToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
+            } else if (toolResult.url) {
+              onToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
+            }
+          }
+
+          conversationHistory.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            name: tc.name,
+            content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
+          });
+        }
+      } else {
+        keepRunning = false;
+      }
+    }
+
+    if (compatHarvest.annotations.length || compatHarvest.sources.length) {
+      const resolved = resolveCompatCitations(compatHarvest, compatAnswerText);
       if (resolved.sources.length) onCitations?.(resolved);
     }
   }

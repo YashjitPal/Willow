@@ -28,6 +28,9 @@
   --ca-divider: #444746;
   --ca-primary: #a8c7fa;
   --ca-prompt-text: #d3e3fd;
+  /* Material's dark-scheme error tone. Used once, on a rejected access token — the
+     only failure on this page the user can have caused by mistyping something. */
+  --ca-error: #f2b8b5;
 
   --ca-content-max-width: 880px;
   --ca-card-width: 264px;
@@ -379,6 +382,131 @@
   height: 140px;
   white-space: normal;
   overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   The GitHub card's token control.
+
+   A card is normally a fixed 400px with `overflow: hidden`, which is right for
+   cards whose only interactive part is the switch. This one has a field, a
+   button, a possible error and a set of steps that open on demand, and a fixed
+   height would clip whichever of those the user needed. So it grows, capped and
+   scrolling like an expanded card does, and keeps the 400px as a floor so it
+   still lines up with its neighbours when nothing is open.
+   --------------------------------------------------------------------------- */
+.connected-apps-container .ca-card.ca-card-with-control {
+  height: max-content;
+  min-height: 400px;
+  max-height: 640px;
+  overflow-y: auto;
+}
+
+/* Tinted, so the field and its two links read as one control rather than as more
+   of the card's copy — the row has a "How to make one" link of its own sitting
+   directly above the card's "Learn more", and without a block behind it there is
+   nothing to say which belongs to what. */
+.connected-apps-container .ca-token-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ca-spacing-s);
+  margin: var(--ca-spacing-m) 0;
+  padding: var(--ca-spacing-m);
+  border-radius: var(--ca-spacing-m);
+  background: var(--ca-surface-prompt);
+}
+
+.connected-apps-container .ca-token-connected {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-token-connected strong {
+  font-weight: 500;
+}
+
+.connected-apps-container .ca-token-label {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-token-input-row {
+  display: flex;
+  gap: var(--ca-spacing-s);
+}
+
+.connected-apps-container .ca-token-input {
+  flex: 1 1 0;
+  /* Without this the input's default intrinsic width wins over `flex: 1 1 0` and
+     pushes the Connect button out of a 264px card. */
+  min-width: 0;
+  padding: 6px var(--ca-spacing-s);
+  border: 1px solid var(--ca-outline);
+  border-radius: var(--ca-spacing-s);
+  background: var(--ca-surface);
+  color: var(--ca-on-surface);
+  font-family: inherit;
+}
+
+.connected-apps-container .ca-token-input:focus-visible {
+  outline: 2px solid var(--ca-primary);
+  outline-offset: -1px;
+}
+
+.connected-apps-container .ca-token-submit {
+  flex: 0 0 auto;
+  padding: 6px var(--ca-spacing-m);
+  border: none;
+  border-radius: var(--ca-spacing-s);
+  background: var(--ca-primary);
+  color: #062e6f;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.connected-apps-container .ca-token-submit:disabled {
+  background: var(--ca-divider);
+  color: var(--ca-on-surface-variant);
+  cursor: default;
+}
+
+.connected-apps-container .ca-token-error {
+  color: var(--ca-error);
+}
+
+.connected-apps-container .ca-token-note {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-token-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ca-spacing-s);
+}
+
+.connected-apps-container .ca-token-steps,
+.connected-apps-container .ca-token-scopes {
+  margin: 0;
+  padding-left: var(--ca-spacing-l);
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-token-steps li,
+.connected-apps-container .ca-token-scopes li {
+  margin-bottom: 4px;
+}
+
+.connected-apps-container .ca-token-scopes code {
+  /* The permission names are GitHub's, typed exactly as they appear on their page,
+     so they are set apart from the sentence around them — a name the user has to
+     find in a list of thirty is worth being able to pick out. */
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ca-on-surface);
+  overflow-wrap: anywhere;
+}
+
+.connected-apps-container .ca-token-help a {
+  color: var(--ca-primary);
 }
 
 /* ---------- Workspace parent card (spans the full grid width) ---------- */

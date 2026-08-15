@@ -20,3 +20,4 @@
 
 import '@willow/design/register';
 import '@willow/gems/register';
+import './register-model-catalog';

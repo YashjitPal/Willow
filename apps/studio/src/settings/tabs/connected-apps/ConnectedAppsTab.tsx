@@ -9,6 +9,7 @@ import {
   type ConnectedApp,
 } from './connectedAppsData';
 import { useConnections, type CardConnectionState } from './use-connections';
+import { GithubTokenRow } from './GithubTokenRow';
 import './ConnectedAppsTab.css';
 
 /**
@@ -17,12 +18,23 @@ import './ConnectedAppsTab.css';
  * The geometry, colours and animation timings were measured off the live Gemini
  * page; see connectedAppsData.ts for where the copy came from.
  *
- * The toggles are real. A card with a connector behind it opens Google's consent
- * screen and, if the user allows it, the product becomes readable by Willow;
- * `use-connections.ts` owns that flow and `connector-map.ts` says which cards
- * have a connector at all. The rest of the catalogue is still here, because it
- * is what the page shows, but those switches are disabled rather than pretending
+ * The toggles are real. A card with a connector behind it opens that provider's
+ * consent screen and, if the user allows it, the product becomes readable by
+ * Willow; `use-connections.ts` owns that flow and `connector-map.ts` says which
+ * cards have a connector at all. The rest of the catalogue is still here, because
+ * it is what the page shows, but those switches are disabled rather than pretending
  * — a switch that flips and grants nothing is worse than one that plainly can't.
+ *
+ * Spotify's card is the one entry that is not Gemini's. It sits in "Other" with the
+ * same chrome as the rest, because a connector Willow added should not look like a
+ * different kind of thing from a connector Willow cloned.
+ *
+ * GitHub's card is Gemini's, but only the logo and the slot survive: theirs imports a
+ * repository and reads the code in it, Willow's reads pull requests and issue titles
+ * and no code at all, so the copy is rewritten in connectedAppsData.ts. It is also the
+ * one card a switch cannot connect, because GitHub publishes no browser sign-in — it
+ * carries a `GithubTokenRow` in the `extra` slot instead, and its switch stays disabled
+ * until a token has been pasted and verified.
  *
  * "Prompts to try" pills remain inert; they are illustrations of what to ask,
  * not buttons, on Gemini's page too.
@@ -97,12 +109,20 @@ const ChildCard: React.FC<{ app: ChildApp }> = ({ app }) => (
 
 interface CardProps {
   app: ConnectedApp;
-  /** Null while GIS is still loading, so no switch claims a state it can't back. */
-  configured: boolean | null;
   expanded: boolean;
   state: CardConnectionState;
   onToggle: (id: string, name: string) => void;
   onToggleExpanded: (id: string) => void;
+  /**
+   * A card-specific control, below the description.
+   *
+   * One card needs one, and it is GitHub: it cannot be connected by a switch, because
+   * GitHub has no browser sign-in, so it carries a field to paste a token into. A slot
+   * rather than an `app.id === 'github'` branch inside the card, so the card keeps
+   * knowing nothing about which app it is drawing, and so the next connector that needs
+   * a control of its own does not add a second branch here.
+   */
+  extra?: React.ReactNode;
 }
 
 /** `[a]` → `a`; `[a, b]` → `a and b`; `[a, b, c]` → `a, b and c`. */
@@ -111,18 +131,9 @@ const listNames = (names: string[]): string =>
     ? names[0] ?? ''
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
-/** Why a card's switch can't be used, or null when it can. */
-const disabledReason = (state: CardConnectionState, configured: boolean | null): string | null => {
-  if (!state.connectable) return 'This app isn’t available to connect in Willow yet.';
-  if (configured === null) return 'Getting ready…';
-  if (!configured) return 'Connecting apps needs a Google OAuth client id, which this build doesn’t have.';
-  if (state.busy) return 'Waiting for the permission window…';
-  return null;
-};
-
 /** The Workspace card: full grid width, description beside a grid of child apps. */
-const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle }) => {
-  const reason = disabledReason(state, configured);
+const ParentCard: React.FC<CardProps> = ({ app, state, onToggle }) => {
+  const reason = state.disabledReason;
   return (
     <div className="ca-parent-card">
       <div className="ca-opt-in-row">
@@ -160,17 +171,19 @@ const ParentCard: React.FC<CardProps> = ({ app, configured, state, onToggle }) =
 
 const AppCard: React.FC<CardProps> = ({
   app,
-  configured,
   expanded,
+  extra,
   state,
   onToggle,
   onToggleExpanded,
 }) => {
   const hasExpandedContent = Boolean(app.can?.length || app.cannot?.length || app.prompts?.length);
-  const reason = disabledReason(state, configured);
+  const reason = state.disabledReason;
 
   return (
-    <div className={`ca-card${expanded ? ' ca-expanded' : ''}`}>
+    <div
+      className={`ca-card${expanded ? ' ca-expanded' : ''}${extra ? ' ca-card-with-control' : ''}`}
+    >
       <div className="ca-opt-in-row">
         <img alt="" aria-hidden="true" className="ca-logo" src={app.logo} />
         <div className="ca-toggle-slot">
@@ -192,6 +205,11 @@ const AppCard: React.FC<CardProps> = ({
 
       <div className="ca-collapsed-content">
         <div className="ca-description ca-body-m">{app.description}</div>
+        {/* Above "Learn more" because it is the thing to do, and Learn more only
+            describes what the app can do once it is connected. It sits in its own
+            tinted block so its inner links read as part of the control rather than
+            as more of the card's copy. */}
+        {extra}
         {hasExpandedContent ? (
           <button
             aria-expanded={expanded}
@@ -202,7 +220,11 @@ const AppCard: React.FC<CardProps> = ({
             {expanded ? 'Show less' : 'Learn more'}
           </button>
         ) : null}
-        {app.heroPrompt && !expanded ? (
+        {/* Dropped on a card that has a control, which is what keeps that card near
+            the height of its neighbours. The pill is 164px of illustration and is not
+            clickable here or on Gemini's page; a field that connects the app is worth
+            more than an example of what to ask it once it is connected. */}
+        {app.heroPrompt && !expanded && !extra ? (
           <div className="ca-hero-prompt-slot">
             <button className="ca-hero-prompt" type="button">
               <span>{app.heroPrompt}</span>
@@ -258,7 +280,15 @@ const AppCard: React.FC<CardProps> = ({
 };
 
 export const ConnectedAppsTab: React.FC = () => {
-  const { configured, notice, dismissNotice, stateFor, toggleConnection } = useConnections();
+  const {
+    setupHints,
+    githubLogin,
+    notice,
+    dismissNotice,
+    stateFor,
+    toggleConnection,
+    connectGithubToken,
+  } = useConnections();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -325,9 +355,11 @@ export const ConnectedAppsTab: React.FC = () => {
         </div>
 
         {/* Said once, at the top, rather than on every disabled switch. Without
-            it a page of dead toggles reads as a bug. */}
-        {configured === false ? (
-          <div className="ca-banner" role="status">
+            it a page of dead toggles reads as a bug. One per provider, because
+            Google and Spotify are set up independently and a user sent to fix the
+            wrong environment variable goes looking for a problem that isn't there. */}
+        {setupHints.map((hint) => (
+          <div className="ca-banner" key={hint} role="status">
             <MaterialSymbol
               className="ca-banner-icon"
               family="google-symbols"
@@ -335,12 +367,9 @@ export const ConnectedAppsTab: React.FC = () => {
               size={20}
               weight={400}
             />
-            <div className="ca-banner-text ca-body-m">
-              Connecting apps isn’t set up in this build. It needs a Google OAuth client id
-              (<code>VITE_GOOGLE_OAUTH_CLIENT_ID</code>); until then the switches below stay off.
-            </div>
+            <div className="ca-banner-text ca-body-m">{hint}</div>
           </div>
-        ) : null}
+        ))}
 
         {expiredNames.length > 0 ? (
           <div className="ca-banner ca-banner-attention" role="status">
@@ -389,11 +418,16 @@ export const ConnectedAppsTab: React.FC = () => {
               {category.apps.map((app) => {
                 const props: CardProps = {
                   app,
-                  configured,
                   expanded: expandedIds.has(app.id),
                   state: stateFor(app.id),
                   onToggle: handleToggle,
                   onToggleExpanded: toggleExpanded,
+                  // The one card that needs a control of its own. Decided here rather
+                  // than in the card, so the card never has to know which app it is.
+                  extra:
+                    app.id === 'github' ? (
+                      <GithubTokenRow login={githubLogin} onConnect={connectGithubToken} />
+                    ) : undefined,
                 };
                 return app.children?.length ? (
                   <ParentCard key={app.id} {...props} />

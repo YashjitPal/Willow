@@ -29,7 +29,7 @@
 import { authLossHandler } from './authorization';
 import { createAuthorizedFetch } from './authorized-fetch';
 import { connectionsStore } from './connections-store';
-import { canProvideSignals, connectorById, scopeUrls, tokensFor } from './registry';
+import { canProvideSignals, connectorById, authLossStatusesFor, scopeUrls, tokensFor } from './registry';
 import { type TokenSource } from './token-source';
 import type { ConnectorId, ConnectorSignal } from './types';
 import type { CandidateBullet } from '../profile/types';
@@ -86,6 +86,7 @@ export const readConnector = async (
   const fetchJson = createAuthorizedFetch({
     tokens,
     scopes,
+    authLossStatuses: authLossStatusesFor(id),
     onAuthLost: () => {
       authLossHandler(id)();
       options.onAuthLost?.(id);

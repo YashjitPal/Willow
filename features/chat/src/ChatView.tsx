@@ -7,6 +7,7 @@ import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
+import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
 import { ResponseActions, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
@@ -44,6 +45,7 @@ import {
   type ChatTurnRecord,
 } from './chat-turn-store';
 import { runChatTurn } from './chat-turn-runner';
+import { friendlyChatErrorFor } from './chat-errors';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
 import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
 import { useOffscreenMessageSkip } from './offscreen-message-skip';
@@ -483,10 +485,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       role: 'assistant',
       content: record.status === 'settled' ? record.finalContent : '',
       isGenerating: record.status === 'running',
+      isNew: record.status === 'running',
       thinkingText: record.thinkingText || undefined,
       thinkingTime: record.isError ? undefined : record.thinkSeconds || undefined,
       modelSnapshot: record.modelSnapshot,
       isError: record.isError,
+      errorDetail: record.errorDetail,
       wasStopped: record.status === 'settled' ? record.wasStopped : undefined,
       citations: record.status === 'settled' ? record.citations : undefined,
     };
@@ -841,6 +845,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{ detail: string } | null>(null);
+  const [isErrorDialogClosing, setIsErrorDialogClosing] = useState(false);
+  const errorDialogCloseTimerRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   // The turn this view is currently mirroring, if any. Set both when this view
   // starts a turn and when it re-attaches to one already running in the chat it
@@ -862,7 +869,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // prematurely flip the row to "Thought for Ns".
   const [thinkingPhase, setThinkingPhase] = useState<StreamPhase>('thinking');
   const [thinkSeconds, setThinkSeconds] = useState(0);
+
+  const openErrorDialog = useCallback((detail: string) => {
+    if (errorDialogCloseTimerRef.current !== null) {
+      window.clearTimeout(errorDialogCloseTimerRef.current);
+      errorDialogCloseTimerRef.current = null;
+    }
+    setIsErrorDialogClosing(false);
+    setErrorDialog({ detail });
+  }, []);
+
+  const closeErrorDialog = useCallback(() => {
+    if (!errorDialog) return;
+    setIsErrorDialogClosing(true);
+    if (errorDialogCloseTimerRef.current !== null) window.clearTimeout(errorDialogCloseTimerRef.current);
+    errorDialogCloseTimerRef.current = window.setTimeout(() => {
+      errorDialogCloseTimerRef.current = null;
+      setErrorDialog(null);
+      setIsErrorDialogClosing(false);
+    }, 125);
+  }, [errorDialog]);
+
+  useEffect(() => () => {
+    if (errorDialogCloseTimerRef.current !== null) window.clearTimeout(errorDialogCloseTimerRef.current);
+  }, []);
   const [reactions, setReactions] = useState<Record<string, 'like' | 'dislike' | null>>({});
+  // New replies keep their action row collapsed until StreamingMarkdown has
+  // drained its pending suffix and completed the final word fade. Persisted
+  // messages are already settled and do not need an entry here.
+  const [responseRevealComplete, setResponseRevealComplete] = useState<Record<string, boolean>>({});
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [openThinkingMessageId, setOpenThinkingMessageId] = useState<string | null>(null);
   const [openSourcesMessageId, setOpenSourcesMessageId] = useState<string | null>(null);
@@ -1886,12 +1921,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     thinkingTime?: number,
     isError = false,
     wasStopped = false,
-    citations?: MessageCitations
+    citations?: MessageCitations,
+    errorDetail?: string,
   ) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail }
           : m
       )
     );
@@ -1941,6 +1977,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     },
     onSettled: (record) => {
       if (attachedTurnIdRef.current !== turnId) return;
+      if (record.isError) {
+        const detail = record.errorDetail || 'No additional error details were provided by the service.';
+        showCopyToast('Something went wrong', {
+          label: 'Show error',
+          onClick: () => openErrorDialog(detail),
+        });
+      }
       // Give the browser one generating-state paint after the final delta. If
       // finalisation happens in the same task, React can otherwise replace the
       // streaming buffer with the completed message before it was ever shown.
@@ -1953,6 +1996,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           record.isError,
           record.wasStopped,
           record.citations,
+          record.errorDetail,
         );
         setAttachedTurnId(null);
         attachedTurnIdRef.current = null;
@@ -1974,7 +2018,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setIsGenerating(false);
       });
     },
-  }), [stopThinking]);
+  }), [openErrorDialog, stopThinking]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const buildAiHistory = useCallback(
@@ -2001,7 +2045,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (!isAuthenticated) { onAuthRequired?.(); return; }
       if (countRunningChatTurns() >= MAX_CONCURRENT_CHAT_TURNS) return;
 
-      const { provider, model, thinkingLevel, apiKey, modelLabel } = resolveModel();
+      const { provider, model, thinkingLevel, apiKey, modelLabel, baseUrl, apiFormat, toolPolicy, profileId, reasoningEffort } = resolveModel();
       sendInFlightRef.current = true;
       // A send lands at the bottom of the thread, so anything still hidden by a
       // mid-flight reveal must be materialised now — otherwise the reply streams
@@ -2053,6 +2097,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         role: 'assistant',
         content: '',
         isGenerating: true,
+        isNew: true,
         modelSnapshot: {
           provider,
           modelId: model,
@@ -2084,11 +2129,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
         sendInFlightRef.current = false;
         stopThinking();
         setIsGenerating(false);
+        const missingKeyError = `API key for ${provider} is missing. Add one in Settings > Models to start chatting.`;
+        showCopyToast('Something went wrong', {
+          label: 'Show error',
+          onClick: () => openErrorDialog(missingKeyError),
+        });
         finalizeAssistant(
           assistantId,
-          `API key for **${provider}** is missing. Add one in **Settings → Models** to start chatting.`,
+          friendlyChatErrorFor(prevMessages),
           undefined,
-          true
+          true,
+          false,
+          undefined,
+          missingKeyError,
         );
         return;
       }
@@ -2119,6 +2172,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         settledBy: null,
         wasStopped: false,
         isError: false,
+        errorDetail: undefined,
         finalContent: '',
         persisted: false,
         lastCheckpointAt: Date.now(),
@@ -2148,14 +2202,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
           model,
           apiKey,
           thinkingLevel,
-          baseUrl: (modelConfig as any)?.[provider]?.baseUrl,
+          baseUrl,
+          apiFormat,
+          toolPolicy,
+          profileId,
+          reasoningEffort,
         },
         // Saved Info is the "in" half: the entries survive the session, so
         // sending them would make a temporary chat quietly personalized.
-        systemPrompt: chatSystemPromptFor(provider, {
-          personalize: !isIncognito,
-          personalTool: personalTools.length > 0,
-        }),
+        systemPrompt: [
+          chatSystemPromptFor(provider, {
+            personalize: !isIncognito,
+            personalTool: personalTools.length > 0,
+          }),
+          (modelConfig.resources || []).length > 0
+            ? `Configured user resources:\n${(modelConfig.resources || []).map((resource: any) => `- ${resource.name}: ${resource.uri || resource.content || ''}`).join('\n')}`
+            : '',
+        ].filter(Boolean).join('\n\n'),
         personalTools,
         history,
         attachmentPersistence,
@@ -2163,7 +2226,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         saveChat: saveLocalFSChatRef.current,
       });
     },
-    [messages, isAuthenticated, onAuthRequired, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener]
+    [messages, isAuthenticated, onAuthRequired, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog]
   );
 
   // ── Live mode ──────────────────────────────────────────────────────────────
@@ -2193,6 +2256,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         role: 'assistant',
         content: '',
         isGenerating: true,
+        isNew: true,
         isLive: true,
         modelSnapshot: {
           provider: voiceProvider?.id ?? 'gemini',
@@ -2430,6 +2494,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {
               id: aId,
               role: 'assistant',
+              isNew: true,
               isError: true,
               content:
                 `Couldn't start live mode (\`${liveModelId}\`).\n\n` +
@@ -2487,6 +2552,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         {
           id: aId,
           role: 'assistant',
+          isNew: true,
           content:
             'Live voice mode requires the **Gemini 3.1 Flash Live** model. ' +
             'Add it from **Settings → Models → Google → Gemini 3.1 Flash Live** to enable live voice chat.',
@@ -2507,6 +2573,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         {
           id: aId,
           role: 'assistant',
+          isNew: true,
           content:
             'A **Gemini** API key is required for live voice mode ' +
             `(\`${liveModelId}\`). Add one in **Settings → Models**.`,
@@ -3031,14 +3098,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // While generating, body comes from the live `streaming` buffer; once
             // finalised, `msg.content` holds the full text. Using `||` (not a
             // ternary) means the instant generation flips off we keep rendering
-            // the same string, so StreamingMarkdown's RAF buffer can finish
-            // draining without a content swap.
+            // the same string, so StreamingMarkdown's pending reveal queue can
+            // finish draining without a content swap.
             // `streaming` is a single thread-wide buffer belonging to whichever
             // turn is generating now, so a finished turn must never fall back to
             // it. A turn stopped before its first token has empty content, and
             // the old fallback to `streaming` here made such a turn mirror the
             // NEXT turn's text as soon as that began streaming.
             const bodyText = generating ? streaming : msg.content;
+            const actionsReady =
+              !generating &&
+              (!msg.isNew || !bodyText || responseRevealComplete[msg.id] === true);
             // Live turns: no "Thinking" shimmer, no "Thought for Xs" — the
             // voice starts near-instantly so the row is noise.
             const showThinkingRow =
@@ -3141,29 +3211,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 >
                 {showThinkingRow && !isFirstTurnEntranceActive && (() => {
                   const active = generating && isThinking;
-                  const phaseSymbol =
-                    active && thinkingPhase === 'searching' ? 'search'
-                    : active && thinkingPhase === 'executing' ? 'terminal'
-                    : 'lightbulb';
-                  const phaseLabel =
-                    thinkingPhase === 'searching' ? 'Searching'
-                    : thinkingPhase === 'executing' ? 'Running code'
-                    : 'Thinking';
+                  const statusHeading = active
+                    ? thinkingPhase === 'searching' ? 'Searching the web'
+                      : thinkingPhase === 'executing' ? 'Running code'
+                      : null
+                    : null;
+                  const thoughtHeading = active && thinkingPhase === 'thinking'
+                    ? latestThoughtHeading(msg.thinkingText || '')
+                    : null;
                   // Gemini replaces the label with the newest section heading of
                   // its own thought stream. Only a stream that actually arrives
                   // sectioned can do that, so a provider emitting bare prose
                   // (Grok, Claude — measured) keeps the shimmering label.
-                  const summaryHeading = active && thinkingPhase === 'thinking'
-                    ? latestThoughtHeading(msg.thinkingText || '')
-                    : null;
+                  // Tool states use the same animated status channel in Gemini;
+                  // they are app-generated labels, not model-written thoughts.
+                  const summaryHeading = statusHeading ?? thoughtHeading;
                   // Gemini shows no generic label at any point: its row is the
                   // dots alone until the first heading arrives, then the heading.
                   // Keyed off the turn's own recorded provider rather than off
                   // "no heading yet", because those two differ precisely in the
                   // window this controls — a Gemini stream that has not emitted
                   // its first heading is indistinguishable from a Grok one.
-                  // Scoped to the thinking phase: `Searching` and `Running code`
-                  // report real distinct states, not a placeholder for silence.
+                  // Scoped to the thinking phase: tool states have their own
+                  // animated headings and therefore never reach this fallback.
                   const suppressLabel =
                     msg.modelSnapshot?.provider === 'gemini' && thinkingPhase === 'thinking';
                   return (
@@ -3184,19 +3254,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         minHeight: summaryHeading || suppressLabel ? 24 : undefined,
                       }}
                     >
-                      {thinkingPhase === 'thinking' ? (
-                        <GeminiThinkingVisualizer />
-                      ) : (
-                        <MaterialSymbol name={phaseSymbol} size={18} opticalSize={20} />
-                      )}
+                      <GeminiThinkingVisualizer />
                       {summaryHeading ? (
-                        <ThoughtSummaryLine heading={summaryHeading} />
+                        <ThoughtSummaryLine
+                          // Tool statuses are app-owned priority messages. A
+                          // separate key lets them take over immediately,
+                          // without waiting for the thought-heading hold, and
+                          // lets the latest thought resume immediately when
+                          // the tool finishes.
+                          key={statusHeading ? `status:${statusHeading}` : 'thought-summary'}
+                          heading={summaryHeading}
+                        />
                       ) : suppressLabel ? null : active ? (
                         <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
-                          {phaseLabel}
+                          Thinking
                         </TextShimmer>
                       ) : (
-                        <span className="text-[15.15px] font-medium">{phaseLabel}</span>
+                        <span className="text-[15.15px] font-medium">Thinking</span>
                       )}
                     </motion.div>
                   );
@@ -3206,7 +3280,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <StreamingMarkdown
                     text={bodyText}
                     isStreaming={generating}
-                    animate={generating && !msg.isError}
+                    animate={generating || (!!msg.isError && !!msg.isNew)}
+                    reveal={generating || (!!msg.isError && !!msg.isNew)}
+                    revealAsSingleChunk={!!msg.isError && !!msg.isNew}
+                    onRevealComplete={() => setResponseRevealComplete((current) => (
+                      current[msg.id] === true
+                        ? current
+                        : { ...current, [msg.id]: true }
+                    ))}
                     onOpenResource={handleOpenResource}
                     citations={msg.citations}
                   />
@@ -3220,7 +3301,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     the buttons; the notice-to-button distance is 4px.) The
                     notice sits outside the wrapper's space-y-3 rhythm, so both
                     margins are set explicitly. */}
-                {msg.wasStopped && !generating && (
+                {msg.wasStopped && actionsReady && (
                   <div style={{ marginTop: 8, marginBottom: 0 }}>
                     <ResponseInfoLine />
                   </div>
@@ -3230,14 +3311,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <motion.div
                   initial={false}
                   animate={{
-                    height: generating ? 0 : 'auto',
+                    height: actionsReady ? 'auto' : 0,
                   }}
                   transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
                   // Gemini leaves 4px between the notice and the button row,
                   // replacing the wrapper's 12px rhythm for this one case.
                   style={msg.wasStopped ? { marginTop: 4 } : undefined}
                   className={`overflow-visible transition-opacity duration-[240ms] ease-[cubic-bezier(0.2,0,0,1)] ${
-                    generating
+                    !actionsReady
                       ? 'pointer-events-none opacity-0'
                       : isLatestCompletedTurn
                         ? 'opacity-100'
@@ -3248,7 +3329,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     reaction={reactions[msg.id] || null}
                     listening={listeningId === msg.id}
                     canRedo={isLastAssistant}
-                    canShowThinking={!msg.isError}
+                    canShowThinking={!msg.isError || !!msg.errorDetail}
                     canShowSources={!!msg.citations?.sources?.length}
                     isStopped={!!msg.wasStopped}
                     onLike={() => setReactions((current) => ({
@@ -3465,8 +3546,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
         {thinkingMessage && (
           <ThinkingStepsSidebar
             key={thinkingMessage.id}
-            thinkingText={thinkingMessage.thinkingText || ''}
+            thinkingText={thinkingMessage.isError
+              ? thinkingMessage.errorDetail || 'No additional error details were provided by the service.'
+              : thinkingMessage.thinkingText || ''}
             modelLabel={thinkingMessage.modelSnapshot?.label || 'Model'}
+            isError={!!thinkingMessage.isError}
             onClose={() => setOpenThinkingMessageId(null)}
           />
         )}
@@ -3491,6 +3575,39 @@ export const ChatView: React.FC<ChatViewProps> = ({
           />
         )}
       </AnimatePresence>
+
+      {errorDialog && (
+        <GeminiDialog
+          headingAs="h1"
+          title="Something went wrong"
+          width={600}
+          closing={isErrorDialogClosing}
+          onDismiss={closeErrorDialog}
+          actions={
+            <>
+              <GeminiDialogPill
+                onClick={() => {
+                  void navigator.clipboard.writeText(errorDialog.detail);
+                }}
+              >
+                Copy
+              </GeminiDialogPill>
+              <GeminiDialogPill onClick={closeErrorDialog}>Close</GeminiDialogPill>
+            </>
+          }
+        >
+          <p
+            style={{
+              maxHeight: '45vh',
+              overflowY: 'auto',
+              overflowWrap: 'anywhere',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {errorDialog.detail}
+          </p>
+        </GeminiDialog>
+      )}
     </div>
     </LayoutGroup>
   );

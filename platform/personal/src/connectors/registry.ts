@@ -22,11 +22,11 @@ import type {
 } from './types';
 
 import { calendarConnector } from './google/calendar';
-import { contactsConnector } from './google/contacts';
 import { gmailConnector } from './google/gmail';
 import { tasksConnector } from './google/tasks';
 import { youtubeConnector } from './google/youtube';
 import { spotifyConnector } from './spotify/spotify';
+import { githubConnector } from './github/github';
 
 export const CONNECTORS: ConnectorDefinition[] = [
   {
@@ -54,14 +54,6 @@ export const CONNECTORS: ConnectorDefinition[] = [
     writeScopes: SCOPES.youtube.write,
     providesSignals: true,
     caveat: 'Watch history has no API, so Willow can only see what you liked or subscribed to.',
-  },
-  {
-    id: 'contacts',
-    label: 'Google Contacts',
-    description: 'Relationship labels you set yourself, such as partner or manager.',
-    readScopes: SCOPES.contacts.read,
-    writeScopes: SCOPES.contacts.write,
-    providesSignals: true,
   },
   {
     id: 'tasks',
@@ -98,6 +90,17 @@ export const CONNECTORS: ConnectorDefinition[] = [
     caveat:
       'Spotify limits unreviewed apps to a list of named users, and the app owner needs Premium.',
   },
+  {
+    id: 'github',
+    provider: 'github',
+    label: 'GitHub',
+    description: 'Pull requests waiting on you, issues assigned to you, and what you are working on.',
+    readScopes: SCOPES.github.read,
+    writeScopes: SCOPES.github.write,
+    providesSignals: true,
+    caveat:
+      'GitHub cannot do browser sign-in, so this needs a read-only access token you create and paste. It is kept for this tab only, so you will paste it again next time.',
+  },
 ];
 
 /** Readers, keyed by id. Only signal connectors appear here. */
@@ -105,9 +108,9 @@ export const READERS: Partial<Record<ConnectorId, ConnectorReader>> = {
   calendar: calendarConnector,
   gmail: gmailConnector,
   youtube: youtubeConnector,
-  contacts: contactsConnector,
   tasks: tasksConnector,
   spotify: spotifyConnector,
+  github: githubConnector,
 };
 
 export const connectorById = (id: ConnectorId): ConnectorDefinition | undefined =>
@@ -125,6 +128,33 @@ export const providerOf = (id: ConnectorId): ConnectorProvider =>
 
 /** The token source for whichever provider owns this connector. */
 export const tokensFor = (id: ConnectorId): TokenSource => tokenSource(providerOf(id));
+
+/**
+ * Which HTTP statuses mean "this credential is finished", for this connector.
+ *
+ * A property of the provider rather than of the call site, which is why it lives here
+ * next to `providerOf` instead of being passed in by each reader. Google and Spotify
+ * both answer an under-scoped request with a 403, so taking that as auth loss is what
+ * makes a half-granted consent screen visible instead of silent. GitHub spends 403 on
+ * rate limiting — on the default, a burst of reads would throw away a working token and
+ * send the user off to replace it.
+ *
+ * Everything that builds an authorized fetch reads it from here, so a fourth provider
+ * gets this right in one place rather than in however many readers it has.
+ */
+export const authLossStatusesFor = (id: ConnectorId): number[] =>
+  providerOf(id) === 'github' ? [401] : [401, 403];
+
+/**
+ * Whether asking this connector's provider for a token can show the user anything.
+ *
+ * Google and Spotify open a consent screen, so a request that comes back with nothing
+ * means the user closed it or the browser blocked it. GitHub's `request` reads a token
+ * they already pasted, so nothing coming back means there is nothing to read — a
+ * different failure with a different fix. Telling someone their permission window was
+ * blocked when no window exists sends them hunting for a popup blocker.
+ */
+export const promptsForConsent = (id: ConnectorId): boolean => providerOf(id) !== 'github';
 
 /** Whether a product can describe the user at all, regardless of user settings. */
 export const canProvideSignals = (id: ConnectorId): boolean =>

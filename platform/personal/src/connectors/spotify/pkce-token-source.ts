@@ -37,8 +37,10 @@
  * Spotify returns 403 for a user who is not on the list.
  */
 
+import { refreshAuthorizations } from '../authorization';
 import {
   createTokenCache,
+  setTokenSource,
   type CachedToken,
   type TokenSource,
 } from '../token-source';
@@ -330,8 +332,43 @@ export const createSpotifyTokenSource = (
       // blip into a reconnect.
       if (!scopes) writeRefreshToken(null);
     },
+
+    forget: () => {
+      cache.drop();
+      writeRefreshToken(null);
+    },
   };
 };
 
 /** Forget the durable grant. Called on disconnect, so the switch really means off. */
 export const clearSpotifyGrant = (): void => writeRefreshToken(null);
+
+let installed: TokenSource | null = null;
+
+/**
+ * Install the Spotify token source. Safe to call more than once.
+ *
+ * Returns whether Spotify is usable at all, on the same terms as
+ * `initBrowserTokenSource`, so the caller can render a "not configured" state
+ * without reading the environment itself.
+ *
+ * Synchronous, unlike the Google half — there is no script to load. PKCE is a hash
+ * and a popup, both of which the platform already provides, which is the quiet
+ * advantage of a flow written out over a flow delegated to a vendor library.
+ *
+ * The refresh afterwards is what makes a Spotify connection survive a reload
+ * properly rather than nearly: the durable grant is on disk, so this mints an access
+ * token from it and marks the connector authorized before the first turn, with no
+ * popup and no user present.
+ */
+export const initSpotifyTokenSource = (options: { clientId?: string } = {}): boolean => {
+  if (installed) return true;
+  const source = createSpotifyTokenSource(options);
+  if (!source) return false;
+  installed = source;
+  setTokenSource(source, 'spotify');
+  // Not awaited, for the same reason as the Google side: this is a network round
+  // trip and the caller is deciding what to render.
+  void refreshAuthorizations();
+  return true;
+};

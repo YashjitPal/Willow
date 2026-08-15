@@ -71,6 +71,7 @@ export {
   CONNECTORS,
   canProvideSignals,
   connectorById,
+  providerOf,
   readScopesFor,
   scopeUrls,
   writeScopesFor,
@@ -80,6 +81,7 @@ export type {
   ConnectorDefinition,
   ConnectorFetch,
   ConnectorId,
+  ConnectorProvider,
   ConnectorScope,
   ConnectorSignal,
 } from './connectors/types';
@@ -122,6 +124,54 @@ export {
   initBrowserTokenSource,
   type GisOptions,
 } from './connectors/gis-token-source';
+
+/**
+ * Spotify's half of the same job.
+ *
+ * `initConnectorTokenSources` is what the app should call — it installs every
+ * configured provider and reports which ones are usable. The two provider-specific
+ * inits stay exported for the Connected Apps tab, which asks about Google
+ * separately because Google is the one that can be configured and still fail (the
+ * GIS script has to load).
+ *
+ * `handleSpotifyCallback` runs in the popup, from `main.tsx`, before React exists.
+ */
+export {
+  initConnectorTokenSources,
+  type InstallOptions,
+  type TokenSourceStatus,
+} from './connectors/install';
+
+export {
+  clearSpotifyGrant,
+  initSpotifyTokenSource,
+  spotifyConfigured,
+  spotifyRedirectUri,
+} from './connectors/spotify/pkce-token-source';
+
+export {
+  handleSpotifyCallback,
+  isSpotifyCallback,
+} from './connectors/spotify/oauth-callback';
+
+/**
+ * GitHub's half, which is a different shape because GitHub gave it one.
+ *
+ * There is no `githubConfigured` and no client id, because there is no OAuth client —
+ * `github/pat-token-source.ts` has the whole story, and the short version is that
+ * GitHub's token-exchange endpoint sends no CORS headers, so no browser can complete
+ * the flow. `saveGithubToken` is what Settings calls with a token the user pasted; it
+ * verifies against GitHub before storing anything, and returns the account it belongs
+ * to so the card can name it.
+ */
+export {
+  clearGithubGrant,
+  initGithubTokenSource,
+  readGithubLogin,
+  saveGithubToken,
+  verifyGithubToken,
+  type GithubIdentity,
+} from './connectors/github/pat-token-source';
 
 export { NO_TOKENS, setTokenSource, tokenSource, type TokenSource } from './connectors/token-source';
 

@@ -1,5 +1,5 @@
 /**
- * The real `PersonalReads`, wired to Google.
+ * The real `PersonalReads`, wired to the connectors.
  *
  * The read counterpart to `actions.ts`, and it inherits two of that file's rules
  * unchanged:
@@ -27,10 +27,9 @@
 import { authLossHandler, markAuthorized, markExpired } from '../connectors/authorization';
 import { createAuthorizedFetch } from '../connectors/authorized-fetch';
 import { isConnected } from '../connectors/connections-store';
-import { readScopesFor, tokensFor } from '../connectors/registry';
+import { authLossStatusesFor, readScopesFor, tokensFor } from '../connectors/registry';
 import { type TokenSource } from '../connectors/token-source';
 import type { ConnectorFetch, ConnectorId } from '../connectors/types';
-import { listLabelledRelations as fetchRelations } from '../connectors/google/contacts';
 import { listScheduledEvents as fetchEvents } from '../connectors/google/calendar';
 import { listOpenTasks as fetchTasks } from '../connectors/google/tasks';
 import { listRecentMail as fetchMail } from '../connectors/google/gmail';
@@ -45,6 +44,16 @@ import {
   listTopTracks as fetchTopTracks,
   type TimeRange,
 } from '../connectors/spotify/spotify';
+import {
+  isPullRequestFilter,
+  listActiveRepos as fetchRepos,
+  listAssignedIssues as fetchIssues,
+  listPullRequests as fetchPullRequests,
+  type GithubItem,
+  type GithubRepo,
+  type PullRequestFilter,
+} from '../connectors/github/github';
+import { readGithubLogin } from '../connectors/github/session-store';
 import { profileStore } from '../profile/profile-store';
 import type { PersonalReads } from './executor';
 
@@ -93,7 +102,34 @@ const ready = async (id: ConnectorId, label: string, override?: TokenSource): Pr
     return { error: expired(label) };
   }
   markAuthorized(id);
-  return { fetchJson: createAuthorizedFetch({ tokens, scopes, onAuthLost: authLossHandler(id) }) };
+  return {
+    fetchJson: createAuthorizedFetch({
+      tokens,
+      scopes,
+      authLossStatuses: authLossStatusesFor(id),
+      onAuthLost: authLossHandler(id),
+    }),
+  };
+};
+
+type GithubReady = { fetchJson: ConnectorFetch; login: string } | { error: string };
+
+/**
+ * GitHub's gate: the usual one, plus whose account this is.
+ *
+ * Every GitHub read is a search qualified by the user's own login — `involves:octocat`
+ * — so a token with no login stored beside it is authorized and still cannot ask a
+ * question. `saveGithubToken` stores the two together, so this only comes up for a
+ * token left by an older build; the fix is the same as for an expired one, which is why
+ * it reports the same sentence rather than inventing a state the user cannot act on
+ * differently.
+ */
+const readyGithub = async (override?: TokenSource): Promise<GithubReady> => {
+  const gate = await ready('github', 'GitHub', override);
+  if ('error' in gate) return gate;
+  const login = readGithubLogin();
+  if (!login) return { error: expired('GitHub') };
+  return { fetchJson: gate.fetchJson, login };
 };
 
 /** `2026-08-14T15:00:00-04:00` → `2026-08-14 15:00`; a plain date is left alone. */
@@ -133,6 +169,40 @@ const asTimeRange = (value: string | undefined): TimeRange =>
   value === 'short_term' || value === 'long_term' || value === 'medium_term'
     ? value
     : 'medium_term';
+
+/**
+ * How each pull-request filter reads in a sentence.
+ *
+ * Written to slot into both "Open GitHub pull requests …, most recently updated first"
+ * and "No open pull requests …", because those two must agree. An empty result is an
+ * answer and has to name the same question that was asked — "no open pull requests"
+ * where the model asked for review requests would read as "you have none at all".
+ */
+const PR_FILTER_LABELS: Record<PullRequestFilter, string> = {
+  involves: 'that the user opened, was assigned, was mentioned in, or was asked to review',
+  author: 'the user opened',
+  assigned: 'assigned to the user',
+  'review-requested': "waiting on the user's review",
+};
+
+/** `owner/repo#12 — "Title" [draft] (by octocat, updated 2026-08-14 15:00, 3 comments) url` */
+const githubItemLine = (item: GithubItem): string => {
+  const detail = [
+    item.author ? `by ${item.author}` : null,
+    item.updated ? `updated ${shortTime(item.updated)}` : null,
+    item.comments > 0 ? `${item.comments} comment${item.comments === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(', ');
+  const where = item.repo ? `${item.repo}#${item.number}` : `#${item.number}`;
+  return `- ${where} — "${item.title}"${item.draft ? ' [draft]' : ''}${detail ? ` (${detail})` : ''}${item.url ? ` ${item.url}` : ''}`;
+};
+
+const githubRepoLine = (repo: GithubRepo): string => {
+  const facts = [
+    repo.language || null,
+    repo.pushed ? `last push ${repo.pushed.slice(0, 10)}` : null,
+  ].filter(Boolean).join(', ');
+  return `- ${repo.name}${repo.private ? ' [private]' : ''}${facts ? ` (${facts})` : ''}${repo.description ? ` — ${repo.description}` : ''}`;
+};
 
 /**
  * `tokens` is an override for tests only.
@@ -252,22 +322,6 @@ export const createPersonalReads = (tokens?: TokenSource): PersonalReads => ({
     );
   },
 
-  listRelationships: async () => {
-    const gate = await ready('contacts', 'Google Contacts', tokens);
-    if ('error' in gate) return gate.error;
-
-    const relations = await fetchRelations(gate.fetchJson);
-    if (!relations) return expired('Google Contacts');
-    if (relations.length === 0) {
-      return 'No contact in the user\'s Google Contacts carries a relationship label, so there is nothing to report. Their address book may still have plenty of people in it — Willow only reads the labels.';
-    }
-
-    return lines(
-      'People the user labelled with a relationship in Google Contacts:',
-      relations.map((entry) => `- ${entry.name} — ${entry.relation}`),
-    );
-  },
-
   listTopMusic: async ({ kind, timeRange, limit }) => {
     const gate = await ready('spotify', 'Spotify', tokens);
     if ('error' in gate) return gate.error;
@@ -330,6 +384,62 @@ export const createPersonalReads = (tokens?: TokenSource): PersonalReads => ({
     return lines(
       'The user\'s Spotify playlists:',
       playlists.map((playlist) => `- ${playlist.name} (${playlist.tracks} tracks)`),
+    );
+  },
+
+  listPullRequests: async ({ filter, limit }) => {
+    const gate = await readyGithub(tokens);
+    if ('error' in gate) return gate.error;
+
+    // An unrecognised filter falls back rather than failing. A model that writes
+    // "reviewer" or "mine" meant one of these, and the default covers all of them.
+    const chosen: PullRequestFilter = isPullRequestFilter(filter) ? filter : 'involves';
+    const label = PR_FILTER_LABELS[chosen];
+
+    const items = await fetchPullRequests(gate.fetchJson, {
+      login: gate.login,
+      filter: chosen,
+      limit,
+    });
+    if (!items) return expired('GitHub');
+    if (items.length === 0) return `No open pull requests ${label}.`;
+
+    return lines(
+      `Open GitHub pull requests ${label}, most recently updated first. A draft is not ready for review yet:`,
+      items.map(githubItemLine),
+    );
+  },
+
+  listGithubIssues: async ({ limit }) => {
+    const gate = await readyGithub(tokens);
+    if ('error' in gate) return gate.error;
+
+    const items = await fetchIssues(gate.fetchJson, { login: gate.login, limit });
+    if (!items) return expired('GitHub');
+    if (items.length === 0) return 'No open GitHub issues are assigned to the user.';
+
+    return lines(
+      'Open GitHub issues assigned to the user, most recently updated first:',
+      items.map(githubItemLine),
+    );
+  },
+
+  listGithubRepos: async ({ limit }) => {
+    const gate = await readyGithub(tokens);
+    if ('error' in gate) return gate.error;
+
+    const repos = await fetchRepos(gate.fetchJson, { limit });
+    if (!repos) return expired('GitHub');
+    if (repos.length === 0) {
+      // Almost always the token rather than the account: a fine-grained token sees
+      // only the repositories it was given when it was made, and "all repositories"
+      // is not the default on GitHub's form.
+      return 'The access token the user pasted can see no GitHub repositories. A fine-grained token only covers the repositories selected when it was created, so this usually means none were selected rather than that the user has none.';
+    }
+
+    return lines(
+      'GitHub repositories the user can access, most recently pushed first. Metadata only — no file contents, commits or diffs are available, so do not describe what any of this code does:',
+      repos.map(githubRepoLine),
     );
   },
 });

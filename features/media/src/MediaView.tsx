@@ -67,6 +67,7 @@ import { AnnotationOverlay } from './AnnotationOverlay';
 import { CropOverlay } from './CropOverlay';
 import { PenMenu } from './PenMenu';
 import { SelectMenu, CropMenu } from './ToolFlyouts';
+import { collectSavedModelsInCatalogOrder, getModelCategory } from '@willow/core/model-catalog';
 
 const popupItemVariants = {
   hidden: { opacity: 0, y: 8, scale: 0.97 },
@@ -2040,14 +2041,7 @@ export const MediaView: React.FC = () => {
     try {
       const parsed = savedConfigRaw ? JSON.parse(savedConfigRaw) : null;
       if (!parsed) return [];
-      return [
-        ...(parsed.gemini?.savedModels || []),
-        ...(parsed.openai?.savedModels || []),
-        ...(parsed.anthropic?.savedModels || []),
-        ...(parsed.moonshot?.savedModels || []),
-        ...(parsed.spacexai?.savedModels || []),
-        ...(parsed.zhipuai?.savedModels || []),
-      ];
+      return collectSavedModelsInCatalogOrder(parsed);
     } catch {
       return [];
     }
@@ -2062,11 +2056,7 @@ export const MediaView: React.FC = () => {
   const imageModelButtonRef = React.useRef<HTMLButtonElement>(null);
 
   const availableImageModels = React.useMemo(() => {
-    const userImageModels = userSavedModels.filter((m: any) => {
-      const id = (m.modelId || m.id || '').toLowerCase();
-      const name = (m.name || '').toLowerCase();
-      return id === 'grok-imagine' || id.includes('banana') || id.includes('image') || id.includes('imagine') || name.includes('imagine') || name.includes('banana');
-    });
+    const userImageModels = userSavedModels.filter((model: any) => getModelCategory(model) === 'image');
     if (userImageModels.length > 0) {
       return userImageModels.map((m: any) => ({
         id: m.modelId || m.id,
@@ -2085,11 +2075,7 @@ export const MediaView: React.FC = () => {
   ];
 
   const availableVideoModels = React.useMemo(() => {
-    const userVideoModels = userSavedModels.filter((m: any) => {
-      const id = (m.modelId || m.id || '').toLowerCase();
-      const name = (m.name || '').toLowerCase();
-      return id.includes('veo') || id.includes('omni') || name.includes('veo') || name.includes('omni');
-    });
+    const userVideoModels = userSavedModels.filter((model: any) => getModelCategory(model) === 'video');
     if (userVideoModels.length > 0) {
       return userVideoModels.map((m: any) => {
         const id = m.modelId || m.id;

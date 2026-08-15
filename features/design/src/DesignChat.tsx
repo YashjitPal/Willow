@@ -146,7 +146,11 @@ export const DesignChat: React.FC<DesignChatProps> = ({ modelConfig, selectedMod
           provider: provider as any,
           model: modelId,
           apiKey: apiKey,
-          thinkingLevel: selected?.thinkingLevel || 1
+          thinkingLevel: selected?.thinkingLevel || 1,
+          baseUrl: selected?.baseUrl || modelConfig?.[provider]?.baseUrl,
+          apiFormat: selected?.apiFormat,
+          toolPolicy: selected?.toolPolicy,
+          profileId: selected?.profileId,
         },
         (token) => {
           fullResponse += token;

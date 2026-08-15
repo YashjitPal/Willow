@@ -30,6 +30,21 @@ export interface AuthorizedFetchOptions {
   /** Fired when a request fails because access was revoked or expired, so the
    *  UI can mark the connector disconnected rather than silently going quiet. */
   onAuthLost?: () => void;
+  /**
+   * Which statuses mean "this credential is finished". Defaults to 401 and 403.
+   *
+   * The default is Google's and Spotify's convention: both answer a request whose
+   * token lacks the necessary scope with a 403, so treating it as auth loss is what
+   * makes a half-granted consent screen visible instead of silent.
+   *
+   * GitHub spends 403 on something else entirely — it is the rate limit, both the
+   * primary hourly one and the secondary abuse limit. Left on the default, a burst of
+   * reads would come back 403, the connector would be marked expired, and the user
+   * would be told to reconnect a token that was never the problem and would work
+   * again in a minute. So GitHub passes `[401]` and takes a rate limit as the
+   * transient failure it is.
+   */
+  authLossStatuses?: number[];
 }
 
 /**
@@ -40,7 +55,12 @@ export interface AuthorizedFetchOptions {
  * If the second attempt also 401s the grant is gone, and retrying further would
  * be a loop against Google's rate limiter.
  */
-export const createAuthorizedFetch = ({ tokens, scopes, onAuthLost }: GoogleFetchOptions): ConnectorFetch => {
+export const createAuthorizedFetch = ({
+  tokens,
+  scopes,
+  onAuthLost,
+  authLossStatuses = [401, 403],
+}: AuthorizedFetchOptions): ConnectorFetch => {
   const run = async <T,>(url: string, init: RequestInit | undefined, retrying: boolean): Promise<T | null> => {
     const token = await tokens.get(scopes);
     if (!token) return null;
@@ -63,7 +83,7 @@ export const createAuthorizedFetch = ({ tokens, scopes, onAuthLost }: GoogleFetc
         },
       });
 
-      if (response.status === 401 || response.status === 403) {
+      if (authLossStatuses.includes(response.status)) {
         tokens.invalidate(scopes);
         if (!retrying && response.status === 401) return await run<T>(url, init, true);
         onAuthLost?.();

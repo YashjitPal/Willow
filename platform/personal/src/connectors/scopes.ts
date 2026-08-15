@@ -41,12 +41,6 @@ const youtubeWrite: ConnectorScope = {
   tier: 'sensitive',
 };
 
-const contactsRead: ConnectorScope = {
-  url: 'https://www.googleapis.com/auth/contacts.readonly',
-  summary: 'Read your contacts',
-  tier: 'sensitive',
-};
-
 const tasksRead: ConnectorScope = {
   url: 'https://www.googleapis.com/auth/tasks.readonly',
   summary: 'Read your tasks and lists',
@@ -146,14 +140,50 @@ const spotifyPlaylistWrite: ConnectorScope[] = [
   },
 ];
 
+/*
+ * GitHub.
+ *
+ * These are the only scopes in this file Willow never asks anyone for, and the
+ * distinction matters enough to state twice. A fine-grained personal access token's
+ * permissions are chosen by the user on GitHub's own website — there is no consent
+ * screen Willow can put them on, because there is no OAuth flow a browser can complete
+ * (see `github/pat-token-source.ts`). So these entries are a checklist the Settings
+ * card shows while the user creates the token, not a request.
+ *
+ * They are still load-bearing rather than documentation: `refreshAuthorizations` treats
+ * a connector with no read scopes as one that cannot be authorized, so an empty list
+ * here would leave GitHub permanently expired.
+ *
+ * `url` therefore holds GitHub's own permission name as it appears in their UI, which is
+ * what the user has to find and tick. Read-only throughout, and there is no write list
+ * at all: Willow does not open pull requests or comment on issues, so it has no reason
+ * to hold a token that could.
+ */
+const githubMetadata: ConnectorScope = {
+  url: 'repository:metadata',
+  summary: 'Repository metadata (GitHub requires this on every fine-grained token)',
+  tier: 'basic',
+};
+
+const githubPullRequests: ConnectorScope = {
+  url: 'repository:pull_requests:read',
+  summary: 'Read pull requests, including ones waiting on your review',
+  tier: 'basic',
+};
+
+const githubIssues: ConnectorScope = {
+  url: 'repository:issues:read',
+  summary: 'Read issues assigned to you',
+  tier: 'basic',
+};
+
 export const SCOPES: Record<
-  'gmail' | 'calendar' | 'youtube' | 'contacts' | 'tasks' | 'drive' | 'docs' | 'spotify',
+  'gmail' | 'calendar' | 'youtube' | 'tasks' | 'drive' | 'docs' | 'spotify' | 'github',
   { read: ConnectorScope[]; write: ConnectorScope[] }
 > = {
   gmail: { read: [gmailMetadata], write: [] },
   calendar: { read: [calendarRead], write: [calendarWrite] },
   youtube: { read: [youtubeRead], write: [youtubeWrite] },
-  contacts: { read: [contactsRead], write: [] },
   tasks: { read: [tasksRead], write: [tasksWrite] },
   drive: { read: [driveRead], write: [driveFile] },
   docs: { read: [], write: [docsWrite] },
@@ -161,4 +191,5 @@ export const SCOPES: Record<
     read: [spotifyTopRead, spotifyLibraryRead, spotifyRecentRead, spotifyPlaylistRead],
     write: spotifyPlaylistWrite,
   },
+  github: { read: [githubMetadata, githubPullRequests, githubIssues], write: [] },
 };

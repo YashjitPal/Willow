@@ -569,6 +569,111 @@ export const resolveCompatCitations = (
   for (const source of Array.isArray(harvest?.sources) ? harvest.sources : []) intern(source);
 
   if (!sources.length) return { sources: [], citations: [] };
+
+  // When bare sources are present (the provider/relay sent sources but no annotations array),
+  // distribute them paragraph-wise across the response based on keyword relevance so distinct
+  // source chips appear on their corresponding sections, just like Gemini.
+  const hadAnnotations = Array.isArray(harvest?.annotations) && harvest.annotations.length > 0;
+  if (!hadAnnotations && !citations.length && text.length > 0) {
+    citations.push(...distributeSourcesAcrossBlocks(text, sources));
+  }
+
   citations.sort((a, b) => a.endIndex - b.endIndex || a.startIndex - b.startIndex);
   return { sources, citations };
 };
+
+/**
+ * Partitions a text into markdown paragraphs/blocks and associates each source
+ * with its most relevant paragraph based on keyword overlap.
+ */
+function distributeSourcesAcrossBlocks(
+  text: string,
+  sources: GroundingSource[],
+): GroundingCitation[] {
+  if (!text.trim() || !sources.length) return [];
+
+  const blocks: { start: number; end: number; text: string }[] = [];
+  const lines = text.split('\n');
+  let currentOffset = 0;
+  let blockStart = -1;
+  let blockContent = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineStart = currentOffset;
+    const lineEnd = currentOffset + line.length;
+    currentOffset = lineEnd + 1; // +1 for the \n
+
+    if (line.trim().length === 0) {
+      if (blockStart !== -1 && blockContent.trim().length > 0) {
+        blocks.push({ start: blockStart, end: lineStart - 1, text: blockContent.trim() });
+        blockStart = -1;
+        blockContent = '';
+      }
+    } else {
+      if (blockStart === -1) {
+        blockStart = lineStart;
+      }
+      blockContent += (blockContent ? '\n' : '') + line;
+    }
+  }
+
+  if (blockStart !== -1 && blockContent.trim().length > 0) {
+    blocks.push({ start: blockStart, end: text.length, text: blockContent.trim() });
+  }
+
+  const substantiveBlocks = blocks.filter((b) => b.text.length > 15);
+  const targetBlocks = substantiveBlocks.length > 0 ? substantiveBlocks : blocks;
+
+  if (!targetBlocks.length) {
+    return [{ startIndex: 0, endIndex: text.length, sourceIndices: sources.map((_, i) => i) }];
+  }
+
+  const extractKeywords = (str: string): string[] =>
+    str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 4);
+
+  const blockWordSets = targetBlocks.map((b) => new Set(extractKeywords(b.text)));
+  const blockSourceMap = new Map<number, number[]>();
+
+  sources.forEach((source, sourceIdx) => {
+    const sourceWords = extractKeywords(`${source.title} ${source.domain} ${source.snippet || ''}`);
+    let bestBlockIdx = -1;
+    let maxScore = 0;
+
+    targetBlocks.forEach((_, blockIdx) => {
+      const blockWords = blockWordSets[blockIdx];
+      let score = 0;
+      for (const w of sourceWords) {
+        if (blockWords.has(w)) score++;
+      }
+      if (score > maxScore) {
+        maxScore = score;
+        bestBlockIdx = blockIdx;
+      }
+    });
+
+    if (bestBlockIdx === -1 || maxScore === 0) {
+      bestBlockIdx = sourceIdx % targetBlocks.length;
+    }
+
+    const current = blockSourceMap.get(bestBlockIdx) || [];
+    current.push(sourceIdx);
+    blockSourceMap.set(bestBlockIdx, current);
+  });
+
+  const citations: GroundingCitation[] = [];
+  for (let i = 0; i < targetBlocks.length; i++) {
+    const sourceIndices = blockSourceMap.get(i);
+    if (sourceIndices && sourceIndices.length > 0) {
+      citations.push({
+        startIndex: targetBlocks[i].start,
+        endIndex: targetBlocks[i].end,
+        sourceIndices,
+      });
+    }
+  }
+
+  return citations.length > 0
+    ? citations
+    : [{ startIndex: 0, endIndex: text.length, sourceIndices: sources.map((_, i) => i) }];
+}

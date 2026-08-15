@@ -34,8 +34,16 @@ export interface ConnectionsState {
   enabled: ConnectorId[];
 }
 
+/*
+ * Spelled out rather than derived from the registry, and the reason is import
+ * order: `registry.ts` reaches every connector module, several of which reach back
+ * here, so importing it from this file is a cycle. The cost of the duplication is
+ * one line per new product; the cost of getting it wrong is a connector that
+ * connects, works for the rest of the session, and is silently dropped on reload
+ * because this list did not recognise its id.
+ */
 const VALID: ReadonlySet<string> = new Set<ConnectorId>([
-  'calendar', 'gmail', 'youtube', 'contacts', 'tasks', 'drive', 'docs',
+  'calendar', 'gmail', 'youtube', 'tasks', 'drive', 'docs', 'spotify', 'github',
 ]);
 
 const EMPTY: ConnectionsState = { enabled: [] };
