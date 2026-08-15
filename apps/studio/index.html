@@ -466,6 +466,26 @@
         }
       }
 
+      /*
+       * The prompt's Copy / Edit row reveals on hover, and on KEYBOARD focus —
+       * never on a plain click.
+       *
+       * The row carried Tailwind's `group-focus-within:` variant, which matches
+       * `:focus`. Clicking a <button> focuses it, so pressing Copy left the row
+       * pinned open until the user clicked somewhere else. `:focus-visible` is
+       * the distinction that was missing: Chrome does not match it for a mouse
+       * click on a button, but does for Tab — so tabbing into the row (which is
+       * `opacity-0` at rest) still reveals it.
+       *
+       * Higher specificity than Tailwind's `.opacity-0` / `.pointer-events-none`
+       * utilities, so source order between this block and the CDN's injected
+       * sheet does not matter.
+       */
+      .gemini-user-actions:has(:focus-visible) {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
       @media (hover: none), (pointer: coarse) {
         .gemini-user-actions {
           opacity: 1 !important;

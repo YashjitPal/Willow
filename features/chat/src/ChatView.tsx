@@ -561,8 +561,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // jump for it is what produced the send-time teleport: the reload commits
       // the SAME thread, so the scroll effect bails on its `lastScrolledUserId`
       // guard and never consumes the flag, leaving it armed for a send minutes
-      // later. That send then runs the open-a-chat reposition — a hard jump to
-      // `messages[length - 1 - 4]` — before its own entrance.
+      // later. That send then runs the open-a-chat reposition — a hard jump
+      // straight to the anchor — instead of its own entrance.
       //
       // Clearing it at that early return instead is NOT equivalent: a chat
       // switch loads asynchronously while a still-attached turn from the
@@ -1374,9 +1374,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // highlight.js pass and a per-word span tree, and the list is not virtualized,
   // so a long thread used to land as one synchronous commit.
   //
-  // The first chunk must stay >= 8: the open-scroll jump below targets
-  // `messages[length - 1 - 4]`, and if that element is not mounted the jump
-  // silently no-ops and the chat opens scrolled to the TOP of the thread.
+  // The first chunk must stay >= 8: the open-scroll reposition below anchors on
+  // the last USER message, and the rest of that turn has to be mounted with it
+  // or `scrollHeight` is short and the chat opens scrolled to the TOP of the
+  // thread. (It used to hard-jump to `messages[length - 1 - 4]` and glide down
+  // from there, which is where the 4 in that bound came from.)
   const REVEAL_INITIAL_COUNT = 12;
   const REVEAL_CHUNK_SIZE = 10;
   const [revealCount, setRevealCount] = useState(Number.MAX_SAFE_INTEGER);
@@ -1776,15 +1778,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setNeedsScrollPadding(false);
       });
 
-      const N = 4;
-      if (isFirstScrollRef.current && messages.length > N) {
-        const targetIndex = messages.length - 1 - N;
-        const jumpMessage = messages[targetIndex];
-        const jumpEl = jumpMessage ? messageRefs.current[jumpMessage.id] : null;
-        if (jumpEl) {
-          c.scrollTop = Math.max(0, jumpEl.offsetTop - TARGET_VISUAL_OFFSET);
-        }
-      }
+      // `isFirstScrollRef` means "this run is a chat OPENING, not a turn
+      // arriving" — it is armed only by a real chat load (see the load effect).
+      const isChatOpen = isFirstScrollRef.current;
       isFirstScrollRef.current = false;
 
        // The first query already has one movement authority: the 500ms thread
@@ -1792,9 +1788,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
        // is shrinking the scrollable overflow makes scrollTop rise and then
        // ease back to zero, which is the visible first-send jerk. Later turns
        // do not remount the thread, so they continue to use native scrolling.
+       //
+       // Checked BEFORE the open case below on purpose: re-entering a chat whose
+       // turn is still running arms both flags, and that path has always landed
+       // at scrollTop 0 rather than on the anchor.
        if (skipNextNativeScrollRef.current) {
          skipNextNativeScrollRef.current = false;
          c.scrollTop = 0;
+         return;
+       }
+
+       // Opening a chat is not a turn entering the thread, so there is nothing
+       // to animate: the content is already there and the user asked for it by
+       // name. Land on the anchor in this same frame.
+       //
+       // This is the exact position both animated paths below settle on
+       // (`liveTarget()` in runTurnEntrance, and `scrollIntoView({block:'start'})`
+       // against the `scrollMarginTop: TARGET_VISUAL_OFFSET` on each message), so
+       // the chat now opens where the animation used to finish. It replaces a
+       // hard jump to `messages[length - 1 - 4]` that existed only to give the
+       // glide somewhere to travel FROM.
+       //
+       // A send never reaches here: `isFirstScrollRef` is armed only by the load
+       // effect, and cleared above on the very run it was armed for.
+       if (isChatOpen) {
+         c.scrollTop = Math.max(0, Math.min(
+           msgEl.offsetTop - TARGET_VISUAL_OFFSET,
+           c.scrollHeight - c.clientHeight,
+         ));
          return;
        }
 
@@ -3055,7 +3076,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             className="pointer-events-auto absolute inset-x-0 top-full z-0 bg-transparent"
                             style={{ height: MESSAGE_GAP }}
                           />
-                          <div className="gemini-user-actions pointer-events-none absolute right-3 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                          {/*
+                            * Hover only, plus keyboard focus — see the
+                            * `.gemini-user-actions:has(:focus-visible)` rule in
+                            * `apps/studio/index.html`.
+                            *
+                            * This row used to carry `group-focus-within:`, which
+                            * matches plain `:focus`. Clicking a <button> focuses
+                            * it, so pressing Copy pinned the row open until the
+                            * user clicked somewhere else — the row is meant to
+                            * track the pointer and stopped doing that the moment
+                            * it was used. `:focus-visible` keeps the reason the
+                            * focus variant was here (tabbing to a button inside
+                            * an `opacity-0` row has to reveal it) without a mouse
+                            * click ever latching it, because a clicked button
+                            * does not match `:focus-visible`.
+                            *
+                            * It lives in CSS rather than as an arbitrary Tailwind
+                            * variant because this class already has hand-written
+                            * rules there, and keyboard reveal must not depend on
+                            * the CDN JIT emitting a `:has()` selector.
+                            */}
+                          <div className="gemini-user-actions pointer-events-none absolute right-3 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100">
                             <button
                               type="button"
                               onClick={() => handleCopyPrompt(msg)}

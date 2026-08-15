@@ -905,7 +905,20 @@ const STYLE_CSS = [
   '  from { opacity: 0; }',
   '  to { opacity: 1; }',
   '}',
-  '.smd-src-chip-enter {',
+  // Scoped to `.smd-streaming` for the same reason every text reveal above is:
+  // a chat loaded from disk renders `.smd-static`, and an unscoped rule replayed
+  // this entrance there. It was visible rather than theoretical -- assistant
+  // turns carry `content-visibility: auto`, so a skipped turn does not start its
+  // animations until it scrolls into view, and scrolling up through an old chat
+  // dealt out the whole cascade turn by turn.
+  //
+  // A live turn keeps its entrance. Chips are only built once
+  // `effectiveStreaming` goes false, and that same transition arms the
+  // `keepTailAnimation` timeout rather than clearing it, so the root is still
+  // `.smd-streaming` when they mount. The window outlasts the cascade at every
+  // length: the tail is 760ms + 120ms per extra reveal unit, the cascade
+  // 180ms + 70ms per extra chip, and there are never more chips than units.
+  '.smd-streaming .smd-src-chip-enter {',
   '  animation-name: smd-src-chip-in;',
   '  animation-duration: 180ms;',
   '  animation-timing-function: var(--fade-animation-function);',

@@ -151,11 +151,22 @@ const ensureChatEmbeddingIndex = async (
   const active = embeddingIndexPromises.get(indexKey);
   if (active) return active;
 
-  const loadingReason = `chat-search:index:${hashText(indexKey)}`;
+  /*
+   * No top-loading reason here, deliberately.
+   *
+   * `ChatEmbeddingIndexer` is mounted for the whole app and re-runs whenever the
+   * chat list or any chat's timestamp changes — so it fires on every save,
+   * including the one that creates a brand-new session. Raising the route-progress
+   * bar for that made a green bar flash across the top of the app for background
+   * re-embedding the user never asked for and cannot act on. The work still runs;
+   * it just does not claim to be a route transition.
+   *
+   * A search the user actually typed still raises `chat-search:<generation>`
+   * below, and that reason covers any indexing the query has to wait on.
+   */
   const run = (async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CHAT_EMBEDDING_INDEX_TIMEOUT_MS);
-    startTopLoadingReason(loadingReason);
     try {
       const pending: PendingEmbedding[] = [];
       for (const candidate of chats) {
@@ -193,7 +204,6 @@ const ensureChatEmbeddingIndex = async (
       completedEmbeddingIndexes.add(indexKey);
     } finally {
       window.clearTimeout(timeout);
-      finishTopLoadingReason(loadingReason);
     }
   })();
 
