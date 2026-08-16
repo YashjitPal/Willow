@@ -647,16 +647,14 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
                   className="spark-skill-card"
                   onClick={() => onOpenSkill(skill.id)}
                 >
-                  <span className="spark-skill-card__icon" aria-hidden="true">
-                    <MaterialSymbol family="luminous" name="extension" size={24} weight={320} roundness={100} />
-                  </span>
+                  {/* Gemini's `skill-card` holds only the name and description — no
+                    * leading icon and no trailing chevron. */}
                   <span className="spark-skill-card__copy">
                     <span className="spark-skill-card__title">{skill.name}</span>
                     <span className="spark-skill-card__description">
                       {skill.description || 'Custom reusable instructions'}
                     </span>
                   </span>
-                  <MaterialSymbol family="luminous" name="chevron_right" size={24} weight={320} roundness={100} />
                 </button>
                 <div className="spark-skill-row__actions">
                   <SparkRowActionMenu

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { isTempChatId } from '@willow/storage/local-fs/chat-metadata';
+import { chatDisplayName, isTempChatId } from '@willow/storage/local-fs/chat-metadata';
 
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
@@ -225,7 +225,9 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
    *
    * A named chat's id *is* its title in Willow — `rebindChatTurnChatId` renames the
    * id once a title is generated — which is why the id doubles as the label, exactly
-   * as the sidebar's Recents rows use it.
+   * as the sidebar's Recents rows use it. `chatDisplayName` drops the de-duplicating
+   * " (2)" the id may carry; `chat.id` below stays raw, because that is what every
+   * action addresses the chat by.
    */
   const known = new Set(localChats);
   const chats = notebook.chatIds
@@ -241,7 +243,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
          * inventing a second convention. Naming needs a connected folder, so this
          * is the normal state on a browser-only workspace.
          */
-        title: isTempChatId(chatId) ? 'Untitled' : chatId,
+        title: isTempChatId(chatId) ? 'Untitled' : chatDisplayName(chatId),
         // "Today" / "Yesterday" / "Aug 16" / "Aug 16, 2025" — see formatChatDate.
         subtitle: formatChatDate(at),
       };

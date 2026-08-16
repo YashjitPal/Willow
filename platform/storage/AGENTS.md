@@ -29,7 +29,7 @@ Section 11 (Invariants) lists rules that cause data loss when broken.
 | `src/adapters/drive-discovery.ts` | Merges Drive projects into the local registry on connect. |
 | `src/adapters/use-drive.ts` | React hook: syncs the access token from `AuthContext`. |
 | `src/local-fs/LocalFSContext.tsx` | **The brain.** Directory handle, reconcile loop, CRUD, polling watcher. |
-| `src/local-fs/chat-metadata.ts` | Chat id/list/timestamp validation, storage-key scoping, sync-record merge. |
+| `src/local-fs/chat-metadata.ts` | Chat id/list/timestamp validation, storage-key scoping, sync-record merge, `chatDisplayName`. |
 | `src/local-fs/chat-title.ts` | Asks the user's chat-naming model for a short title. Never throws. |
 | `src/local-fs/project-manifest.ts` | Reads/repairs a project folder's stable id in `.willow.json`. |
 | `src/local-fs/disk-deps.ts` | The `DiskDeps` contract the two disk writers below are passed. |

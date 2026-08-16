@@ -12,7 +12,7 @@ import { topLoadingReasons } from '@willow/ui/top-loading-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
-import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
+import { STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
 import { ChatEmbeddingIndexer, SearchChatsPage } from '../shell/SearchChats';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
@@ -124,6 +124,7 @@ const SettingsModal = React.lazy(() => import('../settings/SettingsModal').then(
 const PersonalIntelligenceTab = React.lazy(() =>
   import('../settings/tabs/personal-intelligence/PersonalIntelligenceTab').then((m) => ({ default: m.PersonalIntelligenceTab }))
 );
+const ActivityTab = React.lazy(() => import('../settings/tabs/activity/ActivityTab').then((m) => ({ default: m.ActivityTab })));
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
 const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
 const ConnectedAppsTab = React.lazy(() =>
@@ -253,6 +254,7 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     if (location.pathname === '/search') return 'search';
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
+    if (location.pathname === '/activity') return 'activity';
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
@@ -291,6 +293,9 @@ const App: React.FC = () => {
    */
   const [isViewPending, startViewTransition] = React.useTransition();
   const commitView = React.useCallback((next: ViewType) => {
+    // Assigned rather than only set, so a navigation to anywhere else clears a
+    // flag a previous home-bound change left behind.
+    silentHomeArrivalRef.current = next === 'home';
     startViewTransition(() => setCurrentView(next));
   }, []);
   /*
@@ -329,8 +334,23 @@ const App: React.FC = () => {
    * `chat-load:` raised with no reset in flight.
    */
   const silentChatSurfaceRef = React.useRef(false);
+  /*
+   * Arriving at New chat raises no bar at all.
+   *
+   * Broader than `silentChatSurfaceRef` on purpose: that one silences the two
+   * reasons the chat surface raises about itself, while this silences EVERY
+   * reason for the length of the navigation. Landing on New chat otherwise
+   * stacks up three of them — `studio-view` for the route, `studio-mode` for the
+   * mode switch that rides along with it, and the chat surface's own load — so
+   * suppressing them individually means finding all three and keeping them found.
+   *
+   * The work still happens; only the bar is withheld. Requested by name: the
+   * destination is an empty thread, so there is nothing the user is waiting on.
+   */
+  const silentHomeArrivalRef = React.useRef(false);
 
   const startTopLoading = React.useCallback((reason: string) => {
+    if (silentHomeArrivalRef.current) return;
     if (silentChatSurfaceRef.current && isChatSurfaceLoadingReason(reason)) return;
     if (topLoadingHideTimerRef.current) {
       window.clearTimeout(topLoadingHideTimerRef.current);
@@ -651,6 +671,9 @@ const App: React.FC = () => {
     if (view === currentView) return true;
     const sequence = ++viewChangeSequenceRef.current;
     viewChangeIntentRef.current = view;
+    // Before the first `startTopLoading` below, which would otherwise raise the
+    // bar for a home-bound change a beat before `commitView` could silence it.
+    silentHomeArrivalRef.current = view === 'home';
     startTopLoading('studio-view');
     if (currentView === 'agents' && view !== 'agents') {
       const flushDraft = agentBuilderDraftFlush.get();
@@ -666,6 +689,7 @@ const App: React.FC = () => {
     if (view === 'agents') navigate('/?view=agents');
     else if (view === 'search') navigate('/search');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
+    else if (view === 'activity') navigate('/activity');
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
@@ -748,6 +772,7 @@ const App: React.FC = () => {
       const urlMatchesIntent =
         (intent === 'search' && location.pathname === '/search') ||
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
+        (intent === 'activity' && location.pathname === '/activity') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
         (intent === 'memory' && location.pathname === '/memory') ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
@@ -766,6 +791,10 @@ const App: React.FC = () => {
     } else if (location.pathname === '/personalization-settings') {
       if (currentView !== 'personal-intelligence') {
         commitView('personal-intelligence');
+      }
+    } else if (location.pathname === '/activity') {
+      if (currentView !== 'activity') {
+        commitView('activity');
       }
     } else if (location.pathname === '/saved-info') {
       if (currentView !== 'saved-info') {
@@ -791,6 +820,7 @@ const App: React.FC = () => {
     } else if (
       currentView === 'search' ||
       currentView === 'personal-intelligence' ||
+      currentView === 'activity' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
@@ -859,6 +889,27 @@ const App: React.FC = () => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-view'));
     return () => window.cancelAnimationFrame(frame);
   }, [currentView, finishTopLoading]);
+
+  /*
+   * Stand the New-chat suppression down once the arrival has landed.
+   *
+   * A frame after the commit, not inside it: the chat surface raises its own
+   * reasons from effects that run in the same commit, and clearing in the body
+   * would let those through — which is the bar this exists to prevent.
+   *
+   * Anywhere other than home clears it immediately, so a home-bound change that
+   * never completed cannot leave the bar muted for the next navigation.
+   */
+  React.useEffect(() => {
+    if (currentView !== 'home') {
+      silentHomeArrivalRef.current = false;
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      silentHomeArrivalRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentView]);
 
   /*
    * The only feedback while a swap is held.
@@ -1041,9 +1092,19 @@ const App: React.FC = () => {
 
   const mainAppShell = (
     <>
+      {/*
+        * The bar is inset by the sidebar only while the sidebar is a visible
+        * panel — which is to say, only while it is expanded.
+        *
+        * Expanded, the rail is `#1f1f1f` against the studio surface, so a bar
+        * starting at its right edge lands on a real boundary. Collapsed, the rail
+        * paints `var(--studio-surface)`, the same colour as the page behind it,
+        * so there is no edge to start from: a 52px inset just left the bar
+        * stopping short over unbroken background. Full width there instead.
+        */}
       <TopLoadingBar
         active={isTopLoading}
-        leftOffset={isSidebarHidden ? 0 : (isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH : STUDIO_SIDEBAR_EXPANDED_WIDTH)}
+        leftOffset={isSidebarHidden || isSidebarCollapsed ? 0 : STUDIO_SIDEBAR_EXPANDED_WIDTH}
         workspaceColor={userProfile?.workspaceColor}
       />
       {hasOpenedSettings && (
@@ -1076,6 +1137,8 @@ const App: React.FC = () => {
         onSettingsClick={(tabId) => {
           if (tabId === 'intelligence') {
             handleViewChange('personal-intelligence');
+          } else if (tabId === 'activity') {
+            handleViewChange('activity');
           } else if (tabId === 'gems') {
             handleViewChange('gems');
           } else {
@@ -1233,6 +1296,14 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <PersonalIntelligenceTab />
+          </Suspense>
+        ) : currentView === 'activity' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <ActivityTab />
           </Suspense>
         ) : currentView === 'saved-info' ? (
           <Suspense fallback={

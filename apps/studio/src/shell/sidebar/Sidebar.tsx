@@ -21,6 +21,7 @@ import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
+import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
 import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import {
@@ -593,7 +594,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
+export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -855,6 +856,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editValue, setEditValue] = useState('');
   const [shouldRenderRename, setShouldRenderRename] = useState(false);
   const [isRenameClosing, setIsRenameClosing] = useState(false);
+  // The field is prefilled with what the row shows, not with the id, so the
+  // de-duplicating " (2)" never surfaces. That makes this — not `editingChatId`
+  // — the value "unchanged" is measured against, both for the Rename pill's
+  // disabled state and for the Enter key.
+  const renameBaseName = editingChatId ? chatDisplayName(editingChatId) : '';
+  const isRenameUnchanged = !editValue.trim() || editValue === renameBaseName;
 
   // Delete chat confirmation state
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
@@ -898,7 +905,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const openRenameDialog = (chat: string) => {
     setEditingChatId(chat);
-    setEditValue(chat);
+    setEditValue(chatDisplayName(chat));
     setShouldRenderRename(true);
     setIsRenameClosing(false);
   };
@@ -1700,6 +1707,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <SidebarItem 
               flushRight
               icon={MediaIcon} 
+              /* `MediaIcon`'s body spans x 19..121 inside a viewBox centred on
+               * 82, so it draws ~12 units — about 2px at this size — left of
+               * centre. The sparkle at the top right balances the bounding box
+               * but not the eye. */
+              iconClassName="ml-[2px]"
               label="Media" 
               isCollapsed={isCollapsed} 
               active={currentView === 'home' && studioMode === 'media'}
@@ -1711,6 +1723,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <SidebarItem
               flushRight
               icon={AgentIcon}
+              /* Geometrically this one IS centred — the artwork is drawn around
+               * (60,60) and rotated about that same point. The nudge is purely
+               * optical, matching Media so the two read as a pair. */
+              iconClassName="ml-[2px]"
               label="Agents"
               isCollapsed={isCollapsed}
               active={currentView === 'agents'}
@@ -1860,7 +1876,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <RecentChatRow
                               key={chat}
                               chatId={chat}
-                              displayName={isTemp ? 'Untitled' : chat}
+                              displayName={isTemp ? 'Untitled' : chatDisplayName(chat)}
                               isCollapsed={isCollapsed}
                               isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
                               isPinned={pinnedChatSet.has(chat)}
@@ -2243,7 +2259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <>
               <GeminiDialogPill onClick={triggerCloseRename}>Cancel</GeminiDialogPill>
               <GeminiDialogPill
-                disabled={!editValue.trim() || editValue === editingChatId}
+                disabled={isRenameUnchanged}
                 onClick={commitRename}
               >
                 Rename
@@ -2257,7 +2273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onChange={setEditValue}
               ariaLabel="Chat name"
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && editValue.trim() && editValue !== editingChatId) commitRename();
+                if (e.key === 'Enter' && !isRenameUnchanged) commitRename();
               }}
             />
           </div>

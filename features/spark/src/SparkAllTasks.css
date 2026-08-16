@@ -3,12 +3,21 @@
   box-sizing: border-box;
 }
 
+/*
+ * Gemini scrolls the LIST, not the page: `.goal-list` is `overflow-y: auto` with
+ * `flex: 1 1 0` and `min-height: 0` inside a fixed-height column, so the title,
+ * composer and filter row stay put while the tasks move under them. Willow scrolled
+ * the whole page, which meant the fade mask below had nothing to act on.
+ */
 .spark-all-tasks {
   container-type: inline-size;
+  display: flex;
   width: 100%;
+  height: 100%;
   min-height: 100%;
+  flex-direction: column;
   padding: 40px 0 48px;
-  overflow-x: clip;
+  overflow: hidden;
   background: var(--studio-surface, #0f0f0f);
   color: #e3e3e3;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
@@ -25,7 +34,11 @@
 }
 
 .spark-all-tasks__content {
+  display: flex;
   width: min(660px, calc(100% - 32px));
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
   margin: 0 auto;
 }
 
@@ -244,9 +257,18 @@
   line-height: 16px;
 }
 
+/*
+ * Flex column, so the height constraint reaches the list. This was `display: block`,
+ * which meant `.spark-all-tasks__list`'s `flex: 1 1 0` had no flex parent to divide and
+ * the list simply grew to its content — the reason the scroll container and its fade
+ * mask did nothing. `min-height: 0` is what lets it actually shrink.
+ */
 .spark-all-tasks__library {
   position: relative;
-  min-height: 32px;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
   margin-top: 26px;
 }
 
@@ -289,32 +311,57 @@
   cursor: pointer;
 }
 
+/*
+ * Gemini's `.remy-filter-menu` is a `mat-menu` on the `lm-menu-theme`, so it inherits
+ * that surface — #1f1f1f, 8px padding, level1 elevation (0 0 20px rgba(0,0,0,.28)),
+ * and no border — and overrides the radius to `--gem-sys-shape--corner-large-increased`
+ * (20px) with `min-width: max-content` and `overflow: hidden`. Its entrance is
+ * Material's `_mat-menu-enter`: 120ms on cubic-bezier(0,0,.2,1) from scale(0.8).
+ */
 .spark-all-tasks__filter-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 8;
-  width: 170px;
+  min-width: max-content;
+  width: auto;
   padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 20px;
   background: #1f1f1f;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
-  animation: spark-all-tasks-popover-in 150ms cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  animation: spark-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
   transform-origin: top left;
 }
 
+@keyframes spark-menu-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Gemini's filter rows: the base `.mat-mdc-menu-item` is 36px at a 12px radius with
+ * `padding: 0 8px` and an 8px gap, and `.remy-filter-menu-item` adds
+ * `padding-inline-end: 2rem` so the checked glyph never crowds the label. */
 .spark-all-tasks__filter-menu button {
   display: flex;
   width: 100%;
   height: 36px;
+  min-height: 36px;
   align-items: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 32px 0 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
-  color: #e6e6e6;
+  color: #e3e3e3;
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -410,12 +457,34 @@
   border: 0;
 }
 
+/*
+ * Gemini's `.goal-list`: the scroll container, `padding: 16px 8px 16px 0`, gap 4px,
+ * a thin scrollbar in rgba(196,199,197,.4) on a transparent track, and a mask that
+ * fades the bottom 48px (`--fade-distance` is `calc(16px * 3)`).
+ *
+ * The mask is STATIC in every state that could be observed: scrolling the list
+ * through five positions — top, quarter, half, near-bottom and bottom — left
+ * `--fade-progress` at 0 and `--fade-bottom` at 1 throughout. So there is no top
+ * fade and the bottom fade never lifts, even when scrolled to the end.
+ */
 .spark-all-tasks__list {
   display: flex;
   width: 100%;
+  min-height: 0;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 0 16px;
+  padding: 16px 8px 16px 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(196, 199, 197, 0.4) transparent;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 0,
+    #000 calc(100% - 48px),
+    transparent 100%
+  );
 }
 
 /* Surface matched to Gemini's `.goal-card`: a half-alpha `--lumi-sys-color--surface`
@@ -608,35 +677,46 @@
   pointer-events: auto;
 }
 
+/*
+ * Same surface as Gemini's goal action menu (`.mat-mdc-menu-panel.lm-menu-theme`),
+ * measured: min-width 240, max-width 280, #1f1f1f, 16px corners, level1 elevation,
+ * 8px padding, no border, and `_mat-menu-enter` at 120ms from scale(0.8). Rows are
+ * 36px at a 12px radius with `padding: 0 8px`, an 8px gap and a 14px/20px weight-500
+ * label in #e3e3e3.
+ */
 .spark-all-tasks__row-menu {
   position: absolute;
   top: 56px;
   right: 8px;
   z-index: 22;
-  width: 200px;
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: 280px;
   padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 0;
   border-radius: 16px;
   background: #1f1f1f;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
-  animation: spark-all-tasks-popover-in 150ms cubic-bezier(0.2, 0, 0, 1);
-  transform-origin: top right;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  overflow: auto;
+  animation: spark-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: 100% 0;
 }
 
 .spark-all-tasks__row-menu button {
   display: flex;
   width: 100%;
-  height: 40px;
+  height: 36px;
+  min-height: 36px;
   align-items: center;
-  gap: 12px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 8px;
   border: 0;
   border-radius: 12px;
   background: transparent;
-  color: #e6e6e6;
+  color: #e3e3e3;
   font-family: inherit;
   font-size: 14px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 20px;
   text-align: left;
   cursor: pointer;
@@ -644,7 +724,7 @@
 
 .spark-all-tasks__row-menu button:hover,
 .spark-all-tasks__row-menu button:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(230, 230, 230, 0.08);
 }
 
 /* Gemini's action menu draws Delete in the same #e3e3e3 as Rename and Pin — measured
@@ -653,6 +733,14 @@
   color: inherit;
 }
 
+/*
+ * Matched to Gemini's task dialogs — the same surface `SparkTaskDialogs.css`
+ * documents, measured off `.mat-mdc-dialog-surface`: #1f1f1f, **32px** corners, level1
+ * elevation, zero padding on the shell, min-width 280 and a 512/600 cap. The backdrop
+ * is rgba(0,0,0,.32) fading over 400ms on cubic-bezier(.25,.8,.25,1).
+ *
+ * This was a #2b2b2b card at 24px corners with blue text buttons.
+ */
 .spark-all-tasks__dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -661,83 +749,100 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.56);
-  animation: spark-all-tasks-fade-in 150ms ease;
+  background: rgba(0, 0, 0, 0.32);
+  animation: spark-all-tasks-fade-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .spark-all-tasks__rename-dialog,
 .spark-all-tasks__delete-dialog {
-  width: min(420px, 100%);
-  padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 24px;
-  background: #2b2b2b;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.48);
+  box-sizing: border-box;
+  min-width: 280px;
+  padding: 0;
+  border: 0;
+  border-radius: 32px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
 }
 
+.spark-all-tasks__rename-dialog {
+  width: 409.6px;
+  max-width: min(512px, 100%);
+}
+
+.spark-all-tasks__delete-dialog {
+  width: 480px;
+  max-width: min(600px, 100%);
+}
+
+/* Title: `padding: 24px 24px 0 20px`, 16px/24px weight 470. */
 .spark-all-tasks__rename-dialog h2,
 .spark-all-tasks__delete-dialog h2 {
-  margin: 0 0 20px;
-  color: #e6e6e6;
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 26px;
+  margin: 0;
+  padding: 24px 24px 0 20px;
+  color: #e3e3e3;
+  font-size: 16px;
+  font-weight: 470;
+  line-height: 24px;
 }
 
 .spark-all-tasks__delete-dialog > p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.66);
-  font-size: 14px;
+  margin: 16px 24px 0;
+  color: #e6e6e6;
+  font-size: 15px;
   font-weight: 400;
   line-height: 20px;
 }
 
 .spark-all-tasks__rename-dialog input {
-  width: 100%;
-  height: 48px;
-  padding: 0 14px;
-  border: 1px solid rgba(168, 199, 250, 0.75);
+  box-sizing: border-box;
+  width: calc(100% - 48px);
+  height: 44.8px;
+  margin: 16px 24px 0;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   outline: 0;
   background: transparent;
   color: #e6e6e6;
   font-family: inherit;
-  font-size: 15px;
-  line-height: 20px;
+  font-size: 16px;
+  line-height: 24px;
 }
 
 .spark-all-tasks__rename-dialog input:focus {
   border-color: #a8c7fa;
-  box-shadow: 0 0 0 1px #a8c7fa;
 }
 
 .spark-all-tasks__dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 24px;
+  padding: 16px;
 }
 
+/* Neutral filled pills: 28.8px tall, `padding: 0 12px`, 14px/20px weight 500 on
+ * #171617 — and the disabled state is a faint fill, not just faded text. */
 .spark-all-tasks__dialog-actions button {
-  height: 40px;
-  padding: 0 18px;
+  height: 28.8px;
+  padding: 0 12px;
   border: 0;
   border-radius: 9999px;
-  background: transparent;
-  color: #a8c7fa;
+  background: #171717;
+  color: #e6e6e6;
   font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 20px;
   cursor: pointer;
 }
 
 .spark-all-tasks__dialog-actions button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: #232323;
 }
 
 .spark-all-tasks__dialog-actions button:disabled {
-  color: rgba(255, 255, 255, 0.38);
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
   cursor: default;
 }
 

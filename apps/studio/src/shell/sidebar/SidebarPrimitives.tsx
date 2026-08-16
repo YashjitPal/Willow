@@ -15,6 +15,15 @@ export const SidebarItem: React.FC<{
   keepActionsVisible?: boolean;
   flushRight?: boolean;
   /**
+   * Optical correction for one icon, e.g. `ml-[2px]`.
+   *
+   * Per-row on purpose. This used to be an `ml-[2px]` baked into the lucide
+   * branch below, which centred `MediaIcon` — whose body sits ~12 viewBox units
+   * left of its own centre — at the cost of pushing the genuinely centred
+   * `Terminal` two pixels off. Corrections belong to the icon that needs them.
+   */
+  iconClassName?: string;
+  /**
    * The keyboard shortcut Gemini reveals in the row's trailing slot on hover —
    * "Ctrl+Shift+O" on New chat, "Ctrl+Shift+K" on Search chats.
    *
@@ -23,7 +32,7 @@ export const SidebarItem: React.FC<{
    * would be worse than printing none.
    */
   shortcut?: string;
-}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut }) => (
+}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut, iconClassName = '' }) => (
   <div className={flushRight ? 'pl-1.5 pr-0' : 'px-1.5'}>
     <div
       role="button"
@@ -63,7 +72,15 @@ export const SidebarItem: React.FC<{
           />
         </div>
       ) : Icon ? (
-        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 ml-[2px]`}>
+        /*
+         * No blanket left margin — see `iconClassName`. The `ml-[2px]` that used
+         * to live here centred Media but pushed Code two pixels right of New chat
+         * and Search, which is visible collapsed, where the active row is a 32px
+         * circle and the glyph sat off its centre. Bare, every glyph starts at
+         * x=16, which is where Gemini's rail puts all of them; the icons that
+         * genuinely need a nudge now ask for one.
+         */
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 ${iconClassName}`}>
           <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
         </div>
       ) : null}

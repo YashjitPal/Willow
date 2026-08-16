@@ -310,13 +310,21 @@ test('the Rename pill is disabled at open and while the field is empty', () => {
   );
   // Measured on a freshly opened dialog: bg at alpha 0.12, colour at 0.38 —
   // i.e. disabled, because the field starts at the unchanged title.
-  assert.match(rename, /disabled=\{!editValue\.trim\(\) \|\| editValue === editingChatId\}/);
+  assert.match(rename, /disabled=\{isRenameUnchanged\}/);
+  // "Unchanged" is measured against the DISPLAYED name, not the chat id: the
+  // field is prefilled with the id minus its de-duplicating " (2)", so
+  // comparing against `editingChatId` would leave the pill enabled at open.
+  assert.match(
+    sidebarCode,
+    /const isRenameUnchanged = !editValue\.trim\(\) \|\| editValue === renameBaseName;/,
+  );
+  assert.match(sidebarCode, /const renameBaseName = editingChatId \? chatDisplayName\(editingChatId\) : '';/);
 });
 
 test('the rename field is prefilled with the current name', () => {
   // Measured selection {start: 29, end: 29} on a 29-char title: caret at the
   // end, nothing selected. A prefilled autoFocus input gives exactly that.
-  assert.match(sidebarCode, /setEditValue\(chat\)/);
+  assert.match(sidebarCode, /setEditValue\(chatDisplayName\(chat\)\)/);
   assert.match(dialogCode, /autoFocus/);
   assert.doesNotMatch(dialogCode, /\.select\(\)/, 'Gemini does not select-all on open');
 });

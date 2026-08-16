@@ -1,0 +1,654 @@
+/*
+ * Settings > Activity.
+ *
+ * Every value here was measured off Gemini's real Activity surface, which is
+ * myactivity.google.com/product/gemini (Gemini opens it in a new browser tab rather
+ * than rendering it in-app). Google's stylesheets are cross-origin, so
+ * `document.styleSheets` exposes none of their rules; the authored CSS below came from
+ * CDP `CSS.getMatchedStylesForNode`, which does see them. Geometry came from
+ * `getBoundingClientRect` on the live page.
+ *
+ * Captures + the scrapers that produced them:
+ *   tools/ui-research/captures/activity/   (10-matched-styles.txt, 20-containers.json,
+ *                                           18-responsive.json, 18-icons.json)
+ *   tools/ui-research/scrapers/activity/
+ *
+ * Google's GM3 tokens are resolved to the literal values the dark theme produces, since
+ * Willow has no GM3 token layer to inherit from.
+ */
+
+.activity-page {
+  /* The page's own surface colour, not Willow's #0f0f0f — this is a clone of a Google
+     page and it keeps its own background even though it renders inside the shell. */
+  background-color: #202124;
+  color: #e8eaed;
+}
+
+/*
+ * Content column. Fixed 608px and centred until the viewport can no longer hold it plus
+ * its 24px gutters, then it takes what is left. Measured at 1536/1280/1100/960/840/720
+ * (608 every time) and 600/480 (viewport - 48). See 18-responsive.json.
+ */
+.activity-column {
+  width: 608px;
+  max-width: calc(100% - 48px);
+  margin: 24px auto;
+}
+
+/* ---- page title ------------------------------------------------------------------ */
+
+.activity-title {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #f1f3f4;
+  margin: 1rem 0;
+}
+
+/* ---- "Keep activity" card --------------------------------------------------------- */
+
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background-color: rgba(209, 225, 255, 0.08);
+  border-radius: 1rem;
+}
+
+/* Bottom padding is 0: the trailing .activity-card-note supplies it via its own margin. */
+.activity-card-inner {
+  padding: 16px 16px 0;
+}
+
+.activity-card-heading {
+  margin: 0 0 16px;
+}
+
+.activity-card-heading h2 {
+  font-family: 'Google Sans', Roboto, 'Noto Sans Khmer', Arial, sans-serif;
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #e8eaed;
+  margin: 0;
+}
+
+.activity-card-body {
+  font-family: 'Google Sans', Roboto, 'Noto Sans Khmer', Arial, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #c4c7c5;
+  margin: 1rem 0;
+}
+
+.activity-card-note {
+  font-family: 'Google Sans', Roboto, 'Noto Sans Khmer', Arial, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  color: #c4c7c5;
+  margin: 1rem 0;
+}
+
+.activity-card-note p {
+  margin: 0;
+}
+
+.activity-card-note a {
+  color: #8ab4f8;
+  text-decoration: none;
+}
+
+.activity-card-note a:hover {
+  text-decoration: underline;
+}
+
+/* ---- the "On" filled-tonal dropdown chip ------------------------------------------ */
+
+/*
+ * 40px tall inside a 48px row: the button carries margin-block (48 - 40) / 2, which is
+ * what makes the wrapper 48 and keeps the chip optically centred.
+ */
+.activity-chip-row {
+  display: flex;
+}
+
+.activity-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 40px;
+  margin-block: 4px;
+  padding: 0 16px;
+  gap: 8px;
+  border: none;
+  border-radius: 20px;
+  background-color: #004a77;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  -webkit-appearance: none;
+  appearance: none;
+  /* Authored value: border-radius .35s cubic-bezier(.4,.1,.5,1.4) on shape change. */
+  transition: border-radius 0.35s cubic-bezier(0.4, 0.1, 0.5, 1.4);
+}
+
+/* State layer: hover .08 / pressed .1 of on-secondary-container, per the GM3 tokens. */
+.activity-chip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: #004a77;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+}
+
+.activity-chip:hover::before {
+  background-color: #d3e3fd;
+  opacity: 0.08;
+}
+
+.activity-chip:active::before {
+  background-color: #d3e3fd;
+  opacity: 0.1;
+}
+
+.activity-chip-label {
+  font-family: 'Google Sans Flex', 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #e3e3e3;
+  z-index: 1;
+}
+
+.activity-chip-icon {
+  display: inline-flex;
+  fill: #a8c7fa;
+  z-index: 1;
+}
+
+.activity-since {
+  font-family: 'Google Sans', Roboto, 'Noto Sans Khmer', Arial, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.00625rem;
+  color: #c4c7c5;
+  margin: 0.5rem 0 1rem;
+}
+
+/* ---- the two settings rows inside the card ---------------------------------------- */
+
+.activity-setting-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.activity-setting-icon {
+  display: flex;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 16px;
+  flex: none;
+  fill: #c4c7c5;
+}
+
+.activity-setting-text {
+  flex: 1 1 auto;
+  font-family: 'Google Sans', Roboto, 'Noto Sans Khmer', Arial, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #c4c7c5;
+}
+
+.activity-setting-trailing {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-left: 16px;
+  flex: none;
+}
+
+/* The chevron's disc is the page background, not the card's tint — `.CjA3B .oLR88b`
+   overrides the default rgba(209,225,255,.08) with rgb(32,33,36). */
+.activity-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background-color: #202124;
+  fill: #c4c7c5;
+}
+
+.activity-setting-row:hover .activity-chevron {
+  background-color: #2a2b2e;
+}
+
+/* Checkbox: 18px box, 2px outline, 2px radius; the tick is a stroked path, not a fill. */
+.activity-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
+.activity-checkbox-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #c4c7c5;
+  border-radius: 2px;
+  background-color: transparent;
+  transition: background-color 0.09s cubic-bezier(0, 0, 0.2, 1),
+    border-color 0.09s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.activity-checkbox-box.is-checked {
+  background-color: #a8c7fa;
+  border-color: #a8c7fa;
+}
+
+.activity-checkbox-tick {
+  width: 14.8px;
+  height: 14.8px;
+  stroke: #062e6f;
+  stroke-width: 3.12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0;
+}
+
+.activity-checkbox-box.is-checked .activity-checkbox-tick {
+  opacity: 1;
+}
+
+/* ---- privacy banner ---------------------------------------------------------------- */
+
+.activity-privacy {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 16px;
+  color: #e8eaed;
+  border: 1px solid #5f6368;
+  border-radius: 0.5rem;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  letter-spacing: 0.025em;
+  font-weight: 400;
+}
+
+.activity-privacy-icon {
+  margin: 8px 0 8px 16px;
+  flex: none;
+}
+
+.activity-privacy-icon img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.activity-privacy-text {
+  display: flex;
+  align-items: flex-start;
+  margin: 8px;
+}
+
+.activity-privacy-link {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8ab4f8;
+  font: inherit;
+  cursor: pointer;
+}
+
+.activity-privacy-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Delete button ------------------------------------------------------------------ */
+
+/*
+ * A "hairline" outlined button (.OLiIxf): Google Sans 14/500 with text-transform none —
+ * not the uppercase Roboto of the base MDC button class it also carries.
+ */
+.activity-delete-row {
+  display: flex;
+  margin-top: 24px;
+}
+
+.activity-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  min-width: 64px;
+  padding: 0 11px 0 15px;
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+  background: transparent;
+  color: #8ab4f8;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.0107142857em;
+  text-transform: none;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  transition: border 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.activity-delete-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: #8ab4f8;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+}
+
+.activity-delete-button:hover::before {
+  opacity: 0.08;
+}
+
+.activity-delete-button:active::before {
+  opacity: 0.12;
+}
+
+.activity-delete-caret {
+  display: inline-flex;
+  margin-left: 4px;
+  fill: currentColor;
+}
+
+/* ---- date group header --------------------------------------------------------------- */
+
+/*
+ * The group header is 48px wider than the column and sits 24px outside it on each side,
+ * so the rounded bar bleeds past the rows it heads.
+ */
+.activity-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 1.5rem -24px 0;
+  padding: 1rem 1.5rem;
+  background: #3c4043;
+  border-radius: 0.5rem;
+}
+
+.activity-group:first-of-type .activity-group-header {
+  margin-top: 0;
+}
+
+.activity-group-header h2 {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  letter-spacing: 0.00625em;
+  font-weight: 500;
+  color: #e8eaed;
+  margin: 0;
+}
+
+.activity-group-action {
+  display: flex;
+  align-items: center;
+  margin-right: -13px;
+}
+
+/* ---- activity row ---------------------------------------------------------------------- */
+
+.activity-row {
+  padding: 16px 0;
+  border-top: 1px solid #5f6368;
+}
+
+.activity-row:first-of-type {
+  border-top: 0;
+}
+
+.activity-row-head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.activity-row-product {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+  color: #bdc1c6;
+}
+
+.activity-row-product-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 14px;
+  flex: none;
+}
+
+.activity-row-product-name {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: #bdc1c6;
+}
+
+/* Pulls the 48px hit target up and out so it optically centres on the 20px product line. */
+.activity-row-action {
+  margin: -13px -13px 0 0;
+}
+
+.activity-row-body {
+  display: flex;
+  justify-content: space-between;
+}
+
+.activity-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.activity-row-title {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  letter-spacing: 0.00625em;
+  font-weight: 500;
+  color: #e8eaed;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+  outline: 0;
+}
+
+.activity-row-meta {
+  margin-top: 16px;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  letter-spacing: 0.025em;
+  font-weight: 400;
+  color: #bdc1c6;
+}
+
+.activity-row-details {
+  color: #bdc1c6;
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+
+/* ---- shared 48px icon button --------------------------------------------------------- */
+
+.activity-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  padding: 12px;
+  border: none;
+  outline: none;
+  background-color: transparent;
+  fill: currentColor;
+  color: #e8eaed;
+  cursor: pointer;
+  user-select: none;
+  overflow: visible;
+  z-index: 0;
+}
+
+.activity-icon-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: #e8eaed;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+}
+
+.activity-icon-button:hover::before {
+  opacity: 0.08;
+}
+
+.activity-icon-button:active::before {
+  opacity: 0.12;
+}
+
+.activity-icon-button svg {
+  position: relative;
+}
+
+/* ---- menus ----------------------------------------------------------------------------- */
+
+/*
+ * The item list comes from the markup Google already ships inside the card, unopened —
+ * a role="menu" ul with "Turn off / 1 step", a separator, and "Turn off and delete
+ * activity / 2 steps" (11-markup-card.html).
+ *
+ * Two captures of this menu disagreed: 200.4x177 with 72px items, and 160.3x141.6 with
+ * 57.6px items. 160.3/200.4 and 141.6/177 are both exactly 0.8, so the smaller one was
+ * sampled mid-animation — which pins the settled box AND the enter transform at once.
+ */
+.activity-menu {
+  position: absolute;
+  z-index: 30;
+  min-width: 200px;
+  padding: 8px 0;
+  background-color: #36373a;
+  border-radius: 8px;
+  box-shadow: 0 12px 15px 0 rgba(0, 0, 0, 0.24);
+  animation: activity-menu-in 0.12s cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: top left;
+  list-style: none;
+  margin: 4px 0 0;
+}
+
+@keyframes activity-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.activity-menu-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px 16px;
+  cursor: pointer;
+  font-family: Roboto, Arial, sans-serif;
+  color: #e8eaed;
+}
+
+.activity-menu-item:hover {
+  background-color: rgba(232, 234, 237, 0.08);
+}
+
+.activity-menu-item-label {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.activity-menu-item-hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: #bdc1c6;
+}
+
+/* Single-line variant: the Delete menu's options measured 48px tall at 16px/24px. */
+.activity-menu-item.is-single {
+  padding: 12px 16px;
+}
+
+.activity-menu-item.is-single .activity-menu-item-label {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.activity-menu-separator {
+  height: 1px;
+  margin: 8px;
+  background-color: #5f6368;
+}
+
+.activity-menu-anchor {
+  position: relative;
+}
+
+/* ---- empty + loading -------------------------------------------------------------------- */
+
+.activity-empty {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #bdc1c6;
+  padding: 24px 0;
+}

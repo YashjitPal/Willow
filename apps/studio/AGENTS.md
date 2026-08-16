@@ -150,6 +150,14 @@ Rules:
   primitive or an identity-stable callback** — the handlers go through
   `useEventCallback` for this reason. Adding an inline arrow or object prop
   silently un-memoizes the entire list.
+- **A row's label is `chatDisplayName(chat)`, never `chat`.** A chat id is its
+  on-disk filename, so a title the naming model has already used gets a
+  de-duplicating " (2)" appended to keep the two files apart. That is storage
+  bookkeeping and the reader has no use for it, so every surface that shows a
+  chat name — Recents, the notebook's Past chats, search results, the Rename
+  field's prefill — strips it. Everything that *addresses* a chat still passes
+  the raw id: select, rename, delete, pin and the code-chat maps are all keyed
+  by the filename, and a stripped id points at nothing.
 - **Three rows must never be windowed away**, via the `forced` set: the row being
   renamed (React does not fire `blur` on unmount, so the rename is silently
   discarded and `editingChatId` is stranded), the row with an open menu (the menu
