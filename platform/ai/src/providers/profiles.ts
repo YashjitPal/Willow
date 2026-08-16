@@ -166,15 +166,24 @@ export const normalizeProviderProfileState = (
   return { profiles, resources };
 };
 
-export const profileForProvider = (state: ProviderProfileState | undefined, provider: ProviderId): ProviderProfile | undefined => {
-  const profiles = state?.profiles || [];
+// Model configuration historically exposed these profiles as `providerProfiles`,
+// while the profile helpers used the shorter `profiles` field. Accept both
+// shapes so persisted configs from either schema resolve the same endpoint.
+const profilesFromState = (state: (ProviderProfileState & { providerProfiles?: ProviderProfile[] }) | undefined): ProviderProfile[] => {
+  if (Array.isArray(state?.providerProfiles)) return state.providerProfiles;
+  return state?.profiles || [];
+};
+
+export const profileForProvider = (state: (ProviderProfileState & { providerProfiles?: ProviderProfile[] }) | undefined, provider: ProviderId): ProviderProfile | undefined => {
+  const profiles = profilesFromState(state);
   return profiles.find((profile) => profile.id === DEFAULT_PROFILE_IDS[provider])
     || profiles.find((profile) => profile.transportProvider === provider && profile.enabled);
 };
 
-export const profileForModel = (state: ProviderProfileState | undefined, provider: ProviderId, profileId?: string): ProviderProfile | undefined => {
+export const profileForModel = (state: (ProviderProfileState & { providerProfiles?: ProviderProfile[] }) | undefined, provider: ProviderId, profileId?: string): ProviderProfile | undefined => {
+  const profiles = profilesFromState(state);
   if (profileId) {
-    const exact = state?.profiles?.find((profile) => profile.id === profileId);
+    const exact = profiles.find((profile) => profile.id === profileId);
     if (exact) return exact;
   }
   return profileForProvider(state, provider);

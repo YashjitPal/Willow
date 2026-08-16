@@ -615,12 +615,77 @@
   visibility: visible;
 }
 
-/* ── Notebook page header ──────────────────────────────────────────────────── */
+/* ── Notebook page ─────────────────────────────────────────────────────────── */
+
+.nb-page-host {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+}
+
+/* Gemini's column: 660px wide, the emoji starting 257px down. */
+.nb-page-column {
+  display: flex;
+  width: 660px;
+  max-width: 100%;
+  flex-direction: column;
+  padding: 257px 16px 0;
+}
 
 .nb-page-emoji {
   /* gds-display-m, the same 36px as the card glyph. */
+  width: fit-content;
+  border-radius: 12px;
+  padding: 0 4px;
   font-size: 36px;
   line-height: 36px;
+  transition: background-color 0.2s ease-out;
+}
+
+.nb-page-emoji:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nb-emoji-menu {
+  position: absolute;
+  top: 52px;
+  left: 0;
+  z-index: 20;
+  display: grid;
+  width: 232px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  border-radius: 16px;
+  background-color: rgb(40, 42, 44);
+  padding: 8px;
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+}
+
+.nb-emoji-choice {
+  display: flex;
+  height: 32px;
+  width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 20px;
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-emoji-choice:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Emoji bottom 293 -> chip top 305; the 48px chip sits against a 38px title. */
+.nb-page-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
 }
 
 .nb-page-title {
@@ -631,31 +696,335 @@
   color: rgb(227, 227, 227);
 }
 
-.nb-section-title {
-  /* "Past chats" — gds-body-m at weight 540. */
-  font-size: 15px;
-  font-weight: 540;
-  line-height: 20px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
+/*
+ * The sources chip. `rgb(31,31,31)` — NOT the card's `rgb(27,27,27)`. They are
+ * different surfaces in Gemini's palette and the swap is visible side by side.
+ */
 .nb-source-chip {
   display: inline-flex;
   height: 48px;
+  flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   border-radius: 9999px;
+  background-color: rgb(31, 31, 31);
   padding: 0 16px;
-  background-color: rgb(27, 27, 27);
   color: rgb(227, 227, 227);
+  /* gds-body-m */
   font-size: 15px;
+  font-weight: 400;
   line-height: 20px;
   cursor: pointer;
   transition: background-color 0.2s ease-out;
 }
 
 .nb-source-chip:hover {
-  background-color: rgb(34, 34, 34);
+  background-color: rgb(40, 40, 40);
+}
+
+/* Chip bottom 353 -> composer top 381. */
+.nb-page-composer {
+  width: 100%;
+  margin-top: 28px;
+}
+
+/* Composer bottom 445 -> "Past chats" top 501. */
+.nb-page-section {
+  margin-top: 56px;
+}
+
+.nb-section-title {
+  /* gds-body-m at weight 540. */
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* y 537 = 16px under the heading. */
+.nb-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  color: rgb(154, 155, 156);
+}
+
+.nb-empty-text {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgb(154, 155, 156);
+}
+
+.nb-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 16px;
+  padding: 12px 16px;
+  text-align: left;
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-chat-row:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.nb-chat-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 20px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-chat-row-sub {
+  flex: none;
+  font-size: 13px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Add sources sheet ─────────────────────────────────────────────────────── */
+
+.nb-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 24px;
+  animation: nb-fade-in 160ms ease-out both;
+}
+
+@keyframes nb-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.nb-sheet {
+  display: flex;
+  width: 560px;
+  max-width: 100%;
+  max-height: 100%;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  border-radius: 28px;
+  background-color: rgb(30, 31, 32);
+  padding: 24px;
+  animation: nb-rise-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.nb-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nb-sheet-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-sheet-close {
+  display: flex;
+  height: 32px;
+  width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgb(227, 227, 227);
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-sheet-close:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nb-sheet-sub {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-sheet-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.nb-sheet-tab {
+  height: 32px;
+  border-radius: 9999px;
+  background-color: rgb(23, 23, 23);
+  padding: 0 14px;
+  color: rgb(227, 227, 227);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 17px;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-sheet-tab:hover {
+  background-color: rgba(230, 230, 230, 0.08);
+}
+
+.nb-sheet-tab.is-active {
+  background-color: rgb(25, 41, 103);
+}
+
+.nb-sheet-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.nb-sheet-drop-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-sheet-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.nb-sheet-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgb(242, 139, 130);
+}
+
+.nb-sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nb-sheet-input,
+.nb-sheet-textarea {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  background-color: rgb(23, 23, 23);
+  padding: 12px 14px;
+  color: rgb(230, 230, 230);
+  font-size: 15px;
+  line-height: 20px;
+  outline: none;
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-sheet-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.nb-sheet-input:focus,
+.nb-sheet-textarea:focus {
+  background-color: rgb(31, 31, 31);
+}
+
+.nb-sheet-input::placeholder,
+.nb-sheet-textarea::placeholder {
+  color: rgba(227, 227, 227, 0.4);
+}
+
+.nb-sheet-primary {
+  align-self: flex-start;
+  height: 36px;
+  border-radius: 9999px;
+  background-color: rgb(168, 199, 250);
+  padding: 0 18px;
+  color: rgb(6, 46, 111);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 17px;
+  cursor: pointer;
+  transition: opacity 0.2s ease-out;
+}
+
+.nb-sheet-primary:hover {
+  opacity: 0.9;
+}
+
+.nb-sheet-primary:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.nb-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.nb-sheet-list-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  background-color: rgb(23, 23, 23);
+  padding: 10px 12px;
+}
+
+.nb-sheet-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-sheet-row-remove {
+  display: flex;
+  height: 24px;
+  width: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-sheet-row-remove:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgb(227, 227, 227);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
+import {
+  $chatNotebookId,
+  $notebookHandoff,
+  consumeNotebookHandoff,
+  getActiveNotebookGrounding,
+} from '@willow/notebooks/notebook-chat-store';
+import { addChatToNotebook, notebooksStore } from '@willow/notebooks/notebooks-store';
 import { HeroSection, PinnedChatGreeting, useGreetingReady } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
@@ -2262,6 +2269,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
           (modelConfig.resources || []).length > 0
             ? `Configured user resources:\n${(modelConfig.resources || []).map((resource: any) => `- ${resource.name}: ${resource.uri || resource.content || ''}`).join('\n')}`
             : '',
+          /*
+           * Notebook sources, when this chat belongs to a notebook.
+           *
+           * Here and not in the user's message: folding the preamble into the
+           * message text rendered it inside the visible user bubble, and only
+           * grounded the first turn. This array is rebuilt every turn, so a source
+           * added mid-conversation reaches the next one and nothing is displayed.
+           */
+          getActiveNotebookGrounding(notebooksStore.get()),
         ].filter(Boolean).join('\n\n'),
         personalTools,
         history,
@@ -2272,6 +2288,57 @@ export const ChatView: React.FC<ChatViewProps> = ({
     },
     [messages, isAuthenticated, onAuthRequired, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog]
   );
+
+  /*
+   * ── Notebook hand-off ─────────────────────────────────────────────────────
+   *
+   * A notebook page cannot run a turn: streaming, persistence, history and title
+   * generation all live here. So sending from a notebook queues the prompt on
+   * `$notebookHandoff` and switches to this surface, and this effect performs the
+   * send as if the user had typed it.
+   *
+   * Two things make that safe in an effect:
+   *
+   *  - `consumeNotebookHandoff()` flips a `consumed` flag rather than clearing the
+   *    atom, so StrictMode's double-invoked effects send once, not twice. A plain
+   *    read-then-clear duplicates the turn in dev only — exactly the class of bug
+   *    that survives to production unnoticed.
+   *  - Only the user's prompt is sent. The notebook's sources go into the per-turn
+   *    system prompt (see `getActiveNotebookGrounding` above), which keeps them out
+   *    of the visible bubble and keeps every later turn grounded too.
+   */
+  const pendingNotebookHandoff = useStore($notebookHandoff);
+  useEffect(() => {
+    /*
+     * Wait for auth before consuming.
+     *
+     * `handleSend` bails on `!isAuthenticated` by calling `onAuthRequired` and
+     * returning — no throw, no log. Firing this on mount therefore *silently*
+     * dropped the message whenever auth had not resolved yet, and because the
+     * handoff was already marked consumed it never retried: the notebook composer
+     * looked like it did nothing at all. Gating on `isAuthenticated` is the fix.
+     *
+     * Re-running as `handleSend` changes identity is harmless and deliberate —
+     * `consumeNotebookHandoff` returns null once taken, so the send happens once.
+     */
+    if (!isAuthenticated) return;
+    if (!pendingNotebookHandoff || pendingNotebookHandoff.consumed) return;
+    const handoff = consumeNotebookHandoff();
+    if (!handoff) return;
+    void handleSend(handoff.prompt);
+  }, [pendingNotebookHandoff, isAuthenticated, handleSend]);
+
+  /*
+   * Record the chat on the notebook it was started from, so the notebook's "Past
+   * chats" list can find it. Keyed on the id so it runs when the chat is first
+   * persisted rather than on every render.
+   */
+  useEffect(() => {
+    const notebookId = $chatNotebookId.get();
+    const id = chatTitle || chatSessionId;
+    if (!notebookId || !id) return;
+    addChatToNotebook(notebookId, id);
+  }, [chatTitle, chatSessionId]);
 
   // ── Live mode ──────────────────────────────────────────────────────────────
   // A live "turn" maps onto the exact same message shape as a typed turn:

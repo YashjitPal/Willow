@@ -4,6 +4,7 @@ import { useStore } from '@nanostores/react';
 import { AUTO_MODEL } from '@willow/ai/models/auto-select';
 import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocation } from 'react-router-dom';
 import type { ViewType } from '../shell/sidebar/Sidebar';
+import type { Notebook } from '@willow/notebooks/notebook-types';
 import { StudioLayout } from '../shell/StudioLayout';
 import { CodeWorkspaceSkeleton } from '@willow/code/CodeHomeSkeleton';
 import { TopLoadingBar } from '@willow/ui/TopLoadingBar';
@@ -22,6 +23,7 @@ import { mergeDriveProjectsIntoRegistry } from '@willow/storage/adapters/drive-d
 import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-store';
 import { sparkLocation } from '@willow/spark/spark-store';
+import { startNotebookChat } from '@willow/notebooks/notebook-chat-store';
 import type { StudioExperience } from '@willow/core/types';
 import { createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
 import {
@@ -45,6 +47,16 @@ const NotebookCreatePage = React.lazy(() =>
 );
 const NotebookPage = React.lazy(() =>
   import('@willow/notebooks/NotebookPage').then((m) => ({ default: m.NotebookPage })),
+);
+/*
+ * Willow's REAL composer, mounted on the notebook page.
+ *
+ * Gemini's notebook page mounts the same component its new-chat page does, so
+ * this is deliberately the same `InputBar` rather than a notebook-specific copy —
+ * model picker, dictation, attachments and submit all stay on one implementation.
+ */
+const NotebookComposer = React.lazy(() =>
+  import('@willow/chat/composer/Composer').then((m) => ({ default: m.InputBar })),
 );
 
 /**
@@ -425,17 +437,26 @@ const App: React.FC = () => {
               ? AUTO_MODEL
               : (parsed.systemDefaults?.personalIntelligence || AUTO_MODEL),
           },
-          ...normalizeProviderProfileState({
-            profiles: parsed.providerProfiles,
-            resources: parsed.resources,
-          }, {
+          // Keep the persisted model-config shape consistent with the settings
+          // and catalog code. Older builds wrote the normalized profiles under
+          // `profiles`; accept that shape while migrating it to `providerProfiles`.
+          ...(() => {
+            const normalizedProfiles = normalizeProviderProfileState({
+              profiles: Array.isArray(parsed.providerProfiles) ? parsed.providerProfiles : parsed.profiles,
+              resources: parsed.resources,
+            }, {
             gemini: 'https://generativelanguage.googleapis.com',
             openai: 'https://api.openai.com/v1',
             anthropic: 'https://api.anthropic.com',
             moonshot: 'https://api.moonshot.cn/v1',
             spacexai: 'https://api.x.ai/v1',
             zhipuai: 'https://open.bigmodel.cn/api/paas/v4',
-          }),
+            });
+            return {
+              providerProfiles: normalizedProfiles.profiles,
+              resources: normalizedProfiles.resources,
+            };
+          })(),
         };
       }
     } catch { /* fall through */ }
@@ -631,6 +652,33 @@ const App: React.FC = () => {
   const openNotebook = React.useCallback((notebookId: string) => {
     navigate(`/notebook/${encodeURIComponent(notebookId)}`);
   }, [navigate]);
+
+  /**
+   * Send the first message of a notebook chat.
+   *
+   * The notebook page cannot run the turn itself — streaming, persistence, title
+   * generation and history all live in `ChatView`. So this queues the prompt plus
+   * the notebook's grounding on `$notebookHandoff`, resets the chat surface to an
+   * empty thread, and switches to it; `ChatView` picks the handoff up on mount.
+   * See `notebook-chat-store.ts` for why the handoff carries a `consumed` flag
+   * rather than being cleared by the reader.
+   */
+  const sendFromNotebook = React.useCallback(async (notebook: Notebook, prompt: string) => {
+    if (!prompt.trim()) return;
+    /*
+     * ORDER MATTERS: reset and navigate FIRST, publish the handoff LAST.
+     *
+     * Setting it before the view change meant `ChatView` read it inside its own
+     * mount, i.e. it started a turn while the surface was still coming up. The
+     * turn then never finalised — the thinking indicator span forever, no error,
+     * no reply, even though the request had already failed upstream. Publishing
+     * after `handleViewChange` resolves means the handoff lands on a mounted,
+     * settled ChatView, which is exactly the state a user typing into it is in.
+     */
+    handleNewChat();
+    await handleViewChange('home');
+    startNotebookChat(notebook, prompt);
+  }, [handleViewChange]);
 
   const handleStudioExperienceChange = React.useCallback(async (experience: StudioExperience) => {
     if (experience === studioExperience && currentView === 'home') return;
@@ -1131,6 +1179,21 @@ const App: React.FC = () => {
                * empty page the user cannot leave.
                */
               onMissing={() => handleViewChange('notebooks')}
+              renderComposer={(notebook) => (
+                <Suspense fallback={<div className="h-16 w-full" />}>
+                  <NotebookComposer
+                    chatVariant
+                    currentMode="chat"
+                    onModeChange={() => {}}
+                    modelConfig={modelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    isAuthenticated={!!user}
+                    onAuthRequired={() => setIsSettingsOpen(true)}
+                    onSubmit={(prompt) => { void sendFromNotebook(notebook, prompt); }}
+                  />
+                </Suspense>
+              )}
             />
           </Suspense>
         ) : (

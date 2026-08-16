@@ -57,3 +57,15 @@ export { NotebooksSplashScreen } from './NotebooksSplashScreen';
 export type { NotebooksSplashScreenProps } from './NotebooksSplashScreen';
 export { NotebookPage } from './NotebookPage';
 export type { NotebookPageProps } from './NotebookPage';
+
+export {
+  $chatNotebookId,
+  $notebookHandoff,
+  buildGrounding,
+  clearNotebookChatContext,
+  consumeNotebookHandoff,
+  startNotebookChat,
+} from './notebook-chat-store';
+export type { NotebookHandoff } from './notebook-chat-store';
+export { NotebookSourcesDialog } from './NotebookSourcesDialog';
+export type { NotebookSourcesDialogProps } from './NotebookSourcesDialog';
