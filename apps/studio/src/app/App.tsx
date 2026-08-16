@@ -37,6 +37,36 @@ const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
+const AllNotebooksPage = React.lazy(() =>
+  import('@willow/notebooks/AllNotebooksPage').then((m) => ({ default: m.AllNotebooksPage })),
+);
+const NotebookCreatePage = React.lazy(() =>
+  import('@willow/notebooks/NotebookCreatePage').then((m) => ({ default: m.NotebookCreatePage })),
+);
+const NotebookPage = React.lazy(() =>
+  import('@willow/notebooks/NotebookPage').then((m) => ({ default: m.NotebookPage })),
+);
+
+/**
+ * Map a pathname to the notebook view it selects, if any.
+ *
+ * One helper rather than three copies of the same `startsWith` ladder, because
+ * the ladder has an ordering trap: `/notebooks/...` (the grid and the create
+ * screen) and `/notebook/<id>` (one notebook) differ by a single character, so a
+ * naive `startsWith('/notebook')` tested first swallows both. Gemini uses exactly
+ * these paths, so they are matched rather than renamed.
+ */
+export const matchNotebookRoute = (
+  pathname: string,
+): { view: ViewType; notebookId?: string } | null => {
+  if (pathname === '/notebooks/create') return { view: 'notebook-create' };
+  if (pathname === '/notebooks' || pathname.startsWith('/notebooks/')) return { view: 'notebooks' };
+  if (pathname.startsWith('/notebook/')) {
+    const id = pathname.slice('/notebook/'.length).split('/')[0];
+    return id ? { view: 'notebook', notebookId: decodeURIComponent(id) } : null;
+  }
+  return null;
+};
 /*
  * The app's initial view is the chat home screen, so everything this bundle
  * pulls in is dead weight on the cold path. Splitting the eager imports into
@@ -197,8 +227,21 @@ const App: React.FC = () => {
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
     if (location.pathname.startsWith('/gems')) return 'gems';
+    const notebookRoute = matchNotebookRoute(location.pathname);
+    if (notebookRoute) return notebookRoute.view;
     return 'home';
   });
+  /**
+   * Which notebook `/notebook/<id>` is pointing at.
+   *
+   * Derived from the URL rather than held as independent state, so a deep link,
+   * a back/forward step, and a click from the sidebar all land on one source of
+   * truth. `null` whenever the route is not a single notebook.
+   */
+  const activeNotebookId = React.useMemo(
+    () => matchNotebookRoute(location.pathname)?.notebookId ?? null,
+    [location.pathname],
+  );
   const [isTopLoading, setIsTopLoading] = useState(false);
   const topLoadingReasonsRef = React.useRef(new Set<string>());
   const topLoadingStartedAtRef = React.useRef(0);
@@ -554,6 +597,13 @@ const App: React.FC = () => {
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
     else if (view === 'gems') navigate('/gems');
+    else if (view === 'notebooks') navigate('/notebooks/view');
+    else if (view === 'notebook-create') navigate('/notebooks/create');
+    /*
+     * 'notebook' is intentionally absent: it needs an id, so it is never reached
+     * through `handleViewChange`. `openNotebook` navigates to `/notebook/<id>`
+     * directly and the pathname sync below sets the view.
+     */
     else if (
       searchParams.get('view') === 'agents' ||
       location.pathname === '/search' ||
@@ -561,13 +611,26 @@ const App: React.FC = () => {
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
       location.pathname === '/connected-apps' ||
-      location.pathname === '/gems'
+      location.pathname === '/gems' ||
+      matchNotebookRoute(location.pathname) !== null
     ) {
       navigate('/', { replace: true });
     }
     setCurrentView(view);
     return true;
   }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, location.pathname]);
+
+  /**
+   * Open one notebook.
+   *
+   * Separate from `handleViewChange` because that function's contract is
+   * view-in, URL-out for views that have a fixed path, and a notebook's path
+   * carries an id. Navigating is enough — the pathname sync sets `currentView`
+   * and `activeNotebookId` reads the id back out of the URL.
+   */
+  const openNotebook = React.useCallback((notebookId: string) => {
+    navigate(`/notebook/${encodeURIComponent(notebookId)}`);
+  }, [navigate]);
 
   const handleStudioExperienceChange = React.useCallback(async (experience: StudioExperience) => {
     if (experience === studioExperience && currentView === 'home') return;
@@ -619,13 +682,21 @@ const App: React.FC = () => {
       if (currentView !== 'gems') {
         setCurrentView('gems');
       }
+    } else if (matchNotebookRoute(location.pathname)) {
+      const next = matchNotebookRoute(location.pathname)!.view;
+      if (currentView !== next) {
+        setCurrentView(next);
+      }
     } else if (
       currentView === 'search' ||
       currentView === 'personal-intelligence' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
-      currentView === 'gems'
+      currentView === 'gems' ||
+      currentView === 'notebooks' ||
+      currentView === 'notebook-create' ||
+      currentView === 'notebook'
     ) {
       setCurrentView('home');
     }
@@ -862,6 +933,8 @@ const App: React.FC = () => {
         onStudioExperienceChange={handleStudioExperienceChange}
         onNewChat={handleNewChat}
         hasActiveChat={hasActiveChat}
+        activeNotebookId={activeNotebookId}
+        onOpenNotebook={openNotebook}
         isIncognito={isIncognito}
         onIncognitoChat={handleIncognitoChat}
         isSidebarCollapsed={isSidebarCollapsed}
@@ -1033,6 +1106,32 @@ const App: React.FC = () => {
           <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
             <GemsView />
           </Suspense>
+        ) : currentView === 'notebooks' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <AllNotebooksPage
+              onOpenNotebook={openNotebook}
+              onCreateNotebook={() => handleViewChange('notebook-create')}
+            />
+          </Suspense>
+        ) : currentView === 'notebook-create' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <NotebookCreatePage
+              onCreated={openNotebook}
+              onCancel={() => handleViewChange('notebooks')}
+            />
+          </Suspense>
+        ) : currentView === 'notebook' && activeNotebookId ? (
+          <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <NotebookPage
+              notebookId={activeNotebookId}
+              /*
+               * A notebook whose id no longer resolves — deleted here or in
+               * another tab — falls back to the grid rather than rendering an
+               * empty page the user cannot leave.
+               */
+              onMissing={() => handleViewChange('notebooks')}
+            />
+          </Suspense>
         ) : (
           <Suspense fallback={
             <StudioLoadingFallback reason="projects-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -1061,6 +1160,11 @@ const App: React.FC = () => {
            <Route path="/connected-apps" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />
+           {/* Gemini's own notebook paths, matched rather than renamed. */}
+           <Route path="/notebooks" element={mainAppShell} />
+           <Route path="/notebooks/view" element={mainAppShell} />
+           <Route path="/notebooks/create" element={mainAppShell} />
+           <Route path="/notebook/:notebookId" element={mainAppShell} />
            <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
         
         <Route path="/project1" element={

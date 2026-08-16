@@ -30,6 +30,7 @@ import {
 } from '../indexeddb/willow-db';
 import type { ChatAttachment } from '@willow/core/attachments';
 import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '@willow/projects/registry';
+import { setNotebookStorageScope } from '@willow/notebooks/notebooks-backend';
 import {
   LEGACY_CHAT_KEYS,
   LEGACY_CHAT_MIGRATION_KEY,
@@ -356,6 +357,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     setMediaStorageScope(scopeId);
     setProjectStorageScope(scopeId);
     setCodeSessionStorageScope(scopeId);
+    /*
+     * Notebooks join the same scope so they follow a user across sign-in and
+     * workspace switches exactly as their chats and projects do. Unlike those,
+     * the notebook registry is plain scoped localStorage and stays readable with
+     * no folder connected — see the header note in `notebooks-backend.ts`.
+     */
+    setNotebookStorageScope(scopeId);
     await migrateProjectKinds();
     chatStorageScopeRef.current = { userId, rootId, workspaceId };
     chatMetadataKeysRef.current = keys;

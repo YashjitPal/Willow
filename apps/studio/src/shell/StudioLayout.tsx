@@ -60,6 +60,9 @@ export const StudioLayout: React.FC<{
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   isSidebarHidden?: boolean;
   modelConfig: any;
+  /** The open notebook, forwarded so its sidebar row renders active. */
+  activeNotebookId?: string | null;
+  onOpenNotebook?: (notebookId: string) => void;
 }> = ({
   isSearchOpen,
   setIsSearchOpen,
@@ -79,6 +82,8 @@ export const StudioLayout: React.FC<{
   setIsSidebarCollapsed,
   isSidebarHidden = false,
   modelConfig,
+  activeNotebookId = null,
+  onOpenNotebook,
 }) => {
   const { background } = useBackground();
   const { 
@@ -160,6 +165,8 @@ export const StudioLayout: React.FC<{
         isIncognito={isIncognito}
         onIncognitoChat={onIncognitoChat}
         isHidden={isSidebarHidden}
+        activeNotebookId={activeNotebookId}
+        onOpenNotebook={onOpenNotebook}
       />
       {studioExperience === 'spark' && !isSidebarCollapsed && (
         <button

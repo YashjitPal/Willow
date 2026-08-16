@@ -1,0 +1,493 @@
+/*
+ * Notebooks styles.
+ *
+ * Every number here was read off the live Gemini app rather than chosen. Where a
+ * Gemini rule referenced a design token, the token's *resolved* value is inlined
+ * and named in a comment, because Willow has no `--lumi-sys-*` cascade to read
+ * from. Tokens seen here:
+ *
+ *   --lumi-sys-color--surface-dim               rgb(23, 23, 23)
+ *   --lumi-sys-color--on-surface                rgb(230, 230, 230)
+ *   --lumi-sys-color--on-surface-variant        rgba(255, 255, 255, 0.55)
+ *   --lumi-sys-color-acc-color--accent-container rgb(25, 41, 103)
+ *   --gem-sys-color--on-surface-variant         rgb(196, 199, 197)
+ *   --gem-sys-color--surface                    rgb(19, 19, 20)
+ *   --gem-sys-shape--corner-large               16px
+ *   --gem-sys-spacing--xs / s / m / l / xl      4 / 8 / 12 / 16 / 20px
+ *
+ * The one easing that matters is `cubic-bezier(0.34, 1.56, 0.64, 1)` — an
+ * overshoot spring. It is the signature of the whole create flow: the chip grows
+ * past its target width and settles back, and the check badge pops the same way.
+ * Swapping it for an ease-out makes the interaction feel like a different product.
+ */
+
+.nb-spring {
+  /* Named so the three places that share Gemini's spring cannot drift apart. */
+  --nb-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Create screen: vertical chips ─────────────────────────────────────────── */
+
+.nb-chip {
+  position: relative;
+  display: flex;
+  width: 160px; /* 10rem */
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  overflow: hidden;
+  border: none;
+  border-radius: 16px;
+  background-color: rgb(23, 23, 23);
+  padding: 12px;
+  text-align: start;
+  cursor: pointer;
+  /*
+   * Width is the animated property, NOT max-width or transform: the subtext
+   * below is laid out at the *selected* width and clipped by `overflow: hidden`,
+   * so growing the box is what reveals it. A transform would scale the text.
+   */
+  transition:
+    background-color 0.2s ease-out,
+    border-color 0.2s ease-out,
+    width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nb-chip:hover:not([disabled]) {
+  background-color: rgba(230, 230, 230, 0.08);
+}
+
+.nb-chip[disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.nb-chip.is-selected {
+  width: 200px; /* 12.5rem */
+  background-color: rgb(25, 41, 103);
+}
+
+/* Selected chips do not take a hover tint — Gemini re-states the accent here. */
+.nb-chip.is-selected:hover:not([disabled]) {
+  background-color: rgb(25, 41, 103);
+}
+
+.nb-chip-icon {
+  color: rgb(196, 199, 197);
+}
+
+.nb-chip.is-selected .nb-chip-icon,
+.nb-chip.is-selected .nb-chip-name {
+  color: rgb(230, 230, 230);
+}
+
+.nb-chip-name {
+  /*
+   * Pinned to the UNSELECTED content width (160 - 12*2) so the name wraps
+   * identically in both states. If this grew with the chip, selecting one would
+   * re-flow its title from two lines to one and the row would jump.
+   */
+  width: 136px;
+  color: rgb(230, 230, 230);
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+}
+
+.nb-chip-subtext {
+  /*
+   * Pinned to the SELECTED content width (200 - 12*2). Wider than the collapsed
+   * chip on purpose: it is already laid out at full width and simply clipped,
+   * which is why only `opacity` needs animating.
+   */
+  width: 176px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 17px;
+  opacity: 0;
+  transition: opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nb-chip-subtext.is-visible {
+  opacity: 1;
+}
+
+.nb-chip-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  height: 20px;
+  width: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(19, 19, 20);
+  box-shadow: 0 0 10px rgba(227, 227, 227, 0.04);
+  opacity: 0;
+  transform: scale(0);
+  transition:
+    opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nb-chip-badge.is-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Create screen: entrance ───────────────────────────────────────────────── */
+
+/*
+ * The create surface rises and fades in as one block. Gemini stages the icon,
+ * heading, and form on the same curve with small offsets rather than animating
+ * each child separately, so the group reads as one object arriving.
+ */
+@keyframes nb-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nb-rise {
+  animation: nb-rise-in 400ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.nb-rise-delay-1 { animation-delay: 60ms; }
+.nb-rise-delay-2 { animation-delay: 120ms; }
+
+/* ── First-run splash ──────────────────────────────────────────────────────── */
+
+/*
+ * Gemini's `project-splash-screen.notebook-migration`, shown at /notebooks/view
+ * only while the account has never created a notebook. The splash block is
+ * centred in the viewport and the footer sits below it in normal flow — the
+ * footer is `position: static` on Gemini, not pinned, so on a short viewport the
+ * whole thing scrolls together rather than the disclaimer overlapping the CTA.
+ */
+.nb-splash-host {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+.nb-splash-container {
+  display: flex;
+  width: 585px;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  text-align: center;
+}
+
+.nb-splash-title-container {
+  display: flex;
+  width: 420px;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+/*
+ * scale(2) on a 28px box, NOT a 56px glyph.
+ *
+ * The glyph's variable font is pinned to `opsz 28`; asking for 56px picks a
+ * different optical size and the stroke reads visibly heavier than Gemini's.
+ * Keeping the box at 28px also means the 8px flex gap below measures from the
+ * unscaled box, which is what puts the title where Gemini has it — the scaled
+ * glyph deliberately overflows its own box.
+ */
+.nb-splash-icon {
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  transform: scale(2);
+}
+
+.nb-splash-title {
+  /* gds-emphasized-rounded-display-m */
+  font-size: 32px;
+  font-weight: 320;
+  line-height: 44px;
+  color: rgb(227, 227, 227);
+  font-variation-settings: 'ROND' 100, 'slnt' 0, 'wdth' 100, 'wght' 320;
+}
+
+.nb-splash-subtitle {
+  /* gds-title-l. One line: 285px of text plus the 135px lockup = 420px. */
+  margin: 0;
+  font-size: 18px;
+  font-weight: 470;
+  line-height: 24px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-splash-poweredby {
+  font-weight: 540;
+  color: rgb(230, 230, 230);
+}
+
+.nb-splash-features {
+  display: flex;
+  width: 585px;
+  max-width: 100%;
+  justify-content: center;
+  gap: 60px;
+}
+
+.nb-splash-feature {
+  /* Widths are natural (Gemini's measured 141 / 164 / 159), so no basis is set. */
+  display: block;
+  padding: 16px 0;
+  text-align: center;
+}
+
+.nb-splash-feature-icon {
+  display: flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  border-radius: 50%;
+  background-color: rgb(23, 23, 23);
+}
+
+.nb-splash-feature-title {
+  /* gds-title-m */
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgb(227, 227, 227);
+}
+
+/* Gemini's wrapper carries the horizontal padding; the button itself is 48 tall. */
+.nb-splash-cta {
+  display: flex;
+  height: 56px;
+  align-items: center;
+  padding: 0 32px;
+}
+
+.nb-splash-button {
+  display: inline-flex;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9999px;
+  /* gem-button-type-accent */
+  background-color: rgb(31, 59, 155);
+  color: rgb(230, 230, 230);
+  /* Asymmetric on purpose: the leading icon needs less room than the label. */
+  padding: 0 16px 0 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-out;
+}
+
+.nb-splash-button:hover {
+  background-color: rgb(38, 71, 178);
+}
+
+.nb-splash-button-label {
+  /* gds-body-m */
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.nb-splash-footer {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+}
+
+.nb-splash-disclaimer {
+  /* gds-label-s */
+  margin: 0;
+  max-width: 1000px;
+  font-size: 13px;
+  font-weight: 370;
+  line-height: 20px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-splash-link {
+  color: rgb(168, 199, 250);
+  font-weight: 370;
+  text-decoration: none;
+}
+
+.nb-splash-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Card grid ─────────────────────────────────────────────────────────────── */
+
+/*
+ * Four columns at desktop, stretching to fill.
+ *
+ * NOT `auto-fill` with a 291px floor, which is what the measurement first
+ * suggests. Gemini's cards measured exactly 291.0px wide inside a 1188px row —
+ * and (1188 - 3*8) / 4 is exactly 291, so 291 is *derived* from a 4-column
+ * fractional grid, not a fixed card width. An `auto-fill` floor of 291px is
+ * knife-edge at that size: Willow's row is 1185px, three pixels short of fitting
+ * four 291px columns, so it silently dropped to a 3-up with 390px cards. Fixed
+ * column counts with explicit breakpoints keep the desktop 4-up that Gemini has.
+ */
+.nb-card-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1180px) {
+  .nb-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 880px) {
+  .nb-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .nb-card-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.nb-card {
+  position: relative;
+  display: flex;
+  height: 185px;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: 40px;
+  background-color: rgb(27, 27, 27);
+  padding: 32px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease-out;
+}
+
+.nb-card:hover {
+  background-color: rgb(34, 34, 34);
+}
+
+.nb-card-emoji {
+  font-size: 36px;
+  line-height: 36px;
+}
+
+.nb-card-title {
+  /* gds-title-l */
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-card-sources {
+  /* gds-body-m */
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/*
+ * Cards enter staggered when the grid mounts. `--nb-i` is set per card by the
+ * grid so the delay is data, not a hand-written class per position.
+ */
+.nb-card-enter {
+  animation: nb-rise-in 360ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(var(--nb-i, 0) * 24ms);
+}
+
+/*
+ * The trailing menu is revealed with `visibility`, not `opacity` — measured on
+ * Gemini, whose row menu keeps `opacity: 1` in both states, so there is no fade.
+ * Matching that matters: a fade here reads as a slower, softer product.
+ */
+.nb-card-menu {
+  visibility: hidden;
+}
+
+.nb-card:hover .nb-card-menu,
+.nb-card-menu.is-forced {
+  visibility: visible;
+}
+
+/* ── Notebook page header ──────────────────────────────────────────────────── */
+
+.nb-page-emoji {
+  /* gds-display-m, the same 36px as the card glyph. */
+  font-size: 36px;
+  line-height: 36px;
+}
+
+.nb-page-title {
+  /* gds-display-s */
+  font-size: 32px;
+  font-weight: 360;
+  line-height: 38px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-section-title {
+  /* "Past chats" — gds-body-m at weight 540. */
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-source-chip {
+  display: inline-flex;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 0 16px;
+  background-color: rgb(27, 27, 27);
+  color: rgb(227, 227, 227);
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-out;
+}
+
+.nb-source-chip:hover {
+  background-color: rgb(34, 34, 34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-chip,
+  .nb-chip-subtext,
+  .nb-chip-badge,
+  .nb-card,
+  .nb-splash-button {
+    transition-duration: 1ms;
+  }
+  .nb-rise,
+  .nb-card-enter {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}

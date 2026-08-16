@@ -41,6 +41,7 @@ import type { StudioExperience } from '@willow/core/types';
 // causing a circular self-import whose named exports are undefined — which crashed
 // the whole app to a black screen. '/index' forces the folder to resolve.
 import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
+import { NotebooksSection } from '@willow/notebooks/NotebooksSection';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiDialog, GeminiDialogPill, GeminiOutlinedField } from '@willow/ui/GeminiDialog';
@@ -591,7 +592,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems';
+export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -656,6 +657,9 @@ interface SidebarProps {
   isIncognito?: boolean;
   onIncognitoChat?: () => void;
   isHidden?: boolean;
+  /** The open notebook, so its sidebar row renders active. */
+  activeNotebookId?: string | null;
+  onOpenNotebook?: (notebookId: string) => void;
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -676,7 +680,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   isIncognito = false,
   onIncognitoChat,
-  isHidden = false
+  isHidden = false,
+  activeNotebookId = null,
+  onOpenNotebook,
 }) => {
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading } = useAuth();
@@ -1637,6 +1643,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
                 </div>
               </div>
+
+              {/*
+                * Notebooks sits between Projects and Recents, which is where
+                * Gemini puts it: its rail runs Notebooks (y=336) then Recents
+                * (y=508) with a `.section-divider` between, and Willow's
+                * Projects block occupies the space above both.
+                *
+                * The section owns its own expanded state and hydration — it is
+                * the only consumer of the notebook registry in the sidebar, so
+                * lifting either into this component would just be plumbing.
+                */}
+              <NotebooksSection
+                isCollapsed={isCollapsed}
+                activeNotebookId={activeNotebookId}
+                isAllNotebooksActive={currentView === 'notebooks'}
+                onOpenNotebook={(notebookId) => onOpenNotebook?.(notebookId)}
+                onCreateNotebook={() => onViewChange('notebook-create')}
+                onOpenAllNotebooks={() => onViewChange('notebooks')}
+              />
 
               {/*
                 * Gated on `isChatListHydrated`, NOT on `!isInitializingLocalFS`.

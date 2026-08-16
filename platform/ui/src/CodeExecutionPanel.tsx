@@ -14,7 +14,7 @@
 //
 // The inner chrome reuses the markdown code block's classes, because Gemini
 // reuses that same component here.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { MaterialSymbol } from './MaterialSymbol';
 import {
   codeFileExtension,
@@ -24,6 +24,7 @@ import {
   highlightLanguage,
   highlightedCode,
 } from './StreamingMarkdown';
+import { showCopyToast } from './copy-toast-store';
 import { useInjectStyles } from './streaming-markdown-styles';
 
 /**
@@ -78,7 +79,6 @@ export const CodeExecutionPanel: React.FC<CodeExecutionPanelProps> = ({
   // panel mounts already open, must simply be in its resting state.
   const openAtMount = useRef(open).current;
   const previousOpen = useRef(open);
-  const [copied, setCopied] = useState(false);
 
   const source = useMemo(() => code.replace(/\n$/, ''), [code]);
   const html = useMemo(() => highlightedCode(source, language), [language, source]);
@@ -86,8 +86,9 @@ export const CodeExecutionPanel: React.FC<CodeExecutionPanelProps> = ({
 
   const handleCopy = useCallback(async () => {
     await copyToClipboard(source);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    // Same feedback as copying a response: the bottom-left snackbar and nothing
+    // else. No tick swap — the button's glyph stays put.
+    showCopyToast('Copied to clipboard');
   }, [source]);
 
   useEffect(() => {
@@ -206,14 +207,14 @@ export const CodeExecutionPanel: React.FC<CodeExecutionPanelProps> = ({
               <button
                 type="button"
                 className="smd-icon-button"
-                aria-label={copied ? 'Code copied' : 'Copy code'}
-                title={copied ? 'Copied' : 'Copy code'}
+                aria-label="Copy code"
+                title="Copy code"
                 tabIndex={open ? undefined : -1}
                 onClick={() => void handleCopy()}
               >
                 <MaterialSymbol
                   family="luminous"
-                  name={copied ? 'check' : 'content_copy'}
+                  name="content_copy"
                   size={24}
                   weight={300}
                   roundness={100}
