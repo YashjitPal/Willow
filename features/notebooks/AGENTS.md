@@ -26,17 +26,20 @@ however much Gemini's class names suggest otherwise.
 | `src/notebook-types.ts` | Types, the two verticals, `formatSourceCount`. No behaviour. |
 | `src/notebooks-backend.ts` | Persistence: scoped localStorage, parse/validate, sort, ids. Knows nothing about React. |
 | `src/notebooks-store.ts` | Reactive layer (`nanostores`) plus every mutation. |
+| `src/notebook-chat-store.ts` | Chat ↔ notebook hand-off and source grounding. |
 | `src/NotebooksSection.tsx` | The sidebar section. |
 | `src/NotebookCreatePage.tsx` | "What are you working on?" — name + vertical chips. |
 | `src/AllNotebooksPage.tsx` | The card grid, or the splash at zero. |
 | `src/NotebooksSplashScreen.tsx` | First-run "Introducing notebooks" screen. |
-| `src/NotebookPage.tsx` | One notebook: header, source chip, Past chats. |
+| `src/NotebookPage.tsx` | One notebook: header, sources chip, composer, Past chats. |
+| `src/NotebookSourcesDialog.tsx` | Add sources: upload / paste / link. |
 | `src/notebooks.css` | Every animation and measured dimension. |
 
 Dependencies go one way: `types <- backend <- store <- components`. Nothing outside
-this folder should reach past `notebooks-store` into the backend. The single
-exception is `LocalFSContext`, which imports `setNotebookStorageScope` and nothing
-else.
+this folder should reach past `notebooks-store` into the backend. Two exceptions,
+both deliberate and both single-import: `LocalFSContext` imports
+`setNotebookStorageScope`, and `ChatView` imports the hand-off helpers from
+`notebook-chat-store`.
 
 ## The create screen
 
@@ -272,14 +275,84 @@ Two more, smaller:
 Gemini's notebook page mounts the *same* composer the new-chat page does:
 `project-chat-window > chat-window` with `center-input-layout`, whose
 `fieldset.input-area-container` carries `is-zero-state`. `NotebookPage` therefore
-takes `composer` as a `ReactNode` and expects the shell to pass Willow's real
-`<InputBar>` through, so model selection, dictation, attachments, and submit stay
-on one implementation.
+takes a `renderComposer` render prop, and `App` passes Willow's real `<InputBar>`
+through — model picker, dictation, attachments and submit all stay on one
+implementation.
 
-**Currently the shell passes nothing**, so the notebook page renders its header and
-Past chats with no composer. Wiring `<InputBar>` in — and routing its submit
-through `addChatToNotebook` so the new chat lands in this notebook — is the next
-step, and the reason `chats`/`onOpenChat` are already props.
+### Sending: the hand-off
+
+A notebook page cannot run a turn. Streaming, persistence, history and title
+generation all live in `ChatView`. So sending goes:
+
+1. notebook composer submits → `sendFromNotebook` → `startNotebookChat()` sets
+   `$notebookHandoff`, then `handleNewChat()` and navigate to the chat surface;
+2. `ChatView` mounts, its hand-off effect consumes the handoff and calls its own
+   `handleSend`;
+3. `$chatNotebookId` stays set for the life of that chat, and a second effect
+   records the chat id on the notebook so "Past chats" can find it.
+
+Two things there are load-bearing:
+
+- **Publish the handoff AFTER navigating, never before.** `sendFromNotebook` does
+  `handleNewChat()` → `await handleViewChange('home')` → `startNotebookChat()`, in
+  that order, and `ChatView` consumes the atom *reactively* (`useStore`) rather than
+  reading it once on mount. Setting it first meant ChatView started a turn inside
+  its own mount, and the turn then **never finalised**: the thinking indicator span
+  forever with no error and no reply, while the request had already failed upstream.
+  Publishing last means the handoff lands on a mounted, settled ChatView — the same
+  state a user typing into it is in.
+- **`consumeNotebookHandoff()` flips a `consumed` flag rather than clearing the
+  atom.** StrictMode double-invokes effects in dev, and a read-then-clear sends the
+  turn twice — a dev-only duplicate that would ship unnoticed. It also makes the
+  reactive effect safe to re-run as `handleSend`'s identity changes.
+- **The effect is gated on `isAuthenticated`.** `handleSend` bails on
+  `!isAuthenticated` by calling `onAuthRequired` and returning — no throw, no log.
+  Consuming the handoff before auth resolves therefore *silently* dropped the
+  message and never retried, which looks exactly like a dead button.
+
+### Grounding goes in the system prompt, not the message
+
+`getActiveNotebookGrounding` is called from inside ChatView's per-turn
+`systemPrompt` array. The first implementation prepended the preamble to the user's
+message instead, which was wrong twice over: the user saw "You are chatting inside
+a notebook…" rendered as their own words, and only the first turn was grounded. The
+system prompt is rebuilt every turn and is never rendered, so a source added
+mid-conversation reaches the next turn.
+
+Per-source content is truncated (`MAX_CHARS_PER_SOURCE`). The whole set is
+prepended to every grounded turn, so an unbounded preamble would exhaust the
+context window and surface much later as an unrelated-looking API error.
+
+## Sources
+
+`NotebookSourcesDialog` has three tabs, which is what makes a notebook useful:
+
+- **Upload** — read as text, restricted to text-ish types on purpose. A PDF or
+  .docx through `readAsText` yields binary garbage that then goes into every
+  grounded turn; refusing it is better, because it otherwise fails as visibly wrong
+  model output rather than as an error.
+- **Paste text** — the escape hatch for whatever upload rejects.
+- **Link** — stored as a titled reference, **not fetched**. The browser cannot read
+  most cross-origin pages, so pretending to ingest one would produce an
+  empty-but-apparently-ingested source.
+
+## Verified behaviour
+
+Measured against Gemini's own 0-source notebook, the page matches within 1px
+vertically — emoji 257, title row 306 (Gemini 305), composer 382 (381),
+"Past chats" 502 (501), empty state 538 (537).
+
+Chat was verified end to end: the composer submits, the hand-off lands on the chat
+surface, the prompt appears as the user's message with no preamble leaking, and the
+chat id is written to the notebook's `chatIds`.
+
+**Notebook chat and normal chat are the same code path** — confirmed by sending the
+same prompt both ways under an identical API failure and getting identical
+behaviour. Errors surface the same way in both: a 429 shows "Something went wrong /
+Show error" plus a retry line, but only after the provider retries are exhausted,
+which took ~12.5s. Anything watching for less than that sees an empty assistant
+turn with the stop button still up, and will wrongly conclude the notebook path is
+broken. It is not — check the network tab for the real status before debugging.
 
 ## Sidebar row geometry — do not re-derive
 
