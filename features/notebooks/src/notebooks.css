@@ -626,13 +626,67 @@
   overflow-y: auto;
 }
 
-/* Gemini's column: 660px wide, the emoji starting 257px down. */
+/*
+ * Gemini's column: 660px wide, and its top offset is DERIVED, not fixed.
+ *
+ * The composer must land on exactly the same y as the new-chat page's, because in
+ * Gemini it does — same coordinates, same `is-zero-state` class, so it never appears
+ * to move or reload when you switch. The new-chat composer is *vertically centred*:
+ * its 64px box sits at `(viewportH - 64) / 2`, which is 381 at an 826px viewport.
+ *
+ * A hard `padding-top: 257px` reproduced that at 826px and nowhere else — at any
+ * other window height the two drifted apart, which is the "still not the same
+ * vertical position" this replaces. Solving for the padding instead:
+ *
+ *   composerTop = paddingTop + emoji(36) + gap(12) + titleRow(48) + 28  = paddingTop + 124
+ *   want        = 50vh - 32
+ *   paddingTop  = 50vh - 156
+ *
+ * `max()` keeps it off the top edge on a short viewport, where centring would
+ * otherwise push the header off-screen.
+ */
 .nb-page-column {
   display: flex;
   width: 660px;
   max-width: 100%;
   flex-direction: column;
-  padding: 257px 16px 0;
+  /*
+   * `calc(50vh - 32px)` is the composer's own top, taken straight from how the
+   * new-chat composer is placed: its 64px box is centred, so its top is
+   * `(100vh - 64) / 2` = `50vh - 32`. No child heights are involved.
+   *
+   * The previous version summed the header (emoji 36 + gap 12 + title row 48 +
+   * 28) to 124 and offset by that. It was 124.79 in practice — sub-pixel snapping
+   * at dpr 1.25 — which left the composer ~0.8px low, and the sum would also have
+   * drifted with a two-line title. The header is out of flow now, so neither can
+   * happen.
+   *
+   * `max()` reserves room for the out-of-flow header on a short viewport.
+   */
+  padding: max(156px, calc(50vh - 32px)) 16px 0;
+}
+
+/* The composer's box. `.nb-page-header` is positioned against this. */
+.nb-page-anchor {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+}
+
+/*
+ * Out of flow, sitting on top of the anchor with Gemini's 28px gap. Because it is
+ * absolute, a title that wraps to two lines grows the header UPWARD and leaves the
+ * composer exactly where it is — which is what Gemini does.
+ */
+.nb-page-header {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 28px;
 }
 
 .nb-page-emoji {
@@ -680,12 +734,20 @@
 }
 
 /* Emoji bottom 293 -> chip top 305; the 48px chip sits against a 38px title. */
+/*
+ * The row breaks out to the RIGHT only.
+ *
+ * Gemini's "Add sources" chip ends at x=1242 — flush with the right edge of the
+ * 660px column (582 + 660) — while the title stays inset 16px on the left. Leaving
+ * the row inside the column padding put the chip 16px short of that edge.
+ */
 .nb-page-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: 12px;
+  margin-right: -16px;
 }
 
 .nb-page-title {
@@ -722,15 +784,33 @@
   background-color: rgb(40, 40, 40);
 }
 
-/* Chip bottom 353 -> composer top 381. */
+/*
+ * Chip bottom 353 -> composer top 381, and the composer BREAKS OUT of the column's
+ * 16px padding.
+ *
+ * Gemini's composer is 660 wide and flush with the column while the title sits 16px
+ * inside it — measured x=582 w=660 for the composer against x=598 for the title. It
+ * is also at *identical* coordinates on the notebook page and the new-chat page
+ * (582, 380.8, 660x64, same `is-zero-state` class), which is why it appears not to
+ * move or reload when you switch between them. Leaving it inside the padding made it
+ * 628 wide here and 660 on home, so it visibly resized on every notebook open.
+ */
 .nb-page-composer {
-  width: 100%;
-  margin-top: 28px;
+  width: auto;
+  /* Breaks out of the column's 16px padding to reach Gemini's full 660px. */
+  margin: 0 -16px;
 }
 
-/* Composer bottom 445 -> "Past chats" top 501. */
+/*
+ * "Past chats" heading. Gemini declares `margin: 36px 0 16px` and
+ * `padding-left: 16px` — the 16px inset is what puts the heading text on the same
+ * x as each row's title, so it must not be dropped. The 56px top keeps the
+ * measured composer→heading distance on a single-line title (verified 502 vs
+ * Gemini's 501); the extra over 36px comes from Gemini's scroller padding.
+ */
 .nb-page-section {
   margin-top: 56px;
+  margin-bottom: 16px;
 }
 
 .nb-section-title {
@@ -741,12 +821,11 @@
   color: rgba(255, 255, 255, 0.55);
 }
 
-/* y 537 = 16px under the heading. */
+/* 16px under the heading, and Gemini pads the state itself by 16 as well. */
 .nb-empty-state {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 16px;
   padding: 16px;
   color: rgb(154, 155, 156);
 }
@@ -758,18 +837,84 @@
   color: rgb(154, 155, 156);
 }
 
-.nb-chat-row {
+/*
+ * A chat row — Gemini's `project-chat-row`.
+ *
+ * 48px tall, stacked with NO gap (rows measured at y 536.8 then 584.8), zero
+ * border-radius, and **no leading icon**: the only glyph in the row is a
+ * hover-revealed `more_vert`. An icon here both adds a glyph Gemini does not have
+ * and pushes the title off the 16px inset the heading shares with it.
+ *
+ * Content is inset 16px on both sides — title at x=+16, date ending 16px short of
+ * the right edge.
+ */
+/*
+ * Geometry taken relative to the composer box, which both apps share as their
+ * column. Gemini, measured at 1536x826:
+ *
+ *   row            offset -6 from the composer, 660 wide (NOT the padded 628)
+ *   title ink      +10 from the composer      (row start + 16)
+ *   date right     +638                        (row right - 16)
+ *
+ * Willow was at row +8 / 628 wide, which put the date at +592 — **46px too far
+ * left**. Widening the row to Gemini's 660 and shifting it -6 is what moves the
+ * date out to the right edge where it belongs.
+ *
+ * `min()` keeps it from overflowing a narrow column.
+ */
+/*
+ * Measured with REAL mouse input (`Input.dispatchMouseEvent`) — CSS `:hover` is
+ * driven by the browser's hit test, so a dispatched `mouseover` never activates it
+ * and every earlier hover reading came back empty.
+ *
+ * Gemini, relative to the composer box:
+ *
+ *   row          L 0 -> R 660   flush with the composer on BOTH edges
+ *   title ink    L 16
+ *   date right   R 644          (16px inside the row)
+ *   hover fill   `rgba(227,227,227,0.08)`, radius 12, spanning the whole row
+ *   date         collapses to 0x0 on hover — it is replaced by the menu
+ *
+ * Breaking out of the column's 16px padding on both sides is what makes the hover
+ * indicator line up with the prompt box, which is the misalignment in the
+ * side-by-side: it used to start left of the composer and stop short on the right.
+ */
+/*
+ * The breakout lives on the WRAPPER, not the button.
+ *
+ * The button carries Tailwind's `w-full`, so `width: 100%` resolves against its
+ * parent — negative margins on the button itself shifted it left but left it 628
+ * wide, 32px short of Gemini's 660. Widening the wrapper makes `w-full` resolve to
+ * 660 and puts the row flush with the composer on both edges.
+ */
+/*
+ * `button.nb-chat-row`, not `.nb-chat-row`.
+ *
+ * The element carries Tailwind's `w-full` (`width: 100%`), which has the same
+ * specificity as a single class — so which one wins comes down to stylesheet order,
+ * which is not something to rely on. Adding the tag name makes this (0,1,1) and it
+ * wins deterministically.
+ *
+ * `calc(100% + 32px)` with `margin: 0 -16px` breaks the row out of the column's
+ * 16px padding on both sides, giving Gemini's geometry: row flush with the composer
+ * (L0 -> R660), title ink at +16, date right at +644.
+ */
+button.nb-chat-row {
+  position: relative;
   display: flex;
+  height: 48px;
+  width: calc(100% + 32px);
   align-items: center;
   gap: 12px;
-  border-radius: 16px;
-  padding: 12px 16px;
+  margin: 0 -16px;
+  padding: 0 16px;
   text-align: left;
+  border-radius: 12px;
   transition: background-color 0.15s ease-out;
 }
 
 .nb-chat-row:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(227, 227, 227, 0.08);
 }
 
 .nb-chat-row-title {
@@ -778,28 +923,51 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* gds-title-m — weight 400, NOT emphasised. */
   font-size: 15px;
+  font-weight: 400;
   line-height: 20px;
   color: rgb(227, 227, 227);
 }
 
 .nb-chat-row-sub {
   flex: none;
-  font-size: 13px;
-  line-height: 17px;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgb(154, 155, 156);
 }
 
-/* ── Add sources sheet ─────────────────────────────────────────────────────── */
+/* ── Sources dialog ────────────────────────────────────────────────────────── */
 
+/*
+ * Gemini's `project-create-sources-dialog`, measured at a REAL desktop viewport
+ * (1536x826). An earlier version of this file was built from a probe taken at
+ * 1075x350, where Gemini swaps to `div.content.mobile-layout` — a back chevron and
+ * a "+" popup menu. That was the wrong component. Clear
+ * `Emulation.clearDeviceMetricsOverride` and check `innerWidth` before measuring.
+ *
+ *   dialog        887x548, radius 28, `rgb(30,31,32)`
+ *   title         [24,24]  20/24 w470  `rgb(227,227,227)`
+ *   subtitle      [24,48]  17/24 w400  ALSO `rgb(227,227,227)` — not muted
+ *   close (X)     [823,24] 40x40, i.e. 24px from the right edge
+ *   rail          4 items at x=24, y=96/160/224/288 → 64px pitch, each 174x56
+ */
+/*
+ * Gemini's backdrop is `rgba(0, 0, 0, 0.32)` and covers the FULL viewport —
+ * 1536x826, sidebar included. Two things were wrong here: the tint was nearly
+ * twice as dark, and `z-index: 1000` let the studio shell's sidebar paint over it
+ * so the tint stopped at the sidebar's edge. The dialog is portalled to <body>
+ * (see the component) and the z-index now clears the shell.
+ */
 .nb-sheet-scrim {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 2147483000;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: rgba(0, 0, 0, 0.32);
   padding: 24px;
   animation: nb-fade-in 160ms ease-out both;
 }
@@ -809,38 +977,73 @@
   to { opacity: 1; }
 }
 
-.nb-sheet {
-  display: flex;
-  width: 560px;
-  max-width: 100%;
-  max-height: 100%;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  border-radius: 28px;
-  background-color: rgb(30, 31, 32);
-  padding: 24px;
-  animation: nb-rise-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+@keyframes nb-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-.nb-sheet-head {
+.nb-sheet {
+  position: relative;
   display: flex;
-  align-items: center;
+  height: 548px;
+  width: 887px;
+  max-height: 100%;
+  max-width: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 28px;
+  /*
+   * `rgb(31,31,31)`, not `rgb(30,31,32)`. Gemini nests a `.content` of
+   * `rgb(31,31,31)` inside a surface of `rgb(30,31,32)`, and the content is what
+   * fills the box — so the surface colour reads as visibly too dark on its own.
+   */
+  background-color: rgb(31, 31, 31);
+  padding: 24px;
+  animation: nb-dialog-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.nb-sheet-header {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.nb-sheet-header-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .nb-sheet-title {
+  /* gds-title-l-emphasized */
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+/* gds-body-l — full-strength text, NOT a muted subtitle. */
+.nb-sheet-sub {
+  margin: 0;
+  font-size: 17px;
   font-weight: 400;
-  line-height: 28px;
+  line-height: 24px;
   color: rgb(227, 227, 227);
 }
 
 .nb-sheet-close {
   display: flex;
-  height: 32px;
-  width: 32px;
+  height: 40px;
+  width: 40px;
+  flex: none;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
@@ -852,54 +1055,181 @@
   background-color: rgba(255, 255, 255, 0.08);
 }
 
-.nb-sheet-sub {
-  margin: 0;
-  font-size: 14px;
-  line-height: 20px;
-  color: rgba(255, 255, 255, 0.55);
+/* Rail on the left, the file pane filling the rest. */
+.nb-sheet-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  gap: 24px;
+  margin-top: 24px;
 }
 
-.nb-sheet-tabs {
+/*
+ * The four source types are a PERMANENT rail at desktop width — there is no "+"
+ * button and no popup menu. Items are 174x56 on a 64px pitch, i.e. an 8px gap.
+ */
+.nb-src-rail {
   display: flex;
+  width: 174px;
+  flex: none;
+  flex-direction: column;
   gap: 8px;
 }
 
-.nb-sheet-tab {
-  height: 32px;
-  border-radius: 9999px;
+/*
+ * All four labels start at the SAME x — measured 76px from the dialog edge, i.e.
+ * 52px into the 174px item — even though Gemini's glyphs are different sizes
+ * (20px / 16px Drive svg / 20px / 20px) with three different paddings. So the label
+ * offset is fixed here and the glyph is centred in the space before it, rather than
+ * letting a `gap` push the label around per row.
+ *
+ *   16px padding + 20px icon slot + 16px gap = 52px
+ */
+.nb-src-rail-item {
+  display: flex;
+  height: 56px;
+  align-items: center;
+  gap: 16px;
+  border-radius: 16px;
   background-color: rgb(23, 23, 23);
-  padding: 0 14px;
-  color: rgb(227, 227, 227);
-  font-size: 13px;
-  font-weight: 540;
-  line-height: 17px;
+  padding: 0 16px;
+  text-align: left;
+  color: rgb(230, 230, 230);
   cursor: pointer;
   transition: background-color 0.15s ease-out;
 }
 
-.nb-sheet-tab:hover {
-  background-color: rgba(230, 230, 230, 0.08);
+/*
+ * `rgb(40,40,40)` — the 8% on-surface overlay Gemini uses elsewhere, resolved over
+ * `rgb(23,23,23)`. It must NOT be `rgb(31,31,31)`: that is the dialog's own
+ * background, so hovering made the item's dark rectangle appear to vanish instead
+ * of lighting up.
+ */
+.nb-src-rail-item:hover {
+  background-color: rgb(40, 40, 40);
 }
 
-.nb-sheet-tab.is-active {
-  background-color: rgb(25, 41, 103);
-}
-
-.nb-sheet-drop {
+.nb-src-rail-icon {
   display: flex;
+  height: 20px;
+  width: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Labels are small — 13px/17px, not the 16px a menu row would use. */
+.nb-src-rail-label {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.nb-src-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+/*
+ * A FIXED 320px block, top-aligned in the pane — measured
+ * `.no-files-container` at [dx 222, dy 96, 641x320] inside a 548px dialog, i.e. it
+ * starts immediately below the header and leaves ~130px empty beneath it.
+ *
+ * Stretching this with `flex: 1` centred the group in the whole pane and pushed it
+ * ~70px too low, which is the "a bit downward" in the comparison.
+ */
+.nb-src-empty {
+  display: flex;
+  height: 320px;
+  flex: none;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.18);
-  border-radius: 20px;
-  padding: 28px 20px;
+  justify-content: center;
+  gap: 16px;
   text-align: center;
 }
 
-.nb-sheet-drop-text {
+/* 48px circle on `rgb(23,23,23)`, glyph in `rgb(78,143,248)`. */
+.nb-src-empty-icon {
+  display: flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(23, 23, 23);
+  color: rgb(78, 143, 248);
+}
+
+/* Exactly 224px wide — that measure is what makes it wrap where Gemini's does. */
+.nb-src-empty-text {
   margin: 0;
+  width: 224px;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-src-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nb-src-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 16px;
+  background-color: rgb(23, 23, 23);
+  padding: 12px 16px;
+}
+
+.nb-src-row-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.nb-src-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 15px;
   line-height: 20px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-src-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.nb-src-row-remove {
+  display: flex;
+  height: 24px;
+  width: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-src-row-remove:hover {
+  background-color: rgba(255, 255, 255, 0.08);
   color: rgb(227, 227, 227);
 }
 
@@ -917,114 +1247,1047 @@
   color: rgb(242, 139, 130);
 }
 
-.nb-sheet-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* ── Past-chats skeleton ───────────────────────────────────────────────────── */
+
+/*
+ * Recorded off Gemini, not invented. Sampled by remounting its chat-history
+ * component through an in-app navigation (a full reload kills the sampler before
+ * the skeleton paints):
+ *
+ *   .skeleton-loader-row     644x42
+ *   .skeleton-loader-column  bg `rgba(196,199,197,0.08)`
+ *     alt-1                  283x18, radius 12   ← the title bar
+ *     alt-2                  40x18,  radius 9999 ← the date pill
+ *   animation                `pulse` 1500ms linear infinite
+ *
+ * The keyframes are ASYMMETRIC — the midpoint is at 33%, not 50%, so it dims
+ * quickly and recovers slowly. A symmetric pulse reads as a different rhythm.
+ */
+@keyframes nb-skeleton-pulse {
+  0% { opacity: 1; }
+  33% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
-.nb-sheet-input,
-.nb-sheet-textarea {
+.nb-skeleton-row {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nb-skeleton-bar,
+.nb-skeleton-pill {
+  height: 18px;
+  background-color: rgba(196, 199, 197, 0.08);
+  animation: nb-skeleton-pulse 1500ms linear infinite;
+}
+
+.nb-skeleton-bar {
+  width: 283px;
+  max-width: 60%;
+  border-radius: 12px;
+}
+
+.nb-skeleton-pill {
+  width: 40px;
+  flex: none;
+  border-radius: 9999px;
+}
+
+/* ── Past-chats row menu ───────────────────────────────────────────────────── */
+
+/*
+ * Gemini reveals a `more_vert` on hover — the row's only glyph. Revealed with
+ * `visibility`, matching every other hover control in the app (opacity stays 1, so
+ * there is no fade).
+ */
+/*
+ * OUT OF FLOW, on purpose.
+ *
+ * Gemini's `more_vert` measures 0x0 at rest, so it consumes no width and the date
+ * sits flush against the row's 16px inset. Leaving it in flow — even at
+ * `visibility: hidden` — reserved 24px plus a 12px gap and pulled the date 36px
+ * left of where Gemini's sits (measured +602 against +638).
+ */
+.nb-chat-row-menu {
+  position: absolute;
+  /*
+   * FLUSH with the row's right edge, no inset. Measured on Gemini with a real
+   * pointer: the 40x40 button sits at `fromRight: 0` on a 660px row, and the panel
+   * it opens is right-aligned to it (both right edges landed on 1242.0).
+   */
+  right: 0;
+  display: flex;
+  /*
+   * 40x40, matching the notebook header's identical trigger. This was 24x24 on a
+   * guess — the earlier 0x0 measurement was the AT-REST state, because Gemini keeps
+   * this button `display: none` until the row is hovered rather than hiding a
+   * laid-out box.
+   */
+  height: 40px;
+  width: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: 9999px;
+  color: rgb(196, 199, 197);
+  visibility: hidden;
+}
+
+/*
+ * The menu takes the date's place rather than crowding it — measured: on hover
+ * Gemini's date element goes to `display: none` (not merely hidden) while the 40x40
+ * button takes the slot.
+ *
+ * `:has()` on the row, NOT a sibling combinator: the date is rendered BEFORE the
+ * trigger, so `.nb-chat-row-menu.is-open ~ .nb-chat-row-sub` could never match and
+ * the date stayed visible under an open menu.
+ */
+.nb-chat-row:hover .nb-chat-row-sub,
+.nb-chat-row:has(.nb-chat-row-menu.is-open) .nb-chat-row-sub {
+  visibility: hidden;
+}
+
+.nb-chat-row:hover .nb-chat-row-menu,
+.nb-chat-row-menu.is-open {
+  visibility: visible;
+}
+
+.nb-chat-row-menu:hover {
+  /*
+   * Gemini paints this on `.mat-mdc-button-persistent-ripple::before` —
+   * `rgb(196,199,197)` at `opacity: 0.08`, which composites to this.
+   */
+  background-color: rgba(196, 199, 197, 0.08);
+}
+
+/* ── The notebook header's three-dot ──────────────────────────────────────── */
+
+/*
+ * Gemini pins its `gem-icon-button.settings-button` in the top bar's
+ * `.right-section`: 40x40 at y=12, 20px clear of the viewport's right edge. The
+ * button itself is identical to the row's — same size, padding, radius and glyph.
+ */
+.nb-page-actions {
+  position: fixed;
+  top: 12px;
+  right: 20px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nb-icon-button {
+  display: flex;
+  height: 40px;
+  width: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: 9999px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-icon-button:hover {
+  background-color: rgba(196, 199, 197, 0.08);
+}
+
+/* ── The three-dot menu (`gem-menu`) ──────────────────────────────────────── */
+
+/*
+ * Shared by the notebook header's three-dot and each past-chat row's. Recorded from
+ * the live app; see NotebookMenu.tsx for the width arithmetic and the evidence that
+ * there is no enter/exit animation.
+ *
+ * Gemini splits this across three elements — `.cdk-overlay-pane` (z-index, the
+ * static 4px offset), `.container` (radius + shadow) and `gem-menu` (background,
+ * radius, padding). Collapsed into one here since all three share the same box.
+ */
+.nb-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  /*
+   * Content-driven, exactly as measured: the widest label plus the 88px of fixed
+   * chrome around it. `max-content` is what keeps the two menus at their own
+   * natural 199.1px and 230.3px instead of a shared hard-coded width.
+   */
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  border-radius: 20px;
+  background-color: rgb(31, 31, 31);
+  padding: 8px;
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  /* Ink for the glyphs; the label overrides to 230 below. */
+  color: rgb(227, 227, 227);
+}
+
+.nb-menu-item {
+  display: flex;
+  /*
+   * Full panel width. Gemini's `gem-menu` is `align-items: flex-start`, which would
+   * otherwise shrink each item to its own label — but all four measured 183.1px
+   * (panel − 16), so they stretch.
+   */
   width: 100%;
-  border: 0;
-  border-radius: 14px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 8px;
+  color: inherit;
+}
+
+.nb-menu-item:hover {
+  /* Real-mouse measured on `gem-menu-item-content`. */
+  background-color: rgba(230, 230, 230, 0.08);
+}
+
+/* Only the notebook menu's Delete — Gemini's `.project-delete-button`. */
+.nb-menu-item.is-danger,
+.nb-menu-item.is-danger .nb-menu-label {
+  color: rgb(242, 184, 181);
+}
+
+.nb-menu-label {
+  flex: 1 1 auto;
+  text-align: left;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  color: rgb(230, 230, 230);
+}
+
+/*
+ * The empty trailing slot. Gemini's `div.trailing-container` is a 20px min-width
+ * flex box holding nothing on either of these menus — it is where a submenu chevron
+ * or checkmark would go, and it is 20px of the panel's width whether or not it has
+ * content.
+ */
+.nb-menu-trailing {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+/* ── Notebook settings + Rename (shared scrim) ────────────────────────────── */
+
+/*
+ * Both sheets sit on Gemini's `rgba(0,0,0,0.32)` backdrop, above the sidebar.
+ *
+ * The backdrop FADES on close while the surface does not — recorded frame by frame:
+ * the backdrop went op1 -> 0.730 -> 0.598 -> 0.478 in its final frames while the
+ * dialog held `opacity: 1` right up to removal. That asymmetry is deliberate and is
+ * what `GeminiDialog` already implements, so these reuse the same shape.
+ */
+.nb-set-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+/* ── Notebook settings, 512x446 ───────────────────────────────────────────── */
+
+.nb-set {
+  display: flex;
+  width: 512px;
+  max-width: 100%;
+  max-height: 100%;
+  flex-direction: column;
+  border-radius: 32px;
+  background-color: rgb(31, 31, 31);
+  /* 20px, not the 24px every other dialog uses. */
+  padding: 20px;
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+}
+
+.nb-set-content {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nb-set-header { flex: none; }
+
+.nb-set-title {
+  /* Gemini keeps the dialog title's own 24px inset inside the 20px-padded surface,
+   * which is why the text lands 44px from the surface edge. */
+  padding: 24px 24px 0;
+  margin: 0;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  color: rgb(227, 227, 227);
+}
+
+.nb-set-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nb-set-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.nb-set-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nb-set-label {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  color: rgb(230, 230, 230);
+}
+
+.nb-set-desc {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  /* A white alpha, not a flat grey — it composites differently over the surface. */
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-set-textarea {
+  flex: 1 0 auto;
+  min-height: 120px;
+  resize: none;
+  border-radius: 16px;
   background-color: rgb(23, 23, 23);
+  padding: 16px;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  color: rgb(230, 230, 230);
+}
+
+.nb-set-textarea::placeholder { color: rgba(255, 255, 255, 0.55); }
+
+.nb-set-actions {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/*
+ * These are NOT the tonal pills the other dialogs use: 40px tall rather than 36,
+ * `padding: 0 20px`/`0 24px` rather than 12, and a 14px w500 label rather than 15/400.
+ */
+.nb-set-cancel,
+.nb-set-save {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nb-set-cancel {
+  padding: 0 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-set-cancel:hover { background-color: rgba(255, 255, 255, 0.08); }
+
+.nb-set-save {
+  padding: 0 24px;
+  background-color: rgb(168, 199, 250);
+  color: rgb(6, 46, 111);
+}
+
+/* Measured directly — Save was disabled in the capture, so this pair is exact. */
+.nb-set-save:disabled {
+  background-color: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
+}
+
+/* ── The memory switch (mat-slide-toggle) ─────────────────────────────────── */
+
+.nb-switch {
+  position: relative;
+  display: flex;
+  height: 32px;
+  width: 52px;
+  flex: none;
+  align-items: center;
+}
+
+.nb-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: rgb(68, 71, 70);
+  transition: background-color 0.075s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nb-switch.is-on .nb-switch-track { background-color: rgb(168, 199, 250); }
+
+/*
+ * Handle: 24x24, 4px from the track's edge in both states — measured at x=976 in a
+ * track spanning 952..1004, i.e. flush right minus 4.
+ */
+.nb-switch-handle {
+  position: absolute;
+  left: 4px;
+  height: 24px;
+  width: 24px;
+  border-radius: 9999px;
+  background-color: rgb(147, 149, 151);
+  transition: transform 0.075s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.075s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nb-switch.is-on .nb-switch-handle {
+  transform: translateX(20px);
+  background-color: rgb(6, 46, 111);
+}
+
+/* ── Rename notebook, 512x236 ─────────────────────────────────────────────── */
+
+.nb-ren {
+  display: flex;
+  width: 512px;
+  max-width: 100%;
+  flex-direction: column;
+  border-radius: 32px;
+  background-color: rgb(31, 31, 31);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+}
+
+.nb-ren-header {
+  display: flex;
+  height: 72px;
+  flex: none;
+  /* align-START, measured: the close button hangs from the top on its own margin. */
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.nb-ren-title {
+  padding: 24px 24px 0;
+  margin: 0 0 1px;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  color: rgb(227, 227, 227);
+}
+
+.nb-ren-close {
+  display: flex;
+  height: 40px;
+  width: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 16px;
+  padding: 8px;
+  border-radius: 100px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-ren-close:hover { background-color: rgba(196, 199, 197, 0.08); }
+
+.nb-ren-content { padding: 16px 24px 0; }
+
+.nb-ren-row {
+  display: flex;
+  height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+/*
+ * The emoji trigger — measured `.emoji-display` at 65.9x48 inside an ~86px slot.
+ *
+ * An earlier version put an `arrow_drop_down` in that extra width on the theory that
+ * a single glyph could not be 65.9px wide. A screenshot comparison proved otherwise:
+ * Gemini renders the emoji LARGE and alone, so the width is the glyph itself.
+ */
+.nb-ren-emoji {
+  display: flex;
+  height: 48px;
+  width: 66px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+}
+
+.nb-ren-emoji:hover { background-color: rgba(196, 199, 197, 0.08); }
+
+.nb-ren-emoji-glyph {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.nb-ren-field {
+  display: flex;
+  height: 56px;
+  flex: 1 1 auto;
+  align-items: center;
+  border-radius: 4px;
+  border: 1px solid rgb(68, 71, 70);
+  /* The input measured 16px inside the field box. */
+  padding: 0 16px;
+}
+
+.nb-ren-field:focus-within { border-color: rgb(168, 199, 250); }
+
+.nb-ren-field input {
+  width: 100%;
+  /* Same upstream input fill as the emoji search — reset explicitly. */
+  background-color: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(230, 230, 230);
+}
+
+.nb-ren-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px;
+}
+
+/*
+ * Gemini's tonal pill. Cancel's label measured 46.7px here and 46.725px in Delete
+ * notebook — the same component, so the metrics are shared rather than re-derived.
+ */
+.nb-pill {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(23, 23, 23);
+  padding: 0 12px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  color: rgb(230, 230, 230);
+}
+
+.nb-pill:hover { background-color: rgb(35, 35, 35); }
+
+.nb-pill:disabled {
+  background-color: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
+}
+
+/* ── Emoji keyboard, 375x356 ──────────────────────────────────────────────── */
+
+/*
+ * A shared Google widget with its own palette — `rgb(32,33,36)`, `rgb(60,64,67)`,
+ * `rgb(102,157,246)` — none of which appear elsewhere in the notebook UI. Kept
+ * literal rather than folded into the surrounding tokens.
+ */
+.nb-emoji-kb {
+  position: fixed;
+  z-index: 2147483010;
+  width: 375px;
+  height: 356px;
+  border-radius: 22px;
+  background-color: rgb(32, 33, 36);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+}
+
+.nb-emoji-kb-inner {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 12px;
+}
+
+.nb-emoji-toolbar {
+  display: flex;
+  height: 68px;
+  flex: none;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.nb-emoji-search {
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  border-radius: 30px;
+  background-color: rgb(60, 64, 67);
+  padding: 0 10px;
+}
+
+.nb-emoji-search-icon {
+  margin-right: 6px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.nb-emoji-search input {
+  width: 100%;
+  /*
+   * Explicitly transparent and chromeless.
+   *
+   * Something upstream paints inputs — this rendered as a solid WHITE box inside the
+   * pill. Inheriting the pill's own fill is the whole point, so every default that
+   * could paint or outline it is reset here rather than relied on.
+   */
+  background-color: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  font-size: 12px;
+  line-height: 17px;
+  font-weight: 500;
+  color: rgb(230, 230, 230);
+}
+
+.nb-emoji-search input::placeholder { color: rgba(255, 255, 255, 0.6); }
+
+.nb-emoji-cats {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nb-emoji-cat {
+  position: relative;
+  display: flex;
+  height: 30px;
+  width: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.nb-emoji-cat:hover { background-color: rgba(255, 255, 255, 0.08); }
+
+.nb-emoji-cat.is-active { color: rgb(102, 157, 246); }
+
+/* The active tab's underline, which sits below the 40px nav band. */
+.nb-emoji-cat.is-active::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 2px;
+  background-color: rgb(102, 157, 246);
+}
+
+/* Uppercase section label above the grid, e.g. "SMILEYS AND EMOTIONS". */
+.nb-emoji-section {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 4px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.nb-emoji-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.nb-emoji-grid {
+  display: grid;
+  /* 9 columns, measured at 38.4625px with zero gap (pitch 38.5). */
+  grid-template-columns: repeat(9, 1fr);
+  /*
+   * FIXED row height, and packed to the top.
+   *
+   * Without these the grid was a `flex: 1 1 auto` child, so its implicit rows
+   * stretched to fill the panel — 12 emoji came out as one row, a large void, then
+   * three stranded on a second row far below.
+   */
+  grid-auto-rows: 38px;
+  align-content: start;
+  gap: 0;
+}
+
+.nb-emoji-cell {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.nb-emoji-cell:hover { background-color: rgba(255, 255, 255, 0.08); }
+
+.nb-emoji-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Move Chat dialog ─────────────────────────────────────────────────────── */
+
+/*
+ * Recorded at 434x465 — three stacked bands (56 + 38 + 371) with only the list
+ * scrolling, and no action row at all: picking a notebook commits the move. See
+ * MoveChatDialog.tsx.
+ */
+.nb-move-scrim {
+  position: fixed;
+  inset: 0;
+  /* Above the sidebar, like the Sources scrim — a partial tint reads as a bug. */
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+.nb-move {
+  display: flex;
+  width: 434px;
+  max-width: 100%;
+  max-height: 100%;
+  flex-direction: column;
+  border-radius: 32px;
+  background-color: rgb(31, 31, 31);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+}
+
+.nb-move-header {
+  display: flex;
+  height: 56px;
+  flex: none;
+  align-items: center;
+  padding: 0 16px 0 0;
+}
+
+.nb-move-title {
+  flex: 1 1 auto;
+  /* Gemini keeps the dialog title's own 24px inset even inside the flex header. */
+  padding: 24px 24px 0;
+  margin: 0 0 1px;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  color: rgb(227, 227, 227);
+}
+
+.nb-move-close {
+  display: flex;
+  height: 40px;
+  width: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Measured `margin: 16px 0 0` — the button hangs off the header's top, not centred. */
+  margin: 16px 0 0;
+  padding: 8px;
+  border-radius: 9999px;
+  color: rgb(196, 199, 197);
+}
+
+.nb-move-close:hover {
+  background-color: rgba(196, 199, 197, 0.08);
+}
+
+.nb-move-info {
+  flex: none;
+  padding: 2px 24px 16px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  color: rgb(230, 230, 230);
+}
+
+.nb-move-list {
+  /*
+   * The only scrolling band. `min-height: 0` is what lets it actually shrink inside
+   * the column flex — without it the band grows to its content and the surface
+   * overshoots 465px instead of scrolling.
+   */
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 371px;
+  overflow-y: auto;
+  padding: 16px 24px 0;
+}
+
+.nb-move-list-inner {
+  padding: 8px 0;
+}
+
+.nb-move-row {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.nb-move-row:hover {
+  background-color: rgba(227, 227, 227, 0.08);
+}
+
+.nb-move-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  color: rgb(227, 227, 227);
+}
+
+.nb-move-empty {
+  padding: 12px 16px;
+  font-size: 15px;
+  line-height: 20px;
+  color: rgb(154, 155, 156);
+}
+
+/* ── Confirmation snackbar ────────────────────────────────────────────────── */
+
+/*
+ * "Deleted from <notebook>", shown after Remove from notebook. Bottom-LEFT, with the
+ * surface inset 24px from both edges. See NotebookSnackbar.tsx.
+ */
+.nb-snack-host {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: 2147483100;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.nb-snack {
+  display: flex;
+  align-items: center;
+  min-width: 344px;
+  max-width: calc(100vw - 48px);
+  border-radius: 16px;
+  background-color: rgb(31, 31, 31);
+  padding: 0 12px 0 0;
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  color: rgb(230, 230, 230);
+}
+
+.nb-snack-label {
+  padding: 12px 4px 12px 24px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+/* ── Secondary dialog (Add websites / Add text) ───────────────────────────── */
+
+/*
+ * Gemini's `.website-dialog`: 600x544, surface `rgb(28,28,28)`, radius 28, all
+ * content inset 24px. Header title row is 41px tall with a 24px icon and a 40x40
+ * close button; the action row is end-aligned and its button is 72x48.
+ */
+.nb-sub-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 24px;
+  animation: nb-fade-in 140ms ease-out both;
+}
+
+.nb-sub {
+  display: flex;
+  width: 600px;
+  max-height: 100%;
+  max-width: 100%;
+  flex-direction: column;
+  border-radius: 28px;
+  background-color: rgb(28, 28, 28);
+  animation: nb-dialog-in 200ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.nb-sub-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 24px 0;
+}
+
+.nb-sub-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-sub-title {
+  /* Same scale as the Sources title. */
+  margin: 0;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+.nb-sub-close {
+  display: flex;
+  height: 40px;
+  width: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgb(227, 227, 227);
+  transition: background-color 0.15s ease-out;
+}
+
+.nb-sub-close:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nb-sub-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 16px 24px 0;
+}
+
+.nb-sub-subtitle {
+  /* gds-body-m */
+  margin: 0;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nb-sub-input,
+.nb-sub-textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background-color: transparent;
   padding: 12px 14px;
   color: rgb(230, 230, 230);
   font-size: 15px;
   line-height: 20px;
   outline: none;
-  transition: background-color 0.15s ease-out;
+  transition: border-color 0.15s ease-out;
 }
 
-.nb-sheet-textarea {
+.nb-sub-textarea {
   min-height: 120px;
   resize: vertical;
 }
 
-.nb-sheet-input:focus,
-.nb-sheet-textarea:focus {
-  background-color: rgb(31, 31, 31);
+.nb-sub-input:focus,
+.nb-sub-textarea:focus {
+  border-color: rgb(168, 199, 250);
 }
 
-.nb-sheet-input::placeholder,
-.nb-sheet-textarea::placeholder {
+.nb-sub-input::placeholder,
+.nb-sub-textarea::placeholder {
   color: rgba(227, 227, 227, 0.4);
 }
 
-.nb-sheet-primary {
-  align-self: flex-start;
-  height: 36px;
-  border-radius: 9999px;
-  background-color: rgb(168, 199, 250);
-  padding: 0 18px;
-  color: rgb(6, 46, 111);
+.nb-sub-notes {
+  /* gds-body-s */
+  margin: 0;
+  padding-left: 20px;
   font-size: 13px;
-  font-weight: 540;
   line-height: 17px;
-  cursor: pointer;
-  transition: opacity 0.2s ease-out;
+  color: rgba(255, 255, 255, 0.45);
 }
 
-.nb-sheet-primary:hover {
+.nb-sub-notes li + li {
+  margin-top: 6px;
+}
+
+.nb-sub-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 24px;
+}
+
+.nb-sub-confirm {
+  height: 48px;
+  min-width: 72px;
+  border-radius: 9999px;
+  background-color: rgb(168, 199, 250);
+  padding: 0 24px;
+  color: rgb(6, 46, 111);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease-out, color 0.2s ease-out;
+}
+
+.nb-sub-confirm:hover:not(:disabled) {
   opacity: 0.9;
 }
 
-.nb-sheet-primary:disabled {
+/* Gemini's disabled fill, measured: rgba(224,224,224,0.12). */
+.nb-sub-confirm:disabled {
+  background-color: rgba(224, 224, 224, 0.12);
+  color: rgba(227, 227, 227, 0.38);
   cursor: default;
-  opacity: 0.4;
-}
-
-.nb-sheet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.nb-sheet-list-title {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 540;
-  line-height: 17px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.nb-sheet-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 12px;
-  background-color: rgb(23, 23, 23);
-  padding: 10px 12px;
-}
-
-.nb-sheet-row-title {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  line-height: 20px;
-  color: rgb(227, 227, 227);
-}
-
-.nb-sheet-row-remove {
-  display: flex;
-  height: 24px;
-  width: 24px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  color: rgba(255, 255, 255, 0.6);
-  transition: background-color 0.15s ease-out;
-}
-
-.nb-sheet-row-remove:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: rgb(227, 227, 227);
 }
 
 @media (prefers-reduced-motion: reduce) {

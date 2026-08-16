@@ -99,9 +99,19 @@ const parseNotebooks = (raw: string | null): Notebook[] => {
             return [{
               id: src.id,
               title: src.title,
-              kind: kind === 'link' || kind === 'text' || kind === 'drive' ? kind : 'file',
+              /*
+               * `'link'` is accepted as an alias for `'website'`: notebooks written
+               * by the first version of this feature used it, and silently
+               * downgrading those rows to `'file'` would swap their icon and lose
+               * the URL's meaning.
+               */
+              kind: kind === 'website' || kind === 'link' ? 'website'
+                : kind === 'text' || kind === 'drive' ? kind : 'file',
               content: typeof src.content === 'string' ? src.content : undefined,
               url: typeof src.url === 'string' ? src.url : undefined,
+              mimeType: typeof src.mimeType === 'string' ? src.mimeType : undefined,
+              size: typeof src.size === 'number' ? src.size : undefined,
+              dataUrl: typeof src.dataUrl === 'string' ? src.dataUrl : undefined,
               createdAt: typeof src.createdAt === 'number' ? src.createdAt : createdAt,
             }];
           })
