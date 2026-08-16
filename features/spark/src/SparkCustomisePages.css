@@ -159,13 +159,22 @@
   background: #252525;
 }
 
-.spark-schedules-section h2 {
-  height: 36px;
-  padding: 0 16px 12px;
+/*
+ * Gemini's "Active" / "Recommended" / "Ongoing" section labels: 15px/28px weight 540
+ * in #e3e3e3 with `padding: 4px 0 4px 16px`. Willow had 17px/24px at weight 520,
+ * which read as a heading rather than a label.
+ */
+/* Direct children only: the empty-state card nested inside this section has its own
+ * `h2` title, and a descendant selector here outranked
+ * `.spark-schedules-empty__title` and restyled it as a section label. */
+.spark-schedules-section > h2,
+.spark-recommended-skills > h2,
+.spark-skills-library > h2 {
+  padding: 4px 0 4px 16px;
   color: #e3e3e3;
-  font-size: 17px;
-  font-weight: 520;
-  line-height: 24px;
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 28px;
 }
 
 .spark-schedule-card {
@@ -252,17 +261,47 @@
   background: #303030;
 }
 
+/*
+ * Gemini's `.empty-state` on the Schedules tab, measured 677.6×322.6:
+ *
+ *   .empty-state { display:flex; flex-direction:column; align-items:center;
+ *     text-align:center; background:transparent; border-radius:28px;
+ *     border: 1px solid rgba(255,255,255,.12);
+ *     padding: 136px 0; margin: 36px 0 0 }
+ *   .empty-state-title    (gds-headline-s) 20px/24px w470, on-surface-variant, margin 0 0 8px
+ *   .empty-state-subtitle (gds-body-s)     13px/17px w400, on-surface-variant
+ *
+ * An outline, not a filled tile: no background and no icon.
+ */
 .spark-schedules-empty {
   display: flex;
-  min-height: 120px;
+  box-sizing: border-box;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 24px;
-  border-radius: 16px;
-  background: #171717;
-  color: #a9aaa9;
-  font-size: 15px;
+  margin: 36px 0 0;
+  padding: 136px 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+
+.spark-schedules-empty__title {
+  margin: 0 0 8px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+}
+
+.spark-schedules-empty__subtitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
 }
 
 .spark-schedules-empty__icon,
@@ -396,40 +435,50 @@
   gap: 4px;
 }
 
+/*
+ * Gemini's Active-skill list is an OUTLINED container holding FILLED rows:
+ *
+ *   .skills-list { background: transparent; border-radius: 16px;
+ *                  border: 1px solid #171717 }         / measured 676x74.6 /
+ *   skill-card   { background: #1f1f1f; border-radius: 0;
+ *                  padding: 16px; gap: 16px }          / measured 674.4x73 /
+ *
+ * The rows carry no radius of their own — the container clips them, so it needs
+ * `overflow: hidden`. Willow had this inverted: a filled #171717 row with a
+ * transparent card inside it.
+ */
 .spark-skill-row {
   position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
+  overflow: hidden;
+  border: 1px solid #171717;
   border-radius: 16px;
-  background: #171717;
-}
-
-.spark-skill-row:hover,
-.spark-skill-row:focus-within {
-  background: #232323;
+  background: transparent;
 }
 
 .spark-skill-card {
   display: flex;
   width: auto;
-  min-height: 72px;
+  min-height: 73px;
   min-width: 0;
   flex: 1 1 auto;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 16px;
+  padding: 16px;
   border: 0;
-  border-radius: 16px;
-  background: transparent;
+  border-radius: 0;
+  background: #1f1f1f;
   color: #e3e3e3;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 150ms ease;
 }
 
 .spark-skill-card:hover {
-  background: transparent;
+  background: #232323;
 }
 
 .spark-skill-row__actions {
@@ -565,9 +614,10 @@
   background: rgba(168, 199, 250, 0.08);
 }
 
+/* Neutral pill, matching Gemini's delete confirmation. */
 .spark-customise-delete-dialog__actions .is-danger {
-  background: #f2b8b5;
-  color: #601410;
+  background: #171717;
+  color: #e6e6e6;
 }
 
 .spark-skill-card__icon {
@@ -582,27 +632,32 @@
   color: #c4c7c5;
 }
 
+/* Gemini's `.skill-card-content` is a 4px-gap stack. */
 .spark-skill-card__copy {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
+  gap: 4px;
 }
 
+/* `.skill-card-name.gds-body-m`: 15px/20px weight 400 in #e3e3e3 — not emphasised. */
 .spark-skill-card__title {
   overflow: hidden;
+  color: #e3e3e3;
   font-size: 15px;
-  font-weight: 540;
+  font-weight: 400;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* `.skill-card-description.gds-body-s`: 13px/17px in #c4c7c5. */
 .spark-skill-card__description {
   overflow: hidden;
-  color: #a9aaa9;
+  color: #c4c7c5;
   font-size: 13px;
-  line-height: 18px;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

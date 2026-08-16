@@ -71,26 +71,31 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/*
+ * Gemini's `.back-to-schedules-btn`, measured: 112×36, `padding: 4px 0`, no radius or
+ * hover surface, in #c4c7c5, with a 28px weight-260 glyph and a gds-body-l (17px/24px
+ * weight 400) label. Willow had a 48px pill with a 22px/430 label.
+ */
 .spark-schedule-editor__back {
   display: inline-flex;
   min-width: 0;
-  height: 48px;
+  height: 36px;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px 0 8px;
+  gap: 8px;
+  padding: 4px 0;
   border: 0;
-  border-radius: 24px;
+  border-radius: 0;
   background: transparent;
-  color: #e3e3e3;
-  font-size: 22px;
-  font-weight: 430;
-  line-height: 28px;
+  color: #c4c7c5;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
   cursor: pointer;
-  transition: background-color 140ms ease;
+  transition: color 140ms ease;
 }
 
 .spark-schedule-editor__back:hover {
-  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6e6;
 }
 
 .spark-schedule-editor__back:focus-visible,
@@ -104,15 +109,21 @@
   outline-offset: 2px;
 }
 
+/*
+ * Gemini's `.create-save-button`: 90×36, fully rounded, label gds-label-m (15px/20px
+ * weight 370). Its inactive surface measures rgba(230,230,230,.12) with an
+ * rgba(255,255,255,.3) label — reproduced below. The *enabled* colour could not be
+ * observed (the reference form was never valid), so Willow's blue is kept.
+ */
 .spark-schedule-editor__create {
-  height: 40px;
+  height: 36px;
   padding: 0 20px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 9999px;
   background: #a8c7fa;
   color: #062e6f;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 370;
   line-height: 20px;
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease;
@@ -123,45 +134,50 @@
 }
 
 .spark-schedule-editor__create:disabled {
-  background: #303134;
-  color: #77787b;
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(255, 255, 255, 0.3);
   cursor: default;
 }
 
+/* Gemini's `.schedule-detail-card` + `.editor-body`: 28px corners, a 1px #131314
+ * hairline, and `padding: 24px 16px 32px`. */
 .spark-schedule-editor__panel {
   display: flex;
   flex-direction: column;
-  padding: 28px 28px 24px;
-  border-radius: 24px;
+  padding: 24px 16px 32px;
+  border: 1px solid #131314;
+  border-radius: 28px;
   background: #1e1f20;
 }
 
 .spark-schedule-editor__field {
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
-.spark-schedule-editor__field label,
+/* `.section-label.gds-label-s`: 13px/20px weight 370 in #9a9b9c
+ * (--gem-sys-color--on-surface-low), indented 16px to line up with the card body. */
 .spark-schedule-editor__when legend,
 .spark-schedule-editor__instructions-heading > label {
-  padding: 0;
-  color: #e3e3e3;
-  font-size: 16px;
-  font-weight: 520;
-  line-height: 24px;
+  padding: 0 0 0 16px;
+  color: #9a9b9c;
+  font-size: 13px;
+  font-weight: 370;
+  line-height: 20px;
 }
 
+/* `.schedule-title-input.gds-body-l`: 49.6px tall, 12px corners, `padding: 12px`, a
+ * 1px #171717 hairline, 17px/24px. */
 .spark-schedule-editor__field input {
   width: 100%;
-  height: 56px;
-  padding: 0 16px;
-  border: 1px solid #5f6368;
+  height: 49.6px;
+  padding: 12px;
+  border: 1px solid #171717;
   border-radius: 12px;
   outline: 0;
   background: transparent;
   color: #e3e3e3;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 400;
   line-height: 24px;
   transition: border-color 140ms ease, box-shadow 140ms ease;
@@ -248,20 +264,34 @@
 
 .spark-schedule-editor__when {
   min-width: 0;
-  margin: 28px 0 0;
-  padding: 0;
+  margin: 20px 0 0;
+  padding: 0 0 0 16px;
   border: 0;
 }
 
 .spark-schedule-editor__when legend {
-  margin-bottom: 12px;
+  margin-bottom: 4px;
+  padding: 0;
 }
 
+/*
+ * Gemini reads the row as a sentence — "Weekly on S M T W T F S around 9:00 am" — laid
+ * out as a flex row with an 8px gap, not a three-column grid. Measured x positions:
+ * frequency 491, "on" 615, days 640, "around" 840, time 896, each 8px after the last.
+ */
 .spark-schedule-editor__run-grid {
-  display: grid;
-  grid-template-columns: 120px minmax(248px, 1fr) 104px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+}
+
+.spark-schedule-editor__inline-word {
+  flex: 0 0 auto;
+  color: #e3e3e3;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .spark-schedule-editor__select {
@@ -270,24 +300,26 @@
   min-width: 0;
 }
 
+/* Gemini's frequency/time fields are filled, not outlined: rgba(227,227,227,.08) at
+ * 8px corners, 40.4px tall, with a 15px/20px value. */
 .spark-schedule-editor__select select {
   width: 100%;
-  height: 40px;
+  height: 40.4px;
   appearance: none;
-  padding: 0 38px 0 14px;
-  border: 1px solid #5f6368;
-  border-radius: 20px;
+  padding: 0 34px 0 16px;
+  border: 0;
+  border-radius: 8px;
   outline: 0;
-  background: transparent;
+  background: rgba(227, 227, 227, 0.08);
   color: #e3e3e3;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 400;
   line-height: 20px;
   cursor: pointer;
 }
 
 .spark-schedule-editor__select select:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(227, 227, 227, 0.12);
 }
 
 .spark-schedule-editor__select select:focus-visible {
@@ -307,72 +339,83 @@
   pointer-events: none;
 }
 
+/* Gemini's `.day-circles`: 24px circles on a 28px pitch, so a 4px gap. */
 .spark-schedule-editor__weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 32px);
+  grid-template-columns: repeat(7, 24px);
   justify-content: center;
   gap: 4px;
   min-width: 0;
 }
 
+/*
+ * `.day-circle.gds-label-s`: 24×24, no border, #171717 at rest and #192967
+ * (--lumi-sys-color-acc-color--accent-container) when active, label 13px/20px
+ * weight 370 in #e3e3e3 for both states. Willow had 32px outlined circles that turned
+ * blue-on-navy when selected.
+ */
 .spark-schedule-editor__weekdays button {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 1px solid #5f6368;
+  border: 0;
   border-radius: 50%;
-  background: transparent;
-  color: #c4c7c5;
+  background: #171717;
+  color: #e3e3e3;
   font-size: 13px;
-  font-weight: 560;
-  line-height: 30px;
+  font-weight: 370;
+  line-height: 20px;
   text-align: center;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .spark-schedule-editor__weekdays button:hover:not(.is-selected) {
-  background: rgba(255, 255, 255, 0.08);
+  background: #232323;
 }
 
 .spark-schedule-editor__weekdays button.is-selected {
-  border-color: #a8c7fa;
-  background: #a8c7fa;
-  color: #062e6f;
+  background: #192967;
+  color: #e3e3e3;
+}
+
+/*
+ * Gemini's `.ask-gemini-note`: a sentence under the when-to-run row, gds-label-s
+ * (13px/20px weight 370) in #c4c7c5, with only "Ask Gemini" interactive and drawn in
+ * #e6e6e6. Willow's version generates the instructions rather than navigating, so it
+ * stays a button styled as that link.
+ */
+.spark-schedule-editor__ask-note {
+  margin: 8px 0 0;
+  color: #c4c7c5;
+  font-size: 13px;
+  font-weight: 370;
+  line-height: 20px;
+}
+
+.spark-schedule-editor__ask-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e6e6e6;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.spark-schedule-editor__ask-link:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .spark-schedule-editor__instructions-heading {
   display: flex;
-  min-height: 40px;
+  min-height: 20px;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  margin-top: 28px;
-}
-
-.spark-schedule-editor__instructions-heading button {
-  display: inline-flex;
-  height: 36px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 18px;
-  background: transparent;
-  color: #a8c7fa;
-  font-size: 14px;
-  font-weight: 560;
-  line-height: 20px;
-  cursor: pointer;
-}
-
-.spark-schedule-editor__instructions-heading button:hover {
-  background: rgba(168, 199, 250, 0.08);
-}
-
-.spark-schedule-editor__instructions-heading button:disabled {
-  cursor: default;
-  opacity: 0.58;
+  margin-top: 20px;
 }
 
 .spark-schedule-editor__assist-error {
@@ -382,28 +425,34 @@
   line-height: 18px;
 }
 
+/* Gemini's `.instructions-textarea`: 201.6px tall, 12px corners, a 1px #171717
+ * hairline, 16px inner padding, 15px/24px text. */
 .spark-schedule-editor__panel textarea {
   width: 100%;
-  min-height: 184px;
+  min-height: 201.6px;
+  margin-top: 4px;
   resize: vertical;
   padding: 16px;
-  border: 1px solid #5f6368;
+  border: 1px solid #171717;
   border-radius: 12px;
   outline: 0;
   background: transparent;
   color: #e3e3e3;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 400;
   line-height: 24px;
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
+/* `.disclaimer.gds-label-s`: 13px/20px weight 370 in #ababab, indented 16px, with the
+ * "Learn more" link in #e6e6e6 rather than blue. */
 .spark-schedule-editor__disclaimer {
-  margin: 16px 0 0;
-  color: #a9acaa;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
+  margin: 20px 0 0;
+  padding-left: 16px;
+  color: #ababab;
+  font-size: 13px;
+  font-weight: 370;
+  line-height: 20px;
 }
 
 .spark-schedule-editor__disclaimer button {
@@ -411,10 +460,11 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #a8c7fa;
+  color: #e6e6e6;
   font: inherit;
-  font-weight: 560;
   cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .spark-schedule-editor__disclaimer button:hover {
@@ -490,7 +540,7 @@
 }
 
 .spark-schedule-editor__delete-dialog button.is-danger {
-  color: #f2b8b5;
+  color: inherit;
 }
 
 .spark-schedule-editor__discard-dialog {

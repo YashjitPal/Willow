@@ -61,7 +61,14 @@ rather than a missing one. Two real instances:
 - `toggle_on` on the sidebar's collapsed Chat/Spark switch. Willow's **Luminous
   Symbols subset has `toggle_off` but not `toggle_on`**, so the ligature failed in
   exactly one state — the Spark one — and rendered as a stray "L". Probed advance at
-  20px: Luminous 180px vs Google Symbols 20px.
+  20px: Luminous 180px vs Google Symbols 20px. Fixed in `Sidebar.tsx` by drawing
+  `toggle_off` for both states and rotating it 180° — **not** by switching font, since
+  Google Symbols draws that capsule on its side where Gemini's is upright.
+- `monitor` (the side-panel toggle) is absent from Luminous; Google Symbols has it.
+- **`language` and `web_asset` exist in none of Willow's three fonts.** The
+  computer-use panel used both. Replaced with `public` and `tab`, which resolve in
+  Google Symbols. These only surfaced once the panel was moved into the side pane and
+  actually mounted — an icon that never renders is never caught.
 
 **Which font holds a glyph is per-glyph and not derivable from its name.** Probe
 before choosing: render the name in a hidden span in the candidate font and compare
@@ -69,6 +76,45 @@ the advance width against the font size. A formed ligature is about one em; a fa
 one is many. `tools/ui-research/scrapers/spark/37-icon-audit.cjs` sweeps every Spark
 surface this way and `38-glyph-probe.cjs` tests candidate names across the three
 fonts. Run the audit after touching any icon.
+
+### The `font: inherit` specificity trap
+
+`SparkTaskDetail.css` opens with:
+
+```css
+.spark-task-detail button,
+.spark-task-detail textarea,
+.spark-task-detail input { font: inherit; letter-spacing: 0 }
+```
+
+That selector is **0,0,1,1** (one class + one type), so it beats any single-class rule
+(0,0,1,0) *regardless of source order* — and because `font` is a shorthand, it resets
+`font-size` and `line-height` back to the inherited 16px/24px. Three rules in that
+file were silently losing their typography to it, including
+`.spark-task-detail__status-pill`, which had been rendering at 16px rather than the
+13px it asks for since before this work started.
+
+The fix is to scope the rule with two classes:
+`.spark-task-detail .spark-task-detail__status-pill`. **When you set a font size on a
+button, textarea or input inside a scope that carries this reset, check the computed
+value** — the stylesheet will look correct and render wrong.
+`tools/ui-research/scrapers/spark/44-font-audit-all.cjs` sweeps every Spark class
+whose font was set against its measured Gemini value; run it after touching type.
+
+### Two component surfaces that were inverted
+
+- **The Active-skill list.** Gemini outlines the container and fills the rows:
+  `.skills-list` is transparent with a 1px #171717 border at 16px corners, and each
+  `skill-card` inside is #1f1f1f with **no radius of its own**, `padding: 16px`,
+  `gap: 16px`. The container clips them, so it needs `overflow: hidden`. Willow had it
+  the other way round — a filled row wrapping a transparent card.
+- **The thread's processing state.** Willow surfaced thinking steps through the
+  response overflow menu into a slide-out panel; Gemini shows them inline above the
+  response as `remy-processing-state` — a 32px pill trigger (`padding: 0 8px`, gap 8px,
+  label gds-body-s in on-surface-variant, `expand_more` chevron at 20px weight 320,
+  and `cursor: default`) that expands into the earlier steps plus one tool block per
+  capability. `SparkProcessingState` in `SparkTaskDetail.tsx` is that row; the
+  slide-out panel remains for the full timeline.
 
 ### Measured values worth not "correcting"
 
@@ -201,6 +247,34 @@ filled blue primary was left alone rather than changed on a guess. They are Mate
 Gemini also has a `mat-mdc-select.action-choice-select` reading "Remote browser"
 (183×48, pill, `padding: 0 12px 0 16px`, gap 8px) that picks the action target.
 Willow has no equivalent.
+
+### The remote-browser pane is a second pane, not a thread block
+
+Willow used to render `SparkComputerUsePanel` inline in the conversation. Gemini's is
+a sibling card beside the chat pane, so `.spark-task-detail__workspace` is now a flex
+row with an 8px gutter holding `.spark-task-detail__panel` and
+`.spark-task-detail__side-panel`, at `flex: 1` and `flex: 2`.
+
+That ratio is measured: Gemini's split view is 285.1 and 567.1 against an 868px pane,
+i.e. the chat takes 33.5%. Willow measures 264.4 / 527.1 — 33.4%. Both cards are
+#1f1f1f at 28px corners with a 1px #171717 border. Below 980px they stack instead.
+
+The header's `monitor` glyph toggles the pane, and the pane only exists when
+`SparkWorkspace` supplies `computerUse`, which needs
+`task.approval.kind === 'browser'` and `approvalDecision === 'allowed'`.
+
+### Section labels vs empty-state titles
+
+`.spark-schedules-section > h2` is scoped to **direct children** deliberately. The
+empty-state card nested inside that section has its own `h2`, and a descendant
+selector outranked `.spark-schedules-empty__title` (0,0,1,1 beats 0,0,1,0) and
+restyled the card's 20px/470 title as a 15px/540 section label.
+
+Gemini's Schedules empty state is `.empty-state`: an **outlined** card, transparent
+with a 1px rgba(255,255,255,.12) border at 28px corners, `padding: 136px 0`,
+`margin: 36px 0 0`, holding only a centred title (gds-headline-s, 20px/24px weight
+470, on-surface-variant) and subtitle (gds-body-s). No icon and no fill. Gemini also
+hides the section label entirely while the list is empty.
 
 ### Still to do on this route
 

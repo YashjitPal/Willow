@@ -28,8 +28,12 @@ export interface SparkTaskCardProps {
   timeLabel: string;
   /** Shown as a pill beside the timestamp, e.g. "Needs input". */
   statusLabel?: string;
-  /** Gemini has two pill surfaces: `status-blocked` (default) and `status-failed`. */
-  statusTone?: 'blocked' | 'failed';
+  /**
+   * Gemini has three pill modes: `status-blocked` (default) and `status-failed` are
+   * labelled pills; `pulse` replaces the label with an animated 6px dot while a task
+   * is running, and settles solid once it completes.
+   */
+  statusTone?: 'blocked' | 'failed' | 'pulse' | 'pulse-complete';
   /** Leading glyph on the description line, used for scheduled tasks. */
   descriptionIcon?: string;
   isSelected?: boolean;
@@ -120,6 +124,7 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
   }, [isMenuOpen]);
 
   const hasActions = Boolean(actions?.length);
+  const isPulse = statusTone === 'pulse' || statusTone === 'pulse-complete';
 
   return (
     <div
@@ -156,12 +161,21 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
 
         <div className="spark-goal-card-actions">
           <span className="spark-goal-time-ago">{timeLabel}</span>
-          {statusLabel && (
-            <span
-              className={`spark-status-pill${statusTone === 'failed' ? ' spark-status-pill--failed' : ''}`}
-            >
-              {statusLabel}
+          {isPulse ? (
+            <span className="spark-status-pill spark-status-pill--pulse" aria-label={statusLabel || 'Running'}>
+              <span
+                className={`spark-status-pulse-dot${statusTone === 'pulse-complete' ? ' is-complete' : ''}`}
+                aria-hidden="true"
+              />
             </span>
+          ) : (
+            statusLabel && (
+              <span
+                className={`spark-status-pill${statusTone === 'failed' ? ' spark-status-pill--failed' : ''}`}
+              >
+                {statusLabel}
+              </span>
+            )
           )}
 
           {hasActions && (

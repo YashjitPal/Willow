@@ -728,7 +728,7 @@ export const SparkComputerUsePanel: React.FC<SparkComputerUsePanelProps> = ({
                 >
                   <MaterialSymbol
                     {...SYMBOL_PROPS}
-                    name={tab.url ? 'language' : 'add_circle'}
+                    name={tab.url ? 'public' : 'add_circle'}
                     size={15}
                     opticalSize={15}
                   />
@@ -765,7 +765,7 @@ export const SparkComputerUsePanel: React.FC<SparkComputerUsePanelProps> = ({
           >
             <MaterialSymbol
               {...SYMBOL_PROPS}
-              name={companionConnected ? 'computer' : bridgeAvailable ? 'link' : 'web_asset'}
+              name={companionConnected ? 'computer' : bridgeAvailable ? 'link' : 'tab'}
               size={14}
               opticalSize={14}
             />
@@ -797,7 +797,7 @@ export const SparkComputerUsePanel: React.FC<SparkComputerUsePanelProps> = ({
                 {tab.faviconUrl ? (
                   <img src={tab.faviconUrl} alt="" aria-hidden="true" />
                 ) : (
-                  <MaterialSymbol {...SYMBOL_PROPS} name="language" size={14} opticalSize={14} />
+                  <MaterialSymbol {...SYMBOL_PROPS} name="public" size={14} opticalSize={14} />
                 )}
                 <span>{tab.title || getTabTitle(tab.url)}</span>
               </button>
@@ -820,7 +820,10 @@ export const SparkComputerUsePanel: React.FC<SparkComputerUsePanelProps> = ({
           <form className="spark-computer-use__address" onSubmit={navigate}>
             <MaterialSymbol
               {...SYMBOL_PROPS}
-              name={access === 'local' ? 'lock' : access === 'limited' ? 'language' : 'hourglass_top'}
+              /* `language` and `web_asset` are in none of Willow's three icon fonts,
+               * so they painted their own names; `public` and `tab` are the Google
+               * Symbols equivalents that do resolve. */
+              name={access === 'local' ? 'lock' : access === 'limited' ? 'public' : 'hourglass_top'}
               size={16}
               opticalSize={16}
             />

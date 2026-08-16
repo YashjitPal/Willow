@@ -59,40 +59,45 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Matched to Gemini's `.back-to-skills-btn` / `.create-save-button` — same values as
+ * the schedule editor's header, which is the same component in Gemini. */
 .spark-skill-editor__back {
   display: inline-flex;
-  height: 48px;
+  height: 36px;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px 0 8px;
+  gap: 8px;
+  padding: 4px 0;
   border: 0;
-  border-radius: 24px;
+  border-radius: 0;
   background: transparent;
-  color: #e3e3e3;
-  font-size: 22px;
-  font-weight: 430;
+  color: #c4c7c5;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
   cursor: pointer;
+  transition: color 140ms ease;
 }
 
 .spark-skill-editor__back:hover {
-  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6e6;
 }
 
 .spark-skill-editor__create {
-  height: 40px;
+  height: 36px;
   padding: 0 20px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 9999px;
   background: #a8c7fa;
   color: #062e6f;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 370;
+  line-height: 20px;
   cursor: pointer;
 }
 
 .spark-skill-editor__create:disabled {
-  background: #303134;
-  color: #77787b;
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(255, 255, 255, 0.3);
   cursor: default;
 }
 
@@ -124,49 +129,16 @@
   line-height: 18px;
 }
 
+/* Gemini's `.editor-new-content`: #1e1f20, 28px corners, a 1px #171717 hairline,
+ * 24px padding, and 20px between sections. */
 .spark-skill-editor__panel {
   display: flex;
-  padding: 28px;
+  padding: 24px;
   flex-direction: column;
-  gap: 22px;
-  border-radius: 24px;
+  gap: 20px;
+  border: 1px solid #171717;
+  border-radius: 28px;
   background: #1e1f20;
-}
-
-.spark-skill-editor__intro {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.spark-skill-editor__icon {
-  display: inline-flex;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 48px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #303030;
-  color: #c4c7c5;
-}
-
-.spark-skill-editor__intro h1,
-.spark-skill-editor__intro p {
-  margin: 0;
-}
-
-.spark-skill-editor__intro h1 {
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 26px;
-}
-
-.spark-skill-editor__intro p {
-  margin-top: 2px;
-  color: #a9aaa9;
-  font-size: 14px;
-  line-height: 20px;
 }
 
 .spark-skill-editor__file {
@@ -184,35 +156,44 @@
 .spark-skill-editor__field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
+/* `.editor-section-label.gds-body-s`: 13px/17px weight 400 in #9a9b9c with a 4px
+ * gap under it — a quiet label, not a heading. */
 .spark-skill-editor__field > span {
-  font-size: 16px;
-  font-weight: 520;
-  line-height: 24px;
+  padding-bottom: 4px;
+  color: #9a9b9c;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
 }
 
+/* All three fields are 12px-cornered boxes with a 1px #171717 hairline, 16px padding
+ * and 15px/20px text; the instructions box alone uses 16px corners. */
 .spark-skill-editor__field input,
 .spark-skill-editor__field textarea {
   width: 100%;
-  padding: 0 16px;
-  border: 1px solid #5f6368;
+  padding: 16px;
+  border: 1px solid #171717;
   border-radius: 12px;
   outline: 0;
   background: transparent;
   color: #e3e3e3;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 15px;
+  line-height: 20px;
 }
 
 .spark-skill-editor__field input {
-  height: 56px;
+  height: 53.6px;
+}
+
+.spark-skill-editor__field--title input {
+  color: #c4c7c5;
 }
 
 .spark-skill-editor__field textarea {
-  min-height: 220px;
-  padding-top: 16px;
+  min-height: 431.6px;
+  border-radius: 16px;
   resize: vertical;
 }
 
@@ -230,35 +211,43 @@
 
 .spark-skill-editor__instructions-heading {
   display: flex;
-  min-height: 36px;
+  min-height: 21px;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
+  padding-bottom: 4px;
 }
 
 .spark-skill-editor__instructions-heading label {
-  font-size: 16px;
-  font-weight: 520;
-  line-height: 24px;
+  color: #9a9b9c;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
 }
 
+/*
+ * Gemini's skill editor has no "Ask Gemini" control at all. Willow's generates the
+ * instructions, which is worth keeping, so it is drawn as the same quiet inline link
+ * Gemini uses for "Ask Gemini" in the *schedule* editor rather than as a blue button —
+ * present and usable, but not a visual deviation from Gemini's card.
+ */
 .spark-skill-editor__instructions-heading button {
   display: inline-flex;
-  height: 36px;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
+  gap: 4px;
+  padding: 0;
   border: 0;
-  border-radius: 18px;
   background: transparent;
-  color: #a8c7fa;
-  font-size: 14px;
-  font-weight: 560;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .spark-skill-editor__instructions-heading button:hover:not(:disabled) {
-  background: rgba(168, 199, 250, 0.08);
+  color: #ffffff;
 }
 
 .spark-skill-editor__instructions-heading button:disabled {
@@ -378,7 +367,7 @@
 }
 
 .spark-skill-editor__delete-dialog button.is-danger {
-  color: #f2b8b5;
+  color: inherit;
 }
 
 .spark-skill-editor__discard-dialog button.is-discard {
