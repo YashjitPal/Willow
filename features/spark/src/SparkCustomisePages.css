@@ -48,20 +48,28 @@
   line-height: 20px;
 }
 
+/*
+ * The "Learn more" inside a page description is NOT a blue link in Gemini — it is
+ * body-coloured with a dotted underline, and it is already underlined at rest:
+ * measured `color: rgb(230,230,230)`, `text-decoration: underline 1.2px dotted`,
+ * 15px weight 400. (The separate in-card "Learn more" on the Apps page *is* blue,
+ * #a8c7fa at 17px/370 — that one is `.spark-connected-app-card__learn-more` and is
+ * already correct.)
+ */
 .spark-inline-link {
   display: inline;
   padding: 0;
   border: 0;
   background: transparent;
-  color: #a8c7fa;
+  color: #e6e6e6;
   font: inherit;
-  font-weight: 500;
-  text-decoration: none;
+  font-weight: 400;
+  text-decoration: underline 1.2px dotted;
   cursor: pointer;
 }
 
 .spark-inline-link:hover {
-  text-decoration: underline;
+  text-decoration: underline 1.2px solid;
 }
 
 .spark-page-actions {
@@ -73,20 +81,26 @@
   padding: 0 8px;
 }
 
+/*
+ * Measured: 48px tall, fully rounded, `padding: 0 24px 0 12px` (asymmetric — the
+ * 12px side is the icon's), 14px weight 500, #e6e6e6 on #171717, and #1f3b9b
+ * (`--lumi-sys-color-acc-color--accent`) for the primary. The icon is 24px at
+ * weight 300.
+ */
 .spark-page-action {
   display: inline-flex;
   height: 48px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 24px 0 12px;
   border: 0;
-  border-radius: 24px;
+  border-radius: 9999px;
   background: #171717;
-  color: #e3e3e3;
+  color: #e6e6e6;
   font: inherit;
-  font-size: 15px;
-  font-weight: 520;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
@@ -99,12 +113,7 @@
 
 .spark-page-action--primary {
   background: #1f3b9b;
-  color: #f2f5ff;
-}
-
-.spark-page-action:not(.spark-page-action--primary) {
-  padding-right: 12.5px;
-  padding-left: 12.5px;
+  color: #e6e6e6;
 }
 
 .spark-page-action.spark-page-action--icon-only {
@@ -658,27 +667,34 @@
   line-height: 17px;
 }
 
+/*
+ * "Show more" is grey, not blue: measured 44px tall, `padding: 8px 16px`, gap 4px,
+ * `color: rgb(154,155,156)` (--gem-sys-color--on-surface-low), 13px weight 400,
+ * with `expand_more` at 28px weight 260.
+ */
 .spark-show-more {
   display: flex;
   width: max-content;
-  height: 40px;
+  height: 44px;
+  box-sizing: border-box;
   align-items: center;
   gap: 4px;
   margin: 12px auto 0;
-  padding: 0 12px 0 16px;
+  padding: 8px 16px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 9999px;
   background: transparent;
-  color: #a8c7fa;
+  color: #9a9b9c;
   font: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 20px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
   cursor: pointer;
 }
 
 .spark-show-more:hover {
-  background: rgba(168, 199, 250, 0.08);
+  background: rgba(230, 230, 230, 0.08);
+  color: #e6e6e6;
 }
 
 .spark-customise-page--apps {

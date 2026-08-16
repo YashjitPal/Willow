@@ -14,7 +14,16 @@ export const SidebarItem: React.FC<{
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
   flushRight?: boolean;
-}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight }) => (
+  /**
+   * The keyboard shortcut Gemini reveals in the row's trailing slot on hover —
+   * "Ctrl+Shift+O" on New chat, "Ctrl+Shift+K" on Search chats.
+   *
+   * A hint only: nothing here binds the key. Willow's own bindings live with the
+   * shell's key handling, and printing a combination the app does not answer to
+   * would be worse than printing none.
+   */
+  shortcut?: string;
+}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut }) => (
   <div className={flushRight ? 'pl-1.5 pr-0' : 'px-1.5'}>
     <div
       role="button"
@@ -78,6 +87,29 @@ export const SidebarItem: React.FC<{
         <div className="ml-auto pr-3 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center shrink-0">
           <ArrowUpRight size={16} strokeWidth={1.5} className="text-zinc-400 group-hover/item:text-white" />
         </div>
+      )}
+
+      {/*
+       * Gemini's `.mat-mdc-list-item-meta.trailing-content`, measured on its own
+       * New chat row: `justify-content: end`, holding a 13px/17px span at weight
+       * 400 in `rgb(196,199,197)` with axes `"ROND" 0, "slnt" 0, "wdth" 92`.
+       * Its transition is `opacity .15s cubic-bezier(0,0,0,0) .1s, visibility` —
+       * the 100ms delay is why a cursor crossing the sidebar does not strobe
+       * every row it passes over.
+       *
+       * Collapsed to zero width at rest rather than merely transparent, so the
+       * label gets the whole row until the pointer is actually on it, then
+       * truncates to make room. That is Gemini's behaviour and it matches how
+       * `actions` below already works.
+       */}
+      {shortcut && !isCollapsed && (
+        <span
+          aria-hidden="true"
+          className="ml-auto flex shrink-0 items-center justify-end whitespace-nowrap text-[13px] font-normal leading-[17px] text-[#c4c7c5] max-w-0 overflow-hidden opacity-0 group-hover/item:max-w-none group-hover/item:pl-2 group-hover/item:mr-0.5 group-hover/item:opacity-100"
+          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+        >
+          {shortcut}
+        </span>
       )}
 
       {actions && !isCollapsed && (

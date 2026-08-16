@@ -29,23 +29,6 @@ import { renameNotebook, setNotebookEmoji } from './notebooks-store';
  * the measured 25px in the measured 38x38 cell is visually equivalent and does not
  * need an asset pipeline.
  */
-/*
- * Ten tabs, in Gemini's order, using Material's PURPOSE-BUILT emoji category names
- * from the FULL Material Symbols Rounded family.
- *
- * Family matters as much as the names here. `google-symbols` is loaded from a
- * `gstatic.com/l/font?kit=...` URL, which is a SUBSET with a fixed icon list baked
- * in — asking it for a name outside that list gets the name drawn as text. The
- * `Material+Symbols+Rounded` css2 request carries no `icon_names` parameter, so it
- * serves the complete set and is the safe home for icons added later.
- *
- * Gemini's own tabs are inline `svg`+`path` at 18x18, so there is no ligature to copy.
- * An earlier attempt guessed general-purpose names (`sports_basketball`,
- * `restaurant`, `flight`, `emoji_symbols`) and half of them are not real ligatures —
- * they rendered as literal TEXT in the tab strip ("ЛL", "A", "DC", "S"), because a
- * missing ligature falls back to drawing its own name. The `emoji_*` family exists
- * precisely for this strip and every entry below is a real glyph.
- */
 /**
  * Emoji for a category, built from contiguous Unicode ranges.
  *
@@ -93,49 +76,59 @@ const CatIcon: React.FC<{ id: string }> = ({ id }) => (
 
 const EMOJI_CATEGORIES: ReadonlyArray<{ id: string; label: string; emoji: readonly string[] }> = [
   {
-    // Gemini's first tab. Willow has no usage history yet, so this is a fixed set of
+    // Gemini's first tab. Willow keeps no usage history, so this is a fixed set of
     // notebook-appropriate glyphs rather than a real recency list.
     id: 'recent', label: 'Recently used',
-    emoji: ['📔', '📈', '🧪', '⚗️', '📏', '🎯', '🍎', '🎤', '➕', '➡️', '😥', '📚', '📕', '📗', '📘', '📙', '📓', '📒'],
+    emoji: [...range(0x1f4d2, 0x1f4da), '📈', '🧪', '📏', '🎯', '🍎', '🎤', '🔬', '🧮'],
   },
-  // 1F600-1F64F is the Emoticons block, fully assigned.
-  { id: 'smileys', label: 'Smileys and emotions', emoji: range(0x1f600, 0x1f64f) },
+  // Each list below follows a Unicode emoji GROUP, which is where Google's own
+  // keyboard takes its ordering from. Only fully-assigned blocks are used.
+  {
+    id: 'smileys', label: 'Smileys and emotions',
+    emoji: [...range(0x1f600, 0x1f64f), ...range(0x1f910, 0x1f92f), ...range(0x1f970, 0x1f97a)],
+  },
   {
     id: 'people', label: 'People',
-    emoji: [...range(0x1f44a, 0x1f450), ...range(0x1f466, 0x1f487), '🙋', '🙌', '🙏', '💪', '🦾', '🧠', '👀', '🫀'],
+    emoji: [...range(0x1f44a, 0x1f450), ...range(0x1f464, 0x1f487), ...range(0x1f930, 0x1f93a),
+      ...range(0x1f9b5, 0x1f9bb)],
   },
   {
     id: 'nature', label: 'Animals and nature',
-    emoji: [...range(0x1f400, 0x1f43e), ...range(0x1f330, 0x1f343), ...range(0x1f980, 0x1f991)],
+    emoji: [...range(0x1f400, 0x1f43e), ...range(0x1f980, 0x1f9ae), ...range(0x1f330, 0x1f343),
+      ...range(0x1f490, 0x1f4a0)],
   },
   {
     id: 'food', label: 'Food and drink',
-    emoji: [...range(0x1f345, 0x1f37f), ...range(0x1f950, 0x1f95f)],
+    emoji: [...range(0x1f345, 0x1f37f), ...range(0x1f950, 0x1f96f), ...range(0x1f9c0, 0x1f9cb)],
   },
   {
     id: 'activities', label: 'Activities and events',
-    emoji: [...range(0x1f3a0, 0x1f3ca), ...range(0x1f380, 0x1f393), '⚽', '⚾', '🏆', '🥇', '🥈', '🥉'],
+    emoji: [...range(0x1f380, 0x1f393), ...range(0x1f3a0, 0x1f3ca), ...range(0x1f3cf, 0x1f3d3),
+      ...range(0x1f947, 0x1f94c)],
   },
   {
     id: 'travel', label: 'Travel and places',
-    emoji: [...range(0x1f680, 0x1f6a4), ...range(0x1f300, 0x1f320), ...range(0x1f3d4, 0x1f3e0)],
+    emoji: [...range(0x1f680, 0x1f6a4), ...range(0x1f6b2, 0x1f6bc), ...range(0x1f300, 0x1f320),
+      ...range(0x1f3d4, 0x1f3e0), ...range(0x1f5fb, 0x1f5ff)],
   },
   {
     id: 'objects', label: 'Objects',
-    emoji: [...range(0x1f4a1, 0x1f4fc), ...range(0x1f526, 0x1f52f), '⌚', '⏰', '🖥️', '🖨️'],
+    emoji: [...range(0x1f4a1, 0x1f4fc), ...range(0x1f526, 0x1f52f), ...range(0x1f9f0, 0x1f9ff)],
   },
   {
     id: 'symbols', label: 'Symbols',
-    emoji: [...range(0x1f500, 0x1f525), ...range(0x2764, 0x2764), ...range(0x1f493, 0x1f49f),
-      '✅', '❌', '❓', '❗', '➕', '➖', '➗', '✖️', '♾️', '💯', '⭐', '✨', '⚡', '🔴', '🔵', '🟢'],
+    emoji: [...range(0x1f493, 0x1f49f), ...range(0x1f500, 0x1f525), ...range(0x1f534, 0x1f53d)],
   },
   {
-    // Gemini's strip has TEN tabs; flags is the last. Regional-indicator PAIRS, which
-    // no single codepoint range can express, so these stay literal.
+    // Flags are regional-indicator PAIRS, which no single codepoint range can
+    // express, so this one list stays literal.
     id: 'flags', label: 'Flags',
-    emoji: ['🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏴‍☠️', '🇮🇳', '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇩🇪',
-      '🇫🇷', '🇮🇹', '🇪🇸', '🇧🇷', '🇲🇽', '🇷🇺', '🇿🇦', '🇳🇬', '🇪🇬', '🇸🇦', '🇦🇪', '🇸🇬', '🇲🇾', '🇮🇩', '🇹🇭', '🇻🇳',
-      '🇵🇭', '🇳🇿', '🇮🇪', '🇳🇱', '🇸🇪', '🇳🇴', '🇩🇰', '🇫🇮', '🇵🇱', '🇹🇷', '🇬🇷', '🇵🇹', '🇨🇭', '🇦🇹', '🇧🇪', '🇨🇿'],
+    emoji: ['🏁', '🚩', '🎌', '🏴', '🇮🇳', '🇺🇸', '🇬🇧', '🇨🇦',
+      '🇦🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇩🇪', '🇫🇷', '🇮🇹',
+      '🇪🇸', '🇧🇷', '🇲🇽', '🇷🇺', '🇿🇦', '🇳🇬', '🇪🇬',
+      '🇸🇦', '🇦🇪', '🇸🇬', '🇲🇾', '🇮🇩', '🇹🇭', '🇻🇳',
+      '🇵🇭', '🇳🇿', '🇮🇪', '🇳🇱', '🇸🇪', '🇳🇴', '🇩🇰',
+      '🇫🇮', '🇵🇱', '🇹🇷', '🇬🇷', '🇵🇹', '🇨🇭', '🇦🇹'],
   },
 ];
 
@@ -179,6 +172,16 @@ const EmojiPicker: React.FC<{
     <div
       ref={panelRef}
       className="nb-emoji-kb"
+      /*
+       * Stop the click here.
+       *
+       * A React portal bubbles events through the REACT tree, not the DOM tree — so
+       * even though this panel is portalled to <body>, in React's tree it is a child
+       * of the Rename dialog's scrim, whose onClick dismisses the dialog. Without
+       * this, clicking a category, the search field or any emoji tore down the whole
+       * dialog before the pick could land.
+       */
+      onClick={(event) => event.stopPropagation()}
       /* Measured: the picker's top sits 52px below the trigger's top (a 48px button
        * plus the same 4px gap the three-dot menus use), and 12px right of its left
        * edge. */

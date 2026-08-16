@@ -72,6 +72,22 @@
       media="print"
       onload="this.media='all'"
     />
+    <!--
+      Noto Color Emoji — the font Google's own emoji keyboard draws from.
+
+      Without it, emoji fall back to the platform font, which on Windows is Segoe UI
+      Emoji: a completely different set of artwork, so Willow's notebook glyphs and
+      picker never matched Gemini's however correct the layout was. Gemini itself
+      goes further and ships sprite IMAGES (the picker's cells measured as having no
+      text at all), but Noto is that same artwork as a font, so it matches without an
+      asset pipeline.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
     <noscript>
       <link
         href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
@@ -81,6 +97,7 @@
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
         rel="stylesheet"
       />
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji" rel="stylesheet" />
     </noscript>
     <style>
       @font-face {

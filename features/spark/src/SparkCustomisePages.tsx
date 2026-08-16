@@ -322,6 +322,18 @@ interface SparkActionButtonProps {
   primary?: boolean;
 }
 
+/**
+ * Which icon font a glyph comes from is per-glyph, not guessable from the name.
+ * Gemini serves `edit_rectangle` from Luminous Symbols and `edit_note` from Google
+ * Symbols — both at 24px, weight 300. A `startsWith('edit_')` heuristic sent both to
+ * Material Symbols Rounded, which has neither glyph, so the ligature never formed
+ * and the literal string painted instead, clipped to the icon box ("ec", "t r").
+ */
+const SPARK_ACTION_ICON_FAMILY: Record<string, 'luminous' | 'google-symbols'> = {
+  edit_rectangle: 'luminous',
+  edit_note: 'google-symbols',
+};
+
 const SparkActionButton: React.FC<SparkActionButtonProps> = ({
   children,
   icon,
@@ -335,12 +347,12 @@ const SparkActionButton: React.FC<SparkActionButtonProps> = ({
     onClick={onClick}
   >
     <MaterialSymbol
-      family={icon.startsWith('edit_') ? 'material-rounded' : 'luminous'}
+      family={SPARK_ACTION_ICON_FAMILY[icon] ?? 'luminous'}
       name={icon}
-      size={20}
-      weight={330}
+      size={24}
+      weight={300}
       roundness={100}
-      opticalSize={20}
+      opticalSize={24}
     />
     <span>{children}</span>
   </button>
@@ -686,10 +698,10 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
           <MaterialSymbol
             family="luminous"
             name={showAllRecommendations ? 'expand_less' : 'expand_more'}
-            size={20}
-            weight={320}
+            size={28}
+            weight={260}
             roundness={100}
-            opticalSize={20}
+            opticalSize={28}
           />
         </button>
       </section>

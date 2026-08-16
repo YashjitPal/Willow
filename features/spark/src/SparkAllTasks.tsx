@@ -797,14 +797,10 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 </article>
               );
             })}
+            {/* Gemini's `.no-tasks-container` is a bordered card holding only a
+              * title and a subtitle — no icon. */}
             {visibleTasks.length === 0 && (
               <div className="spark-all-tasks__empty" role="status">
-                <MaterialSymbol
-                  {...SYMBOL_PROPS}
-                  name={tasks.length === 0 ? 'assignment' : 'search_off'}
-                  size={28}
-                  opticalSize={28}
-                />
                 <h2>
                   {tasks.length === 0
                     ? 'No tasks yet'

@@ -1301,7 +1301,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       onOpenTask={goToSparkTask}
       onViewAllTasks={goToAllSparkTasks}
       onOpenWhatsNew={() => window.open('https://gemini.google.com/updates', '_blank', 'noopener,noreferrer')}
-      onTrendingSelect={() => undefined}
+      onSuggestedSelect={() => undefined}
+      onTogglePinTask={toggleSparkTaskPinned}
+      onDeleteTask={deleteSparkTask}
+      onRenameTask={renameSparkTask}
     />
   );
 };
