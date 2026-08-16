@@ -1,5 +1,7 @@
 import React from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 
 import './notebooks.css';
 
@@ -83,9 +85,20 @@ const DISCLAIMER = (
   </>
 );
 
-export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ onGetStarted }) => (
-  <div className="nb-splash-host">
-    <div className="nb-splash-container nb-rise">
+export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ onGetStarted }) => {
+  const { userProfile } = useAuth();
+  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+
+  return (
+    <div
+      className="nb-surface nb-splash-host"
+      style={{
+        '--nb-accent-btn-bg': theme.sendButton.bg,
+        '--nb-accent-btn-hover': theme.sendButton.hover,
+        '--nb-link-color': theme.creamy.hex,
+      } as React.CSSProperties}
+    >
+    <div className="nb-splash-container">
       <div className="nb-splash-title-container">
         {/*
          * 28px glyph at scale(2) — see the note above on why this is not a 56px
@@ -143,5 +156,6 @@ export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ on
     <div className="nb-splash-footer">
       <p className="nb-splash-disclaimer">{DISCLAIMER}</p>
     </div>
-  </div>
-);
+    </div>
+  );
+};

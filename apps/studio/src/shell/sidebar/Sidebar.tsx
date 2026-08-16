@@ -1658,6 +1658,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 isCollapsed={isCollapsed}
                 activeNotebookId={activeNotebookId}
                 isAllNotebooksActive={currentView === 'notebooks'}
+                isCreateNotebookActive={currentView === 'notebook-create'}
                 onOpenNotebook={(notebookId) => onOpenNotebook?.(notebookId)}
                 onCreateNotebook={() => onViewChange('notebook-create')}
                 onOpenAllNotebooks={() => onViewChange('notebooks')}

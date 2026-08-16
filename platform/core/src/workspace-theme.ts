@@ -128,6 +128,12 @@ export const GLOW_TO_LOADBAR_TRANSFORM = {
   hueShiftDeg: -8.589695401377128,
 } as const;
 
+export const GLOW_TO_CHIP_TRANSFORM = {
+  lightnessRatio: 1.1694180324862116,
+  chromaRatio: 1.2611264321248365,
+  hueShiftDeg: -0.6335269870383513,
+} as const;
+
 export interface WorkspaceComputedTheme {
   id: string;
   label: string;
@@ -137,6 +143,7 @@ export interface WorkspaceComputedTheme {
     bg: string;
     hover: string;
   };
+  chipBg: string;
   loadbar: {
     hex: string;
     shadow: string;
@@ -208,7 +215,21 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     sendHover = rgbToHex(oklchToRgb([L_btn * 0.82, C_btn, h_btn]));
   }
 
-  // 3. Loadbar
+  // 3. Selected chip background (default blue #192967 rgb(25, 41, 103), green uses sendButton.bg #127352)
+  let chipBg = '#127352';
+  if (def.id === 'blue') {
+    chipBg = '#192967';
+  } else if (def.id !== 'green') {
+    const [L_glow, C_glow, h_glow] = rgbToOklch(glowRgb);
+    const chipRgb = oklchToRgb([
+      L_glow * GLOW_TO_CHIP_TRANSFORM.lightnessRatio,
+      C_glow * GLOW_TO_CHIP_TRANSFORM.chromaRatio,
+      (h_glow + GLOW_TO_CHIP_TRANSFORM.hueShiftDeg + 360) % 360,
+    ]);
+    chipBg = rgbToHex(chipRgb);
+  }
+
+  // 4. Loadbar
   let loadbarHex = '#4a7c59';
   let loadbarShadow = 'rgba(74,124,89,0.85)';
   if (def.id !== 'green') {
@@ -271,6 +292,7 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
       bg: sendBg,
       hover: sendHover,
     },
+    chipBg,
     loadbar: {
       hex: loadbarHex,
       shadow: loadbarShadow,

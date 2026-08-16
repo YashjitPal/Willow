@@ -38,6 +38,8 @@ export interface NotebooksSectionProps {
   activeNotebookId?: string | null;
   /** True when the "All notebooks" grid is the current view. */
   isAllNotebooksActive?: boolean;
+  /** True when the "New notebook" create screen is the current view. */
+  isCreateNotebookActive?: boolean;
   onOpenNotebook: (notebookId: string) => void;
   onCreateNotebook: () => void;
   onOpenAllNotebooks: () => void;
@@ -65,6 +67,7 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
   isCollapsed,
   activeNotebookId,
   isAllNotebooksActive,
+  isCreateNotebookActive,
   onOpenNotebook,
   onCreateNotebook,
   onOpenAllNotebooks,
@@ -117,6 +120,7 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
             symbol="add_2"
             label="New notebook"
             isCollapsed={isCollapsed}
+            active={isCreateNotebookActive}
             onClick={onCreateNotebook}
           />
 

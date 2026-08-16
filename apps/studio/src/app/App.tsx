@@ -917,6 +917,7 @@ const App: React.FC = () => {
         setIsSearchOpen={setIsSearchOpen}
         currentView={currentView}
         setCurrentView={handleViewChange}
+        modelConfig={modelConfig}
         onSettingsClick={(tabId) => {
           if (tabId === 'intelligence') {
             handleViewChange('personal-intelligence');
@@ -1110,7 +1111,7 @@ const App: React.FC = () => {
           <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
             <AllNotebooksPage
               onOpenNotebook={openNotebook}
-              onCreateNotebook={() => handleViewChange('notebook-create')}
+              onCreateNotebook={() => navigate('/notebooks/create?start=1')}
             />
           </Suspense>
         ) : currentView === 'notebook-create' ? (
