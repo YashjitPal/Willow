@@ -98,6 +98,10 @@ export const ShowCodeToggle: React.FC<{ open: boolean; onToggle: () => void }> =
     <button
       type="button"
       onClick={onToggle}
+      // Same reason as the action row: this button sits inside the response's
+      // hover group, so letting a click focus it kept a non-latest turn's action
+      // buttons visible after the pointer left. Keyboard focus is unaffected.
+      onMouseDown={(event) => event.preventDefault()}
       aria-expanded={open}
       data-test-id="toggle-code-button"
       className="flex h-8 items-center justify-center gap-[5px] rounded-full px-4 text-[#a8c7fa] transition-colors duration-150 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"

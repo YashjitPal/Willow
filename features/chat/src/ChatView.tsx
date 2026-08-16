@@ -3435,6 +3435,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   // Gemini leaves 4px between the notice and the button row,
                   // replacing the wrapper's 12px rhythm for this one case.
                   style={msg.wasStopped ? { marginTop: 4 } : undefined}
+                  /*
+                   * Keep a mouse click off the focus ring.
+                   *
+                   * On a non-latest turn this row is revealed by hover OR by
+                   * `focus-within`, so clicking Like left the button focused and
+                   * the row stayed visible after the pointer left — until you
+                   * clicked elsewhere. Suppressing mousedown's default action
+                   * stops the click focusing anything without touching the click
+                   * handlers, so keyboard Tab still focuses and still reveals the
+                   * row, which is the whole point of the `focus-within` branch.
+                   * Safe here because nothing in this row reads focus: the
+                   * overflow menu closes on a document `pointerdown`, not a blur.
+                   */
+                  onMouseDown={(event) => event.preventDefault()}
                   className={`overflow-visible transition-opacity duration-[240ms] ease-[cubic-bezier(0.2,0,0,1)] ${
                     !actionsReady
                       ? 'pointer-events-none opacity-0'
