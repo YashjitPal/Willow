@@ -1039,33 +1039,41 @@
   cursor: pointer;
 }
 
+/*
+ * Gemini's app opt-in switch, measured off the Material pseudo-elements (the
+ * `.mdc-switch__track` itself is transparent; `::before` paints the unselected track
+ * and `::after` the selected one, cross-faded on opacity):
+ *
+ *   track  52×32, fully rounded — #444746 unselected, #a8c7fa selected
+ *   handle 16×16 in #8e918f unselected, growing to 24×24 in #062e6f selected
+ *
+ * So the off state is a FILLED grey track, not the outlined one this used to draw.
+ */
 .spark-app-toggle {
   position: relative;
   width: 52px;
   height: 32px;
   flex: 0 0 52px;
   padding: 0;
-  border: 2px solid #8e918f;
+  border: 0;
   border-radius: 9999px;
-  background: transparent;
+  background: #444746;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color 140ms ease;
 }
 
 .spark-app-toggle__thumb {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: 8px;
+  left: 8px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #c4c7c5;
+  background: #8e918f;
   transition: inset 150ms ease, width 150ms ease, height 150ms ease, background-color 150ms ease;
 }
 
 .spark-app-toggle--checked {
-  border-width: 0;
-  border-color: #a8c7fa;
   background: #a8c7fa;
 }
 

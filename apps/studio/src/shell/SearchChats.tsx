@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { embedGeminiText, embedGeminiTexts } from '@willow/ai/embeddings';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { loadChatEmbedding, saveChatEmbedding } from '@willow/storage/indexeddb/willow-db';
+import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
@@ -458,7 +459,7 @@ const SearchResults: React.FC<{
             className="willow-search-result"
             onClick={() => onOpenChat?.(result.chatId)}
           >
-            <span className="willow-search-result__title">{result.chatId}</span>
+            <span className="willow-search-result__title">{chatDisplayName(result.chatId)}</span>
             <span className="willow-search-result__date">{formatChatDate(result.updatedAt)}</span>
           </button>
         ))}

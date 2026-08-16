@@ -101,6 +101,20 @@ value** — the stylesheet will look correct and render wrong.
 `tools/ui-research/scrapers/spark/44-font-audit-all.cjs` sweeps every Spark class
 whose font was set against its measured Gemini value; run it after touching type.
 
+### The Connected apps opt-in switch
+
+Measured off Gemini's Material switch, whose colours live on pseudo-elements —
+`.mdc-switch__track` itself is transparent, with `::before` painting the unselected
+track and `::after` the selected one, cross-faded on opacity:
+
+| | track | handle |
+| --- | --- | --- |
+| off | #444746 | 16×16 in #8e918f |
+| on | #a8c7fa | 24×24 in #062e6f |
+
+Track is 52×32 and fully rounded, and **the handle grows** from 16px to 24px when
+switched on. The off state is a *filled* grey track; Willow had drawn an outlined one.
+
 ### Two component surfaces that were inverted
 
 - **The Active-skill list.** Gemini outlines the container and fills the rows:
@@ -148,6 +162,29 @@ The home page reproduces these; each was read off the live app, not designed.
   "2 weeks ago". `spark-types.ts` pins `en-GB` deliberately.
 - **Delete is not a danger-coloured button.** Both dialog buttons are the same
   neutral `#171717` pill.
+
+### Menus all share one surface
+
+Every Spark menu is a `mat-menu` on Gemini's `lm-menu-theme`, so they share a surface:
+#1f1f1f, 8px padding, **no border**, level1 elevation `0 0 20px 0 rgba(0,0,0,.28)`, and
+Material's `_mat-menu-enter` — 120ms on cubic-bezier(0,0,.2,1) from `scale(0.8)`. Rows
+are 36px tall at a **12px** radius with `padding: 0 8px`, an 8px gap, and a 14px/20px
+weight-500 label in #e3e3e3.
+
+Per-menu overrides:
+
+| Menu | Override |
+| --- | --- |
+| goal action (Rename / Pin / Delete) | `min-width: 240px`, `max-width: 280px`, 16px radius, origin top-right |
+| task-list filter | `min-width: max-content`, **20px** radius, `overflow: hidden`, rows get `padding-inline-end: 2rem` |
+
+Measured: the filter panel is 170.4×196 with 36px rows. Willow's now matches exactly.
+
+**Beware the entry animation when measuring.** `scale(0.8)` plus a frozen animation
+timeline (any unfocused Chrome window) makes every dimension come back at 0.8× — the
+filter panel read 136.3×156.8 with 28.8px rows, which looks like a sizing bug and is
+not one. Inject `animation-duration: 0s` before measuring, as
+`58-filter-menu.cjs` does.
 
 ### The status pill
 
@@ -263,6 +300,28 @@ The header's `monitor` glyph toggles the pane, and the pane only exists when
 `SparkWorkspace` supplies `computerUse`, which needs
 `task.approval.kind === 'browser'` and `approvalDecision === 'allowed'`.
 
+### `/spark/tasks` scrolls the list, not the page
+
+Gemini's `.goal-list` is the scroll container — `overflow-y: auto`, `flex: 1 1 0`,
+`min-height: 0`, `padding: 16px 8px 16px 0`, gap 4px, a thin scrollbar in
+rgba(196,199,197,.4) on a transparent track — so the title, composer and filter row
+stay put while the tasks move under them. Willow scrolled the whole page.
+
+**The fade mask is static.** It is authored as
+`linear-gradient(to bottom, transparent 0, #000 calc(var(--fade-progress)*var(--fade-distance)), #000 calc(100% - var(--fade-bottom)*var(--fade-distance)), transparent 100%)`
+with `--fade-distance: calc(16px*3)`, which looks scroll-driven — but sampling the two
+variables at five scroll positions (top, quarter, half, near-bottom, bottom) found
+`--fade-progress` pinned at 0 and `--fade-bottom` at 1 throughout. So there is no top
+fade and the bottom 48px fade never lifts, even at the end of the list. Reproduced as a
+plain static gradient rather than a scroll handler.
+
+**The flex chain has to be unbroken.** `.spark-all-tasks__library` sat between the
+content column and the list as `display: block`, so the list's `flex: 1 1 0` had no flex
+parent and grew to its content instead — scroll container and mask both inert. Every
+ancestor from `.spark-all-tasks` down needs `display: flex`, `flex-direction: column`
+and `min-height: 0`. `tools/ui-research/scrapers/spark/53-height-chain.cjs` walks that
+chain and prints where the constraint is lost.
+
 ### Section labels vs empty-state titles
 
 `.spark-schedules-section > h2` is scoped to **direct children** deliberately. The
@@ -322,14 +381,6 @@ rather than reusing `03-css/`.
 
 ### Known remaining differences
 
-- **`/spark/tasks` does not scroll the way Gemini's does.** Gemini's `.goal-list`
-  is the scroll container (`overflow-y:auto; flex:1; min-height:0`) inside a fixed
-  shell, with a scroll-driven fade mask:
-  `mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--fade-progress)*var(--fade-distance)), #000 calc(100% - var(--fade-bottom)*var(--fade-distance)), transparent 100%)`
-  where `--fade-distance` is 48px and JS sets `--fade-progress` / `--fade-bottom`
-  from scroll position. Willow scrolls the page instead, so the mask would have
-  nothing to act on; making the list a scroll container is a layout change that was
-  deliberately not attempted alongside the visual pass.
 - Gemini has **no search input** on `/spark/tasks`; Willow's "Search tasks" is an
   addition, as are the Connected apps page's "Custom apps" segment, its
   "Use as context" toggle labels and its Google Photos notice. All kept
@@ -338,12 +389,59 @@ rather than reusing `03-css/`.
   the reference account has tasks, so that state could not be observed. The card
   geometry around it is measured.
 
-### Still duplicated
+## The two editors
 
-`SparkAllTasks.tsx` and `SparkTaskDetail.tsx` each carry their own older rename /
-delete dialogs, with pre-Gemini copy ("Rename task" / "Save", "Delete task?").
-They should move onto `SparkTaskDialogs.tsx` rather than a fourth copy appearing.
-Their task rows should likewise move onto `SparkTaskCard.tsx`.
+`/spark/schedules` and `/spark/skills` both open a "Create manually" editor. Both were
+transcribed from Gemini in the pass that added them here; captures live in
+`tools/ui-research/captures/spark/{47-editors,49-schedule-editor,50-deep}/`.
+
+**Shared header.** Gemini uses one component for both: a `.back-to-schedules-btn` at
+112×36 with `padding: 4px 0`, no radius and no hover surface, in #c4c7c5, holding a
+28px weight-260 glyph and a gds-body-l (17px/24px) label; and a `.create-save-button`
+at 90×36, fully rounded, label gds-label-m (15px/20px weight **370**). Its *inactive*
+surface is rgba(230,230,230,.12) with an rgba(255,255,255,.3) label. The **enabled**
+colour is unverified — the reference form was never valid — so Willow's blue stands.
+
+**Schedule editor.** Card `.schedule-detail-card`: #1e1f20, 28px corners, 1px #131314,
+body `padding: 24px 16px 32px`. The title is an **unlabelled** input (49.6px, 12px
+corners, `padding: 12px`, 1px #171717, 17px/24px). Section labels are
+`.section-label.gds-label-s` — 13px/20px weight 370 in #9a9b9c — and their sections are
+indented 16px. The when-to-run row reads as a sentence, **"Weekly on S M T W T F S
+around 9:00 am"**, laid out as a flex row with an 8px gap: the words "on" and "around"
+are real elements. Frequency and time are **filled** fields, rgba(227,227,227,.08) at
+8px corners, not outlined pills. Day circles are 24px on a 28px pitch, #171717 at rest
+and **#192967** when active, label 13px/20px weight 370 in #e3e3e3 for both states.
+`.ask-gemini-note` sits under that row as a sentence with only "Ask Gemini" interactive.
+The disclaimer is 13px/20px weight 370 in #ababab.
+
+Two behavioural details matched: Gemini's create form has **no enabled switch** (kept
+in Willow only when editing, where pausing matters), and a new weekly schedule arrives
+with **Monday–Friday** selected. Time is displayed as "9:00 am" via
+`formatSparkScheduleTime`, while the stored value stays 24-hour because `spark-store`
+parses it to compute the next run.
+
+**Skill editor.** Card `.editor-new-content`: #1e1f20, 28px corners, 1px #171717,
+`padding: 24px`, 20px between sections. No in-card header — Gemini opens straight onto
+an unlabelled "Name your skill" input. Labels are `.editor-section-label.gds-body-s`,
+13px/17px weight 400 in #9a9b9c with a 4px gap under them. All three fields are 1px
+#171717 boxes with 16px padding and 15px/20px text; the name and description use 12px
+corners, **the instructions box uses 16px**. There is no disclaimer and no "Ask Gemini"
+— Willow keeps its generator but draws it as the quiet inline link Gemini uses in the
+schedule editor instead of a blue button.
+
+### Still duplicated (code, not appearance)
+
+`SparkAllTasks.tsx` and `SparkTaskDetail.tsx` each carry their own rename / delete
+dialogs and their own task rows. Their **copy and styling now match**
+`SparkTaskDialogs.tsx` and `SparkTaskCard.tsx` — same surface, same geometry, same
+Gemini wording — but the implementations are still separate, so a change to one has to
+be made three times. They should move onto the shared components.
+
+That migration was deliberately not attempted alongside the visual work:
+`SparkAllTasks` owns roving-tabindex keyboard navigation, focus restoration after
+delete, and filter state, and `SparkTaskDetail` is 2200+ lines. Matching the visuals in
+place carried none of that risk. `59-verify-dialogs.cjs` pins the All-Tasks dialogs
+against the measured surface so a future migration can be checked against it.
 
 ## Splits
 

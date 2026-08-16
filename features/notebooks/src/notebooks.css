@@ -696,12 +696,13 @@
   padding: 0 4px;
   font-size: 36px;
   line-height: 36px;
-  transition: background-color 0.2s ease-out;
 }
 
-.nb-page-emoji:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
+/*
+ * No hover fill, matching the Rename dialog's trigger. This glyph is display
+ * only — the sole way to change the emoji is the three-dot menu's Rename — so a
+ * background that lit up under the pointer promised a click that does nothing.
+ */
 
 .nb-emoji-menu {
   position: absolute;
@@ -1751,7 +1752,12 @@ button.nb-chat-row {
   border-radius: 9999px;
 }
 
-.nb-ren-emoji:hover { background-color: rgba(196, 199, 197, 0.08); }
+/*
+ * No hover fill. The trigger is 66x48 with a pill radius, so a hover background
+ * drew a wide ellipse behind a 36px glyph rather than reading as a button —
+ * asked for by name. The pointer already changes over it, which is the whole
+ * affordance this needs.
+ */
 
 .nb-ren-emoji-glyph {
   font-size: 36px;
@@ -1922,12 +1928,24 @@ button.nb-chat-row {
   background-color: rgb(102, 157, 246);
 }
 
-/* Uppercase section label above the grid, e.g. "SMILEYS AND EMOTIONS". */
+/*
+ * Uppercase section label above each grid, e.g. "SMILEYS AND EMOTIONS".
+ *
+ * A button now, not a label: every category is rendered in one scroll and the
+ * heading is what collapses its own section. Full width so the whole strip is
+ * the hit area rather than just the words.
+ */
 .nb-emoji-section {
   display: flex;
+  width: 100%;
   flex: none;
   align-items: center;
+  justify-content: flex-start;
   gap: 4px;
+  cursor: pointer;
+  border: 0;
+  background: none;
+  text-align: left;
   padding: 8px 2px 4px;
   font-size: 11px;
   line-height: 16px;

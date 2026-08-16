@@ -93,6 +93,24 @@ export const chatMetadataKeysForScope = (scopeId: string): ChatMetadataKeys => {
 export const isTempChatId = (chatId: string): boolean =>
   /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_[a-z0-9]{6}$/i.test(chatId);
 
+/**
+ * The chat id as it should be shown to the user.
+ *
+ * A chat id IS its on-disk filename (Chats/<id>.json), so when the naming model
+ * picks a title another chat already has, the writer appends " (1)", " (2)", …
+ * to keep the two files apart. That suffix is a storage detail: it exists so the
+ * ids don't collide, and it means nothing to the reader. Every surface that
+ * renders a chat name strips it, and nothing that addresses a chat may — pass
+ * the raw id to select/rename/delete and this only to a text node.
+ *
+ * A name that is nothing but a suffix ("(2)") would strip to empty, so the raw
+ * id stands in rather than rendering a blank row.
+ */
+export const chatDisplayName = (chatId: string): string => {
+  const stripped = chatId.replace(/ \(\d+\)$/, '');
+  return stripped.trim() ? stripped : chatId;
+};
+
 // Parse the creation time embedded in a temp chat id
 // ("YYYY-MM-DDTHH-MM-SS_xxxxxx"), or 0 if the id isn't in that format.
 export const parseTempIdTimestamp = (chatId: string): number => {

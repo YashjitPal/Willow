@@ -139,7 +139,10 @@ const EmojiPicker: React.FC<{
 }> = ({ anchor, onPick, onClose }) => {
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState(EMOJI_CATEGORIES[0].id);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -163,10 +166,51 @@ const EmojiPicker: React.FC<{
    * grid is replaced by "No emoji found".
    */
   const trimmed = query.trim().toLowerCase();
-  const activeLabel = (EMOJI_CATEGORIES.find((c) => c.id === activeCategory) ?? EMOJI_CATEGORIES[0]).label;
   const results = trimmed
     ? EMOJI_CATEGORIES.flatMap((c) => (c.label.toLowerCase().includes(trimmed) ? c.emoji : []))
-    : (EMOJI_CATEGORIES.find((c) => c.id === activeCategory) ?? EMOJI_CATEGORIES[0]).emoji;
+    : [];
+
+  /*
+   * Every category is laid out at once, in one scroller.
+   *
+   * This used to render ONLY the active category, so the tabs behaved like a
+   * filter and there was no way to see the whole set — you had to click each
+   * tab in turn. Gemini's keyboard puts them all in a single scroll with the
+   * tabs as jump links, which is what these two handlers do: a tab scrolls its
+   * section to the top, and scrolling back marks whichever section is up there.
+   */
+  const jumpTo = (id: string) => {
+    setQuery('');
+    setActiveCategory(id);
+    const scroller = scrollRef.current;
+    const section = sectionRefs.current.get(id);
+    if (!scroller || !section) return;
+    scroller.scrollTo({ top: section.offsetTop - scroller.offsetTop, behavior: 'smooth' });
+  };
+
+  const syncActiveFromScroll = () => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    // +8 so a section counts as reached once its heading is at the top edge,
+    // rather than only after it has scrolled a pixel past it.
+    const top = scroller.scrollTop + 8;
+    let current = EMOJI_CATEGORIES[0].id;
+    for (const category of EMOJI_CATEGORIES) {
+      const section = sectionRefs.current.get(category.id);
+      if (!section) continue;
+      if (section.offsetTop - scroller.offsetTop <= top) current = category.id;
+    }
+    setActiveCategory((previous) => (previous === current ? previous : current));
+  };
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return createPortal(
     <div
@@ -209,7 +253,7 @@ const EmojiPicker: React.FC<{
                 title={category.label}
                 aria-label={category.label}
                 aria-pressed={!trimmed && activeCategory === category.id}
-                onClick={() => { setQuery(''); setActiveCategory(category.id); }}
+                onClick={() => jumpTo(category.id)}
                 className={`nb-emoji-cat ${!trimmed && activeCategory === category.id ? 'is-active' : ''}`}
               >
                 <CatIcon id={category.id} />
@@ -218,16 +262,12 @@ const EmojiPicker: React.FC<{
           </nav>
         </div>
 
-        {results.length === 0 ? (
+        {trimmed && results.length === 0 ? (
           <div className="nb-emoji-empty">No emoji found</div>
-        ) : (
+        ) : trimmed ? (
           <div className="nb-emoji-scroll">
-            {/* Gemini labels the band above the grid, uppercase with a chevron. */}
             <div className="nb-emoji-section">
-              <span>{trimmed ? 'Search results' : activeLabel}</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6 1.4-1.4z" />
-              </svg>
+              <span>Search results</span>
             </div>
             <div className="nb-emoji-grid">
               {results.map((emoji, index) => (
@@ -241,6 +281,58 @@ const EmojiPicker: React.FC<{
                 </button>
               ))}
             </div>
+          </div>
+        ) : (
+          <div className="nb-emoji-scroll" ref={scrollRef} onScroll={syncActiveFromScroll}>
+            {EMOJI_CATEGORIES.map((category) => {
+              const isCollapsed = collapsed.has(category.id);
+              return (
+                <div
+                  key={category.id}
+                  ref={(node) => {
+                    if (node) sectionRefs.current.set(category.id, node);
+                    else sectionRefs.current.delete(category.id);
+                  }}
+                >
+                  {/*
+                    * The heading is the collapse control. Gemini's carries the
+                    * same chevron, and it turns to point at the section when the
+                    * section is closed.
+                    */}
+                  <button
+                    type="button"
+                    className="nb-emoji-section"
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleCollapsed(category.id)}
+                  >
+                    <span>{category.label}</span>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'none' }}
+                    >
+                      <path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6 1.4-1.4z" />
+                    </svg>
+                  </button>
+                  {!isCollapsed && (
+                    <div className="nb-emoji-grid">
+                      {category.emoji.map((emoji, index) => (
+                        <button
+                          key={`${emoji}-${index}`}
+                          type="button"
+                          onClick={() => onPick(emoji)}
+                          className="nb-emoji-cell"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

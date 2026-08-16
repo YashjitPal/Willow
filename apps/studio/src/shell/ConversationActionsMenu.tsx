@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { emitChatActionIntent, isChatPinned } from './chat-actions';
 import './ConversationActionsMenu.css';
@@ -168,7 +169,7 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
       label: 'Add to notebook',
       icon: 'notebook',
       family: 'luminous',
-      onSelect: () => alert(`Added "${chatId}" to Notebook.`),
+      onSelect: () => alert(`Added "${chatDisplayName(chatId)}" to Notebook.`),
     },
     {
       id: 'delete',
