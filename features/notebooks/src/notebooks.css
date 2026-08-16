@@ -26,6 +26,180 @@
   --nb-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/*
+ * Opt every notebook surface into Gemini's body face.
+ *
+ * REQUIRED, not decorative. Willow's Tailwind config sets `sans: ["Inter", …]`,
+ * so Inter is the global default and anything that does not declare a family
+ * inherits it. Inter at the same px size is ~8% wider than Google Sans Flex at
+ * `wdth 94`: the create heading measured 248.19px against Gemini's 228.85px for
+ * the same string, which reads as "slightly bigger and bolder" rather than as a
+ * wrong typeface. Every `nb-*` root carries this class; per-element rules below
+ * only set size/weight/axes and inherit the family from here.
+ */
+.nb-surface {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* ── Create screen: layout and the name field ─────────────────────────────── */
+
+.nb-create-host {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 0 24px;
+}
+
+.nb-create-content {
+  display: flex;
+  width: 760px;
+  max-width: 100%;
+  flex-direction: column;
+}
+
+/* h 68 = 28px icon + 16px gap + 24px heading. */
+.nb-create-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/*
+ * gds-headline-s.
+ *
+ * `wdth` and `ROND` are declared, not just `font-weight`. Google Sans Flex is a
+ * variable face: with only `font-weight: 470` the width axis stays at its default
+ * 100 and the heading renders wider and reads noticeably bolder than Gemini's,
+ * which sits at `wdth 94`.
+ */
+.nb-create-heading {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+  font-variation-settings: 'ROND' 20, 'slnt' 0, 'wdth' 94, 'wght' 470;
+}
+
+/* 4px below the prompt block, 52px tall, and the row that holds the button. */
+.nb-create-form {
+  position: relative;
+  display: flex;
+  height: 52px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/*
+ * gds-display-m — shared by the input and its hidden width mirror.
+ *
+ * These MUST stay one rule. The field is sized from the mirror's measured width,
+ * so any divergence in family, size, weight, or a variation axis silently
+ * mis-sizes the field and the submit button drifts off the end of the text.
+ */
+.nb-create-typescale {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 36px;
+  font-weight: 320;
+  line-height: 44px;
+  letter-spacing: normal;
+  font-variation-settings: 'ROND' 100, 'slnt' 0, 'wdth' 100, 'wght' 320;
+}
+
+/*
+ * Gemini's `.dupe-title`: absolutely positioned, invisible, non-interactive, and
+ * `white-space: pre` so leading/trailing spaces still count toward the width.
+ * `visibility: hidden` would also work, but opacity keeps it measurable in every
+ * browser without special-casing.
+ */
+.nb-create-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 44px;
+  opacity: 0;
+  pointer-events: none;
+  white-space: pre;
+}
+
+/*
+ * `margin-left: -16px` against the input's `padding-left: 16px`.
+ *
+ * They cancel, so the *text* aligns with the icon and heading above while the
+ * field's hit area still reaches 16px further left. Width is set inline from the
+ * mirror; 400px is the resting floor.
+ *
+ * `align-self: flex-start` + `margin-top: 6px` rather than the row's
+ * `align-items: center`. Gemini's 44px input sits **6px** below the top of its
+ * 52px form, not the 4px that centring gives — a 2px difference that reads as a
+ * slightly tighter gap under the heading. The submit button beside it *is*
+ * centred (8px inset), which is why this shifts the field alone rather than the
+ * whole row. The form's height stays 52px either way, so the chips below do not
+ * move.
+ */
+.nb-create-field {
+  flex: 0 1 auto;
+  min-width: 400px;
+  max-width: 100%;
+  align-self: flex-start;
+  margin-top: 6px;
+  margin-left: -16px;
+}
+
+.nb-create-input {
+  width: 100%;
+  height: 44px;
+  border: 0;
+  background-color: transparent;
+  padding: 0 0 0 16px;
+  color: rgb(230, 230, 230);
+  caret-color: var(--nb-caret-color, var(--nb-link-color, rgb(168, 199, 250)));
+  outline: none;
+}
+
+.nb-create-input::placeholder {
+  /* rgb(227,227,227) at 0.4 — the typewriter text, so it must not fade further. */
+  color: rgba(227, 227, 227, 0.4);
+  opacity: 1;
+}
+
+/*
+ * 36x36 filled circle in the accent — the same `rgb(31,59,155)` as the splash
+ * CTA. The blue lives on Gemini's `gem-icon-button` WRAPPER, not on the `<button>`
+ * inside it, which is why reading the button's own `background-color` reports
+ * transparent and makes this look like a bare glyph.
+ */
+.nb-create-submit {
+  display: flex;
+  height: 36px;
+  width: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background-color: var(--nb-accent-btn-bg, rgb(31, 59, 155));
+  padding: 6px;
+  color: rgb(230, 230, 230);
+  cursor: pointer;
+  transition: background-color 0.2s ease-out;
+}
+
+.nb-create-submit:hover {
+  background-color: var(--nb-accent-btn-hover, rgb(38, 71, 178));
+}
+
+/* 40px below the form; 12px between chips. */
+.nb-create-chips {
+  display: flex;
+  gap: 12px;
+  margin-top: 40px;
+}
+
 /* ── Create screen: vertical chips ─────────────────────────────────────────── */
 
 .nb-chip {
@@ -65,12 +239,12 @@
 
 .nb-chip.is-selected {
   width: 200px; /* 12.5rem */
-  background-color: rgb(25, 41, 103);
+  background-color: var(--nb-chip-selected-bg, rgb(25, 41, 103));
 }
 
 /* Selected chips do not take a hover tint — Gemini re-states the accent here. */
 .nb-chip.is-selected:hover:not([disabled]) {
-  background-color: rgb(25, 41, 103);
+  background-color: var(--nb-chip-selected-bg, rgb(25, 41, 103));
 }
 
 .nb-chip-icon {
@@ -172,6 +346,7 @@
  * whole thing scrolls together rather than the disclaimer overlapping the CTA.
  */
 .nb-splash-host {
+  position: relative;
   display: flex;
   height: 100%;
   width: 100%;
@@ -294,7 +469,7 @@
   border: 0;
   border-radius: 9999px;
   /* gem-button-type-accent */
-  background-color: rgb(31, 59, 155);
+  background-color: var(--nb-accent-btn-bg, rgb(31, 59, 155));
   color: rgb(230, 230, 230);
   /* Asymmetric on purpose: the leading icon needs less room than the label. */
   padding: 0 16px 0 12px;
@@ -303,7 +478,7 @@
 }
 
 .nb-splash-button:hover {
-  background-color: rgb(38, 71, 178);
+  background-color: var(--nb-accent-btn-hover, rgb(38, 71, 178));
 }
 
 .nb-splash-button-label {
@@ -314,11 +489,16 @@
 }
 
 .nb-splash-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   width: 100%;
   justify-content: center;
-  padding: 16px;
+  padding: 16px 24px;
   text-align: center;
+  pointer-events: none;
 }
 
 .nb-splash-disclaimer {
@@ -329,10 +509,11 @@
   font-weight: 370;
   line-height: 20px;
   color: rgb(196, 199, 197);
+  pointer-events: auto;
 }
 
 .nb-splash-link {
-  color: rgb(168, 199, 250);
+  color: var(--nb-link-color, rgb(168, 199, 250));
   font-weight: 370;
   text-decoration: none;
 }

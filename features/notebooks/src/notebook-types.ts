@@ -66,18 +66,36 @@ export const NOTEBOOK_VERTICALS: ReadonlyArray<{
   icon: string;
   name: string;
   subtext: string;
+  /**
+   * The create screen's heading while this vertical is selected. Gemini swaps it
+   * live — "What are you working on?" becomes "What are you studying?" the moment
+   * the Study chip is picked, and nothing else on the screen changes with it.
+   */
+  prompt: string;
+  /**
+   * The typewriter placeholder phrases for this vertical, in Gemini's order.
+   *
+   * The two verticals have entirely **different** lists, not a shared one — the
+   * whole cycle swaps with the chip. Sampled over 32s per vertical; switching
+   * restarts from the first phrase rather than finishing the current one.
+   */
+  placeholders: readonly string[];
 }> = [
   {
     id: 'organize',
     icon: 'lightbulb',
     name: 'Organize your ideas',
     subtext: 'Group chats by topic and ground on your sources.',
+    prompt: 'What are you working on?',
+    placeholders: ['Project or idea', 'Weekly meal prep', 'Creative brainstorm', 'Moving checklist'],
   },
   {
     id: 'study',
     icon: 'school',
     name: 'Study and learn',
     subtext: 'Get custom lessons and track your progress.',
+    prompt: 'What are you studying?',
+    placeholders: ['Subject or topic', 'Plant biology', 'Creative writing', 'World geography'],
   },
 ];
 

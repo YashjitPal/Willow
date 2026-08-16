@@ -7,6 +7,7 @@ import { formatSourceCount } from './notebook-types';
 import type { Notebook } from './notebook-types';
 import {
   hydrateNotebooks,
+  notebooksHydratedStore,
   notebooksStore,
   renameNotebook,
   setNotebookEmoji,
@@ -65,6 +66,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
   onMissing,
 }) => {
   const notebooks = useStore(notebooksStore);
+  const isHydrated = useStore(notebooksHydratedStore);
   const notebook = notebooks.find((candidate) => candidate.id === notebookId);
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -79,9 +81,10 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
   useEffect(() => {
     // Only report "missing" once the list has actually been read, or the first
     // render of a deep link would bounce before hydration completes.
-    if (!notebook && notebooks.length > 0 && onMissing) onMissing();
-  }, [notebook, notebooks.length, onMissing]);
+    if (isHydrated && !notebook && onMissing) onMissing();
+  }, [isHydrated, notebook, onMissing]);
 
+  if (!isHydrated) return <div className="h-full w-full" />;
   if (!notebook) return null;
 
   const commitTitle = () => {
@@ -90,7 +93,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
   };
 
   return (
-    <div className="nb-spring flex h-full w-full flex-col items-center overflow-y-auto">
+    <div className="nb-spring nb-surface flex h-full w-full flex-col items-center overflow-y-auto">
       <div className="flex w-full max-w-[724px] flex-col px-8 pt-[72px]">
         {/* ── header ─────────────────────────────────────────────────────── */}
         <div className="relative flex flex-col gap-3">

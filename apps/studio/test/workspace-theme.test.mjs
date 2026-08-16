@@ -23,7 +23,7 @@ describe('workspace-theme central engine', () => {
     ]);
   });
 
-  it('computes complete themes with glow, sendButton, loadbar, creamy, and logoFilter for every color', () => {
+  it('computes complete themes with glow, sendButton, chipBg, loadbar, creamy, and logoFilter for every color', () => {
     for (const def of WORKSPACE_COLOR_DEFINITIONS) {
       const theme = getWorkspaceTheme(def.id);
       assert.equal(theme.id, def.id);
@@ -31,6 +31,7 @@ describe('workspace-theme central engine', () => {
       assert.match(theme.glowAccent, /^rgb\(\d+,\s*\d+,\s*\d+\)$/);
       assert.match(theme.sendButton.bg, /^#[0-9a-f]{6}$/i);
       assert.match(theme.sendButton.hover, /^#[0-9a-f]{6}$/i);
+      assert.match(theme.chipBg, /^#[0-9a-f]{6}$/i);
       assert.match(theme.loadbar.hex, /^#[0-9a-f]{6}$/i);
       assert.match(theme.loadbar.shadow, /^rgba\(\d+,\s*\d+,\s*\d+,\s*0\.85\)$/);
       assert.match(theme.creamy.hex, /^#[0-9a-f]{6}$/i);
@@ -44,6 +45,7 @@ describe('workspace-theme central engine', () => {
     assert.equal(greenTheme.glowAccent, 'rgb(6, 78, 59)');
     assert.equal(greenTheme.sendButton.bg, '#127352');
     assert.equal(greenTheme.sendButton.hover, '#0d5c41');
+    assert.equal(greenTheme.chipBg, '#127352');
     assert.equal(greenTheme.loadbar.hex, '#4a7c59');
     assert.equal(greenTheme.creamy.hex, '#9ce4b3');
     assert.equal(greenTheme.creamy.rgba, 'rgba(156, 228, 179, 0.35)');
@@ -55,6 +57,7 @@ describe('workspace-theme central engine', () => {
     assert.equal(blueTheme.glowAccent, 'rgb(20, 32, 79)');
     assert.equal(blueTheme.sendButton.bg, '#1b3f95');
     assert.equal(blueTheme.sendButton.hover, '#153277');
+    assert.equal(blueTheme.chipBg, '#192967');
     assert.equal(blueTheme.loadbar.hex, '#a8c7fa');
     assert.equal(blueTheme.creamy.hex, '#a8c7fa');
     assert.equal(blueTheme.creamy.rgba, 'rgba(168, 199, 250, 0.35)');
@@ -72,6 +75,7 @@ describe('workspace-theme central engine', () => {
     assert.equal(customTheme.swatchHex, '#f59e0b');
     assert.ok(customTheme.glowAccent.startsWith('rgb('));
     assert.ok(customTheme.sendButton.bg.startsWith('#'));
+    assert.ok(customTheme.chipBg.startsWith('#'));
     assert.ok(customTheme.loadbar.hex.startsWith('#'));
     assert.ok(customTheme.creamy.hex.startsWith('#'));
     assert.ok(customTheme.logoFilter.startsWith('hue-rotate('));

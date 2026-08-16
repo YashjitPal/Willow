@@ -44,6 +44,9 @@ export const setNotebookStorageScope = (scopeId: string): boolean => {
   const next = scopeId || DEFAULT_NOTEBOOK_SCOPE;
   if (next === activeScopeId) return false;
   activeScopeId = next;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(NOTEBOOKS_UPDATED_EVENT));
+  }
   return true;
 };
 

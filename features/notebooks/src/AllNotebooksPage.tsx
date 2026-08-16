@@ -188,7 +188,7 @@ export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebo
   }
 
   return (
-    <div className="nb-spring h-full w-full overflow-y-auto p-6">
+    <div className="nb-spring nb-surface h-full w-full overflow-y-auto p-6">
       <div className="flex h-[60px] items-center justify-between">
         {/* gds-headline-m */}
         <h1 className="text-[24px] font-[400] leading-7 text-[#e3e3e3]">Notebooks</h1>

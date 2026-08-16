@@ -38,6 +38,119 @@ this folder should reach past `notebooks-store` into the backend. The single
 exception is `LocalFSContext`, which imports `setNotebookStorageScope` and nothing
 else.
 
+## The create screen
+
+Vertical rhythm, all measured — the whole block sits at the same y as Gemini's
+(icon 262, heading 306, form 334, chips 426):
+
+| Element | Value |
+| --- | --- |
+| `.prompt-container` | h 68 = 28px icon + **16px** gap + 24px heading |
+| form | **4px** below the prompt block, h 52 |
+| chips row | **40px** below the form, h 138, 12px between chips |
+
+**The input is not centred in its row.** Gemini's 44px input sits **6px** below the
+top of the 52px form, where centring gives 4px. Two pixels, but it reads as a
+tighter gap under the heading. The submit button beside it *is* centred (8px), so
+`.nb-create-field` shifts alone via `align-self: flex-start; margin-top: 6px`
+rather than the row changing its `align-items`. The form's height is fixed at 52px
+either way, so **the chips below never move** — they stay at y 425.8, as Gemini's do.
+
+**The name field is a bare display-size input, not a text box.** 36px/44px at
+weight 320, transparent background, no border, no outline, caret
+`rgb(168,199,250)`. It carries `padding-left: 16px` while the field around it
+carries `margin-left: -16px`; they cancel, so the *text* aligns with the icon and
+heading while the field's hit area still reaches 16px further left. Adding a
+filled rounded rect here — the obvious reading of "input" — is wrong.
+
+**There are no action buttons.** No "Create notebook" pill, no "Cancel". Submit is
+a 36×36 borderless `arrow_forward` that does not exist until the field has text.
+
+**The submit button tracks the text.** It sits 8px past the field's right edge, and
+the field grows to fit its content, so the button slides right as you type. The
+width comes from a hidden mirror — Gemini's `div.dupe-title`, `opacity: 0`,
+`position: absolute`, `pointer-events: none`, holding the same string in the same
+face — sized to `max(400px, mirrorWidth + 16px)`.
+
+Three traps in that mechanism:
+
+- **The mirror's font must match the input exactly.** Any divergence in family,
+  size, weight, or a single variation axis mis-sizes the field and the button
+  drifts off the end of the text. `.nb-create-typescale` is shared by both for
+  this reason — do not split it.
+- **Do not round the measurement.** Advance widths are fractional and Gemini
+  passes them straight through; `Math.ceil` put the field at 715px where Gemini
+  sits at 714px for the same string.
+- **The growth is not animated.** Gemini's `transition: all` resolves to a 0s
+  duration, and frame-sampling a large paste showed 400 → 732 in one frame. An
+  eased width transition looks smoother than the real thing and lags the caret.
+
+**The placeholder types itself, and the phrases differ per vertical.** Typed a
+character at a time at ~63ms, held 2050ms, deleted at ~58ms. The holds measured
+2044–2090ms across both verticals. The two lists are **entirely different**, not a
+shared pool:
+
+| Vertical | Phrases, in order |
+| --- | --- |
+| Organize | Project or idea · Weekly meal prep · Creative brainstorm · Moving checklist |
+| Study | Subject or topic · Plant biology · Creative writing · World geography |
+
+Switching chips **restarts from the first phrase** rather than finishing the
+current one — timed after a click, the new phrase typed from empty (16 chars ×
+~68ms). Both lists live on `NOTEBOOK_VERTICALS` beside `prompt`, so heading and
+placeholder can't fall out of sync.
+
+The timer is paused while the field has a value (the placeholder is not visible
+then) but keeps its phrase index, so clearing resumes mid-cycle. It resets only on
+a vertical change — hence two separate effects in the hook, one keyed on `phrases`
+and one on `isPaused`. `aria-label` is fixed so the cycling text never churns the
+accessible name.
+
+### Heading weight — the `wdth` axis, and the font itself
+
+`gds-headline-s` is 20px/24px at `wght 470`, but **also `wdth 94` and `ROND 20`**.
+Google Sans Flex is a variable face: setting `font-weight: 470` alone leaves the
+width axis at its default 100, and the heading renders wider and reads visibly
+bolder than Gemini's. Declare all the axes, not just the weight.
+
+Worse, and easy to miss: **Willow's global sans is Inter.** `tailwind.config` sets
+`sans: ["Inter", "sans-serif"]`, so anything that does not declare `font-family`
+inherits Inter, which is ~8% wider than Google Sans Flex at `wdth 94` — the create
+heading measured **248.19px** against Gemini's **228.85px** for the same string.
+That presents as "the text is slightly bigger", not as a wrong typeface, which is
+why it survives a casual look. Every root here carries `.nb-surface`, which sets
+the family once; per-element rules then only set size/weight/axes.
+
+When checking type against Gemini, compare **rendered text width** via a
+`Range` — `getClientRects()` on the text contents — not `font-size`. The sizes
+matched exactly while the face did not.
+
+### The heading follows the vertical
+
+Selecting **Study and learn** changes the heading from "What are you working on?"
+to **"What are you studying?"**, and changes nothing else — chip copy, icons, and
+layout all stay. The string lives on the vertical in `NOTEBOOK_VERTICALS.prompt`
+so the two cannot fall out of sync.
+
+### The submit button is a filled blue circle
+
+`rgb(31, 59, 155)`, 36×36, fully round, arrow at `rgb(230,230,230)` — the same
+accent as the splash CTA. The fill sits on Gemini's `gem-icon-button` **wrapper**,
+not on the `<button>` inside it, so reading the button's own `background-color`
+reports transparent and the button looks like a bare glyph. Check the wrapper.
+
+## What the `study` vertical does and does not do
+
+The vertical is **persisted for both values** — `Notebook.vertical` is written at
+create time, validated on read, and round-trips through storage. Nothing else
+reads it yet.
+
+Gemini does more with it: the study vertical puts `?subtype=study` on the
+notebook's chats and swaps the notebook page for a tutor layout with lessons and
+progress. None of that is implemented here. So a notebook created under "Study and
+learn" is currently identical to an "Organize your ideas" one apart from the stored
+field and the create screen's heading.
+
 ## Zero notebooks is a different surface
 
 Verified against a Gemini account that had never created one:
