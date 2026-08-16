@@ -403,7 +403,9 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
         </div>
 
         <section className="spark-schedules-section" aria-labelledby={ongoingHeadingId}>
-          <h2 id={ongoingHeadingId}>Ongoing</h2>
+          {/* Gemini shows no section label while the list is empty — the empty-state
+            * card stands alone under the action buttons. */}
+          {schedules.length > 0 && <h2 id={ongoingHeadingId}>Ongoing</h2>}
           <div className="spark-schedule-list">
             {schedules.map((schedule) => {
               const runLabel = formatScheduleRunLabel(schedule, now);
@@ -449,15 +451,14 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
                 </div>
               );
             })}
+            {/* Gemini's `.empty-state`: an outlined card with a centred title and
+              * subtitle and no icon. */}
             {schedules.length === 0 && (
               <div className="spark-schedules-empty">
-                <span className="spark-schedules-empty__icon" aria-hidden="true">
-                  <MaterialSymbol family="luminous" name="schedule" size={28} weight={320} roundness={100} />
-                </span>
-                <span className="spark-schedules-empty__copy">
-                  <strong>No ongoing schedules</strong>
-                  <span>Create a schedule to run recurring Spark tasks automatically.</span>
-                </span>
+                <h2 className="spark-schedules-empty__title">Add your first schedule</h2>
+                <p className="spark-schedules-empty__subtitle">
+                  Schedules created from your tasks appear automatically
+                </p>
               </div>
             )}
           </div>

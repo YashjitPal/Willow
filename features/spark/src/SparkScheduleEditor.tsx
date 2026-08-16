@@ -41,7 +41,8 @@ export interface SparkScheduleEditorProps {
 const DEFAULT_DRAFT: SparkScheduleDraft = {
   title: '',
   frequency: 'Weekly',
-  weekdays: ['Monday'],
+  /* Gemini's new weekly schedule arrives with Monday–Friday selected. */
+  weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
   time: '09:00',
   instructions: '',
   enabled: true,
@@ -62,6 +63,20 @@ const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   const minutes = index % 2 === 0 ? '00' : '30';
   return `${hour}:${minutes}`;
 });
+
+/**
+ * Gemini labels the time as "9:00 am". The stored value stays 24-hour ("09:00")
+ * because `spark-store` parses it when computing the next run — only the label is
+ * localised.
+ */
+export const formatSparkScheduleTime = (value: string): string => {
+  const [rawHour, rawMinute] = value.split(':');
+  const hour = Number(rawHour);
+  if (!Number.isFinite(hour)) return value;
+  const suffix = hour < 12 ? 'am' : 'pm';
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour}:${rawMinute ?? '00'} ${suffix}`;
+};
 
 const createInitialDraft = (
   initialDraft: Partial<SparkScheduleDraft> | undefined,
@@ -297,11 +312,12 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
             className="spark-schedule-editor__back"
             onClick={requestBack}
           >
+            {/* Gemini's back glyph is 28px at weight 260 (`lm-icon-xl`). */}
             <MaterialSymbol
               family="luminous"
               name="arrow_back"
-              size={24}
-              weight={320}
+              size={28}
+              weight={260}
               roundness={100}
               opticalSize={24}
             />
@@ -334,13 +350,15 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
         </header>
 
         <section className="spark-schedule-editor__panel" aria-label="Schedule details">
+          {/* Gemini's `.schedule-title-section` is the bare input — no label above it.
+            * The accessible name moves onto the field itself. */}
           <div className="spark-schedule-editor__field">
-            <label htmlFor={titleId}>Schedule title</label>
             <input
               id={titleId}
               type="text"
               value={draft.title}
               placeholder="Name your schedule"
+              aria-label="Schedule title"
               autoComplete="off"
               onChange={(event) => setDraft((current) => ({
                 ...current,
@@ -349,22 +367,26 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
             />
           </div>
 
-          <div className="spark-schedule-editor__enabled-row">
-            <span className="spark-schedule-editor__enabled-copy">
-              <strong>Enabled</strong>
-              <span>Run this schedule automatically</span>
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={draft.enabled}
-              aria-label={`${draft.enabled ? 'Pause' : 'Resume'} schedule`}
-              className={`spark-schedule-editor__toggle${draft.enabled ? ' is-checked' : ''}`}
-              onClick={() => setDraft((current) => ({ ...current, enabled: !current.enabled }))}
-            >
-              <span />
-            </button>
-          </div>
+          {/* Gemini's create form has no enabled switch — a schedule is on once it
+            * exists. Kept for editing, where pausing an existing schedule matters. */}
+          {isEditing && (
+            <div className="spark-schedule-editor__enabled-row">
+              <span className="spark-schedule-editor__enabled-copy">
+                <strong>Enabled</strong>
+                <span>Run this schedule automatically</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={draft.enabled}
+                aria-label={`${draft.enabled ? 'Pause' : 'Resume'} schedule`}
+                className={`spark-schedule-editor__toggle${draft.enabled ? ' is-checked' : ''}`}
+                onClick={() => setDraft((current) => ({ ...current, enabled: !current.enabled }))}
+              >
+                <span />
+              </button>
+            </div>
+          )}
 
           <fieldset className="spark-schedule-editor__when" aria-labelledby={whenId}>
             <legend id={whenId}>When to run</legend>
@@ -393,6 +415,11 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                 />
               </label>
 
+              {/* Gemini spells the row out: "Weekly on S M T W T F S around 9:00 am". */}
+              {draft.frequency === 'Weekly' && (
+                <span className="spark-schedule-editor__inline-word">on</span>
+              )}
+
               {draft.frequency === 'Weekly' && (
                 <div className="spark-schedule-editor__weekdays" aria-label="Days of the week">
                   {SPARK_SCHEDULE_WEEKDAYS.map((weekday) => {
@@ -414,6 +441,8 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                 </div>
               )}
 
+              <span className="spark-schedule-editor__inline-word">around</span>
+
               <label className="spark-schedule-editor__select spark-schedule-editor__time">
                 <span className="sr-only">Time</span>
                 <select
@@ -425,7 +454,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                   }))}
                 >
                   {TIME_OPTIONS.map((time) => (
-                    <option key={time} value={time}>{time}</option>
+                    <option key={time} value={time}>{formatSparkScheduleTime(time)}</option>
                   ))}
                 </select>
                 <MaterialSymbol
@@ -438,21 +467,29 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                 />
               </label>
             </div>
+
+            {/*
+              * Gemini's `.ask-gemini-note` sits directly under the when-to-run row as
+              * a sentence, with "Ask Gemini" as the only interactive part:
+              * "Ask Gemini to create and edit event-based schedules and monitors".
+              * Willow's version generates the instructions rather than navigating, so
+              * it stays a button — styled as the inline link Gemini uses.
+              */}
+            <p className="spark-schedule-editor__ask-note">
+              <button
+                type="button"
+                className="spark-schedule-editor__ask-link"
+                disabled={isAskingGemini}
+                onClick={() => void askGemini()}
+              >
+                {isAskingGemini ? 'Asking Gemini' : 'Ask Gemini'}
+              </button>
+              {' to create and edit event-based schedules and monitors'}
+            </p>
           </fieldset>
 
           <div className="spark-schedule-editor__instructions-heading">
             <label htmlFor={instructionsId}>Instructions</label>
-            <button type="button" disabled={isAskingGemini} onClick={() => void askGemini()}>
-              <MaterialSymbol
-                family="luminous"
-                name="auto_awesome"
-                size={18}
-                weight={340}
-                roundness={100}
-                opticalSize={20}
-              />
-              <span>{isAskingGemini ? 'Asking...' : 'Ask Gemini'}</span>
-            </button>
           </div>
 
           {assistError && <p className="spark-schedule-editor__assist-error" role="alert">{assistError}</p>}
@@ -468,8 +505,10 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
             }))}
           />
 
+          {/* Gemini's copy, verbatim. */}
           <p className="spark-schedule-editor__disclaimer">
-            Scheduled tasks count toward your plan's usage limits.{' '}
+            Schedules run at approximate times and use more of your limit at peak hours. They
+            won&apos;t run if you reach your limit.{' '}
             <button type="button" onClick={onLearnMore}>Learn more</button>
           </p>
         </section>

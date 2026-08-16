@@ -12,6 +12,7 @@ import {
   formatSparkRelativeTime,
   type SparkTask,
   type SparkTaskAttachment,
+  type SparkTaskStatus,
   type SuggestedTask,
 } from './spark-types';
 import { SparkTaskCard } from './SparkTaskCard';
@@ -91,6 +92,25 @@ const SUGGESTED_TASKS: SuggestedTask[] = [
     description: 'Go deep on the stories that you care about and follow how they evolve',
   },
 ];
+
+/**
+ * How each task status presents in the row's status slot. `complete` and `cancelled`
+ * deliberately map to nothing: Gemini marks those rows' pills `status-pill-hidden`,
+ * which is `display: none`.
+ */
+const SPARK_STATUS_LABELS: Partial<Record<SparkTaskStatus, string>> = {
+  queued: 'Queued',
+  running: 'Running',
+  'needs-input': 'Needs input',
+  failed: 'Failed',
+};
+
+const SPARK_STATUS_TONES: Partial<Record<SparkTaskStatus, 'blocked' | 'failed' | 'pulse'>> = {
+  queued: 'pulse',
+  running: 'pulse',
+  'needs-input': 'blocked',
+  failed: 'failed',
+};
 
 const SPARK_TOOL_LABELS: Record<string, string> = {
   images: 'Create image',
@@ -453,14 +473,10 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                   title={task.title}
                   description={task.description}
                   timeLabel={formatSparkRelativeTime(task.updatedAt, now) || task.time}
-                  statusLabel={
-                    task.status === 'needs-input'
-                      ? 'Needs input'
-                      : task.status === 'failed'
-                        ? 'Failed'
-                        : undefined
-                  }
-                  statusTone={task.status === 'failed' ? 'failed' : 'blocked'}
+                  /* Gemini pulses a dot while a task runs, shows a labelled pill when
+                   * it is blocked or failed, and shows nothing once it settles. */
+                  statusLabel={SPARK_STATUS_LABELS[task.status]}
+                  statusTone={SPARK_STATUS_TONES[task.status]}
                   descriptionIcon={task.scheduledLabel ? 'schedule' : undefined}
                   isPinned={task.isPinned}
                   isTabbable={index === 0}

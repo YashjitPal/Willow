@@ -854,7 +854,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               restoreDialogFocus(renameReturnFocusRef.current);
             }}
           >
-            <h2 id={renameTitleId}>Rename task</h2>
+            <h2 id={renameTitleId}>Rename this thread</h2>
             <input
               ref={renameInputRef}
               value={renameDraft}
@@ -868,7 +868,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 type="submit"
                 disabled={!renameDraft.trim() || renameDraft.trim() === renameTask.title}
               >
-                Save
+                Rename
               </button>
             </div>
           </form>
@@ -891,9 +891,11 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
             aria-labelledby={deleteTitleId}
             aria-describedby={deleteDescriptionId}
           >
-            <h2 id={deleteTitleId}>Delete task?</h2>
+            {/* Gemini's copy, verbatim from its own delete dialog. */}
+            <h2 id={deleteTitleId}>Delete this thread?</h2>
             <p id={deleteDescriptionId}>
-              This will permanently delete &quot;{deleteTask.title}&quot;. This action can&apos;t be undone.
+              All prompts, responses and feedback will be deleted from your Willow activity, along
+              with any schedules created.
             </p>
             <div className="spark-all-tasks__dialog-actions">
               <button ref={deleteCancelButtonRef} type="button" onClick={closeDeleteDialog}>Cancel</button>

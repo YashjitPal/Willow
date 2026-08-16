@@ -424,11 +424,82 @@ const SparkThinkingStepsPanel: React.FC<{
   );
 };
 
+/**
+ * Gemini's `remy-processing-state`: the collapsible step row that sits above a
+ * response in the thread. Collapsed it shows the latest step with a chevron;
+ * expanded it lists the rest, plus a tool block per capability the task used.
+ *
+ * Measured off the live element: the trigger is 32px tall and fully rounded with
+ * `padding: 0 8px`, its label is gds-body-s (13px/17px) in
+ * `--lumi-sys-color--on-surface-variant`, the chevron is `expand_more` at 20px
+ * weight 320, and the host carries `padding: 0 8px 8px 16px`. Gemini's own trigger
+ * computes `cursor: default`, so the affordance is the chevron rather than a
+ * pointer.
+ */
+const SparkProcessingState: React.FC<{
+  steps: readonly string[];
+  toolLabels?: readonly { icon: string; label: string }[];
+}> = ({ steps, toolLabels = [] }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const detailsId = useId();
+  if (!steps.length) return null;
+
+  const latest = steps[steps.length - 1];
+
+  return (
+    <div className="spark-task-detail__processing-state">
+      <button
+        type="button"
+        className="spark-task-detail__processing-trigger"
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
+        onClick={() => setIsExpanded((open) => !open)}
+      >
+        <span className="spark-task-detail__processing-label">{latest}</span>
+        <MaterialSymbol
+          family="luminous"
+          name="expand_more"
+          size={20}
+          weight={320}
+          roundness={100}
+          opticalSize={20}
+          className={`spark-task-detail__processing-chevron${isExpanded ? ' is-expanded' : ''}`}
+        />
+      </button>
+
+      {isExpanded && (
+        <div id={detailsId} className="spark-task-detail__processing-details">
+          {steps.slice(0, -1).map((step, index) => (
+            <div key={`${index}-${step.slice(0, 24)}`} className="spark-task-detail__processing-step">
+              {step}
+            </div>
+          ))}
+          {toolLabels.map((tool) => (
+            <div key={tool.label} className="spark-task-detail__processing-tool">
+              <MaterialSymbol
+                family="google-symbols"
+                name={tool.icon}
+                size={20}
+                weight={320}
+                roundness={100}
+                opticalSize={20}
+              />
+              <span>{tool.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TASK_CAPABILITY_LABELS: Record<string, { icon: string; label: string }> = {
   images: { icon: 'add_photo_alternate', label: 'Create image' },
   thinking: { icon: 'lightbulb', label: 'Thinking' },
   research: { icon: 'travel_explore', label: 'Deep research' },
-  web: { icon: 'language', label: 'Web search' },
+  /* `language` resolves in none of Willow's icon fonts; `public` is the Google
+   * Symbols equivalent. */
+  web: { icon: 'public', label: 'Web search' },
   learn: { icon: 'school', label: 'Study and learn' },
   canvas: { icon: 'draw', label: 'Canvas' },
   github: { icon: 'code', label: 'GitHub' },
@@ -777,6 +848,9 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const taskMenuId = useId();
   const statusPopoverHeadingId = useId();
   const approvalTitleId = useId();
+  /* The remote-browser pane is open by default whenever there is one, matching Gemini,
+   * and the header's monitor glyph toggles it. */
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
   const newTaskErrorId = useId();
   const followUpErrorId = useId();
   const renameTitleId = useId();
@@ -1583,6 +1657,30 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             <h1 className="spark-task-detail__header-title" title={displayTitle}>{displayTitle}</h1>
             <div className="spark-task-detail__header-actions">
               <span className="spark-task-detail__beta-pill">Beta</span>
+
+              {/* Gemini puts a `monitor` glyph here (16px, weight 330, #c4c7c5) that
+                * shows and hides the remote-browser pane. */}
+              {computerUse && (
+                <button
+                  type="button"
+                  className={`spark-task-detail__header-icon${isSidePanelOpen ? ' is-open' : ''}`}
+                  aria-label={isSidePanelOpen ? 'Hide remote browser' : 'Show remote browser'}
+                  aria-pressed={isSidePanelOpen}
+                  title={isSidePanelOpen ? 'Hide remote browser' : 'Show remote browser'}
+                  onClick={() => setIsSidePanelOpen((open) => !open)}
+                >
+                  {/* `monitor` is absent from Willow's Luminous subset (probed: 140px
+                    * advance at 20px, i.e. the ligature fails); Google Symbols has it. */}
+                  <MaterialSymbol
+                    family="google-symbols"
+                    name="monitor"
+                    size={16}
+                    weight={330}
+                    roundness={100}
+                    opticalSize={16}
+                  />
+                </button>
+              )}
               <button
                 ref={statusButtonRef}
                 type="button"
@@ -1824,10 +1922,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </div>
                 )}
 
-                {computerUse && (
-                  <div className="spark-task-detail__computer-use-slot">
-                    {computerUse}
-                  </div>
+                {/* Gemini shows the processing state inline above the response, not
+                  * behind an overflow menu. */}
+                {hasVisibleResponse && (
+                  <SparkProcessingState
+                    steps={currentTask.thinkingSteps ?? []}
+                    toolLabels={(currentTask.tools ?? [])
+                      .map((tool) => TASK_CAPABILITY_LABELS[tool])
+                      .filter((entry): entry is { icon: string; label: string } => Boolean(entry))}
+                  />
                 )}
 
                 {hasVisibleResponse && (
@@ -2136,16 +2239,16 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 aria-modal="true"
                 aria-labelledby={renameTitleId}
               >
-                <h2 id={renameTitleId}>Rename task</h2>
+                <h2 id={renameTitleId}>Rename this thread</h2>
                 <input
                   ref={renameInputRef}
                   value={renameDraft}
-                  aria-label="Task name"
+                  aria-label="Thread name"
                   onChange={(event) => setRenameDraft(event.target.value)}
                 />
                 <div className="spark-task-detail__rename-actions">
                   <button type="button" onClick={closeRenameDialog}>Cancel</button>
-                  <button type="submit" disabled={!renameDraft.trim()}>Save</button>
+                  <button type="submit" disabled={!renameDraft.trim()}>Rename</button>
                 </div>
               </form>
             </div>
@@ -2167,9 +2270,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 aria-labelledby={deleteTitleId}
                 aria-describedby={deleteDescriptionId}
               >
-                <h2 id={deleteTitleId}>Delete task?</h2>
+                {/* Gemini's copy, verbatim from its own delete dialog. */}
+                <h2 id={deleteTitleId}>Delete this thread?</h2>
                 <p id={deleteDescriptionId}>
-                  This will permanently delete &quot;{dialogTask.title}&quot;. This action can&apos;t be undone.
+                  All prompts, responses and feedback will be deleted from your Willow activity,
+                  along with any schedules created.
                 </p>
                 <div className="spark-task-detail__delete-actions">
                   <button ref={deleteCancelButtonRef} type="button" onClick={closeDeleteDialog}>Cancel</button>
@@ -2188,6 +2293,18 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             </div>
           )}
         </section>
+
+        {/*
+          * Gemini's `remy-side-panel`: a second rounded card beside the chat pane
+          * rather than a block inside the thread. Measured in the split view at
+          * 567.1×809.6 against a 285.1px chat pane, both #1f1f1f at 28px corners with
+          * an 8px gutter between them.
+          */}
+        {computerUse && isSidePanelOpen && (
+          <section className="spark-task-detail__side-panel" aria-label="Remote browser">
+            {computerUse}
+          </section>
+        )}
       </main>
     </div>
   );

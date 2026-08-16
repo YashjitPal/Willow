@@ -281,7 +281,9 @@
   background: transparent;
   color: #e6e6e6;
   font-family: inherit;
-  font-size: 14px;
+  /* Gemini's trigger element computes 16px but its label span is gds-body-m at 15px;
+   * Willow's text sits directly in the button, so 15px is the matching value. */
+  font-size: 15px;
   font-weight: 500;
   line-height: 20px;
   cursor: pointer;
@@ -645,8 +647,10 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Gemini's action menu draws Delete in the same #e3e3e3 as Rename and Pin — measured
+ * on all three items. No red. */
 .spark-all-tasks__row-menu button.is-danger {
-  color: #f2b8b5;
+  color: inherit;
 }
 
 .spark-all-tasks__dialog-backdrop {
@@ -737,8 +741,10 @@
   cursor: default;
 }
 
+/* Gemini's delete confirmation uses the same neutral pill as Cancel, not a danger
+ * colour — measured: both buttons #171717 with #e6e6e6 labels. */
 .spark-all-tasks__dialog-actions button.is-danger {
-  color: #f2b8b5;
+  color: inherit;
 }
 
 /*

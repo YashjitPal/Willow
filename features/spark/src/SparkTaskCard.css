@@ -252,6 +252,80 @@
 }
 
 /*
+ * The running-task pulse. Gemini's `.status-pill.pulse-mode` drops its background and
+ * padding entirely and renders a 6px dot in place of a labelled pill:
+ *
+ *   .status-pill.pulse-mode { background:transparent; padding:0; height:auto;
+ *     display:flex; align-items:center; justify-content:center; overflow:visible }
+ *   @media (hover:hover) { :host:has(.pulse-mode) { width:2.25rem; height:2.25rem } }
+ *   .pulse-dot { width:.375rem; height:.375rem; border-radius:corner-full;
+ *     background-color: acc-color--accent-container; flex-shrink:0 }
+ *   @media (prefers-reduced-motion:no-preference) {
+ *     .pulse-dot { animation: dot-pulse-fade 2s ease-out infinite } }
+ *   .pulse-dot.complete { animation:none; background: acc-color--accent-fixed }
+ *
+ * Dark-theme glow stops resolve off `accent-fixed` (#3186ff): core .75, inner .5,
+ * outer .28. The 36px host box is what makes the dot sit where the action menu would.
+ */
+.spark-status-pill--pulse {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.spark-status-pulse-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background-color: #192967;
+  pointer-events: none;
+  transition:
+    background-color 500ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 500ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spark-status-pulse-dot {
+    animation: spark-dot-pulse-fade 2s ease-out infinite;
+  }
+}
+
+.spark-status-pulse-dot.is-complete {
+  animation: none;
+  background-color: #3186ff;
+  box-shadow: none;
+}
+
+@keyframes spark-dot-pulse-fade {
+  0% {
+    background-color: rgba(49, 134, 255, 0.75);
+    box-shadow:
+      0 0 0 0 rgba(49, 134, 255, 0.5),
+      0 0 0 0 rgba(49, 134, 255, 0.28);
+  }
+
+  80% {
+    background-color: #192967;
+    box-shadow:
+      0 0 6px 5px transparent,
+      0 0 14px 8px transparent;
+  }
+
+  100% {
+    background-color: #192967;
+    box-shadow:
+      0 0 0 0 transparent,
+      0 0 0 0 transparent;
+  }
+}
+
+/*
  * The action menu panel. Gemini's is `.mat-mdc-menu-panel.lm-menu-theme`:
  * min-width 240, max-width 280, #1f1f1f, 16px corners, level1 shadow
  * (0 0 20px rgba(0,0,0,.28)), 8px padding, and Material's own `_mat-menu-enter`

@@ -616,9 +616,25 @@ const SparkSidebarItem: React.FC<{
        */
       title={isCollapsed ? label : undefined}
       data-tooltip-position="right"
-      className={`group/spark-item relative flex h-8 w-full items-center gap-2 rounded-full px-2 text-[#e6e6e6] outline-none transition-colors duration-150 hover:bg-[rgba(230,230,230,0.08)] focus-visible:ring-2 focus-visible:ring-white/25 ${
-        active ? 'bg-[#171717]' : ''
-      }`}
+      /*
+       * Collapsed, this must become a 32x32 CIRCLE, exactly as <SidebarItem>
+       * does — `ml-1` inside the wrapper's 6px inset puts it at x=10 with the
+       * glyph at x=16, which is where Gemini's `gem-nav-list-item-icon-button`
+       * sits in its own 52px rail (measured 32x32 @ 10,100, icon @ 16,106).
+       *
+       * It was `w-full` in both states. At rail width that is a 40x32 box, and
+       * `rounded-full` on a non-square box gives an ELLIPSE — which is why the
+       * Spark rows looked wrong collapsed while the Chat rows looked right.
+       *
+       * The expanded padding and gap must be `1.5`, matching <SidebarItem>, and
+       * not the `px-2 gap-2` they were. Those two extra pixels put the expanded
+       * glyph at x=18 against the collapsed one's x=16, so every Spark icon
+       * slid sideways on collapse while the Chat icons held still. It also had
+       * the labels starting at x=50; Gemini's, and Willow's Chat rows, are 46.
+       */
+      className={`group/spark-item relative flex h-8 items-center rounded-full text-[#e6e6e6] outline-none transition-colors duration-150 hover:bg-[rgba(230,230,230,0.08)] focus-visible:ring-2 focus-visible:ring-white/25 ${
+        isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 px-1.5'
+      } ${active ? 'bg-[#171717]' : ''}`}
     >
       <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
         <MaterialSymbol
@@ -688,6 +704,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading } = useAuth();
   const currentSparkLocation = useStore(sparkLocation);
+  /*
+   * True only on the render in which the rail opens or closes.
+   *
+   * The section folds (Projects, Recents) animate their height over 200ms, which
+   * is right when you toggle a section by hand. It is wrong when the whole rail
+   * collapses: the headers drop from 44px to 12px instantly and Notebooks
+   * unmounts in one frame, so an eased fold alongside them means three chunks of
+   * vertical space leaving on three different schedules — which reads as the
+   * column shifting rather than folding.
+   *
+   * Computed during render, not in an effect, and that is the point: the new
+   * `0fr` and `transition: none` have to land in the SAME commit, or the browser
+   * has already started easing before the flag catches up.
+   */
+  const previousCollapsedRef = React.useRef(isCollapsed);
+  const railJustToggled = previousCollapsedRef.current !== isCollapsed;
+  React.useEffect(() => {
+    previousCollapsedRef.current = isCollapsed;
+  });
   const {
     chatScopeId,
     localChats, 
@@ -1500,30 +1535,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
           >
             {/*
-              * Google Symbols leads the stack here, deliberately. Willow's Luminous
-              * Symbols subset contains `toggle_off` but NOT `toggle_on`, so with
-              * Luminous first the ligature failed in exactly one state — the Spark
-              * one — and the literal string "toggle_on" painted, clipped by this
-              * 20px box to a glyph-like fragment. Probed advance at 20px:
-              * Luminous 180px (fail) vs Google Symbols 20px (formed); `toggle_off`
-              * forms in both. Keep both states on one font so they stay consistent.
+              * LUMINOUS FIRST, and that is the whole point of this block.
+              *
+              * Gemini's collapsed rail is a `gem-icon-button` 32x32 at x=10 holding
+              * a 20x20 `mat-icon` whose `::before` renders `toggle_off` in
+              * **Luminous Symbols** — read straight off its markup:
+              *
+              *   <mat-icon class="lm-icon-m lumi-symbols mat-ligature-font"
+              *             data-mat-icon-name="toggle_off" fonticon="toggle_off">
+              *
+              * Luminous draws that capsule UPRIGHT. Google Symbols draws the same
+              * name lying on its side, so leading the stack with Google Symbols —
+              * which this did, to dodge the missing `toggle_on` below — produced a
+              * horizontal switch where Gemini has a vertical one. Same glyph name,
+              * different picture, and it is the thing that looked wrong.
+              *
+              * ONE GLYPH FOR BOTH STATES, rotated. Willow's Luminous subset carries
+              * `toggle_off` but not `toggle_on` (probed at 20px: 180px advance, i.e.
+              * the ligature fails and the literal string paints). Rotating the
+              * capsule a half turn moves the dot to the other end, which is what
+              * `toggle_on` is, so the switch stays on Gemini's font in both states
+              * instead of changing typeface halfway.
               */}
             <span
               className="luminous-symbols inline-flex h-5 w-5 items-center justify-center overflow-hidden text-[20px] leading-5 select-none"
               style={{
-                fontFamily: "'Google Symbols', 'Luminous Symbols', 'Material Symbols Rounded', sans-serif",
+                fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
                 fontWeight: 320,
                 fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320',
+                // Snaps. Gemini's glyph swaps outright between states, so the
+                // rotation must not be eased — an animated flip is Willow
+                // inventing motion the original does not have.
+                transform: studioExperience === 'spark' ? 'rotate(180deg)' : 'rotate(0deg)',
               }}
             >
-              {studioExperience === 'spark' ? 'toggle_on' : 'toggle_off'}
+              toggle_off
             </span>
           </button>
         </div>
       </div>
 
       {studioExperience === 'spark' ? (
-        <div className={`min-h-0 flex-1 pb-4 ${isCollapsed ? 'pt-2' : 'pt-0'}`}>
+        /*
+         * `pt-0` in both states, deliberately. The collapsed-only 8px this used
+         * to add pushed every Spark row down the moment the rail collapsed, so
+         * the icons did not stay on the y they occupy expanded — which the Chat
+         * rows, whose container pads the same either way, get right.
+         */
+        <div className="min-h-0 flex-1 pb-4 pt-0">
           <SparkSidebarItem
             label="Tasks"
             symbol="edit_rectangle"
@@ -1668,12 +1727,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onToggle={() => setProjectsExpanded((expanded) => !expanded)}
                 controlsId="willow-projects-section"
               />
+              {/*
+                * Collapsed, the rail carries the modes and nothing else — the
+                * sub-navigation folds away with the labels that explain it.
+                * `!isCollapsed` in the row condition is the same guard Recents
+                * already used; Projects was the one section missing it, so its
+                * three rows stayed on the rail as unlabelled glyphs.
+                */}
               <div
                 id="willow-projects-section"
                 className="grid min-h-0"
+                aria-hidden={isCollapsed || !projectsExpanded}
                 style={{
-                  gridTemplateRows: projectsExpanded ? '1fr' : '0fr',
-                  transition: 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+                  gridTemplateRows: !isCollapsed && projectsExpanded ? '1fr' : '0fr',
+                  transition: railJustToggled ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
                 }}
               >
                 <div className="min-h-0 overflow-hidden space-y-0">
@@ -1714,6 +1781,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 * the only consumer of the notebook registry in the sidebar, so
                 * lifting either into this component would just be plumbing.
                 */}
+              {/*
+                * Hidden outright on the rail, which is a DELIBERATE DEPARTURE
+                * from Gemini — measured in its own collapsed rail, the notebook
+                * rows are still there (`add_2` y=374, `notebook` 406 and 438,
+                * `more_horiz` 470, all at x=16). Willow keeps the rail to the
+                * modes alone; asked for by name, so do not "correct" it back
+                * against the measurement.
+                */}
+              {!isCollapsed && (
               <NotebooksSection
                 isCollapsed={isCollapsed}
                 activeNotebookId={activeNotebookId}
@@ -1723,6 +1799,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onCreateNotebook={() => onViewChange('notebook-create')}
                 onOpenAllNotebooks={() => onViewChange('notebooks')}
               />
+              )}
 
               {/*
                 * Gated on `isChatListHydrated`, NOT on `!isInitializingLocalFS`.
@@ -1768,7 +1845,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     aria-hidden={isCollapsed || !recentsExpanded}
                     style={{
                       gridTemplateRows: !isCollapsed && recentsExpanded ? '1fr' : '0fr',
-                      transition: 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+                      transition: railJustToggled ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
                     }}
                   >
                     <div className="min-h-0 overflow-hidden space-y-0">

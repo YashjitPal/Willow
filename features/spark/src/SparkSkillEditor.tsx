@@ -260,16 +260,8 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
         )}
 
         <section className="spark-skill-editor__panel" aria-label="Skill details">
-          <div className="spark-skill-editor__intro">
-            <span className="spark-skill-editor__icon" aria-hidden="true">
-              <MaterialSymbol family="luminous" name="extension" size={26} weight={320} roundness={100} />
-            </span>
-            <div>
-              <h1>{isEditing ? 'Edit skill' : 'Create a skill'}</h1>
-              <p>Save instructions Gemini can automatically reuse when they are relevant.</p>
-            </div>
-          </div>
-
+          {/* Gemini's skill editor has no in-card header — the card opens straight
+            * onto the name field. The page's own back-nav supplies the context. */}
           {draft.fileName && (
             <div className="spark-skill-editor__file">
               <MaterialSymbol family="luminous" name="description" size={20} weight={320} roundness={100} />
@@ -277,17 +269,18 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
             </div>
           )}
 
-          <label className="spark-skill-editor__field" htmlFor={nameId}>
-            <span>Skill name</span>
+          {/* Gemini's `.title-section` is an unlabelled input. */}
+          <div className="spark-skill-editor__field spark-skill-editor__field--title">
             <input
               id={nameId}
               type="text"
               value={draft.name}
               placeholder="Name your skill"
+              aria-label="Skill name"
               autoComplete="off"
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
             />
-          </label>
+          </div>
 
           <label className="spark-skill-editor__field" htmlFor={descriptionId}>
             <span>Description</span>
@@ -295,7 +288,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               id={descriptionId}
               type="text"
               value={draft.description}
-              placeholder="What is this skill for?"
+              placeholder="Give your skill a description"
               autoComplete="off"
               onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
             />
@@ -306,8 +299,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               <label htmlFor={instructionsId}>Instructions</label>
               {onAskGemini && (
                 <button type="button" disabled={isAskingGemini} onClick={() => void askGemini()}>
-                  <MaterialSymbol family="luminous" name="auto_awesome" size={18} weight={340} roundness={100} />
-                  <span>{isAskingGemini ? 'Asking...' : 'Ask Gemini'}</span>
+                  {isAskingGemini ? 'Asking Gemini' : 'Ask Gemini'}
                 </button>
               )}
             </div>
@@ -315,15 +307,10 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
             <textarea
               id={instructionsId}
               value={draft.instructions}
-              placeholder="Tell Gemini what to do, how to respond and what to keep in mind"
+              placeholder="Describe what you want Gemini to do"
               onChange={(event) => setDraft((current) => ({ ...current, instructions: event.target.value }))}
             />
           </div>
-
-          <p className="spark-skill-editor__disclaimer">
-            Gemini can apply relevant skills automatically when they fit your task.{' '}
-            <button type="button" onClick={onLearnMore}>Learn more</button>
-          </p>
         </section>
       </form>
       {deleteOpen && onDelete && (
