@@ -424,7 +424,13 @@ Captured by remounting Gemini's chat-history component through an in-app navigat
 | `.skeleton-loader-column.alt-1` | 283x18, radius **12** — the title bar |
 | `.skeleton-loader-column.alt-2` | 40x18, radius **9999** — the date pill |
 | fill | `rgba(196,199,197,0.08)` |
-| animation | `pulse` **1500ms linear infinite** |
+| animation | `pulse` **1500ms linear infinite**, the pill delayed **100ms** |
+
+Re-measured frame by frame during a real notebook open (`tools/ui-research/captures/notebooks`),
+which also put a stopwatch on it: the skeleton is up from **1567ms to 1785ms** after
+the click — about 220ms. The **100ms delay on the pill** is the detail most likely to
+be dropped as noise; without it the bar and the pill dim together and the row reads
+as one blinking block rather than Gemini's looser rhythm.
 
 The keyframes are **asymmetric** — `0% {opacity:1} 33% {opacity:0.5} 100% {opacity:1}`.
 The midpoint is at 33%, not 50%, so it dims fast and recovers slowly; a symmetric

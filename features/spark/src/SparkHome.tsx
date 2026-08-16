@@ -12,8 +12,10 @@ import {
   formatSparkRelativeTime,
   type SparkTask,
   type SparkTaskAttachment,
-  type TrendingTask,
+  type SuggestedTask,
 } from './spark-types';
+import { SparkTaskCard } from './SparkTaskCard';
+import { SparkTaskDeleteDialog, SparkTaskRenameDialog } from './SparkTaskDialogs';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import { useAuth } from '@willow/auth/AuthContext';
@@ -31,7 +33,10 @@ export interface SparkHomeProps {
   onOpenWhatsNew?: () => void;
   onPlusClick?: () => void;
   onMicClick?: () => void;
-  onTrendingSelect?: (task: TrendingTask) => void;
+  onSuggestedSelect?: (task: SuggestedTask) => void;
+  onRenameTask?: (taskId: string, title: string) => void;
+  onTogglePinTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
 }
 
 const SPARK_HOME_GLOW: Record<string, string> = {
@@ -70,7 +75,9 @@ export const getSparkSubmitColorClass = (color?: string) => {
   }
 };
 
-const TRENDING_TASKS: TrendingTask[] = [
+/* Copy transcribed from Gemini's `remy-task-discovery`, trailing full stops and all
+ * — none of the three descriptions carries one. */
+const SUGGESTED_TASKS: SuggestedTask[] = [
   {
     title: 'Declutter your inbox',
     description: 'Summarise or archive newsletters and unsubscribe from email lists',
@@ -81,7 +88,7 @@ const TRENDING_TASKS: TrendingTask[] = [
   },
   {
     title: 'Get a custom news digest',
-    description: 'Go deep on the stories that you care about and follow how they evolve.',
+    description: 'Go deep on the stories that you care about and follow how they evolve',
   },
 ];
 
@@ -115,7 +122,10 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   onOpenWhatsNew,
   onPlusClick,
   onMicClick,
-  onTrendingSelect,
+  onSuggestedSelect,
+  onRenameTask,
+  onTogglePinTask,
+  onDeleteTask,
 }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
@@ -134,7 +144,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageHeadingId = useId();
   const recentHeadingId = useId();
-  const trendingHeadingId = useId();
+  const suggestedHeadingId = useId();
   const now = useSparkNow();
   const {
     error: dictationError,
@@ -146,6 +156,10 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   const hasContent = Boolean(prompt.trim() || attachedFiles.length > 0 || selectedTool);
   const previousHasContent = usePrevious(hasContent);
   const [isSubmitControlContentGated, setIsSubmitControlContentGated] = useState(false);
+  const [renameTaskId, setRenameTaskId] = useState<string | null>(null);
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  const renameTask = tasks.find((task) => task.id === renameTaskId) ?? null;
+  const deleteTask = tasks.find((task) => task.id === deleteTaskId) ?? null;
 
   useEffect(() => {
     if (hasContent && !previousHasContent) {
@@ -220,9 +234,9 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
     }
   };
 
-  const selectTrendingTask = (task: TrendingTask) => {
+  const selectSuggestedTask = (task: SuggestedTask) => {
     setPrompt(task.description);
-    onTrendingSelect?.(task);
+    onSuggestedSelect?.(task);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
@@ -426,44 +440,42 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
 
         {tasks.length > 0 && (
           <section className="spark-recent-section" aria-labelledby={recentHeadingId}>
+            {/* Gemini's `remy-task-list .section-header` is a 32px-tall row; the
+              * discovery section below uses a bare 20px label instead. */}
             <div className="spark-section-heading">
               <h2 id={recentHeadingId}>Recent</h2>
             </div>
 
-            <div className="spark-recent-list" role="listbox" aria-label="Task list">
-              {tasks.map((task) => (
-                <button
+            <div className="spark-goal-list" role="listbox" aria-label="Task list">
+              {tasks.map((task, index) => (
+                <SparkTaskCard
                   key={task.id}
-                  type="button"
-                  className="spark-task-row"
-                  role="option"
-                  aria-selected="false"
-                  aria-label={`Open task: ${task.title}`}
-                  onClick={() => onOpenTask?.(task.id)}
-                >
-                  <span className="spark-task-copy">
-                    <span className="spark-task-title">{task.title}</span>
-                    <span className="spark-task-description-line">
-                      {task.status === 'needs-input' && (
-                        <MaterialSymbol
-                          family="luminous"
-                          name="schedule"
-                          size={16}
-                          weight={330}
-                          roundness={100}
-                          opticalSize={16}
-                        />
-                      )}
-                      <span className="spark-task-description">{task.description}</span>
-                    </span>
-                  </span>
-                  <span className="spark-task-meta">
-                    <span>{formatSparkRelativeTime(task.updatedAt, now) || task.time}</span>
-                  </span>
-                  {task.status === 'needs-input' && (
-                    <span className="spark-task-status-pill">Needs input</span>
-                  )}
-                </button>
+                  title={task.title}
+                  description={task.description}
+                  timeLabel={formatSparkRelativeTime(task.updatedAt, now) || task.time}
+                  statusLabel={
+                    task.status === 'needs-input'
+                      ? 'Needs input'
+                      : task.status === 'failed'
+                        ? 'Failed'
+                        : undefined
+                  }
+                  statusTone={task.status === 'failed' ? 'failed' : 'blocked'}
+                  descriptionIcon={task.scheduledLabel ? 'schedule' : undefined}
+                  isPinned={task.isPinned}
+                  isTabbable={index === 0}
+                  onOpen={() => onOpenTask?.(task.id)}
+                  actions={[
+                    { id: 'rename', label: 'Rename', icon: 'edit', onSelect: () => setRenameTaskId(task.id) },
+                    {
+                      id: 'pin',
+                      label: task.isPinned ? 'Unpin' : 'Pin',
+                      icon: 'push_pin',
+                      onSelect: () => onTogglePinTask?.(task.id),
+                    },
+                    { id: 'delete', label: 'Delete', icon: 'delete', onSelect: () => setDeleteTaskId(task.id) },
+                  ]}
+                />
               ))}
             </div>
 
@@ -473,7 +485,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                 family="luminous"
                 name="chevron_right"
                 size={24}
-                weight={320}
+                weight={300}
                 roundness={100}
                 opticalSize={24}
               />
@@ -481,30 +493,49 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
           </section>
         )}
 
-        <section className="spark-trending-section" aria-labelledby={trendingHeadingId}>
-          <div className="spark-section-heading">
-            <h2 id={trendingHeadingId}>Trending</h2>
-          </div>
+        <section className="spark-suggested-section" aria-labelledby={suggestedHeadingId}>
+          <h2 id={suggestedHeadingId} className="spark-suggested-heading">Suggested</h2>
 
-          <div className="spark-trending-list">
-            {TRENDING_TASKS.map((task) => (
+          <div className="spark-suggested-list">
+            {SUGGESTED_TASKS.map((task) => (
               <button
                 key={task.title}
                 type="button"
-                className="spark-trending-row"
+                className="spark-suggested-row"
                 aria-label={`Use task: ${task.title}`}
-                onClick={() => selectTrendingTask(task)}
+                onClick={() => selectSuggestedTask(task)}
               >
-                <span className="spark-trending-indicator" aria-hidden="true" />
-                <span className="spark-trending-copy">
-                  <span className="spark-trending-title">{task.title}</span>
-                  <span className="spark-trending-description">{task.description}</span>
+                <span className="spark-suggested-indicator" aria-hidden="true" />
+                <span className="spark-suggested-copy">
+                  <span className="spark-suggested-title">{task.title}</span>
+                  <span className="spark-suggested-description">{task.description}</span>
                 </span>
               </button>
             ))}
           </div>
         </section>
       </div>
+
+      {renameTask && (
+        <SparkTaskRenameDialog
+          currentTitle={renameTask.title}
+          onCancel={() => setRenameTaskId(null)}
+          onConfirm={(title) => {
+            setRenameTaskId(null);
+            onRenameTask?.(renameTask.id, title);
+          }}
+        />
+      )}
+
+      {deleteTask && (
+        <SparkTaskDeleteDialog
+          onCancel={() => setDeleteTaskId(null)}
+          onConfirm={() => {
+            setDeleteTaskId(null);
+            onDeleteTask?.(deleteTask.id);
+          }}
+        />
+      )}
     </div>
   );
 };

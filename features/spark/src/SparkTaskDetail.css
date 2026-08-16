@@ -118,8 +118,13 @@
   background: #1e1f20;
 }
 
+/*
+ * Gemini's left-pane composer measures 527.8px in a 616px pane — inset roughly 44px
+ * a side, not the 430px cap this used to carry, which left it visibly narrower than
+ * Gemini's and floating in the middle of the pane.
+ */
 .spark-task-detail__new-composer {
-  width: min(430px, calc(100% - 32px));
+  width: min(660px, calc(100% - 88px));
   margin: -6px auto 0;
   isolation: isolate;
 }
@@ -346,18 +351,26 @@
   margin-top: 66px;
 }
 
+/*
+ * Gemini's `.filter-trigger`: `padding-inline: 8px`, gap 4px, and
+ * `margin-inline-start: calc(var(--gem-sys-spacing--l) * -1)` = -16px, which pulls it
+ * flush with the pane's left edge so "Recent" lines up with the task titles below.
+ */
 .spark-task-detail__filter-button {
   display: inline-flex;
   height: 32px;
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0 16px;
+  gap: 4px;
+  /* -8px, not the -16px Gemini's own rule uses: its trigger sits inside a
+   * `.section-header` that already carries 8px of inline padding, which Willow's
+   * markup does not have. Measured target is dx 0 against the pane's left edge. */
+  margin: 0 0 0 -8px;
+  padding: 0 8px;
   border: 0;
   border-radius: 9999px;
   background: transparent;
   color: #e6e6e6;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   line-height: 20px;
   cursor: pointer;
@@ -418,20 +431,22 @@
   padding: 16px 8px 16px 0;
 }
 
+/* Same surface as Gemini's `.goal-card`: half-alpha `--lumi-sys-color--surface` at
+ * rest, `--lumi-sys-color--surface-bright` when hovered or selected, over 150ms. */
 .spark-task-detail__task-row {
   position: relative;
   display: flex;
   width: 100%;
-  height: 64px;
+  min-height: 64px;
   align-items: center;
   gap: 0;
   padding: 0 8px 0 0;
   overflow: hidden;
   border: 0;
   border-radius: 16px;
-  background: transparent;
+  background: rgba(15, 15, 15, 0.5);
   color: inherit;
-  transition: background-color 140ms ease;
+  transition: background-color 150ms ease;
 }
 
 .spark-task-detail__task-row:has(.spark-task-detail__list-task-menu) {
@@ -440,7 +455,7 @@
 }
 
 .spark-task-detail__task-row:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: #1f1f1f;
 }
 
 .spark-task-detail__task-row.is-selected {
@@ -655,39 +670,37 @@
   background: rgba(255, 255, 255, 0.16);
 }
 
+/*
+ * Gemini's `.split-pane-button`: a bare 6×52 pill in #171717
+ * (--lumi-sys-color--surface-dim), fully rounded, vertically centred in a 28px
+ * wrapper — no border, no shadow, no glyph, and always visible rather than
+ * hover-revealed. Measured 6×52 at 677,387 against an 808px-tall pane.
+ *
+ * The glyph inside is hidden rather than removed from the markup so the button
+ * keeps its accessible name.
+ */
 .spark-task-detail__library-divider button {
   position: absolute;
   top: 50%;
   left: 0;
   z-index: 2;
   display: inline-flex;
-  width: 30px;
-  height: 56px;
+  width: 6px;
+  height: 52px;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 15px;
-  background: #1f1f1f;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  border: 0;
+  border-radius: 9999px;
+  background: #171717;
   color: #d3d6d4;
   cursor: pointer;
-  opacity: 0;
-  visibility: hidden;
-  transform: translate(-50%, -50%) scale(0.92);
-  transition:
-    opacity 120ms ease,
-    visibility 120ms ease,
-    transform 160ms cubic-bezier(0.2, 0, 0, 1),
-    background-color 120ms ease;
+  transform: translate(-50%, -50%);
+  transition: background-color 120ms ease;
 }
 
-.spark-task-detail__library-divider:hover button,
-.spark-task-detail__library-divider:focus-within button,
-.spark-task-detail__library-divider button:focus-visible {
-  opacity: 1;
-  visibility: visible;
-  transform: translate(-50%, -50%) scale(1);
+.spark-task-detail__library-divider button > * {
+  display: none;
 }
 
 .spark-task-detail__library-divider button:hover {
@@ -726,6 +739,7 @@
   padding: 0 12px 0 28px;
 }
 
+/* Gemini's `.chat-thread-title` is gds-body-s at weight 400, not 500. */
 .spark-task-detail__header-title {
   margin: 0;
   min-width: 0;
@@ -733,21 +747,28 @@
   overflow: hidden;
   color: #e6e6e6;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/*
+ * Gemini's `.beta-badge` in the chat thread header, measured: 48×25.6, fully
+ * rounded, `padding: 0 8px`, a 1px rgba(255,255,255,.12) hairline, and 13px/#e6e6e6
+ * — not the 11px/#c4c7c5 at an 11px radius this used to be.
+ */
 .spark-task-detail__beta-pill {
-  height: 22px;
-  padding: 3px 8px 2px;
+  display: inline-flex;
+  height: 25.6px;
+  align-items: center;
+  padding: 0 8px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 11px;
-  color: #c4c7c5;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 15px;
+  border-radius: 9999px;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
   text-transform: uppercase;
 }
 
@@ -759,6 +780,14 @@
   margin-left: auto;
 }
 
+/* Gemini's header overflow trigger is the same 36px `.goal-actions-menu-button` the
+ * task rows use, not the 32px size shared with the response-action buttons. */
+.spark-task-detail__header-actions .spark-task-detail__header-icon {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+}
+
 .spark-task-detail__header-icon.is-open {
   background: rgba(255, 255, 255, 0.09);
 }
@@ -767,19 +796,26 @@
   display: none;
 }
 
+/*
+ * Gemini's equivalent is `.remy-plan-pill`: 76×22.7, `background: #171717`
+ * (--lumi-sys-color--surface-dim), fully rounded, `padding: 4px 12px`, label
+ * gds-body-s 13px/#e6e6e6. Willow's keeps its status glyph and chevron because they
+ * open the progress popover, which Gemini's pill does not do — hence 24px rather
+ * than 22.7px, so three children still fit without clipping.
+ */
 .spark-task-detail__status-pill {
   display: inline-flex;
-  height: 32px;
+  height: 24px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  padding: 0 10px;
+  gap: 4px;
+  padding: 4px 12px;
   border: 0;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  background: #171717;
   color: #e6e6e6;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 17px;
   white-space: nowrap;
   cursor: pointer;
@@ -792,7 +828,7 @@
 
 .spark-task-detail__status-pill:hover,
 .spark-task-detail__status-pill.is-open {
-  background: rgba(255, 255, 255, 0.1);
+  background: #232323;
 }
 
 .spark-task-detail__progress-popover,
@@ -1400,10 +1436,12 @@
   line-height: 24px;
 }
 
+/* Gemini's `.body-text.gds-body-s`: 13px/17px in `--lumi-sys-color--on-surface-variant`
+ * (rgba(255,255,255,.55)), `margin: 8px 0 0`. */
 .spark-task-detail__approval-body {
   min-height: 112px;
   margin-top: 8px;
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
@@ -1417,11 +1455,15 @@
   padding-left: 27px;
 }
 
+/*
+ * These bullets wrap — Gemini's first list item measures 51px tall, i.e. three
+ * 17px lines. `white-space: nowrap` was forcing them onto one line, which
+ * overflowed the 338px card body.
+ */
 .spark-task-detail__approval-body li {
   min-height: 17px;
-  margin-bottom: 8px;
+  margin: 8px 0;
   padding-left: 4px;
-  white-space: nowrap;
 }
 
 .spark-task-detail__approval-body a {
@@ -1430,9 +1472,12 @@
   text-underline-offset: 2px;
 }
 
+/* "Review the plan:" is ordinary body text in Gemini — 13px/17px weight 400 in the
+ * same muted colour, with a 12.5px gap under it. It is not bold. */
 .spark-task-detail__approval-plan-heading {
   margin-top: 16px !important;
-  font-weight: 700;
+  margin-bottom: 12.5px !important;
+  font-weight: 400;
 }
 
 .spark-task-detail__approval-plan {
@@ -1825,10 +1870,17 @@
   );
 }
 
+/*
+ * Gemini's composer sits at #1e1f20 on a #1f1f1f panel — nearly the same colour —
+ * so what separates them is the level1 elevation on the composer itself
+ * (`input-box-shadow`: 0 0 20px 0 rgba(0,0,0,.28)), not a lighter surface. Willow's
+ * old `0 1px 2px rgba(0,0,0,.12)` was too tight to read at all, which left the
+ * composer looking like it had no boundary.
+ */
 .spark-task-detail__followup-composer {
   max-width: 632px;
   margin: 0 auto;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
   transform: translateX(12px);
 }
 
@@ -1836,13 +1888,14 @@
   margin-top: 38px;
 }
 
+/* Gemini's is `p.gds-body-s`: 13px/17px weight 400 in #c4c7c5, centred. */
 .spark-task-detail__disclaimer {
-  min-height: 16px;
+  min-height: 17px;
   margin: 3px auto 0;
-  color: rgba(255, 255, 255, 0.46);
-  font-size: 11px;
+  color: #c4c7c5;
+  font-size: 13px;
   font-weight: 400;
-  line-height: 16px;
+  line-height: 17px;
   text-align: center;
 }
 

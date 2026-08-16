@@ -1,0 +1,332 @@
+/*
+ * Gemini's `remy-task-list` goal card, transcribed rather than designed. Every
+ * value below was read off gemini.google.com/spark — the authored stylesheet via
+ * CDP `CSS.getStyleSheetText`, the endpoints via `CSS.forcePseudoState`. Gemini's
+ * own rules, for reference:
+ *
+ *   .goal-card       { display:flex; flex-direction:column; justify-content:center;
+ *                      padding-inline: var(--gem-sys-spacing--l);
+ *                      border-radius: var(--gem-sys-shape--corner-large);
+ *                      min-height: 4rem; cursor:pointer;
+ *                      background-color: color(from var(--lumi-sys-color--surface) srgb r g b/.5);
+ *                      transition: background-color .15s ease }
+ *   .goal-card:hover { background-color: var(--lumi-sys-color--surface-bright) }
+ *   .capped:host .goal-card { padding-inline-end: 1.125rem }
+ *
+ * Token values in this theme: spacing l=16px, xs=4px, s=8px, m=12px;
+ * corner-large=16px; surface=#0f0f0f, surface-bright=#1f1f1f, on-surface=#e6e6e6,
+ * on-surface-variant=rgba(255,255,255,.55); motion short4=200ms,
+ * easing-emphasized=cubic-bezier(.2,0,0,1).
+ *
+ * The 18px inline-end padding is not a typo: the capped (home page) variant
+ * overrides it to 1.125rem while the inline-start stays at 16px.
+ */
+
+.spark-goal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spark-goal-card {
+  display: flex;
+  min-height: 64px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 18px 0 16px;
+  border: 0;
+  border-radius: 16px;
+  background-color: rgba(15, 15, 15, 0.5);
+  color: #e3e3e3;
+  /* Gemini's card carries `gds-body-l` (17px/24px) as the inherited font. Nothing
+   * visible uses it — the title and subtitle both set their own — but it is what
+   * any future descendant would fall back to. */
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 24px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.spark-goal-card:hover,
+.spark-goal-card.is-selected {
+  background-color: #1f1f1f;
+}
+
+/* Gemini: `.goal-card:focus-visible { outline:none; background: color(from on-surface srgb r g b/.08) }` */
+.spark-goal-card:focus-visible {
+  outline: none;
+  background-color: rgba(230, 230, 230, 0.08);
+}
+
+.spark-goal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.spark-goal-titles {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* gds-body-m, and in the task list it is the plain (not emphasised) weight. */
+.spark-goal-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+/* gds-body-s. `min-height: 1lh` keeps the row height stable while a description streams in. */
+.spark-goal-secondary-text {
+  display: flex;
+  min-height: 1lh;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-goal-secondary-icon {
+  flex-shrink: 0;
+}
+
+.spark-goal-secondary-content {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.spark-goal-card-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/*
+ * The timestamp and the action menu are both collapsed to zero width until the
+ * row is hovered, focused within, or selected. Gemini animates max-width and
+ * margin rather than transform, so the row's content genuinely reflows.
+ *
+ * `.goal-time-ago` inherits its colour: it asks for `--bard-color-lm-on-surface-variant`,
+ * which is not defined in this theme, so the declaration is dropped and the card's
+ * own #e3e3e3 shows through. Measured, not assumed.
+ */
+.spark-goal-time-ago {
+  display: inline-block;
+  max-width: 0;
+  margin-inline-end: 0;
+  overflow: hidden;
+  opacity: 0;
+  color: #e3e3e3;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  transition:
+    max-width 200ms cubic-bezier(0.2, 0, 0, 1),
+    margin-inline-end 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-goal-card:hover .spark-goal-time-ago,
+.spark-goal-card:focus-within .spark-goal-time-ago,
+.spark-goal-card.is-selected .spark-goal-time-ago {
+  max-width: 200px;
+  margin-inline-end: 8px;
+  opacity: 1;
+}
+
+.spark-goal-action-menu {
+  display: inline-flex;
+  width: 0;
+  margin-inline-start: 0;
+  justify-content: center;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    width 200ms cubic-bezier(0.2, 0, 0, 1),
+    margin-inline-start 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 200ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-goal-card:hover .spark-goal-action-menu,
+.spark-goal-card:focus-within .spark-goal-action-menu,
+.spark-goal-card.is-selected .spark-goal-action-menu,
+.spark-goal-action-menu.is-open,
+.spark-goal-action-menu.is-pinned {
+  width: 36px;
+  opacity: 1;
+  visibility: visible;
+}
+
+/*
+ * The -8px pull only applies when a status pill sits before the menu. Gemini
+ * writes this as `remy-status-pill.status-pill-hidden + remy-goal-action-menu
+ * { margin-inline-start: 0 }` against an always-rendered pill element; keying off
+ * the pill's presence gives the same result without rendering a hidden node.
+ */
+.spark-goal-card-actions:has(.spark-status-pill) .spark-goal-action-menu {
+  margin-inline-start: -8px;
+}
+
+.spark-goal-actions-button {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.spark-goal-actions-button:hover {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-goal-actions-button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: -2px;
+}
+
+/*
+ * Gemini's `remy-status-pill` > `.status-pill`, from its own component sheet
+ * (host `ng-c894856390`):
+ *
+ *   :host        { display:inline-flex; margin-inline-start:auto }
+ *   .status-pill { display:flex; height:1.0625rem; align-items:center; gap:4px;
+ *                  padding-block:2px; padding-inline:var(--gem-sys-spacing--m);
+ *                  border-radius:var(--gem-sys-shape--corner-full);
+ *                  white-space:nowrap; flex-shrink:0; font-size:11px;
+ *                  transition: background-color var(--duration-short2) var(--easing-standard) }
+ *   .status-pill.status-blocked { background: acc-color--accent-container;  color: acc-color--accent-fixed }
+ *   .status-pill.status-failed  { background: --error-container;            color: --on-error-container }
+ *
+ * 17px content + 2px padding each side is the 21px below, since everything in this
+ * feature is border-box. Blocked resolves to #192967 on #3186ff, failed to #3c0202
+ * on #ff4c45.
+ */
+.spark-status-pill {
+  display: inline-flex;
+  height: 21px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 12px;
+  border-radius: 9999px;
+  background: #192967;
+  color: #3186ff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 17px;
+  white-space: nowrap;
+  transition: background-color 100ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-status-pill--failed {
+  background: #3c0202;
+  color: #ff4c45;
+}
+
+/*
+ * The action menu panel. Gemini's is `.mat-mdc-menu-panel.lm-menu-theme`:
+ * min-width 240, max-width 280, #1f1f1f, 16px corners, level1 shadow
+ * (0 0 20px rgba(0,0,0,.28)), 8px padding, and Material's own `_mat-menu-enter`
+ * over 120ms on cubic-bezier(0,0,.2,1). `xposition="before"` anchors the panel's
+ * right edge to the trigger's right edge and drops it below — measured: panel
+ * right 1118 == trigger right 1118, panel top 322 == trigger bottom 322.
+ */
+.spark-goal-menu-panel {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: 280px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  overflow: auto;
+  transform-origin: 100% 0;
+  animation: spark-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes spark-menu-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.spark-goal-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e3e3e3;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-goal-menu-item:hover,
+.spark-goal-menu-item:focus-visible {
+  background: rgba(230, 230, 230, 0.08);
+  outline: none;
+}
+
+.spark-goal-menu-item > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-goal-card,
+  .spark-goal-time-ago,
+  .spark-goal-action-menu {
+    transition: none;
+  }
+
+  .spark-goal-menu-panel {
+    animation: none;
+  }
+}

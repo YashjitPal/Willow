@@ -45,19 +45,37 @@ const AllNotebooksPage = React.lazy(() =>
 const NotebookCreatePage = React.lazy(() =>
   import('@willow/notebooks/NotebookCreatePage').then((m) => ({ default: m.NotebookCreatePage })),
 );
-const NotebookPage = React.lazy(() =>
-  import('@willow/notebooks/NotebookPage').then((m) => ({ default: m.NotebookPage })),
-);
 /*
  * Willow's REAL composer, mounted on the notebook page.
  *
  * Gemini's notebook page mounts the same component its new-chat page does, so
  * this is deliberately the same `InputBar` rather than a notebook-specific copy —
  * model picker, dictation, attachments and submit all stay on one implementation.
+ *
+ * The import is hoisted into `loadComposer` so the notebook route can start it
+ * itself. Everywhere else this chunk arrives on the back of `ChatView`, which
+ * imports the composer directly; a cold load straight into `/notebook/<id>` never
+ * mounts ChatView and so has no such carrier.
  */
-const NotebookComposer = React.lazy(() =>
-  import('@willow/chat/composer/Composer').then((m) => ({ default: m.InputBar })),
-);
+const loadComposer = () => import('@willow/chat/composer/Composer');
+const NotebookComposer = React.lazy(() => loadComposer().then((m) => ({ default: m.InputBar })));
+/*
+ * Both chunks are requested together.
+ *
+ * `NotebookComposer` is referenced only from inside `NotebookPage`'s render, so
+ * left to itself the two downloads run in series: the page chunk lands, renders,
+ * and only then asks for the composer. That waterfall is why the composer used to
+ * appear a beat after the title and Past chats on a cold load. Starting it here
+ * overlaps the two requests instead.
+ *
+ * Deliberately not awaited — the page must still paint on its own chunk alone,
+ * rather than waiting on the larger composer bundle to arrive.
+ */
+const loadNotebookPage = () => import('@willow/notebooks/NotebookPage');
+const NotebookPage = React.lazy(() => {
+  void loadComposer();
+  return loadNotebookPage().then((m) => ({ default: m.NotebookPage }));
+});
 
 /**
  * Map a pathname to the notebook view it selects, if any.
@@ -254,6 +272,40 @@ const App: React.FC = () => {
     () => matchNotebookRoute(location.pathname)?.notebookId ?? null,
     [location.pathname],
   );
+  /*
+   * Swapping the rendered view is a TRANSITION, and that is what keeps the
+   * content pane from going dark on a navigation.
+   *
+   * Every sub-app is a lazily-loaded chunk, so the first visit to one suspends
+   * while its code downloads. As an urgent update that suspension commits
+   * immediately: the outgoing page is already gone, the incoming one does not
+   * exist yet, and the route's `Suspense` fallback — an empty div — is the only
+   * thing left to paint. Marking the swap non-urgent instead lets React prepare
+   * the new tree off-screen and hold the current one on screen until the new one
+   * can be painted whole.
+   *
+   * Measured off Gemini opening a notebook (`tools/ui-research/captures/
+   * notebooks/timeline.json`): its incoming page mounts 338ms after the click and
+   * the outgoing one is not torn down until 564ms. The two overlap by ~226ms and
+   * no frame in between is ever empty. This is that behaviour, said in React.
+   */
+  const [isViewPending, startViewTransition] = React.useTransition();
+  const commitView = React.useCallback((next: ViewType) => {
+    startViewTransition(() => setCurrentView(next));
+  }, []);
+  /*
+   * The notebook the URL pointed at, held for as long as a swap takes.
+   *
+   * `activeNotebookId` is derived from the pathname, so it clears the instant a
+   * navigation AWAY from a notebook begins — while `currentView` is still
+   * `'notebook'`, because that update is the one being held. Rendering off the
+   * live value alone would drop through to the projects branch for those frames,
+   * which is the same dark flash arriving through another door.
+   */
+  const [heldNotebookId, setHeldNotebookId] = useState<string | null>(activeNotebookId);
+  React.useEffect(() => {
+    if (activeNotebookId) setHeldNotebookId(activeNotebookId);
+  }, [activeNotebookId]);
   const [isTopLoading, setIsTopLoading] = useState(false);
   const topLoadingReasonsRef = React.useRef(new Set<string>());
   const topLoadingStartedAtRef = React.useRef(0);
@@ -637,9 +689,9 @@ const App: React.FC = () => {
     ) {
       navigate('/', { replace: true });
     }
-    setCurrentView(view);
+    commitView(view);
     return true;
-  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, location.pathname]);
+  }, [commitView, currentView, finishTopLoading, navigate, searchParams, startTopLoading, location.pathname]);
 
   /**
    * Open one notebook.
@@ -709,32 +761,32 @@ const App: React.FC = () => {
 
     if (location.pathname === '/search') {
       if (currentView !== 'search') {
-        setCurrentView('search');
+        commitView('search');
       }
     } else if (location.pathname === '/personalization-settings') {
       if (currentView !== 'personal-intelligence') {
-        setCurrentView('personal-intelligence');
+        commitView('personal-intelligence');
       }
     } else if (location.pathname === '/saved-info') {
       if (currentView !== 'saved-info') {
-        setCurrentView('saved-info');
+        commitView('saved-info');
       }
     } else if (location.pathname === '/memory') {
       if (currentView !== 'memory') {
-        setCurrentView('memory');
+        commitView('memory');
       }
     } else if (location.pathname === '/connected-apps') {
       if (currentView !== 'connected-apps') {
-        setCurrentView('connected-apps');
+        commitView('connected-apps');
       }
     } else if (location.pathname.startsWith('/gems')) {
       if (currentView !== 'gems') {
-        setCurrentView('gems');
+        commitView('gems');
       }
     } else if (matchNotebookRoute(location.pathname)) {
       const next = matchNotebookRoute(location.pathname)!.view;
       if (currentView !== next) {
-        setCurrentView(next);
+        commitView(next);
       }
     } else if (
       currentView === 'search' ||
@@ -747,9 +799,9 @@ const App: React.FC = () => {
       currentView === 'notebook-create' ||
       currentView === 'notebook'
     ) {
-      setCurrentView('home');
+      commitView('home');
     }
-  }, [location.pathname, currentView]);
+  }, [location.pathname, currentView, commitView]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
@@ -772,7 +824,7 @@ const App: React.FC = () => {
       if (user && searchParams.get('view') === 'agents') {
         if (!cancelled && sequence === viewChangeSequenceRef.current && currentView !== 'agents') {
           startTopLoading('studio-view');
-          setCurrentView('agents');
+          commitView('agents');
         }
         return;
       }
@@ -780,7 +832,7 @@ const App: React.FC = () => {
       if (!user) {
         if (!cancelled && sequence === viewChangeSequenceRef.current) {
           startTopLoading('studio-view');
-          setCurrentView('home');
+          commitView('home');
         }
         return;
       }
@@ -794,19 +846,73 @@ const App: React.FC = () => {
         }
         return;
       }
-      if (!cancelled && sequence === viewChangeSequenceRef.current) setCurrentView('home');
+      if (!cancelled && sequence === viewChangeSequenceRef.current) commitView('home');
     };
 
     void syncViewFromUrl();
     return () => {
       cancelled = true;
     };
-  }, [currentView, finishTopLoading, navigate, searchParams, startTopLoading, user]);
+  }, [commitView, currentView, finishTopLoading, navigate, searchParams, startTopLoading, user]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-view'));
     return () => window.cancelAnimationFrame(frame);
   }, [currentView, finishTopLoading]);
+
+  /*
+   * The only feedback while a swap is held.
+   *
+   * The bar used to be raised by the route's `Suspense` fallback mounting. That
+   * fallback no longer mounts, so a pending transition is now the one signal that
+   * the click was heard — and a navigation the user cannot see the app react to
+   * reads as a dead click, which is worse than the blank it replaced.
+   */
+  React.useEffect(() => {
+    if (!isViewPending) return;
+    startTopLoading('view-transition');
+    return () => finishTopLoading('view-transition');
+  }, [isViewPending, startTopLoading, finishTopLoading]);
+
+  /*
+   * Fetch the notebook route's chunk before anyone asks for it.
+   *
+   * Opening a notebook is the one common navigation that always paid for a
+   * download. The chat surface is the boot view, so returning to it re-uses a
+   * chunk that is already in memory and swaps instantly — but nothing loads the
+   * notebook page until the click itself, and the route has no content to show
+   * meanwhile, so the whole pane went dark for as long as the request took.
+   * Gemini has no such gap, and the sidebar offers notebooks from every screen.
+   *
+   * At idle, so it competes with nothing the user is waiting on, and with a
+   * timeout so a permanently busy tab still gets there. The cost is one small
+   * chunk for a profile that never opens a notebook; the composer it pulls in
+   * behind it is already resident on the chat surface.
+   */
+  React.useEffect(() => {
+    let cancelled = false;
+    const warm = () => {
+      if (cancelled) return;
+      void loadNotebookPage();
+      void loadComposer();
+    };
+
+    const idle = window.requestIdleCallback;
+    if (typeof idle === 'function') {
+      const handle = idle(warm, { timeout: 4000 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback?.(handle);
+      };
+    }
+    // Safari has no `requestIdleCallback`; a timer past first paint is close enough.
+    const timer = window.setTimeout(warm, 2000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Check if user needs onboarding
@@ -1170,10 +1276,10 @@ const App: React.FC = () => {
               onCancel={() => handleViewChange('notebooks')}
             />
           </Suspense>
-        ) : currentView === 'notebook' && activeNotebookId ? (
+        ) : currentView === 'notebook' && (activeNotebookId ?? heldNotebookId) ? (
           <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
             <NotebookPage
-              notebookId={activeNotebookId}
+              notebookId={(activeNotebookId ?? heldNotebookId)!}
               /*
                * A notebook whose id no longer resolves — deleted here or in
                * another tab — falls back to the grid rather than rendering an
@@ -1182,7 +1288,13 @@ const App: React.FC = () => {
               onMissing={() => handleViewChange('notebooks')}
               onOpenChat={() => { void handleViewChange('home'); }}
               renderComposer={(notebook) => (
-                <Suspense fallback={<div className="h-16 w-full" />}>
+                /*
+                 * The fallback carries the composer's own silhouette — 64px tall,
+                 * 32px radius, the same `#1e1f21` surface — so if the chunk is
+                 * still in flight the slot reads as the composer filling in
+                 * rather than an empty gap something pops into.
+                 */
+                <Suspense fallback={<div className="h-16 w-full rounded-[32px] bg-[#1e1f21]" />}>
                   <NotebookComposer
                     chatVariant
                     currentMode="chat"

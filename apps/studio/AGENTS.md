@@ -31,6 +31,37 @@ const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 Then add its route and a sidebar entry. Keep the import inside `React.lazy` — a
 top-level import defeats the code-splitting and inflates the initial bundle.
 
+## View swaps are transitions — do not make them urgent again
+
+`commitView` wraps every `setCurrentView` in `startTransition`, and that is load-
+bearing. Sub-apps are lazy chunks, so a first visit suspends while its code
+downloads; as an urgent update that suspension commits at once, the outgoing page
+is already unmounted, and the route's `Suspense` fallback (an empty div) is all
+there is to paint — the content pane goes dark for the length of the download.
+Held as a transition, React prepares the new tree off-screen and keeps the current
+page committed until the new one can paint whole.
+
+Measured off Gemini opening a notebook (`tools/ui-research/captures/notebooks/timeline.json`,
+and `scrapers/notebooks/` re-runs it): the incoming page mounts 338ms after the
+click, the outgoing one is torn down at 564ms, and the composer sits at 582,381
+660x64 in every one of the 388 frames in between. Gemini overlaps the two views
+rather than blanking, and is *slower* than Willow at fetching the page — you never
+see it, because you spend the wait looking at the page you came from.
+
+Three things follow, all of them already wired:
+
+- **The top bar is now the only proof a click was heard.** It used to be raised by
+  the route fallback mounting; that fallback no longer mounts, so an effect on
+  `isViewPending` raises `view-transition` instead. Remove it and navigation looks
+  like a dead click for the length of the download.
+- **`heldNotebookId` exists because the URL moves before the view does.**
+  `activeNotebookId` is derived from the pathname, so it clears the moment a
+  navigation away from a notebook starts, while `currentView` is still `'notebook'`
+  — and the render would fall through to the projects branch for those frames.
+- **Chunks are prefetched at idle** (`loadNotebookPage`, `loadComposer`), so the
+  held interval is short in the common case. The transition is what makes it
+  invisible; the prefetch is what makes it brief.
+
 ## Feature registration
 
 `platform/*` cannot import `features/*` (see the root `AGENTS.md`). When a

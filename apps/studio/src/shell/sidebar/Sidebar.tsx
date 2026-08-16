@@ -1436,14 +1436,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
                * tabs at all — hover recolours the inactive tab's text and nothing else.
                * Confirmed under forcePseudoState: the active tab's background stayed
                * rgba(0,0,0,0) and its colour never moved off rgb(227,227,227). */
-              className={`flex-1 flex h-full items-center justify-center gap-1 rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
+              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'spark'
                   ? 'text-[#e3e3e3]'
                   : 'text-white/55 hover:text-[#e3e3e3]'
               }`}
             >
-              <span>Spark</span>
-              <span className="willow-beta-badge text-[7px] font-medium leading-none text-[#e3e3e3] opacity-70">beta</span>
+              {/*
+               * Gemini's `.agent-tab-content`, measured: a THREE-COLUMN GRID,
+               * `1fr auto 1fr` with a 16px column gap, and the badge sitting in
+               * the third column at `justify-self: start`.
+               *
+               * The point of the empty first column is that "Spark" lands dead
+               * centre of the 136px tab — measured at x 194.8 in a tab spanning
+               * 144–280, whose centre is 212.05 against the label's 212.02 — and
+               * therefore does not shift when the badge is there. A centred flex
+               * row with a gap, which is what this was, centres the label AND the
+               * badge as one group, pushing "Spark" left of centre and out of
+               * line with "Chat" in the other tab.
+               *
+               * Computed columns at that width are 34.75px / 34.5px / 34.75px,
+               * which is `1fr auto 1fr` resolving against 136 − 2×16.
+               */}
+              <div className="grid h-full w-full grid-cols-[1fr_auto_1fr] items-center gap-x-4">
+                <span className="col-start-2">Spark</span>
+                {/*
+                 * `beta` in the markup, BETA on screen — Gemini uppercases it in
+                 * CSS. 7px/20px at weight 500 in Google Sans Code (loaded in
+                 * index.html), and it inherits the tab's colour rather than
+                 * carrying its own, so it dims with the tab instead of staying
+                 * bright at 70% opacity as it used to.
+                 */}
+                <span className="willow-beta-badge col-start-3 justify-self-start font-['Google_Sans_Code',monospace] text-[7px] font-medium uppercase leading-5">
+                  beta
+                </span>
+              </div>
             </button>
           </div>
 
@@ -1472,10 +1499,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               transition: `transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1), background-color 150ms ease`,
             }}
           >
+            {/*
+              * Google Symbols leads the stack here, deliberately. Willow's Luminous
+              * Symbols subset contains `toggle_off` but NOT `toggle_on`, so with
+              * Luminous first the ligature failed in exactly one state — the Spark
+              * one — and the literal string "toggle_on" painted, clipped by this
+              * 20px box to a glyph-like fragment. Probed advance at 20px:
+              * Luminous 180px (fail) vs Google Symbols 20px (formed); `toggle_off`
+              * forms in both. Keep both states on one font so they stay consistent.
+              */}
             <span
               className="luminous-symbols inline-flex h-5 w-5 items-center justify-center overflow-hidden text-[20px] leading-5 select-none"
               style={{
-                fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+                fontFamily: "'Google Symbols', 'Luminous Symbols', 'Material Symbols Rounded', sans-serif",
                 fontWeight: 320,
                 fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320',
               }}
@@ -1551,6 +1587,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <SidebarItem 
           symbol="gemini_chat" 
           label="New chat" 
+          shortcut="Ctrl+Shift+O"
           isCollapsed={isCollapsed} 
           active={currentView === 'home' && studioMode === 'chat' && !isChatOngoing}
           onClick={() => {
@@ -1568,6 +1605,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <SidebarItem 
             symbol="search" 
             label="Search chats"
+            shortcut="Ctrl+Shift+K"
             isCollapsed={isCollapsed} 
             active={currentView === 'search'}
             onClick={onSearchClick}

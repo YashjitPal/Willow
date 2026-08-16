@@ -1,0 +1,153 @@
+/*
+ * Gemini's task Rename / Delete dialogs, measured off the live
+ * `.mat-mdc-dialog-surface` (the `[role="dialog"]` node above it is a transparent
+ * Material container, so measuring that reports radius 0 and no background).
+ *
+ *   surface  #1f1f1f, 32px corners, 0 0 20px rgba(0,0,0,.28), padding 0,
+ *            min-width 280px, max-width 512px (rename) / 600px (delete)
+ *   title    padding 24px 24px 0 20px, 16px/24px weight 470
+ *   body     15px/20px weight 400, #e6e6e6, inset 24px
+ *   actions  padding 16px, flex-end
+ *   button   28.8px tall, pill, padding 0 12px, 14px weight 500,
+ *            enabled  bg #171717 / colour #e6e6e6
+ *            disabled bg rgba(230,230,230,.12) / colour rgba(230,230,230,.38)
+ *   backdrop rgba(0,0,0,.32), opacity over 400ms cubic-bezier(.25,.8,.25,1)
+ *
+ * Note that Delete is NOT a danger-coloured button in Gemini — it is the same
+ * neutral pill as Cancel.
+ */
+
+.spark-task-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.32);
+  animation: spark-task-dialog-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes spark-task-dialog-backdrop-in {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.spark-task-dialog {
+  box-sizing: border-box;
+  min-width: 280px;
+  padding: 0;
+  border: 0;
+  border-radius: 32px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  color: #e3e3e3;
+  font-family: inherit;
+}
+
+/* Measured surfaces: rename 409.6px wide (cap 512), delete 480px (cap 600). Both
+ * are content-driven in Gemini — the rename width comes from Material's 361.6px
+ * form field plus the 24px gutters — so they are pinned rather than left to the
+ * text, which would size differently under a different font. */
+.spark-task-dialog--rename {
+  width: 409.6px;
+  max-width: min(512px, 100%);
+}
+
+.spark-task-dialog--delete {
+  width: 480px;
+  max-width: min(600px, 100%);
+}
+
+.spark-task-dialog h2 {
+  margin: 0;
+  padding: 24px 24px 0 20px;
+  color: #e3e3e3;
+  font-size: 16px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.spark-task-dialog > p {
+  margin: 16px 24px 0;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-task-dialog > p > a {
+  color: #e6e6e6;
+  text-decoration: underline;
+}
+
+.spark-task-dialog input {
+  box-sizing: border-box;
+  width: calc(100% - 48px);
+  height: 44.8px;
+  margin: 16px 24px 0;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  outline: 0;
+  background: transparent;
+  color: #e6e6e6;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.spark-task-dialog input:focus {
+  border-color: #a8c7fa;
+}
+
+.spark-task-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px;
+}
+
+.spark-task-dialog__actions button {
+  height: 28.8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: #171717;
+  color: #e6e6e6;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.spark-task-dialog__actions button:hover:not(:disabled) {
+  background: #232323;
+}
+
+.spark-task-dialog__actions button:disabled {
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
+  cursor: default;
+}
+
+.spark-task-dialog__actions button:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-task-dialog-backdrop {
+    animation: none;
+  }
+}

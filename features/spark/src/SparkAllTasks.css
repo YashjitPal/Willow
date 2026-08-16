@@ -263,12 +263,19 @@
   flex: 0 0 auto;
 }
 
+/*
+ * Gemini's `.filter-trigger`: 32px tall, `padding-inline: 8px`, gap 4px, pill,
+ * #e6e6e6. It has no hover feedback — the authored sheet explicitly kills both
+ * Material ripple layers (`.mat-mdc-button-persistent-ripple:before { display:none }`
+ * and `.mat-ripple { display:none }`) and never sets a hover background, so the only
+ * affordance is the cursor. Do not reintroduce a hover wash here.
+ */
 .spark-all-tasks__filter-button {
   display: inline-flex;
   height: 32px;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 4px;
+  padding: 0 8px;
   border: 0;
   border-radius: 9999px;
   background: transparent;
@@ -278,11 +285,6 @@
   font-weight: 500;
   line-height: 20px;
   cursor: pointer;
-}
-
-.spark-all-tasks__filter-button:hover,
-.spark-all-tasks__filter-button[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .spark-all-tasks__filter-menu {
@@ -414,20 +416,23 @@
   padding: 12px 0 16px;
 }
 
+/* Surface matched to Gemini's `.goal-card`: a half-alpha `--lumi-sys-color--surface`
+ * at rest rising to `--lumi-sys-color--surface-bright` on hover, over 150ms. Willow
+ * had an opaque #1e1f20 and a 140ms curve. */
 .spark-all-tasks__task-row {
   position: relative;
   display: flex;
   width: 100%;
-  height: 64px;
+  min-height: 64px;
   align-items: center;
   gap: 0;
   padding: 0 8px 0 0;
   overflow: hidden;
   border-radius: 16px;
-  background: #1e1f20;
+  background: rgba(15, 15, 15, 0.5);
   color: inherit;
   cursor: pointer;
-  transition: background-color 140ms ease;
+  transition: background-color 150ms ease;
 }
 
 .spark-all-tasks__task-row.is-menu-open {
@@ -438,7 +443,7 @@
 
 .spark-all-tasks__task-row:hover,
 .spark-all-tasks__task-row:focus-within {
-  background: #1e1f20;
+  background: #1f1f1f;
 }
 
 .spark-all-tasks__task-row.is-menu-open:hover,
@@ -507,24 +512,37 @@
   white-space: nowrap;
 }
 
-.spark-all-tasks__task-time,
 .spark-all-tasks__pinned-icon {
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
   line-height: 16px;
 }
 
+/*
+ * Matched to Gemini's `.goal-time-ago`: gds-body-s (13px/17px), the card's own
+ * #e3e3e3 rather than the muted variant (its `--bard-color-lm-on-surface-variant`
+ * is undefined in this theme, so the declaration drops and the colour is
+ * inherited), revealing to a 200px cap with an 8px trailing gap over 200ms on
+ * `--gem-sys-motion--easing-emphasized`.
+ */
 .spark-all-tasks__task-time {
   max-width: 0;
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
-  transition: margin 140ms ease, max-width 140ms ease, opacity 100ms ease;
+  color: #e3e3e3;
+  font-size: 13px;
+  line-height: 17px;
+  white-space: nowrap;
+  transition:
+    max-width 200ms cubic-bezier(0.2, 0, 0, 1),
+    margin 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .spark-all-tasks__task-row:hover .spark-all-tasks__task-time,
 .spark-all-tasks__task-row:focus-within .spark-all-tasks__task-time {
-  max-width: 80px;
+  max-width: 200px;
   margin-left: 16px;
   opacity: 1;
   visibility: visible;
@@ -723,33 +741,60 @@
   color: #f2b8b5;
 }
 
+/*
+ * Gemini's `.no-tasks-container`, from `remy-task-list`'s authored sheet:
+ *
+ *   .no-tasks-container {
+ *     display:flex; flex-direction:column; justify-content:center; align-items:center;
+ *     background: linear-gradient(0deg,
+ *                   color(from var(--lumi-sys-color--on-surface) srgb r g b/.01) 0,
+ *                   color(from var(--lumi-sys-color--on-surface) srgb r g b/.01) 100%),
+ *                 var(--lumi-sys-color--surface);
+ *     border-radius: var(--gem-sys-shape--corner-extra-large);   / 28px /
+ *     border: 1px solid var(--lumi-sys-color--on-surface-low);   / rgba(255,255,255,.12) /
+ *     color: var(--lumi-sys-color--on-surface-variant);
+ *     padding-inline: var(--gem-sys-spacing--xxl);               / 24px /
+ *     text-align:center; margin-block-start: 52px;
+ *     padding-block: 8.5rem }                                    / 136px /
+ *   .no-tasks-title    { margin: 0 0 8px 0; color: on-surface-variant }
+ *   .no-tasks-subtitle { margin: 0;         color: on-surface-variant }
+ *
+ * Note there is no icon in Gemini's empty card, and the title is the same muted
+ * `on-surface-variant` as the subtitle rather than a brighter heading.
+ *
+ * The two font sizes below are Willow's own: Gemini's come from `gds-*` classes on
+ * those nodes, and the tasks empty state could not be observed live because the
+ * reference account has tasks. Everything else here is measured.
+ */
 .spark-all-tasks__empty {
   display: flex;
-  min-height: 184px;
+  box-sizing: border-box;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 16px;
-  color: #9aa0a6;
+  margin-block-start: 52px;
+  padding-block: 136px;
+  padding-inline: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  background:
+    linear-gradient(0deg, rgba(230, 230, 230, 0.01) 0, rgba(230, 230, 230, 0.01) 100%),
+    #0f0f0f;
+  color: rgba(255, 255, 255, 0.55);
   text-align: center;
 }
 
-.spark-all-tasks__empty > .luminous-symbols {
-  margin-bottom: 12px;
-  color: #c4c7c5;
-}
-
 .spark-all-tasks__empty h2 {
-  margin: 0;
-  color: #e3e3e3;
+  margin: 0 0 8px;
+  color: rgba(255, 255, 255, 0.55);
   font-size: 17px;
-  font-weight: 450;
+  font-weight: 400;
   line-height: 24px;
 }
 
 .spark-all-tasks__empty p {
   max-width: 360px;
-  margin: 6px 0 0;
+  margin: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 14px;
   line-height: 20px;

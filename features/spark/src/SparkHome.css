@@ -3,13 +3,23 @@
   box-sizing: border-box;
 }
 
+/*
+ * Gemini's `remy-new-task-page`:
+ *
+ *   :host { display:flex; flex-direction:column; align-items:center;
+ *           min-height:100%; width:100%; box-sizing:border-box;
+ *           padding-inline: var(--gem-sys-spacing--s); position:relative;
+ *           overflow:visible }
+ */
 .spark-home {
   position: relative;
+  display: flex;
   isolation: isolate;
   width: 100%;
-  height: auto;
   min-height: 100%;
-  padding: 40px 0 40px;
+  flex-direction: column;
+  align-items: center;
+  padding-inline: 8px;
   overflow-x: clip;
   overflow-y: visible;
   background: var(--studio-surface, #0f0f0f);
@@ -85,74 +95,172 @@
   letter-spacing: 0;
 }
 
+/*
+ * Gemini's `.new-task-container`. The vertical centring is not a calc() — it is
+ * `flex: 1` on this column plus `margin-block-start: auto` on the header and
+ * `margin-block-end: auto` on the last child, so the stack floats in whatever
+ * height is left over. Measured at a 826px viewport: header y=74.5 with a 34.5px
+ * auto margin above it.
+ *
+ *   .new-task-container { display:flex; flex-direction:column; gap:2rem;
+ *     width:100%; max-width:41.25rem; margin-inline:auto; box-sizing:border-box;
+ *     flex:1; padding-block-start:2.5rem; align-items:center }
+ *   .new-task-container > :last-child { margin-block-end:auto }
+ */
 .spark-content {
-  width: min(660px, calc(100% - 32px));
-  margin: 0 auto;
-  padding-top: calc(25.3px + max(0px, (100svh - 807px) / 2));
+  display: flex;
+  width: 100%;
+  max-width: 660px;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  margin-inline: auto;
+  padding-block-start: 40px;
+}
+
+.spark-content > :last-child {
+  margin-block-end: auto;
 }
 
 .spark-heading-block {
   position: relative;
   z-index: 2;
-  height: 48px;
-  padding-top: 8px;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  margin-block-start: auto;
   text-align: center;
 }
 
-.spark-heading-block h1,
-.spark-section-heading h2 {
+/* Gemini: `@media (max-height:800px) { .page-header { margin-block-start:0;
+ * padding-block-start:3.5rem } }` — below that height it stops centring. */
+@media (max-height: 800px) {
+  .spark-heading-block {
+    margin-block-start: 0;
+    padding-block-start: 56px;
+  }
+}
+
+.spark-section-heading h2,
+.spark-suggested-heading {
   margin: 0;
   letter-spacing: 0;
 }
 
+/*
+ * gds-emphasized-headline-l, plus Gemini's two-animation entrance:
+ *
+ *   .page-title { margin:.5rem .75rem .25rem .75rem; overflow:hidden;
+ *     animation: remy-slide-up  var(--duration-long4) var(--easing-emphasized) forwards,
+ *                remy-fade-in   var(--duration-long4) var(--easing-standard-accelerate) forwards }
+ *
+ * long4 = 600ms; emphasized = cubic-bezier(.2,0,0,1); standard-accelerate =
+ * cubic-bezier(.3,0,1,1). The two run over the same 600ms on *different* curves —
+ * the slide decelerates into place while the fade accelerates — and `overflow:hidden`
+ * is what makes the 100% translate read as a wipe rather than a drift.
+ */
 .spark-heading-block h1 {
+  margin: 8px 12px 4px;
+  overflow: hidden;
   color: #e3e3e3;
   font-size: 28px;
   font-weight: 350;
   line-height: 36px;
+  letter-spacing: 0;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;
+  animation:
+    spark-title-slide-up 600ms cubic-bezier(0.2, 0, 0, 1) forwards,
+    spark-title-fade-in 600ms cubic-bezier(0.3, 0, 1, 1) forwards;
 }
 
+@keyframes spark-title-slide-up {
+  0% {
+    transform: translateY(100%);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes spark-title-fade-in {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/*
+ * Gemini's `.input-glow-anchor`, and the composer inside it carries
+ * `margin-block: calc(var(--gem-sys-spacing--m) * -.5)` = -6px, which is why the
+ * anchor measures 53.6px around a 65.6px composer.
+ */
 .spark-composer-anchor {
   position: relative;
   z-index: 1;
-  min-height: 65.6px;
-  margin-top: 26px;
+  display: flex;
+  width: 100%;
+  justify-content: center;
   isolation: isolate;
 }
 
+/*
+ * The glow. `lm-background-grow` ends on `translate(-50%,-45%)` while the base
+ * transform is `translate(-50%,-50%)`, and the animation is `both`, so the
+ * settled position is the -45% one — the element does not spring back. Measured
+ * live: transform matrix(-396,-72) against a 160px-tall box, i.e. -45%.
+ *
+ * blur is 100px, not the 4rem the later authored rule asks for: the dark-theme
+ * rule `:where(.dark-theme) :host .input-glow-anchor:before` wins on specificity.
+ */
 @keyframes spark-home-glow-grow {
   0% {
     opacity: 0;
-    transform: translate(-50%, -72px) scale(0);
+    transform: translate(-50%, -45%) scale(0);
   }
+
   100% {
     opacity: 1;
-    transform: translate(-50%, -72px) scale(1);
+    transform: translate(-50%, -45%) scale(1);
   }
 }
 
 .spark-composer-anchor::before {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
+  z-index: -1;
   display: block;
-  width: 792px;
-  height: 160px;
+  width: 50rem;
+  max-width: 49.5rem;
+  height: 10rem;
   border-radius: 9999px;
   background: var(--spark-home-glow, rgb(6, 78, 59));
   content: "";
   filter: blur(100px);
   pointer-events: none;
-  transform: translate(-50%, -72px);
-  z-index: -1;
+  transform: translate(-50%, -45%);
   animation: spark-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
+/*
+ * `--lumi-sys-color--surface-bright` (#1f1f1f) is set on Gemini's `.remy-input-area`
+ * host, but `input-area-v2`'s own sheet overrides it — the painted surface measures
+ * rgb(30,31,32). Keep #1e1f20. Height likewise: `min-height: 4rem` with the real
+ * content resolving to 65.6px.
+ */
 .spark-composer {
   display: flex;
   width: 100%;
   min-height: 65.6px;
   align-items: center;
+  align-self: stretch;
+  margin-block: -6px;
   padding: 12px 16px;
   border-radius: 32px;
   background: #1e1f20 !important;
@@ -412,141 +520,57 @@
   line-height: 16px;
 }
 
+/*
+ * Two section headings, and they are genuinely different components in Gemini.
+ *
+ * Recent lives in `remy-task-list`: `.section-header { height: calc(spacing-l*2) }`
+ * = 32px, `padding-inline: 8px 16px`, with the label carrying its own
+ * `padding-inline: 8px`. Net: the word starts 16px in from the 660px column, which
+ * is exactly where the goal cards' 16px padding puts their titles.
+ *
+ * Suggested lives in `remy-task-discovery`: a bare 20px-tall label with
+ * `padding-inline: 8px`, followed by a 12px `.discovery-container` gap. The whole
+ * discovery block is itself inset by `padding-inline: 8px`, which again totals 16px.
+ */
 .spark-section-heading {
   display: flex;
   height: 32px;
   align-items: center;
-  padding-left: 8px;
+  padding-inline: 8px 16px;
 }
 
 .spark-section-heading h2 {
+  padding-inline: 8px;
+}
+
+.spark-section-heading h2,
+.spark-suggested-heading {
   color: #e6e6e6;
   font-size: 15px;
   font-weight: 540;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
 }
 
-.spark-recent-section {
-  margin-top: 26px;
-}
-
-.spark-recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.spark-task-row {
-  display: flex;
+.spark-recent-section,
+.spark-suggested-section {
+  align-self: stretch;
   width: 100%;
-  height: 64px;
-  align-items: center;
-  gap: 16px;
-  padding: 0 18px 0 16px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 16px;
-  background: #1e1f20;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 140ms ease;
 }
 
-.spark-task-row:hover,
-.spark-trending-row:hover {
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.spark-task-copy,
-.spark-trending-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-}
-
-.spark-task-title,
-.spark-trending-title {
-  overflow: hidden;
-  color: #e6e6e6;
-  font-size: 15px;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-task-title {
-  font-weight: 400;
-}
-
-.spark-trending-title {
-  font-weight: 540;
-}
-
-.spark-task-description,
-.spark-task-meta,
-.spark-trending-description {
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 17px;
-}
-
-.spark-task-description-line {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.spark-task-description,
-.spark-trending-description {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-task-description {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.spark-task-meta {
-  display: inline-flex;
-  max-width: 0;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  opacity: 0;
-  white-space: nowrap;
-  transition: max-width 140ms ease, opacity 140ms ease;
-}
-
-.spark-task-row:hover .spark-task-meta,
-.spark-task-row:focus-visible .spark-task-meta {
-  max-width: 96px;
-  opacity: 1;
-}
-
-.spark-task-status-pill {
-  display: inline-flex;
-  height: 21px;
-  flex: 0 0 auto;
-  align-items: center;
-  padding: 2px 12px;
-  border-radius: 9999px;
-  background: #192967;
-  color: #3186ff;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 17px;
-  white-space: nowrap;
-}
-
+/*
+ * "All tasks ›". Gemini builds it from a `gem-button` whose content box is
+ * `flex-direction: row-reverse` with `gap: 0`, which is why the chevron sits after
+ * the label despite coming first in the DOM. Geometry: a 48px-tall host
+ * (`padding-block: 8px`) around a 32px button padded `0 4px 0 16px`, `align-self:
+ * flex-start`, and a 24px chevron at wght 300.
+ *
+ * It has NO hover feedback. `.all-tasks-link:hover { color: on-surface }` exists but
+ * is dead — Material sets `color: #c4c7c5` on the button itself, so the label
+ * inherits #c4c7c5 at rest and hovered alike. Verified with forcePseudoState: the
+ * label's computed colour is identical in both states. There is no hover background
+ * either. Do not add one back.
+ */
 .spark-all-tasks-button {
   display: flex;
   width: max-content;
@@ -554,60 +578,118 @@
   align-items: center;
   justify-content: center;
   gap: 0;
-  margin: 8px 0 0;
+  margin: 8px 0;
   padding: 0 4px 0 16px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 9999px;
   background: transparent;
   color: #c4c7c5;
   font: inherit;
   font-size: 15px;
   font-weight: 400;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
 }
 
-.spark-all-tasks-button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e3e3e3;
-}
-
-.spark-trending-section {
-  margin-top: 40px;
-}
-
-.spark-trending-list {
+/*
+ * `remy-task-discovery`. The block is inset 8px and carries a 16px tail; the
+ * heading-to-list gap is `.discovery-container`'s 12px.
+ */
+.spark-suggested-section {
   display: flex;
-  margin: 0 8px;
+  flex-direction: column;
+  gap: 12px;
+  padding-inline: 8px;
+  padding-block-end: 16px;
+}
+
+.spark-suggested-heading {
+  padding-inline: 8px;
+}
+
+.spark-suggested-list {
+  display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 4px;
 }
 
-.spark-trending-row {
+/*
+ * `.suggestion-card`. `align-items: stretch` is what makes the 3px indicator span
+ * the text block's full height rather than a fixed value.
+ *
+ * The hover has no transition: `.suggestion-card` computes `transition: all` with a
+ * 0s duration, so the background and shadow SNAP. Only `.suggestion-indicator`
+ * eases, over 100ms. Frame-recorded: card background jumped straight from
+ * transparent to rgb(31,31,31) between two samples while the indicator stepped
+ * through rgb(41,102,213) and rgb(49,133,253) on its way to rgb(49,134,255).
+ * Adding a transition here would be wrong.
+ */
+.spark-suggested-row {
   display: flex;
   width: 100%;
-  height: 61px;
-  align-items: center;
+  box-sizing: border-box;
+  align-items: stretch;
   padding: 12px 8px;
-  overflow: hidden;
   border: 0;
   border-radius: 16px;
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
-  transition: background-color 140ms ease;
 }
 
-.spark-trending-indicator {
+.spark-suggested-row:hover {
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+}
+
+.spark-suggested-indicator {
   width: 3px;
-  height: 37px;
   flex: 0 0 3px;
-  margin-right: 12px;
+  margin-inline-end: 12px;
   border-radius: 9999px;
-  background: rgb(31, 59, 155);
+  background: #1f3b9b;
+  transition: background-color 100ms ease;
+}
+
+.spark-suggested-row:hover .spark-suggested-indicator {
+  background: #3186ff;
+}
+
+.spark-suggested-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* gds-emphasized-body-m, which the dark theme takes to weight 600. */
+.spark-suggested-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.spark-suggested-description {
+  display: -webkit-box;
+  min-height: 1lh;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .spark-release-button:focus-visible,
@@ -615,9 +697,8 @@
 .spark-composer-send-button:focus-visible,
 .spark-composer-stop-button:focus-visible,
 .spark-composer__context-chip > button:focus-visible,
-.spark-task-row:focus-visible,
 .spark-all-tasks-button:focus-visible,
-.spark-trending-row:focus-visible {
+.spark-suggested-row:focus-visible {
   outline: 2px solid #a8c7fa;
   outline-offset: 2px;
 }
@@ -648,13 +729,8 @@
   }
 
   .spark-content {
-    padding-top: 34px;
-  }
-
-  .spark-heading-block {
-    height: auto;
-    min-height: 72px;
-    padding: 8px 12px 4px;
+    gap: 24px;
+    padding-block-start: 34px;
   }
 
   .spark-heading-block h1 {
@@ -662,51 +738,12 @@
     line-height: 30px;
   }
 
-  .spark-composer-anchor {
-    height: auto;
-    min-height: 64px;
-    margin-top: 20px;
-  }
-
   .spark-composer {
     height: auto;
     min-height: 64px;
   }
 
-  .spark-recent-section {
-    margin-top: 24px;
-  }
-
-  .spark-task-row {
-    gap: 8px;
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-
-  .spark-task-meta {
-    gap: 3px;
-    font-size: 12px;
-  }
-
-  .spark-task-status-pill {
-    padding: 0 10px;
-  }
-
-  .spark-trending-section {
-    margin-top: 36px;
-  }
-
-  .spark-trending-row {
-    height: auto;
-    min-height: 61px;
-    align-items: flex-start;
-  }
-
-  .spark-trending-description {
-    display: -webkit-box;
-    overflow: hidden;
-    white-space: normal;
-    -webkit-box-orient: vertical;
+  .spark-suggested-description {
     -webkit-line-clamp: 2;
   }
 }
@@ -716,9 +753,12 @@
   .spark-composer-icon-button,
   .spark-composer-send-button,
   .spark-composer-stop-button,
-  .spark-task-row,
-  .spark-all-tasks-button,
-  .spark-trending-row {
+  .spark-suggested-indicator {
     transition: none;
+  }
+
+  .spark-heading-block h1,
+  .spark-composer-anchor::before {
+    animation: none;
   }
 }
