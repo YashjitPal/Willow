@@ -323,18 +323,124 @@ Per-source content is truncated (`MAX_CHARS_PER_SOURCE`). The whole set is
 prepended to every grounded turn, so an unbounded preamble would exhaust the
 context window and surface much later as an unrelated-looking API error.
 
+## Measure at a real viewport — this cost a rebuild
+
+Gemini renders **different components** at different widths. The Sources dialog was
+first built from a probe taken at a 1075x350 viewport, where Gemini serves
+`div.content.mobile-layout`: a back chevron and a "+" that opens the source types as
+a popup menu. That is the narrow layout. At 1536x826 it is a **permanent left rail**
+with an X close and no "+" anywhere.
+
+The window was genuinely maximized the whole time — a stale
+`Emulation.setDeviceMetricsOverride` from an earlier probe was shrinking
+`innerWidth`. Overrides outlive the connection that set them.
+
+**Before any measurement:** clear the override and *confirm* `innerWidth`, do not
+assume it. `%TEMP%\wfmt\clearemu.mjs` does both. Record the viewport next to every
+number you write down, or it cannot be checked later.
+
 ## Sources
 
-`NotebookSourcesDialog` has three tabs, which is what makes a notebook useful:
+`NotebookSourcesDialog`, measured at 1536x826:
 
-- **Upload** — read as text, restricted to text-ish types on purpose. A PDF or
-  .docx through `readAsText` yields binary garbage that then goes into every
-  grounded turn; refusing it is better, because it otherwise fails as visibly wrong
-  model output rather than as an error.
-- **Paste text** — the escape hatch for whatever upload rejects.
-- **Link** — stored as a titled reference, **not fetched**. The browser cannot read
-  most cross-origin pages, so pretending to ingest one would produce an
-  empty-but-apparently-ingested source.
+| Element | Measured |
+| --- | --- |
+| dialog | 887x548, radius 28, `rgb(30,31,32)` |
+| h2 "Sources" | [24,24] 20/24 w470 `rgb(227,227,227)` |
+| subtitle | [24,48] 17/24 w400 — **also `rgb(227,227,227)`**, not muted |
+| close (X) | [823,24] 40x40, i.e. 24px from the right edge |
+| rail | 4 items at x=24, y=96/160/224/288 → **64px pitch**, each **174x56**, radius 16, `rgb(23,23,23)** |
+| rail label | **13px/17px w400** — small, not a 16px menu row |
+| empty state | centred in the pane to the RIGHT of the rail |
+
+The four entries are **"Upload files" / "Add from Drive" / "Add websites" /
+"Copied text"** — the last is not "Add text". Icons are mixed families again:
+`add_2` Luminous, an inline four-colour Drive SVG, then `web` and `content_paste`
+from **Google Symbols**.
+
+Gemini's own rail is internally inconsistent (icon sizes 24/30/16/16, paddings
+`8px 12px` vs `0 16px`, gaps 8/4/12/12) because the first two rows are a different
+component from the last two. Icon size is reproduced per row; padding and gap are
+unified on the majority values — the one deliberate simplification.
+
+"Add websites" and "Copied text" open Gemini's secondary dialog: 600 wide, radius
+28, `rgb(28,28,28)`, 24px inset, a 20/24 w470 title beside a 24px icon, a 15/20
+subtitle, a 13/17 notes list, and an end-aligned accent button **disabled until
+there is input** (disabled fill `rgba(224,224,224,0.12)`).
+
+### Not replicated
+
+- **Add from Drive is inert.** Gemini opens Google's picker against a Drive-scoped
+  token. The row is present because its absence is more wrong than its being
+  disabled, and it says so on click rather than failing silently.
+- **Website text is not fetched** — a browser cannot read a cross-origin page, so
+  the URL is stored and passed as context, never faked as ingested text.
+- **Binaries are not parsed.** `readAsText` on a PDF yields noise that would poison
+  every grounded turn. Images under `MAX_INLINE_SOURCE_BYTES` keep a data URL (stored
+  but not yet sent to the model); everything else is recorded by name and type.
+
+## The composer never moves
+
+Gemini's composer is at **identical coordinates on the notebook page and the
+new-chat page** — `x 582, y 380.8, 660x64`, same `is-zero-state` class. That is why
+it appears not to reload or shift when you switch between them.
+
+Two things follow, and both were wrong at first:
+
+- **The composer is 660 wide and flush with the column; the title is inset 16px.**
+  Willow originally had it the other way round, so the composer rendered 628 wide in
+  a notebook and 660 on home and visibly resized on every open. `.nb-page-composer`
+  now breaks out of the column padding with `margin: 28px -16px 0`.
+- Verified after the fix: notebook textarea vs home textarea is **dx 0, dw 0** (1px
+  in y), against Gemini's exact 0.
+
+## Past chats
+
+Measured on a Gemini notebook with two chats:
+
+| Element | Measured |
+| --- | --- |
+| heading | `margin: 36px 0 16px`, 15/20 **w540**, `rgba(255,255,255,0.55)` |
+| row | `project-chat-row`, **48px** tall, stacked with **no gap** |
+| row title | 15/20 **w400**, `rgb(227,227,227)`, truncated |
+| date | 15/20 w400, `rgb(154,155,156)`, right-aligned |
+| glyphs at rest | **none** |
+| on hover | a `more_vert`, revealed with `visibility` (opacity stays 1 — no fade) |
+
+Three mistakes worth not repeating: a leading `chat_bubble` (no such icon exists in
+Gemini's row), treating the heading's `padding-left: 16px` as an indent to copy (the
+notebook title, the heading, and every row title are **flush on one x**; that padding
+only exists because Gemini's heading sits in a wider container), and shipping without
+the hover menu.
+
+### The skeleton is recorded, not invented
+
+Captured by remounting Gemini's chat-history component through an in-app navigation
+— a full reload kills the sampler before the skeleton paints:
+
+| Element | Measured |
+| --- | --- |
+| `.skeleton-loader-row` | 644x42 |
+| `.skeleton-loader-column.alt-1` | 283x18, radius **12** — the title bar |
+| `.skeleton-loader-column.alt-2` | 40x18, radius **9999** — the date pill |
+| fill | `rgba(196,199,197,0.08)` |
+| animation | `pulse` **1500ms linear infinite** |
+
+The keyframes are **asymmetric** — `0% {opacity:1} 33% {opacity:0.5} 100% {opacity:1}`.
+The midpoint is at 33%, not 50%, so it dims fast and recovers slowly; a symmetric
+pulse reads as a different rhythm.
+
+Rows come from joining `notebook.chatIds` (which owns the ORDER) against LocalFS's
+`localChats` (which owns the metadata). `NotebookPage` reads the context itself
+because `App` renders `LocalFSProvider` and therefore sits above it. The filter that
+drops unknown ids is **skipped when `localChats` is empty** — an unavailable chat
+index is not the same as "every chat was deleted".
+
+Unnamed chats still carry their temp id, and a raw `2026-08-16T08-40-23_b74vqr` is
+not a title; those render as **"Untitled"**, matching `Sidebar.tsx`.
+
+The row menu's "Remove from notebook" **unfiles only** — the chat stays in Recents,
+because a notebook is a grouping and unfiling must not delete data.
 
 ## Verified behaviour
 

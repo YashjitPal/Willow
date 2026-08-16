@@ -161,6 +161,24 @@ export const removeChatFromNotebook = (notebookId: string, chatId: string): void
 export const findNotebookForChat = (chatId: string): Notebook | undefined =>
   notebooksStore.get().find((notebook) => notebook.chatIds.includes(chatId));
 
+/**
+ * Refile a chat from one notebook into another, for the Move Chat dialog.
+ *
+ * The remove runs first so the chat is never briefly in both — `findNotebookForChat`
+ * assumes at most one owner, and a listener that ran between two independent writes
+ * would see it twice. Both calls persist, so the order also decides what an
+ * interrupted move leaves behind: unfiled (recoverable) rather than duplicated.
+ */
+export const moveChatBetweenNotebooks = (
+  fromNotebookId: string,
+  toNotebookId: string,
+  chatId: string,
+): void => {
+  if (fromNotebookId === toNotebookId) return;
+  removeChatFromNotebook(fromNotebookId, chatId);
+  addChatToNotebook(toNotebookId, chatId);
+};
+
 export const addNotebookSource = (
   notebookId: string,
   source: Omit<NotebookSource, 'id' | 'createdAt'>,

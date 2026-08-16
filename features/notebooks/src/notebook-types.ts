@@ -16,17 +16,44 @@
  */
 export type NotebookVertical = 'organize' | 'study';
 
+/**
+ * What a source is, which drives its row icon and how it is grounded.
+ *
+ * `kind` is about provenance, not format — a PDF and a PNG are both `file`, and
+ * `mimeType` distinguishes them. Grounding cares about `content` (inlined text)
+ * and `dataUrl` (bytes we can hand a multimodal model); a source may have neither,
+ * in which case only its name and type reach the model.
+ */
+export type NotebookSourceKind = 'file' | 'website' | 'text' | 'drive';
+
 export interface NotebookSource {
   id: string;
   /** Display name, e.g. a file name or page title. */
   title: string;
-  /** Where it came from — shown in the source list, not fetched from. */
-  kind: 'file' | 'link' | 'text' | 'drive';
-  /** Plain-text content, when the source is small enough to inline. */
+  kind: NotebookSourceKind;
+  /** Extracted plain text, when the source could be read as text. */
   content?: string;
+  /** For websites and Drive items. */
   url?: string;
+  mimeType?: string;
+  size?: number;
+  /**
+   * Small binary sources (images) inlined as a data URL. Size-capped at write time
+   * — localStorage is the backing store and a few megabytes of base64 would blow
+   * the quota for every notebook.
+   *
+   * NOTE: this is stored but **not yet sent to the model.** The grounding block
+   * only tells the model the image exists (and not to invent its contents). Wiring
+   * it through as a real attachment means extending the hand-off to carry
+   * `ComposerAttachment`s, which `handleSend` already accepts — that is the next
+   * step, not something this field currently achieves.
+   */
+  dataUrl?: string;
   createdAt: number;
 }
+
+/** Above this, a file's bytes are not inlined; only its name and type are kept. */
+export const MAX_INLINE_SOURCE_BYTES = 1_500_000;
 
 export interface Notebook {
   id: string;
@@ -43,6 +70,18 @@ export interface Notebook {
   sources: NotebookSource[];
   /** Pinned notebooks sort above the rest and show a filled pin. */
   pinned: boolean;
+  /**
+   * Notebook settings, from Gemini's `project-instructions-editor` (512x446).
+   *
+   * `useMemory` is its "Use notebook memory" switch — "Consider all chats in this
+   * notebook when responding". `instructions` is the free-text box beneath it, which
+   * Gemini folds into the system prompt for every turn in the notebook.
+   *
+   * Optional because notebooks created before this existed have neither, and a
+   * missing value must read as off/empty rather than break `parseNotebooks`.
+   */
+  useMemory?: boolean;
+  instructions?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -653,6 +653,7 @@ const App: React.FC = () => {
     navigate(`/notebook/${encodeURIComponent(notebookId)}`);
   }, [navigate]);
 
+
   /**
    * Send the first message of a notebook chat.
    *
@@ -1179,6 +1180,7 @@ const App: React.FC = () => {
                * empty page the user cannot leave.
                */
               onMissing={() => handleViewChange('notebooks')}
+              onOpenChat={() => { void handleViewChange('home'); }}
               renderComposer={(notebook) => (
                 <Suspense fallback={<div className="h-16 w-full" />}>
                   <NotebookComposer

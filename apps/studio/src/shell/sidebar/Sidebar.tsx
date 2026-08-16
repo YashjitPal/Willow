@@ -42,6 +42,7 @@ import type { StudioExperience } from '@willow/core/types';
 // the whole app to a black screen. '/index' forces the folder to resolve.
 import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
 import { NotebooksSection } from '@willow/notebooks/NotebooksSection';
+import { $chatDialogRequest, consumeChatDialogRequest } from '@willow/notebooks/chat-dialog-requests';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiDialog, GeminiDialogPill, GeminiOutlinedField } from '@willow/ui/GeminiDialog';
@@ -937,6 +938,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsDeleteClosing(false);
     triggerCloseMenu(); // Close the 3-dot menu when deleting
   };
+
+  /*
+   * Raise these same two dialogs on behalf of the notebook page.
+   *
+   * A notebook's chat-row menu has its own Rename and Delete, and they are the very
+   * dialogs above — measured identical in the menu recording (512x213 "Rename this
+   * chat", 600x193 "Delete chat?"). Rather than duplicate them there, the notebook
+   * page publishes a request and this consumes it, so there is still exactly one
+   * implementation of each. See `chat-dialog-requests.ts`.
+   */
+  const pendingChatDialog = useStore($chatDialogRequest);
+  useEffect(() => {
+    if (!pendingChatDialog || pendingChatDialog.consumed) return;
+    const handled = consumeChatDialogRequest();
+    if (!handled) return;
+    if (handled.kind === 'rename') openRenameDialog(handled.chatId);
+    else handleDeleteChat(handled.chatId);
+    // openRenameDialog/handleDeleteChat are stable setState wrappers, so the request
+    // itself is the only real dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChatDialog]);
 
   // Same 75ms measured hold as the Rename dialog — see triggerCloseRename.
   const triggerCloseDelete = () => {

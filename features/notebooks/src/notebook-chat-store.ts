@@ -63,12 +63,26 @@ export const buildGrounding = (sources: readonly NotebookSource[]): string => {
   if (sources.length === 0) return '';
   const blocks = sources.map((source, index) => {
     const head = `[${index + 1}] ${source.title}${source.url ? ` (${source.url})` : ''}`;
-    if (!source.content) return head;
-    const body =
-      source.content.length > MAX_CHARS_PER_SOURCE
-        ? `${source.content.slice(0, MAX_CHARS_PER_SOURCE)}\n…[truncated]`
-        : source.content;
-    return `${head}\n${body}`;
+    if (source.content) {
+      const body =
+        source.content.length > MAX_CHARS_PER_SOURCE
+          ? `${source.content.slice(0, MAX_CHARS_PER_SOURCE)}\n…[truncated]`
+          : source.content;
+      return `${head}\n${body}`;
+    }
+    /*
+     * No inlined text. Say *why* rather than listing a bare name: a model told
+     * only "[2] chart.png" will cheerfully invent its contents, whereas one told
+     * the contents are unavailable says so. Websites are the common case —
+     * the page is never downloaded, only referenced.
+     */
+    if (source.kind === 'website') {
+      return `${head}\n(link only — page text was not downloaded; use it as a reference, do not invent its contents)`;
+    }
+    if (source.mimeType?.startsWith('image/')) {
+      return `${head}\n(image attached to this notebook; describe it only if it was provided to you in this turn)`;
+    }
+    return `${head}\n(${source.mimeType || 'file'} — contents not extracted; do not invent them)`;
   });
   return [
     'You are chatting inside a notebook. Ground your answers in these sources and',
@@ -104,7 +118,34 @@ export const getActiveNotebookGrounding = (notebooks: readonly Notebook[]): stri
   if (!notebookId) return '';
   const notebook = notebooks.find((candidate) => candidate.id === notebookId);
   if (!notebook) return '';
-  return buildGrounding(notebook.sources);
+  return buildNotebookSystemPrompt(notebook);
+};
+
+/**
+ * The notebook's full contribution to a turn's system prompt: the user's own
+ * instructions from the settings sheet, then the source grounding.
+ *
+ * Instructions come FIRST and are labelled as the user's, because they are the thing
+ * most likely to be overridden by the grounding block's own imperatives ("ground your
+ * answers in these sources") if they trail it.
+ *
+ * Either half can be empty — a notebook with instructions but no sources is a normal
+ * state, and so is the reverse — so the two are joined rather than nested.
+ */
+export const buildNotebookSystemPrompt = (notebook: Notebook): string => {
+  const parts: string[] = [];
+  const instructions = (notebook.instructions ?? '').trim();
+  if (instructions) {
+    parts.push([
+      'The user has set these instructions for this notebook. Follow them for every',
+      'response here unless they conflict with a safety requirement.',
+      '',
+      instructions,
+    ].join('\n'));
+  }
+  const grounding = buildGrounding(notebook.sources);
+  if (grounding) parts.push(grounding);
+  return parts.join('\n\n');
 };
 
 /** Mark the pending handoff as taken, returning it if this call won the race. */
