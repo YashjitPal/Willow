@@ -307,7 +307,7 @@
   flex: none;
 }
 
-.activity-privacy-icon img {
+.activity-privacy-icon svg {
   display: block;
   width: 24px;
   height: 24px;
@@ -423,9 +423,14 @@
   margin: 0;
 }
 
+/*
+ * Fixed at the h2's own 28px so the 48px hit target overflows the bar instead of
+ * inflating it — that is why Gemini's header is 60px tall and not 80.
+ */
 .activity-group-action {
   display: flex;
   align-items: center;
+  height: 28px;
   margin-right: -13px;
 }
 
@@ -440,8 +445,11 @@
   border-top: 0;
 }
 
+/* flex-start, not the default stretch: the product line keeps its own 20px height while
+   the overflowing hit target sets the row head's. */
 .activity-row-head {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
@@ -467,8 +475,13 @@
   color: #bdc1c6;
 }
 
-/* Pulls the 48px hit target up and out so it optically centres on the 20px product line. */
+/*
+ * Pulls the 48px hit target up and out so it optically centres on the 20px product line.
+ * The 49px is Gemini's measured wrapper height (`.YxbmAc` is 48x49 — the extra pixel is
+ * its line box's descender), and it is what makes the row head resolve to 49 - 13 = 36.
+ */
 .activity-row-action {
+  height: 49px;
   margin: -13px -13px 0 0;
 }
 

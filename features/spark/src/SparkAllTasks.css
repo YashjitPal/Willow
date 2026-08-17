@@ -16,7 +16,9 @@
   height: 100%;
   min-height: 100%;
   flex-direction: column;
-  padding: 40px 0 48px;
+  /* `div.container.slide-up-fade-in` opens the route with `padding: 56px 0 0`, which puts
+   * the heading at y=56. Willow's 40px started the whole column 16px high. */
+  padding: 56px 0 48px;
   overflow: hidden;
   background: var(--studio-surface, #0f0f0f);
   color: #e3e3e3;
@@ -42,14 +44,22 @@
   margin: 0 auto;
 }
 
+/*
+ * The task list heads with display type, a step up from the home page: Gemini's
+ * `div.heading.gds-display-m` is 36px/44px weight 320 on
+ * `"ROND" 100, "slnt" 0, "wdth" 100, "wght" 320` with `padding: 0 0 8px` and no margin,
+ * measuring 52px tall. Willow was reusing the home page's 28px/36px weight-350
+ * `gds-emphasized-headline-l`, which read a full size smaller.
+ */
 .spark-all-tasks h1 {
-  height: 48px;
+  height: 52px;
   margin: 0;
-  padding: 8px 8px 4px;
+  padding: 0 0 8px;
   color: #e3e3e3;
-  font-size: 28px;
-  font-weight: 350;
-  line-height: 36px;
+  font-size: 36px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
+  font-weight: 320;
+  line-height: 44px;
   text-align: center;
 }
 
@@ -57,7 +67,7 @@
   position: relative;
   z-index: 1;
   min-height: 65.6px;
-  margin-top: 26px;
+  margin-top: 27px;
   isolation: isolate;
 }
 
@@ -76,16 +86,21 @@
   transform: translate(-50%, -72px);
 }
 
+/*
+ * `input-area-v2` is the pill: 580x65.6, inset 40px on each side of the 660px column, on
+ * the same level-1 elevation the menus and dialogs use. Willow ran it to the full 660 and
+ * gave it a tight drop shadow instead of the soft ambient one.
+ */
 .spark-all-tasks__composer {
   position: relative;
   display: flex;
-  width: 100%;
   min-height: 65.6px;
   align-items: center;
+  margin: 0 40px;
   padding: 12px 16px;
   border-radius: 32px;
   background: #1e1f20 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
 }
 
 .spark-all-tasks__icon-button,
@@ -263,13 +278,15 @@
  * the list simply grew to its content — the reason the scroll container and its fade
  * mask did nothing. `min-height: 0` is what lets it actually shrink.
  */
+/* Gemini's filter trigger sits at y=226, 25.4px below the composer. The 40px toolbar
+ * centres its 32px button, so the gap above it is 21px rather than 26. */
 .spark-all-tasks__library {
   position: relative;
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  margin-top: 26px;
+  margin-top: 21px;
 }
 
 .spark-all-tasks__toolbar {
@@ -292,21 +309,25 @@
  * and `.mat-ripple { display:none }`) and never sets a hover background, so the only
  * affordance is the cursor. Do not reintroduce a hover wash here.
  */
+/*
+ * Measured whole: the button is 113.1x32 with `padding: 0 16px`, its content row runs on
+ * an 8px gap, the label is `gds-title-m-emphasized` (15px/20px weight **540**, 49.1 wide)
+ * and the chevron is a 24px Luminous glyph — 16 + 49.1 + 8 + 24 + 16 = 113.1. Willow had
+ * the right size but weight 500, half the padding and half the gap, landing at 88.6.
+ */
 .spark-all-tasks__filter-button {
   display: inline-flex;
   height: 32px;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: 8px;
+  padding: 0 16px;
   border: 0;
   border-radius: 9999px;
   background: transparent;
   color: #e6e6e6;
   font-family: inherit;
-  /* Gemini's trigger element computes 16px but its label span is gds-body-m at 15px;
-   * Willow's text sits directly in the button, so 15px is the matching value. */
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 540;
   line-height: 20px;
   cursor: pointer;
 }
@@ -546,11 +567,13 @@
   flex-direction: column;
 }
 
+/* `gds-emphasized-body-m` at its real painted weight of 540 — see the note on
+ * `.spark-goal-description` in `SparkTaskCard.css`. */
 .spark-all-tasks__task-title {
   overflow: hidden;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 400;
+  font-weight: 540;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;

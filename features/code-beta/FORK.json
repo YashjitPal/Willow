@@ -1,0 +1,172 @@
+{
+  "$comment": "Records the point features/code-beta forked from features/code. Regenerate with `node tools/scripts/code-beta-fork-status.mjs --record` only when deliberately re-syncing.",
+  "forkedFrom": "features/code/src",
+  "commit": "e4c39a8c7a678dc123c6def6aa4e69044786ac28",
+  "recordedAt": "2026-08-17T02:30:40.203Z",
+  "files": [
+    {
+      "file": "CodeHome.tsx",
+      "sha256": "f1692d2c30eb8dc13e9440e39618ed185d4f71c740a41fe3ae46ea7d5d883eff"
+    },
+    {
+      "file": "CodeHomeSkeleton.tsx",
+      "sha256": "932ce0d7d8998b987c289bba50f0f4a49f0d3122ffc9f3cf5ee84354bd2b4fb3"
+    },
+    {
+      "file": "WorkbenchView.tsx",
+      "sha256": "f934a7e4ddcbf523ce2f377f2b9c38ce2baea75dce60a6b9a2547309fb85ad23"
+    },
+    {
+      "file": "local-companion.ts",
+      "sha256": "e04d56472db9dd380b38a5091b1a0476c1596a184e3c04a36a27c9fa394c60d2"
+    },
+    {
+      "file": "runtime/preview/babel-source-plugin.ts",
+      "sha256": "6d4e723e4a9f8ebb37fda812d3ab06600f619f897c3231217b83a1c0a63debe5"
+    },
+    {
+      "file": "runtime/preview/bundler.ts",
+      "sha256": "1754eefe81763dcd19ecc47d361fa8284c64422754e417024429b83e6b67820f"
+    },
+    {
+      "file": "runtime/preview/index.ts",
+      "sha256": "8a5494da0e2b744e5dece20accbb65f9606299212cc11605f9fec900fc3646df"
+    },
+    {
+      "file": "runtime/sandpack/index.ts",
+      "sha256": "d0bb27ab263bd9e95345851ea9b885e5a4aa4a0d9e1d32730256c8b37b8d429e"
+    },
+    {
+      "file": "runtime/sandpack/message-parser.ts",
+      "sha256": "27aac8d3bab0a40fc54338dce2508b4b04ca1e4032fa7197fa0460418859f48c"
+    },
+    {
+      "file": "runtime/sandpack/sandpack-store.ts",
+      "sha256": "6d0a88fb6c04cafc3911fb6c2bd21f898794327c7f586647464867693d7c820b"
+    },
+    {
+      "file": "runtime/sandpack/sandpack-types.ts",
+      "sha256": "2ac6cc8257cc0adb75c687abd9f9949462b6a6c43bdc2d5898f0ddb67a36adb9"
+    },
+    {
+      "file": "runtime/sandpack/system-prompt.ts",
+      "sha256": "83ab08af20706f902ab37d561cfefeb7f41c9c150fc17effdbaf606ed0925666"
+    },
+    {
+      "file": "use-auto-save.ts",
+      "sha256": "fe866fc5bff8c18b99444a232e9a456cc17d68a8015d90c612da7b52c5d3131b"
+    },
+    {
+      "file": "visual-editing/VisualEditToolbar.tsx",
+      "sha256": "1b6eb36bad82ff8d73ccbeef5decad535cde60bd8a685b922728a55422d1272d"
+    },
+    {
+      "file": "visual-editing/VisualEditingOverlay.tsx",
+      "sha256": "e2115e2c8e059b4e5514447bda3543337a92b5fc0e650acbad7c1a5f06f2f9dd"
+    },
+    {
+      "file": "visual-editing/VisualEditorSelectMenu.tsx",
+      "sha256": "bc988d140a6580cd5398054c42271d4c16a9723695aa88943dcc42e66d1d869d"
+    },
+    {
+      "file": "visual-editing/element-family.ts",
+      "sha256": "7765b171ff0afdd7a493710df7071c353271d3047b8d2543e666e1cc20cf2f2f"
+    },
+    {
+      "file": "visual-editing/element-geometry.ts",
+      "sha256": "629eaf24f9bbb940835584078a882265da36b5778b8f0b93d6df2b5ec3322b21"
+    },
+    {
+      "file": "visual-editing/engine/direct-style-service.ts",
+      "sha256": "10da78b84e795f5b622befc56693da0ddf7bdfee764ef324c7d2ef8e275de532"
+    },
+    {
+      "file": "visual-editing/engine/index.ts",
+      "sha256": "af2874e4eaf7f9b720109d1268f65756e58898d9b35a5b56f3f4eb1f5074b0b6"
+    },
+    {
+      "file": "visual-editing/engine/types.ts",
+      "sha256": "1c4ad4ca71a7076199e29339e614b20fd8e4cda2c9c88bc2c7ff5dabbc3b01c5"
+    },
+    {
+      "file": "visual-editing/engine/visual-edit-service.ts",
+      "sha256": "7042faaba6224e28bbf21e0ce2325fe47e66ba240ebab76288660eab08bff30e"
+    },
+    {
+      "file": "visual-editing/engine/visual-editor-store.ts",
+      "sha256": "68930e0ff4e566d63686e0b5770c01a87fd37bde4ffd2d32962d512a52e2ecdd"
+    },
+    {
+      "file": "visual-editing/prompt-box-position.ts",
+      "sha256": "11ff1ff0cee56b8219e9c4cd7bf4ff0c2ea79d5fb08394c351bdd6a28095d389"
+    },
+    {
+      "file": "visual-editing/view-code.ts",
+      "sha256": "cc662d5eec7e2095cf4421333e9a26a81fe6d64d4078e2e220c1f12ecebc6cf5"
+    },
+    {
+      "file": "workbench/CodePanel.tsx",
+      "sha256": "3cd5b8b328945e1da1ef855a10adbb20c736b71741932eaf6ae1376f07e7535f"
+    },
+    {
+      "file": "workbench/GlobalErrorToasts.tsx",
+      "sha256": "2f8230c33fd77143df120ca58830b2bd5136dfa81d2703dbcec841a5df007494"
+    },
+    {
+      "file": "workbench/TestingIndicator.tsx",
+      "sha256": "8799aca71ae4f699843afcc55ed3a7184c3ba391639e40a5cea8a3122ae8874b"
+    },
+    {
+      "file": "workbench/UnsavedChangesBar.tsx",
+      "sha256": "0d11607489e3df325fe16d2d84d3abaf1702ff4d9f9af5456b5be2590ddcf8f4"
+    },
+    {
+      "file": "workbench/UnsavedChangesModal.tsx",
+      "sha256": "9eb4d35599a663af8b672b697af2fe6825660981a5a3ebe80958985efcf91efd"
+    },
+    {
+      "file": "workbench/WorkbenchPreview.tsx",
+      "sha256": "ec3964cff0285dfdaa4bb1539efe98501f9c8ac8b7b5d3117b1132daad63f9d4"
+    },
+    {
+      "file": "workbench/WorkbenchSidebar.tsx",
+      "sha256": "5ba15b6cbc4210092cedeb2bb08eca8b287db5a48bce9c2cf745c1d20b03b917"
+    },
+    {
+      "file": "workbench/WorkbenchTopBar.tsx",
+      "sha256": "6b4ca706002503745846f3186e27e48d7cc3255da084b422751fb14e47d64356"
+    },
+    {
+      "file": "workbench/attachment-files.ts",
+      "sha256": "69fc063fd57ee8897d9c8c8a52e70705fbeeeaa2722c0419c7b6fe14f1f48ed4"
+    },
+    {
+      "file": "workbench/collapsible-indicators.tsx",
+      "sha256": "149bf434df9533e352b9dd3a948d377bddc7c94d20ee6b1e298d1014beddde4e"
+    },
+    {
+      "file": "workbench/design-generation.ts",
+      "sha256": "2608bd01b296ed98ac55047ce1d1618ffd6dd34583c5be179d6d646a83ece8ae"
+    },
+    {
+      "file": "workbench/message-text.ts",
+      "sha256": "40c72e5e076f2e2c7a58f3056d86f2c5ee41aac2b33e25900c46ae9a3bc5b262"
+    },
+    {
+      "file": "workbench/model-labels.ts",
+      "sha256": "338c6d3e80b69c0b7b00f3bedc5a7c71dafa369f2122ba35fb73e40462b8a29c"
+    },
+    {
+      "file": "workbench/sidebar-icons.tsx",
+      "sha256": "ad1f996774715017d2ec3abeef9f05c8d1dfff921e7fe203e9dd9990dff00dcb"
+    },
+    {
+      "file": "workbench/sidebar-prompts.ts",
+      "sha256": "ac3c29f316644858a32a99e6bb34a2cfcbf481b149d848cfd393c2fa9f978655"
+    },
+    {
+      "file": "workbench/visual-edit-menu.tsx",
+      "sha256": "7ecfdc5efb6bc669b012981a6910bd3356d543ef303399bae3d83be354c035bc"
+    }
+  ]
+}

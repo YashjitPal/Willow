@@ -125,6 +125,9 @@ const PersonalIntelligenceTab = React.lazy(() =>
   import('../settings/tabs/personal-intelligence/PersonalIntelligenceTab').then((m) => ({ default: m.PersonalIntelligenceTab }))
 );
 const ActivityTab = React.lazy(() => import('../settings/tabs/activity/ActivityTab').then((m) => ({ default: m.ActivityTab })));
+const ImportMemoryTab = React.lazy(() => import('../settings/tabs/import-memory/ImportMemoryTab').then((m) => ({ default: m.ImportMemoryTab })));
+const SparkSettingsTab = React.lazy(() => import('../settings/tabs/spark-settings/SparkSettingsTab').then((m) => ({ default: m.SparkSettingsTab })));
+const UsageLimitsTab = React.lazy(() => import('../settings/tabs/usage-limits/UsageLimitsTab').then((m) => ({ default: m.UsageLimitsTab })));
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
 const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
 const ConnectedAppsTab = React.lazy(() =>
@@ -144,6 +147,16 @@ const CodeWorkspace = React.lazy(() =>
 );
 const AgentBuilderContent = React.lazy(() =>
   import('@willow/agent-builder/AgentsWorkspace').then((module) => ({ default: module.AgentsWorkspace }))
+);
+// Labs: the Code Beta surface. A fork of the Code tab above, running the
+// vendored Codex harness. Lazy like every other sub-app, which also means its
+// chunk — workbench, harness, vendored prompt — never ships to anyone who has
+// not enabled the experiment.
+const CodeBetaWorkspace = React.lazy(() =>
+  import('@willow/code-beta/CodeHome').then(async (m) => {
+    await m.preloadIdleImages();
+    return { default: m.CodeWorkspace };
+  })
 );
 
 const StudioLoadingFallback: React.FC<{
@@ -255,6 +268,9 @@ const App: React.FC = () => {
     if (location.pathname === '/search') return 'search';
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
     if (location.pathname === '/activity') return 'activity';
+    if (location.pathname === '/import') return 'import-memory';
+    if (location.pathname === '/spark-settings') return 'spark-settings';
+    if (location.pathname === '/usage') return 'usage-limits';
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
@@ -690,6 +706,9 @@ const App: React.FC = () => {
     else if (view === 'search') navigate('/search');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'activity') navigate('/activity');
+    else if (view === 'import-memory') navigate('/import');
+    else if (view === 'spark-settings') navigate('/spark-settings');
+    else if (view === 'usage-limits') navigate('/usage');
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
@@ -705,6 +724,10 @@ const App: React.FC = () => {
       searchParams.get('view') === 'agents' ||
       location.pathname === '/search' ||
       location.pathname === '/personalization-settings' ||
+      location.pathname === '/activity' ||
+      location.pathname === '/import' ||
+      location.pathname === '/spark-settings' ||
+      location.pathname === '/usage' ||
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
       location.pathname === '/connected-apps' ||
@@ -773,6 +796,9 @@ const App: React.FC = () => {
         (intent === 'search' && location.pathname === '/search') ||
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
         (intent === 'activity' && location.pathname === '/activity') ||
+        (intent === 'import-memory' && location.pathname === '/import') ||
+        (intent === 'spark-settings' && location.pathname === '/spark-settings') ||
+        (intent === 'usage-limits' && location.pathname === '/usage') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
         (intent === 'memory' && location.pathname === '/memory') ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
@@ -795,6 +821,18 @@ const App: React.FC = () => {
     } else if (location.pathname === '/activity') {
       if (currentView !== 'activity') {
         commitView('activity');
+      }
+    } else if (location.pathname === '/import') {
+      if (currentView !== 'import-memory') {
+        commitView('import-memory');
+      }
+    } else if (location.pathname === '/spark-settings') {
+      if (currentView !== 'spark-settings') {
+        commitView('spark-settings');
+      }
+    } else if (location.pathname === '/usage') {
+      if (currentView !== 'usage-limits') {
+        commitView('usage-limits');
       }
     } else if (location.pathname === '/saved-info') {
       if (currentView !== 'saved-info') {
@@ -821,6 +859,9 @@ const App: React.FC = () => {
       currentView === 'search' ||
       currentView === 'personal-intelligence' ||
       currentView === 'activity' ||
+      currentView === 'import-memory' ||
+      currentView === 'spark-settings' ||
+      currentView === 'usage-limits' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
@@ -1139,6 +1180,12 @@ const App: React.FC = () => {
             handleViewChange('personal-intelligence');
           } else if (tabId === 'activity') {
             handleViewChange('activity');
+          } else if (tabId === 'memory') {
+            handleViewChange('import-memory');
+          } else if (tabId === 'spark-settings') {
+            handleViewChange('spark-settings');
+          } else if (tabId === 'limits') {
+            handleViewChange('usage-limits');
           } else if (tabId === 'gems') {
             handleViewChange('gems');
           } else {
@@ -1289,6 +1336,29 @@ const App: React.FC = () => {
               />
             </Suspense>
           )
+        ) : currentView === 'code-beta' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="code-beta-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <CodeWorkspaceSkeleton />
+            </StudioLoadingFallback>
+          }>
+            <CodeBetaWorkspace
+              key={`code-beta-${chatResetKey}`}
+              chatResetKey={chatResetKey}
+              modelConfig={modelConfig}
+              setModelConfig={setModelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              isAuthenticated={!!user}
+              onAuthRequired={!user ? () => navigate('/login') : undefined}
+              onSettingsClick={(tab) => {
+                if (tab) setSettingsInitialTab(tab as any);
+                setIsSettingsOpen(true);
+              }}
+              isSidebarCollapsed={isSidebarCollapsed}
+              onWorkspaceActive={setIsSidebarHidden}
+            />
+          </Suspense>
         ) : currentView === 'personal-intelligence' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -1304,6 +1374,30 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <ActivityTab />
+          </Suspense>
+        ) : currentView === 'import-memory' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <ImportMemoryTab />
+          </Suspense>
+        ) : currentView === 'spark-settings' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <SparkSettingsTab />
+          </Suspense>
+        ) : currentView === 'usage-limits' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <UsageLimitsTab />
           </Suspense>
         ) : currentView === 'saved-info' ? (
           <Suspense fallback={
@@ -1404,6 +1498,10 @@ const App: React.FC = () => {
            <Route path="/" element={mainAppShell} />
            <Route path="/search" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
+           <Route path="/activity" element={mainAppShell} />
+           <Route path="/import" element={mainAppShell} />
+           <Route path="/spark-settings" element={mainAppShell} />
+           <Route path="/usage" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/memory" element={mainAppShell} />
            <Route path="/connected-apps" element={mainAppShell} />

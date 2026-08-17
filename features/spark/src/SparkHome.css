@@ -71,12 +71,14 @@
   white-space: nowrap;
 }
 
+/* `div.whats-new-dot`: 4px, fully rounded, rgb(49, 134, 255) — a more saturated blue than
+ * the #8ab4f8 Willow was using. */
 .spark-release-dot {
   width: 4px;
   height: 4px;
   flex: 0 0 4px;
-  border-radius: 50%;
-  background: #8ab4f8;
+  border-radius: 9999px;
+  background: #3186ff;
 }
 
 .spark-beta-label {
@@ -161,11 +163,15 @@
  * the slide decelerates into place while the fade accelerates — and `overflow:hidden`
  * is what makes the 100% translate read as a wipe rather than a drift.
  */
+/* `gds-emphasized-headline-l` opts out of the 92% width the rest of Spark uses and turns
+ * the roundness axis up: `"ROND" 20, "slnt" 0, "wdth" 100, "wght" 350`. Setting the axes
+ * directly also pins the weight, which is why 350 is repeated here. */
 .spark-heading-block h1 {
   margin: 8px 12px 4px;
   overflow: hidden;
   color: #e3e3e3;
   font-size: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;
   font-weight: 350;
   line-height: 36px;
   letter-spacing: 0;

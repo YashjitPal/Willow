@@ -263,6 +263,18 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   return (
     <div className={`spark-home ${className}`.trim()} aria-labelledby={pageHeadingId}>
       <div className="spark-top-controls" aria-label="Spark release information">
+        {/* `button.whats-new-badge` sits left of the Beta label in Gemini's `remy-badges`
+          * row: the label, then a 4px dot. */}
+        {onOpenWhatsNew && (
+          <button
+            type="button"
+            className="spark-release-button spark-whats-new"
+            onClick={onOpenWhatsNew}
+          >
+            <span>What&rsquo;s new</span>
+            <span className="spark-release-dot" aria-hidden="true" />
+          </button>
+        )}
         <span className="spark-beta-label">Beta</span>
       </div>
 

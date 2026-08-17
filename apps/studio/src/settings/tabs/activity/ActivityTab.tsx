@@ -70,13 +70,21 @@ const CheckboxTick: React.FC = () => (
   </svg>
 );
 
-/** Willow's product mark, standing in for Gemini's `producticons/gemini.png`. */
+const SPARK_PATH =
+  'M12 1.5c.34 3.2 1.3 5.5 2.9 7.1 1.6 1.6 3.9 2.56 7.1 2.9-3.2.34-5.5 1.3-7.1 2.9-1.6 1.6-2.56 3.9-2.9 7.1-.34-3.2-1.3-5.5-2.9-7.1-1.6-1.6-3.9-2.56-7.1-2.9 3.2-.34 5.5-1.3 7.1-2.9 1.6-1.6 2.56-3.9 2.9-7.1z';
+
+/** 18px row mark, standing in for Gemini's `producticons/gemini.png`. */
 const ProductIcon: React.FC = () => (
   <svg className="activity-row-product-icon" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      d="M12 1.5c.34 3.2 1.3 5.5 2.9 7.1 1.6 1.6 3.9 2.56 7.1 2.9-3.2.34-5.5 1.3-7.1 2.9-1.6 1.6-2.56 3.9-2.9 7.1-.34-3.2-1.3-5.5-2.9-7.1-1.6-1.6-3.9-2.56-7.1-2.9 3.2-.34 5.5-1.3 7.1-2.9 1.6-1.6 2.56-3.9 2.9-7.1z"
-      fill="#8ab4f8"
-    />
+    <path d={SPARK_PATH} fill="#8ab4f8" />
+  </svg>
+);
+
+/** 24px banner mark, standing in for Gemini's `safer_with_google_dark_24px` image. */
+const PrivacyIcon: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="#8ab4f8" opacity="0.24" />
+    <path d={SPARK_PATH} fill="#8ab4f8" transform="translate(12 12) scale(0.5) translate(-12 -12)" />
   </svg>
 );
 
@@ -339,7 +347,7 @@ export const ActivityTab: React.FC = () => {
 
         <div className="activity-privacy">
           <div className="activity-privacy-icon">
-            <ProductIcon />
+            <PrivacyIcon />
           </div>
           <div className="activity-privacy-text">
             <div>Willow protects your privacy and security.</div>

@@ -1,0 +1,293 @@
+/*
+ * Settings > Usage limits.
+ *
+ * Transcribed from Gemini's `/usage` route. Geometry from `getBoundingClientRect`;
+ * declarations from the page's own Angular component stylesheet, extracted from the
+ * captured HTML by `09-component-css.cjs`.
+ *
+ * Captures:
+ *   tools/ui-research/captures/settings/usage-limits/
+ *     structure.txt                    every wrapper and its gap
+ *     component-ng-c1572674170.css     the component's authored rules
+ *     measure.json                     geometry + computed styles
+ *     type.json                        variable-font axes per text element
+ *
+ * Gemini ships two themes for this page — `-luminous` and `-non-luminous` — and the
+ * account it was captured from renders the luminous one. Those are the values used here:
+ * the page sits on #0f0f0f (from `body`, since every wrapper is transparent), the cards are
+ * lumi surface-dim, secondary text is `rgba(255,255,255,.55)`, and the link is the Spark
+ * accent #3186ff rather than the usual #a8c7fa. The non-luminous variant, whose progress
+ * bar is a three-stop brand gradient, is deliberately not reproduced.
+ */
+
+.usage-limits {
+  --ul-surface: #0f0f0f;
+  --ul-surface-dim: #171717;
+  --ul-on-surface: #e3e3e3;
+  --ul-on-surface-strong: #e6e6e6;
+  --ul-on-surface-variant: rgba(255, 255, 255, 0.55);
+  --ul-accent-fixed: #3186ff;
+  /* The progress track reads `--bard-color-lightbox-background`, which resolves to black. */
+  --ul-track: #000;
+
+  --ul-spacing-xs: 4px;
+  --ul-spacing-s: 8px;
+  --ul-spacing-m: 12px;
+  --ul-spacing-l: 16px;
+  --ul-spacing-xxl: 24px;
+  --ul-corner-extra-small: 4px;
+  --ul-corner-small: 8px;
+  --ul-corner-large: 16px;
+  --ul-corner-full: 9999px;
+
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--ul-surface);
+  color: var(--ul-on-surface);
+}
+
+/*
+ * content-box: Gemini declares no box-sizing, so `max-width: 50rem` caps the content box
+ * and the 12px inline padding sits outside it — the container measures 824 and the cards
+ * inside it 800.
+ */
+.usage-limits__container {
+  box-sizing: content-box;
+  max-width: 50rem;
+  margin: 0 auto;
+  padding: var(--ul-spacing-l) var(--ul-spacing-m);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ul-spacing-xxl);
+}
+
+.usage-limits__container p {
+  margin: 0;
+}
+
+/* ---- type scale ------------------------------------------------------------------- */
+
+/*
+ * Variable-font axes read off each element's computed `font-variation-settings`. The
+ * "emphasized" body scales run at `"wght" 540` — that is a distinct axis value, not a
+ * bold synthesised from 400 — and everything but the heading is at `"wdth" 92`.
+ */
+.usage-limits__title,
+.usage-limits__pill,
+.usage-limits__description,
+.usage-limits__emphasized-l,
+.usage-limits__emphasized-m,
+.usage-limits__emphasized-s {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  letter-spacing: normal;
+}
+
+/* The 0.83em block margin is the UA default for h2 at 28px (23.24px), which Gemini keeps. */
+.usage-limits__title {
+  margin: 0.83em 0;
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 350;
+  font-variation-settings: 'ROND' 20, 'slnt' 0, 'wdth' 100, 'wght' 350;
+  color: var(--ul-on-surface);
+}
+
+.usage-limits__emphasized-l {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 540;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 540;
+  color: var(--ul-on-surface);
+}
+
+.usage-limits__emphasized-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 540;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 540;
+  color: var(--ul-on-surface);
+}
+
+.usage-limits__emphasized-s {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 540;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 540;
+  color: var(--ul-on-surface);
+}
+
+/* ---- header ---------------------------------------------------------------------- */
+
+.usage-limits__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ul-spacing-s);
+  padding: var(--ul-spacing-s) var(--ul-spacing-l);
+}
+
+.usage-limits__header-title {
+  display: flex;
+  gap: var(--ul-spacing-m);
+  align-items: center;
+}
+
+/* min-content on both axes, so the pill hugs "PRO" instead of filling the flex row. */
+.usage-limits__pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min-content;
+  height: min-content;
+  padding: var(--ul-spacing-xs) var(--ul-spacing-s);
+  border-radius: var(--ul-corner-small);
+  background-color: var(--ul-surface-dim);
+  color: var(--ul-on-surface-variant);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 370;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 370;
+}
+
+.usage-limits__description {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ul-spacing-l);
+  color: var(--ul-on-surface-variant);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+}
+
+/* No underline at rest — this one is a plain coloured link. */
+.usage-limits__link {
+  color: var(--ul-accent-fixed);
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.usage-limits__link:hover {
+  text-decoration: underline;
+}
+
+/* ---- the grouped usage cards ------------------------------------------------------ */
+
+/*
+ * Two cards, not one with a divider: they sit 4px apart and each rounds only its outer
+ * corners (16px outside, 4px facing the seam), which is what makes them read as a group.
+ */
+.usage-limits__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ul-spacing-xs);
+}
+
+.usage-limits__current {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: var(--ul-spacing-l);
+  border-radius: var(--ul-corner-large) var(--ul-corner-large) var(--ul-corner-extra-small)
+    var(--ul-corner-extra-small);
+  background-color: var(--ul-surface-dim);
+}
+
+.usage-limits__weekly {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+  padding: var(--ul-spacing-l);
+  border-radius: var(--ul-corner-extra-small) var(--ul-corner-extra-small)
+    var(--ul-corner-large) var(--ul-corner-large);
+  background-color: var(--ul-surface-dim);
+}
+
+.usage-limits__item-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.usage-limits__current-usage {
+  display: flex;
+  align-items: center;
+  gap: var(--ul-spacing-xs);
+}
+
+.usage-limits__info-button {
+  display: inline-block;
+  width: min-content;
+  height: min-content;
+  border: none;
+  border-radius: var(--ul-corner-full);
+  background-color: transparent;
+  color: var(--ul-on-surface-variant);
+  padding: 0;
+  cursor: pointer;
+}
+
+.usage-limits__info-button:hover {
+  background-color: var(--ul-track);
+}
+
+/* ---- progress --------------------------------------------------------------------- */
+
+.usage-limits__track {
+  width: 100%;
+  height: var(--ul-spacing-m);
+  overflow: hidden;
+  border-radius: var(--ul-corner-full);
+  margin-top: var(--ul-spacing-s);
+  margin-bottom: var(--ul-spacing-s);
+  background-color: var(--ul-track);
+}
+
+.usage-limits__indicator {
+  height: var(--ul-spacing-m);
+  overflow: hidden;
+  border-radius: var(--ul-corner-full);
+  background-color: var(--ul-on-surface-strong);
+}
+
+.usage-limits__reset-time {
+  color: var(--ul-on-surface-variant);
+}
+
+/* ---- scrollbars ------------------------------------------------------------------- */
+
+/* Gemini's: 12px wide, thumb transparent at rest and painted only while hovered. */
+.usage-limits::-webkit-scrollbar,
+.usage-limits::-webkit-scrollbar-corner {
+  background: transparent;
+  height: 12px;
+  width: 12px;
+}
+
+.usage-limits::-webkit-scrollbar-thumb {
+  background: content-box transparent;
+  border: 2px solid transparent;
+  border-radius: var(--ul-corner-full);
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.usage-limits:hover::-webkit-scrollbar-thumb {
+  background: content-box #333537;
+}
+
+.usage-limits::-webkit-scrollbar-thumb:hover,
+.usage-limits::-webkit-scrollbar-thumb:active {
+  background: content-box #444746;
+}
+
+.usage-limits::-webkit-scrollbar-button {
+  height: 0;
+  width: 0;
+}

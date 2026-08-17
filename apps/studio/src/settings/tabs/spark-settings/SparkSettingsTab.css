@@ -1,0 +1,251 @@
+/*
+ * Settings > Willow Spark settings.
+ *
+ * Transcribed from Gemini's `/gemini-spark` route. Geometry from `getBoundingClientRect`;
+ * declarations from the page's own Angular component stylesheet, extracted out of the
+ * captured HTML by `09-component-css.cjs` — CDP's matched-styles call returns these rules
+ * unattributed, so the inline <style> is the only place they can be read in full.
+ *
+ * Captures:
+ *   tools/ui-research/captures/settings/spark-settings/
+ *     structure.txt                    every wrapper and its gap
+ *     component-ng-c4035462560.css     the component's authored rules, incl. hover states
+ *     measure.json                     geometry + computed styles
+ *     type.json                        variable-font axes per text element
+ *
+ * This surface uses the Spark palette rather than the chat one: page #1f1f1f
+ * (lumi surface-bright), cards #171717 (lumi surface-dim), text #e6e6e6 (lumi on-surface).
+ * That is the same pair `features/spark` already documents.
+ */
+
+.spark-settings {
+  --sps-surface-bright: #1f1f1f;
+  --sps-surface-dim: #171717;
+  --sps-on-surface: #e6e6e6;
+  --sps-on-surface-alt: #e3e3e3;
+  --sps-outline-variant: #444746;
+
+  --sps-spacing-s: 8px;
+  --sps-spacing-m: 12px;
+  --sps-spacing-l: 16px;
+  --sps-spacing-xl: 20px;
+  --sps-spacing-xxl: 24px;
+  --sps-spacing-xxxl: 28px;
+  --sps-corner-extra-large: 28px;
+  --sps-corner-full: 9999px;
+
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--sps-surface-bright);
+  color: var(--sps-on-surface-alt);
+}
+
+/*
+ * content-box, deliberately: Gemini declares no box-sizing here, so `max-width: 880px`
+ * caps the CONTENT box and the 22px padding sits outside it — the container measures 924
+ * and the cards inside it 880. Under a border-box reset the cap swallows the padding and
+ * every card comes out 44px narrow.
+ */
+.spark-settings__container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sps-spacing-xxxl);
+  margin: 0 auto;
+  max-width: 880px;
+  padding: 22px;
+  box-sizing: content-box;
+}
+
+.spark-settings__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sps-spacing-l);
+}
+
+/*
+ * Gemini's scrollbar: 12px wide with a thumb that is transparent at rest and painted only
+ * while the scroll container is hovered. Reproduced so this page does not show the default
+ * bright Chrome bar against a #1f1f1f surface.
+ */
+.spark-settings::-webkit-scrollbar,
+.spark-settings::-webkit-scrollbar-corner {
+  background: transparent;
+  height: 12px;
+  width: 12px;
+}
+
+.spark-settings::-webkit-scrollbar-thumb {
+  background: content-box transparent;
+  border: 2px solid transparent;
+  border-radius: var(--sps-corner-full);
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.spark-settings:hover::-webkit-scrollbar-thumb {
+  background: content-box #333537;
+}
+
+.spark-settings::-webkit-scrollbar-thumb:hover,
+.spark-settings::-webkit-scrollbar-thumb:active {
+  background: content-box var(--sps-outline-variant);
+}
+
+.spark-settings::-webkit-scrollbar-button {
+  height: 0;
+  width: 0;
+}
+
+/* ---- type scale ------------------------------------------------------------------- */
+
+/*
+ * The variable-font axes, read off each element's computed `font-variation-settings`.
+ * They are not derivable from `font-weight`: the body scale renders at `"wdth" 92` and the
+ * headline at `"wdth" 94`, both narrower than the 100 default, so styling from weight alone
+ * produces visibly wider text than the original.
+ */
+.spark-settings__title,
+.spark-settings__section-title,
+.spark-settings__section-description,
+.spark-settings__button {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  letter-spacing: normal;
+}
+
+.spark-settings__title {
+  margin: 0;
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  font-variation-settings: 'ROND' 100, 'slnt' 0, 'wdth' 100, 'wght' 360;
+  color: var(--sps-on-surface-alt);
+}
+
+.spark-settings__section-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  font-variation-settings: 'ROND' 20, 'slnt' 0, 'wdth' 94, 'wght' 470;
+  color: var(--sps-on-surface-alt);
+}
+
+.spark-settings__section-description {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sps-spacing-m);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+  color: var(--sps-on-surface-alt);
+}
+
+.spark-settings__section-description > span {
+  flex: 1;
+}
+
+/* ---- cards ------------------------------------------------------------------------ */
+
+.spark-settings__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sps-spacing-xxl);
+}
+
+.spark-settings__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+  gap: var(--sps-spacing-l);
+  padding: var(--sps-spacing-xl);
+  border-radius: var(--sps-corner-extra-large);
+  background: var(--sps-surface-dim);
+  box-sizing: border-box;
+}
+
+.spark-settings__card-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-self: stretch;
+}
+
+/* ---- buttons ---------------------------------------------------------------------- */
+
+/*
+ * Both buttons take the *page* colour as their fill, which is lighter than the card they
+ * sit on — that inversion is what makes them read as raised. The 110px min-width is what
+ * keeps "Turn off" and "Delete" the same size despite different label lengths.
+ */
+.spark-settings__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 110px;
+  padding: var(--sps-spacing-m) var(--sps-spacing-xxl);
+  border: none;
+  border-radius: var(--sps-corner-full);
+  background: var(--sps-surface-bright);
+  color: var(--sps-on-surface);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.spark-settings__button:hover {
+  background: color-mix(in srgb, var(--sps-on-surface) 8%, var(--sps-surface-bright));
+}
+
+.spark-settings__button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* The trailing padding stays at 24px while the leading side tightens to 16px to make
+   room for the icon, which is what makes this button 116px against the plain one's 110. */
+.spark-settings__button--with-icon {
+  gap: var(--sps-spacing-s);
+  padding: var(--sps-spacing-m) var(--sps-spacing-xxl) var(--sps-spacing-m) var(--sps-spacing-l);
+}
+
+/* ---- links ------------------------------------------------------------------------ */
+
+/*
+ * Not a blue link: on this surface it is body-coloured text with a hairline underline
+ * (0.08em thick, offset 0.23em), measured at #e6e6e6.
+ */
+.spark-settings__link {
+  color: var(--sps-on-surface);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.23em;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Gemini pairs each external link with a visually-hidden "Opens in a new window". */
+.spark-settings__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

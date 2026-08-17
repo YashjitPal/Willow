@@ -19,6 +19,20 @@
   margin: 0 auto;
 }
 
+/*
+ * `gds-title-l` / `gds-title-l-emphasized` / `gds-headline-s` — every 20px/24px weight-470
+ * title — sits on its own axis setting, between Spark's 92% body width and the 100% of the
+ * page headings: `"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470`. Setting the axes pins the
+ * weight, which is why each of these rules still declares 470 alongside.
+ */
+.spark-schedules-empty__title,
+.spark-connected-app-section__header h2,
+.spark-workspace-card__summary h3,
+.spark-connected-app-card h3,
+.spark-premium-content h2 {
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
 .spark-customise-header h1,
 .spark-customise-header p,
 .spark-schedules-section h2,
@@ -32,10 +46,13 @@
   letter-spacing: 0;
 }
 
+/* `gds-emphasized-headline-l`: opts out of Spark's 92% width and rounds the letterforms.
+ * Setting the axes directly also pins the weight, hence the repeated 350. */
 .spark-customise-header h1 {
   padding: 4px 8px 4px 16px;
   color: #e3e3e3;
   font-size: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;
   font-weight: 350;
   line-height: 36px;
 }
@@ -137,9 +154,19 @@
   margin-top: 16px;
 }
 
+/*
+ * The reference account has no schedules, so this list is the one Spark surface that
+ * could never be measured against Gemini. It follows the pattern the Active-skill list
+ * and the task rows both proved instead: one outlined #171717 container clipping filled
+ * #1f1f1f rows, hover as the 8% #e6e6e6 state layer, and the row menu out of flow until
+ * the pointer arrives. Previously it was the odd one out — a filled row with a 10% white
+ * outline and a #252525 hover that appears nowhere else in Gemini.
+ */
 .spark-schedule-list {
   display: grid;
-  gap: 8px;
+  overflow: hidden;
+  border: 1px solid #171717;
+  border-radius: 16px;
 }
 
 .spark-schedule-row {
@@ -147,16 +174,7 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: #1f1f1f;
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-
-.spark-schedule-row:hover,
-.spark-schedule-row:focus-within {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: #252525;
+  background: transparent;
 }
 
 /*
@@ -187,25 +205,32 @@
   gap: 16px;
   padding: 0 16px;
   border: 0;
-  border-radius: 16px;
-  background: transparent;
+  border-radius: 0;
+  background: #1f1f1f;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color 150ms ease;
 }
 
-.spark-schedule-card:hover {
-  background: transparent;
+.spark-schedule-row:hover .spark-schedule-card,
+.spark-schedule-row:focus-within .spark-schedule-card {
+  background: color-mix(in srgb, #e6e6e6 8%, #1f1f1f);
 }
 
 .spark-schedule-row__actions {
-  display: flex;
-  flex: 0 0 auto;
+  display: none;
+  width: 56px;
+  flex: 0 0 56px;
   align-items: center;
-  gap: 4px;
-  padding-right: 10px;
+  justify-content: flex-start;
+  padding-right: 16px;
+}
+
+.spark-schedule-row:hover .spark-schedule-row__actions,
+.spark-schedule-row:focus-within .spark-schedule-row__actions {
+  display: flex;
 }
 
 .spark-schedule-card__icon {
@@ -401,8 +426,14 @@
   line-height: 20px;
 }
 
+/* `.recommended-section` is a flex column on an 8px gap: heading, card list, then the
+ * toggle. Willow was spacing those three with per-child margins that came to 4px and
+ * 12px instead. */
 .spark-recommended-skills {
+  display: flex;
   width: min(676px, calc(100% - 32px));
+  flex-direction: column;
+  gap: 8px;
   margin: 16px auto 0;
 }
 
@@ -423,17 +454,8 @@
 
 .spark-skills-library > h2 {
   margin: 0;
-  padding: 4px 16px 12px;
-  color: #e3e3e3;
-  font-size: 17px;
-  font-weight: 520;
-  line-height: 24px;
 }
 
-.spark-skills-library__list {
-  display: grid;
-  gap: 4px;
-}
 
 /*
  * Gemini's Active-skill list is an OUTLINED container holding FILLED rows:
@@ -446,15 +468,24 @@
  * The rows carry no radius of their own — the container clips them, so it needs
  * `overflow: hidden`. Willow had this inverted: a filled #171717 row with a
  * transparent card inside it.
+ *
+ * One container holds every skill, so several skills read as one grouped list rather
+ * than as separate outlined boxes. Gemini butts the rows straight up against each other
+ * with no separator, so there is no gap here either.
  */
+.spark-skills-library__list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #171717;
+  border-radius: 16px;
+  background: transparent;
+}
+
 .spark-skill-row {
   position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
-  overflow: hidden;
-  border: 1px solid #171717;
-  border-radius: 16px;
   background: transparent;
 }
 
@@ -477,15 +508,37 @@
   transition: background-color 150ms ease;
 }
 
-.spark-skill-card:hover {
-  background: #232323;
+/*
+ * `skill-card:hover` keeps its opaque surface and mixes the 8% state layer into it,
+ * because the row below it is clipped by the container rather than transparent.
+ *
+ * Gemini's card and its action button are one element, so pointing at the button lights
+ * the whole row. Willow has to split them, so the row drives the highlight — otherwise the
+ * fill drops away the moment the pointer crosses onto the button it just revealed.
+ */
+.spark-skill-row:hover .spark-skill-card,
+.spark-skill-row:focus-within .spark-skill-card {
+  background: color-mix(in srgb, #e6e6e6 8%, #1f1f1f);
 }
 
+/*
+ * Gemini keeps `.skill-card-actions` at `display: none` until the row is hovered, so the
+ * card spans the full 674px at rest and its content reflows from 642 to 586 on hover —
+ * 40px of button plus a 16px gutter. Willow rendered the menu permanently, which left the
+ * card 50px short and the button visible on every row at once.
+ */
 .spark-skill-row__actions {
-  display: flex;
-  flex: 0 0 auto;
+  display: none;
+  width: 56px;
+  flex: 0 0 56px;
   align-items: center;
-  padding-right: 10px;
+  justify-content: flex-start;
+  padding-right: 16px;
+}
+
+.spark-skill-row:hover .spark-skill-row__actions,
+.spark-skill-row:focus-within .spark-skill-row__actions {
+  display: flex;
 }
 
 .spark-skills-upload-error {
@@ -500,10 +553,11 @@
   flex: 0 0 auto;
 }
 
+/* `button.action-button` measures 36x36 around a 20px glyph. */
 .spark-row-action-menu__trigger {
   display: inline-flex;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -662,18 +716,8 @@
   white-space: nowrap;
 }
 
-.spark-recommended-skills > h2 {
-  height: 40px;
-  padding: 4px 16px 12px;
-  color: #e3e3e3;
-  font-size: 17px;
-  font-weight: 520;
-  line-height: 24px;
-}
-
 .spark-recommended-skills__grid {
   display: flex;
-  margin-top: 4px;
   flex-direction: column;
   gap: 4px;
 }
@@ -692,11 +736,13 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 140ms ease;
+  transition: background 150ms ease;
 }
 
+/* `.recommendation-card:hover` swaps the opaque fill for the bare state layer, so the
+ * page behind shows through — a lighter result than compositing over #171717. */
 .spark-recommended-skill:hover {
-  background: #232323;
+  background: rgba(230, 230, 230, 0.08);
 }
 
 .spark-recommended-skill__copy {
@@ -733,8 +779,9 @@
   height: 44px;
   box-sizing: border-box;
   align-items: center;
+  align-self: center;
   gap: 4px;
-  margin: 12px auto 0;
+  margin: 0;
   padding: 8px 16px;
   border: 0;
   border-radius: 9999px;
@@ -790,10 +837,13 @@
   letter-spacing: 0;
 }
 
+/* The Connected apps title is display type, not headline: `gds-display-*` takes the
+ * roundness axis all the way up at full width. */
 .spark-connected-header h1 {
   padding: 0;
   color: #e3e3e3;
   font-size: 32px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
   font-weight: 360;
   line-height: 38px;
 }
@@ -870,14 +920,24 @@
   display: none;
 }
 
+/*
+ * `mat-chip-row.category-shortcut`: a 14px/20px weight-500 #c4c7c5 label in a transparent
+ * 8px-radius hit area. The outline is a 1px #8e918f stroke painted by MDC on
+ * `.mdc-evolution-chip__action::before`, absolutely inset — so it costs no layout and the
+ * label still sits exactly 12px from the chip edge. Willow's 1px host border pushed it.
+ * (Chrome reports the width as 0.8px on a 1.25x display; that is device-pixel snapping,
+ * not an authored value.)
+ * The fill comes from a #c4c7c5 layer at opacity 0 / hover .08 / focus .12, `0.15s linear`.
+ */
 .spark-app-category {
+  position: relative;
   display: inline-flex;
   height: 32px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   padding: 0 12px;
-  border: 1px solid #8e918f;
+  border: 0;
   border-radius: 8px;
   background: transparent;
   color: #c4c7c5;
@@ -887,18 +947,25 @@
   line-height: 20px;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 140ms ease;
+  transition: background-color 150ms linear;
 }
 
-.spark-app-category:hover,
-.spark-app-category[aria-pressed="true"] {
+.spark-app-category::before {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid #8e918f;
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+}
+
+.spark-app-category:hover {
   background: rgba(196, 199, 197, 0.08);
 }
 
-.spark-app-category[aria-pressed="true"] {
-  border-color: #a8c7fa;
-  background: #1f3760;
-  color: #d3e3fd;
+.spark-app-category:focus-visible {
+  background: rgba(196, 199, 197, 0.12);
 }
 
 .spark-connected-app-section {
@@ -978,7 +1045,12 @@
   line-height: 24px;
 }
 
+/* `.parent-card-title .name` is an inline-flex row with an 8px gap — it reserves space for
+ * a trailing badge, so the heading box hugs the title rather than spanning the column. */
 .spark-workspace-card__summary h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -1023,9 +1095,11 @@
   line-height: 20px;
 }
 
+/* `button.learn-more` is inline-block in Gemini, so its box hugs the words. A block-level
+ * link stretched the hit area across the whole column. */
 .spark-workspace-product a,
 .spark-connected-app-card__learn-more {
-  display: block;
+  display: inline-block;
   padding: 0;
   border: 0;
   background: transparent;

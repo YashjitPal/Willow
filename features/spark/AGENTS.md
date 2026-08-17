@@ -44,9 +44,68 @@ Its six routes are `/spark`, `/spark/tasks`, `/spark/schedules`, `/spark/skills`
 `/spark/apps` and `/spark/chat/<id>`. Willow reaches the same six through
 `sparkLocation` in the store rather than the URL.
 
-Captures, the scraper harness and the Gemini↔Willow diff live in
-`tools/ui-research/{captures,scrapers}/spark/`. `21-compare-ladder.cjs` prints a
-numeric diff of the home page and `22-willow-qa.cjs` asserts the motion endpoints.
+Captures, the scraper harness and the Gemini↔Willow diffs live in
+`tools/ui-research/{captures,scrapers}/spark/`.
+
+## Verifying a change
+
+```
+node tools/ui-research/scrapers/spark/verify-all.cjs
+```
+
+Runs every fidelity check and prints one pass/fail. Needs `npm run dev` on :3000 and
+Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). The thirteen checks:
+
+| Script | Checks |
+| --- | --- |
+| `37-icon-audit.cjs` | every icon's ligature actually forms, on all five surfaces |
+| `44-font-audit-all.cjs` | each class's computed font against its measured Gemini value |
+| `81-verify-variation.cjs` | the width axis on all five routes, and that it has not leaked into Chat |
+| `22-willow-qa.cjs` | home-page geometry, hover endpoints and declared motion (23 assertions) |
+| `52-verify-scroll.cjs` | the task list scrolls with a fixed header |
+| `59-verify-dialogs.cjs` | rename / delete dialog surface and buttons |
+| `57-verify-skill-card.cjs` | the Skills active card's container/row inversion |
+| `76-skill-row.cjs` | the skill row's 642→586 hover reflow, and that card + actions fill the row |
+| `72-skills-diff.cjs` | the Recommended list and both hover endpoints |
+| `86-tasks-rhythm.cjs` | heading, composer and filter trigger land on Gemini's y positions |
+| `90-task-row-diff.cjs` | the task row's surface, corners, spacing and painted title weight |
+| `94-verify-badges.cjs` | the home page's "What's new" chip and Beta label |
+| `95-schedule-row.cjs` | the schedule list's container/row split and its "9:00 am" labels |
+
+Diff tools, for when something looks off but you cannot say what. The general one is
+`H.probe()` + `H.compare()` in `lib.cjs`: name the same logical element on each side and
+it prints only the properties that differ, filtering the noise from Willow's reset
+(`border: 0 solid #e5e7eb`, `box-sizing: border-box`) and from the two engines' different
+serialisations. `71-apps-diff.cjs` and `72-skills-diff.cjs` are worked examples.
+
+Older single-purpose tools: `21-compare-ladder.cjs` (home page, numeric),
+`39-compare-detail.cjs` (task detail), `54-compare-apps.cjs` (Connected apps),
+`53-height-chain.cjs` (where a flex height constraint is lost), `38-glyph-probe.cjs`
+(which font holds a glyph), and `50-deep.cjs <url> <selector> <name> [clickText]` for an
+arbitrary deep dump of Gemini.
+
+Two harness notes worth knowing before you write another one:
+
+- **A full-page screenshot of Willow renders a phantom rounded box** near the bottom of
+  the scroll area. It is a stitching artefact — hit-testing that point finds only the page
+  background. Two passes were spent chasing it. Capture at viewport size when judging.
+- **Forced `:hover` reads the element you force it on.** Where Willow splits a row that
+  Gemini keeps whole, force the state on the element that owns the selector and read the
+  one that takes the fill; `72-skills-diff.cjs` takes both selectors for this reason.
+- **Always collapse transitions before reading a hover endpoint.** They do not advance
+  while the host Chrome window is unfocused, so the computed style comes back as the
+  *start* colour — which will quietly satisfy any check written as "did it change?".
+  `addStyleTag` with `transition-duration: 0s !important` first, then assert the value.
+- **Seed fixtures through the store, not the editor.** Both editors span two panels and
+  re-render their fields, and typing into them left one harness hung for seven minutes.
+  `H.seedWillowSkill()` drives the UI because a skill needs only a name; `95-schedule-row.cjs`
+  writes `state.schedules` into every `willow:spark:v*` key instead. Match the stored
+  shapes exactly — `frequency` is `'Weekly'`, capitalised, and the card's weekday clause is
+  gated on that exact string.
+
+**These checks drive one shared live browser**, so a check can occasionally read a
+state left settling by the previous one. `verify-all.cjs` retries each check once for
+that reason; a check that fails twice is a real regression.
 
 ### Icon ligature failures, and how to find them
 
@@ -101,6 +160,52 @@ value** — the stylesheet will look correct and render wrong.
 `tools/ui-research/scrapers/spark/44-font-audit-all.cjs` sweeps every Spark class
 whose font was set against its measured Gemini value; run it after touching type.
 
+### Google Sans Flex runs on a narrowed width axis
+
+Gemini does not render Google Sans Flex at its default proportions. Sweeping every
+text-bearing element across all five routes
+(`tools/ui-research/scrapers/spark/79-variation-sweep.cjs`,
+`82-axis-by-class.cjs`) turns up exactly four settings:
+
+| Gemini type class | size/line-height | weight | `font-variation-settings` |
+| --- | --- | --- | --- |
+| `gds-body-*`, `gds-label-*`, `gds-emphasized-body-*` | 13–17px | 370 / 400 / 540 | `"ROND" 0, "slnt" 0, "wdth" 92, "wght" <weight>` |
+| `gds-title-l`, `gds-title-l-emphasized`, `gds-headline-s` | 20px/24px | 470 | `"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470` |
+| `gds-emphasized-headline-l` | 28px/36px | 350 | `"ROND" 20, "slnt" 0, "wdth" 100, "wght" 350` |
+| `gds-display-m` | 36px/44px | 320 | `"ROND" 100, "slnt" 0, "wdth" 100, "wght" 320` |
+
+Body text — 173 elements at weight 400 alone — is **8% narrower than the default**.
+Willow was leaving the axis at 100% everywhere, so every string ran wide: "Learn more"
+measured 88.4px against Gemini's 84.2px, which also changed the shrink-to-fit width of
+anything sized by its own text.
+
+Two things make this awkward to apply:
+
+- **`font-variation-settings` pins the weight.** Naming any axis overrides `font-weight`
+  for `wght`, so a blanket `wdth: 92` would force every rule in Spark to restate its own
+  weight. `font-stretch: 92%` drives the same axis, measures identically (verified in
+  `80-axis-support.cjs`) and still composes with `font-weight` — so the base is set with
+  `font-stretch` in `SparkWorkspace.css`, and only the four headline/title cases name
+  their axes explicitly, repeating their weight as Gemini does.
+- **The reset drops `font-stretch` on form controls.** It hands buttons and inputs
+  `font-family`, `font-size`, `font-weight` and `font-variation-settings` from the parent
+  but says nothing about `font-stretch`, so each one falls back to the UA default and
+  resets the axis for its whole subtree. On the task list that silently swallowed 46
+  elements, because the rows are buttons. `SparkWorkspace.css` follows the base rule with
+  `font-stretch: inherit` for `button, input, select, textarea, optgroup`.
+
+The base rule is scoped to the six Spark page roots rather than `.spark-studio-scroll`,
+which the shell also applies to Media, Agents and Design.
+`81-verify-variation.cjs` walks all five routes and then switches to Chat to confirm the
+axis has not leaked out of Spark.
+
+### The two page headings are not the same size
+
+`/spark` and `/spark/tasks` carry the same sentence but not the same type. Home uses
+`gds-emphasized-headline-l` (28px/36px weight 350); the task list uses `gds-display-m`
+(36px/44px weight 320, `padding: 0 0 8px`, no margin, 52px tall). Willow had reused the
+home ramp on both, so the task list read a full size small.
+
 ### The Connected apps opt-in switch
 
 Measured off Gemini's Material switch, whose colours live on pseudo-elements —
@@ -114,6 +219,42 @@ track and `::after` the selected one, cross-faded on opacity:
 
 Track is 52×32 and fully rounded, and **the handle grows** from 16px to 24px when
 switched on. The off state is a *filled* grey track; Willow had drawn an outlined one.
+
+There is **no caption beside it.** `.opt-in-container` holds the 32px logo and a bare
+`mat-slide-toggle` pushed right. Willow rendered a "Use as context" label from an
+unstyled wrapper that had no CSS at all; the switch's accessible name carries that now.
+
+### The category chips, and where a Material outline hides
+
+Three things about `mat-chip-row.category-shortcut` are easy to get wrong:
+
+- **The host reports `border: 0px none`, yet the chip clearly has an outline.** MDC paints
+  it on `.mdc-evolution-chip__action::before`, absolutely inset at `z-index: 1` — so it
+  costs no layout and the 14px/20px weight-500 #c4c7c5 label still sits exactly 12px from
+  the chip edge. Willow's 1px border on the host pushed the label in.
+- **The hover is on a real child, not a pseudo-element.** `.mat-mdc-chip-focus-overlay` is
+  a #c4c7c5 span at opacity 0 / hover .08 / focus .12 on `opacity 0.15s linear`. A sweep
+  that reads the host plus `::before`/`::after` reports the chip as inert, which is how
+  the outline came to be removed before it was put back.
+- **Clicking leaves no selected style** — only the retained focus layer at .12. The chips
+  are scroll shortcuts.
+
+The parent and child cards on that page really are inert on hover, host and pseudo-
+elements both.
+
+### State layers: two shapes of the same 8%
+
+Gemini's hover is `#e6e6e6` at 8%, but it lands two different ways depending on what is
+behind the element, and copying the wrong one is visible:
+
+- `.recommendation-card:hover` **replaces** its `#171717` fill with the bare
+  `rgba(230,230,230,.08)`, so the page shows through and the result is lighter.
+- `skill-card:hover` **mixes** the layer into its opaque surface —
+  `color-mix(in srgb, #e6e6e6 8%, #1f1f1f)`, which Chrome reports as
+  `color(srgb 0.183059 …)` — because the row is clipped by its container rather than
+  transparent.
+
+Both are `transition: background 0.15s`.
 
 ### Two component surfaces that were inverted
 
@@ -322,6 +463,52 @@ ancestor from `.spark-all-tasks` down needs `display: flex`, `flex-direction: co
 and `min-height: 0`. `tools/ui-research/scrapers/spark/53-height-chain.cjs` walks that
 chain and prints where the constraint is lost.
 
+### The task-list rhythm, measured top to bottom
+
+Every landmark on `/spark/tasks`, against Gemini
+(`tools/ui-research/scrapers/spark/86-tasks-rhythm.cjs` asserts the three that Gemini
+exposes a stable selector for):
+
+| Landmark | Gemini | What Willow had |
+| --- | --- | --- |
+| column padding | `56px 0 0` | `40px 0 48px` — the whole page started 16px high |
+| heading | `gds-display-m`, top 56, 52 tall | 28px headline, top 40 |
+| composer pill | top 135, **580x65.6**, inset 40px each side of the 660 column, `0 0 20px rgba(0,0,0,.28)` | full 660 wide, tight `0 1px 3px` shadow |
+| filter trigger | top 226, **113.1x32** | top 231, 88.6x32 |
+| row | 636.8x64, 16px corners, rgba(15,15,15,.5), 4px apart | matched |
+
+The filter trigger is worth spelling out because three values were off at once:
+`padding: 0 16px`, an 8px content gap, a label of `gds-title-m-emphasized` (15px/20px
+weight **540**) and a **24px** Luminous chevron — 16 + 49.1 + 8 + 24 + 16 = 113.1. Willow
+had the right label size at weight 500, half the padding and half the gap.
+
+### `font-weight: 600` on the task title is inert
+
+`.goal-description.gds-emphasized-body-m` computes `font-weight: 600`, a value that
+appears nowhere else in Gemini's scale. It never paints: the class also names
+`"wght" 540` in `font-variation-settings`, and a named axis beats the declaration.
+Rendering "Creating a schedule" at each candidate settles it — the live box is 139.6px,
+which is exactly weight 540 (600 would be 141.95). Willow had the title at the plain 400,
+so every task title ran light.
+
+The lesson generalises: **when a Gemini element declares a weight outside
+350/370/400/470/540, check `font-variation-settings` before copying it.**
+`92-goal-title-weight.cjs` does the measurement; `probe()` in `lib.cjs` records the
+painted weight as `_wght` so the paired diffs compare that rather than the declaration.
+
+### Row action menus stay out of flow until hover
+
+`.skill-card-actions` is `display: none` at rest and `flex` on hover, so the card spans
+the full 674px and its content reflows from 642 to 586 — 40px of button plus a 16px
+gutter. Willow rendered the menu permanently, which left the card 50px short and put a
+button on every row at once. The same applies to the schedule rows.
+
+Willow has to split the row from the card, because the row and its menu are both
+clickable and a button cannot nest inside a button. That means **the row, not the card,
+carries `:hover`** — otherwise the fill drops away the moment the pointer crosses onto the
+button it just revealed. `76-skill-row.cjs` checks the reflow and that the two halves
+still add up to Gemini's row width.
+
 ### Section labels vs empty-state titles
 
 `.spark-schedules-section > h2` is scoped to **direct children** deliberately. The
@@ -334,6 +521,14 @@ with a 1px rgba(255,255,255,.12) border at 28px corners, `padding: 136px 0`,
 `margin: 36px 0 0`, holding only a centred title (gds-headline-s, 20px/24px weight
 470, on-surface-variant) and subtitle (gds-body-s). No icon and no fill. Gemini also
 hides the section label entirely while the list is empty.
+
+**The populated schedule row is the one thing here that was never measurable** — the
+reference account has no schedules, so Gemini never renders it. It now follows the pattern
+the Active-skill list and the task rows both prove: one outlined #171717 container clipping
+filled #1f1f1f rows, hover as the 8% state layer mixed into the surface, and the row menu
+out of flow until the pointer arrives. Before that it was the odd surface out, a filled row
+with a 10% white outline and a #252525 hover that appears nowhere in Gemini. If a schedule
+ever shows up in the reference account, measure it and replace the inference.
 
 ### Still to do on this route
 
@@ -378,6 +573,18 @@ iframe with a VNC client in the name of fidelity.
 Note that Angular loads per-route sheets lazily: this route yields 98 stylesheets
 against the home route's 80, so re-run the dump on the route you are working on
 rather than reusing `03-css/`.
+
+### "Create with Gemini" diverges on purpose
+
+On both the Schedules and Skills pages, Gemini's **"Create with Gemini" leaves Spark
+entirely** — it mounts a plain `chat-window` zero-state and the sidebar switches to the
+Chat experience (New chat, Gems, Notebooks). The schedule is then created
+conversationally.
+
+Willow's stays inside Spark and creates a Spark task ("Creating a schedule → Working on
+your task"). That is kept deliberately: crossing into Chat would couple two
+intentionally separate surfaces, and Willow's flow already reaches the same result. The
+**"Create manually"** editors on both pages are matched to Gemini exactly — see above.
 
 ### Known remaining differences
 
