@@ -1,3 +1,45 @@
+/*
+ * Gemini renders Google Sans Flex on a narrowed width axis. Every body, label and
+ * emphasised-body element across all five Spark routes computes to
+ * `"ROND" 0, "slnt" 0, "wdth" 92, "wght" <weight>` — 173 elements at weight 400 alone.
+ * Willow was leaving the axis at its 100% default, which made every string about 5%
+ * wider ("Learn more" measured 88.4px against Gemini's 84.2px) and quietly shifted the
+ * shrink-to-fit width of anything sized by its text.
+ *
+ * `font-stretch: 92%` drives the same wdth axis and measures identically, but unlike
+ * `font-variation-settings` it composes with `font-weight` — setting the axis directly
+ * would pin wght too and force every rule in Spark to restate its own weight.
+ *
+ * Scoped to the six Spark page roots rather than the shared scroll container, which is
+ * also used by Media, Agents and Design. Headline and display text opts back out to
+ * `wdth: 100` where Gemini does — see `SparkHome.css` and `SparkCustomisePages.css`.
+ */
+.spark-home,
+.spark-all-tasks,
+.spark-task-detail,
+.spark-customise-page,
+.spark-schedule-editor,
+.spark-skill-editor {
+  font-stretch: 92%;
+}
+
+/*
+ * The reset hands form controls `font-family`, `font-size`, `font-weight` and
+ * `font-variation-settings` from their parent but says nothing about `font-stretch`, so
+ * every button fell back to the UA default and reset the axis to 100% for its subtree.
+ * On the task list that swallowed 46 elements — the rows are buttons.
+ */
+:is(
+  .spark-home,
+  .spark-all-tasks,
+  .spark-task-detail,
+  .spark-customise-page,
+  .spark-schedule-editor,
+  .spark-skill-editor
+) :is(button, input, select, textarea, optgroup) {
+  font-stretch: inherit;
+}
+
 .spark-studio-scroll {
   overflow-y: scroll !important;
 }

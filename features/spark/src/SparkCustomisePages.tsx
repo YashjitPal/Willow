@@ -7,6 +7,7 @@ import type {
   SparkSkill,
 } from './spark-types';
 import { formatSparkRelativeTime } from './spark-types';
+import { formatSparkScheduleTime } from './SparkScheduleEditor';
 import { useSparkNow } from './useSparkNow';
 import './SparkCustomisePages.css';
 
@@ -49,20 +50,20 @@ interface SparkPreferenceControlProps {
   onChange: () => void;
 }
 
+/* Gemini's `.opt-in-container` holds the logo and a bare `mat-slide-toggle` — no visible
+ * caption. The switch's accessible name carries what the caption used to say. */
 const SparkPreferenceControl: React.FC<SparkPreferenceControlProps> = ({
   appName,
   checked,
   className = '',
   onChange,
 }) => (
-  <span className={`spark-preference-control ${className}`.trim()}>
-    <span className="spark-preference-control__label">Use as context</span>
-    <SparkToggle
-      checked={checked}
-      label={`${checked ? 'Stop using' : 'Use'} ${appName} as preference context`}
-      onChange={onChange}
-    />
-  </span>
+  <SparkToggle
+    checked={checked}
+    className={className}
+    label={`${checked ? 'Stop using' : 'Use'} ${appName} as preference context`}
+    onChange={onChange}
+  />
 );
 
 interface SparkRowActionMenuProps {
@@ -429,10 +430,12 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
                     </span>
                     <span className="spark-schedule-card__copy">
                       <span className="spark-schedule-card__title">{schedule.title}</span>
+                      {/* The stored time stays 24-hour because `spark-store` parses it to
+                        * work out the next run; only the label is localised. */}
                       <span className="spark-schedule-card__detail">
                         {schedule.frequency}{schedule.frequency === 'Weekly' && schedule.weekdays.length
                           ? ` on ${schedule.weekdays.join(', ')}`
-                          : ''}{` around ${schedule.time}`}
+                          : ''}{` around ${formatSparkScheduleTime(schedule.time)}`}
                       </span>
                     </span>
                     {runLabel && <span className="spark-schedule-card__last-run">{runLabel}</span>}

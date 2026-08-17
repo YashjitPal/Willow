@@ -31,6 +31,24 @@ const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 Then add its route and a sidebar entry. Keep the import inside `React.lazy` — a
 top-level import defeats the code-splitting and inflates the initial bundle.
 
+### Gating one behind Labs
+
+`Code Beta` is the worked example. Four pieces, and the lazy import is what makes
+the gate meaningful rather than cosmetic:
+
+1. A flag id in `ExperimentId` and a `false` default in
+   [`platform/core/src/experiments-store.ts`](../../platform/core/src/experiments-store.ts).
+2. A row in `src/settings/tabs/LabsTab.tsx` using the `ExperimentToggle` already
+   defined there. (The other three toggles on that tab are still static
+   mock-ups — only wire the ones backed by a flag.)
+3. A `ViewType` member plus a sidebar row wrapped in `experiments['<id>'] && (…)`.
+   The Sidebar reads `experimentsStore` through `useStore`.
+4. A `React.lazy` route in `App.tsx`.
+
+Because the route is lazy, a user who never enables the flag never downloads the
+chunk — the experiment costs nothing to ship. Doing step 3 without step 4 would
+leave the feature's code in the initial bundle for everyone.
+
 ## View swaps are transitions — do not make them urgent again
 
 `commitView` wraps every `setCurrentView` in `startTransition`, and that is load-
@@ -230,6 +248,140 @@ not be mounted.
 
 `apps/studio/test/gemini-sidebar-footer.test.mjs` pins all of the above.
 
+## Settings > Activity
+
+`src/settings/tabs/activity/` and the `/activity` route.
+
+**Gemini's Activity entry is not an in-app panel.** It opens a new browser tab at
+`myactivity.google.com/product/gemini` — Google's account-wide My Activity page
+scoped to the Gemini product. That page is what the clone reproduces, rendered
+inside the shell rather than as a separate tab.
+
+Because those stylesheets are cross-origin, `document.styleSheets` exposes **no
+rules** for them; the authored CSS came from CDP `CSS.getMatchedStylesForNode`,
+which does see them, and the geometry from `getBoundingClientRect`. Captures live
+in `tools/ui-research/captures/activity/`, the scrapers beside them.
+
+Values that look arbitrary and are not:
+
+```
+column        608px fixed, centred; min(608, 100vw - 48) below ~672px
+card          rgba(209,225,255,.08), radius 1rem, padding 16px 16px 0
+group header  #3c4043, padding 1rem 1.5rem, radius .5rem, margin 1.5rem -24px 0
+row           padding 16px 0, border-top 1px #5f6368 except first in group
+row action    height 49px, margin -13px -13px 0 0   (49 is measured, see below)
+chevron disc  #202124 — `.CjA3B .oLR88b` overrides the card's own tint
+```
+
+- **The group header is 48px wider than the column**, bleeding 24px past it on each
+  side. That is the `margin: … -24px` above, not a mistake.
+- **`.activity-row-action` is 49px, not 48.** Gemini's `.YxbmAc` measures 48x49 — the
+  extra pixel is its line box's descender — and it is what makes the row head resolve
+  to `49 - 13 = 36`. Set it to 48 and every row is 1px short.
+- **The menu enter animation is `scale(.8)`, and it was inferred rather than
+  guessed.** Two captures of the same menu disagreed at 200.4x177 and 160.3x141.6;
+  both ratios are exactly 0.8, so the smaller was sampled mid-animation. That pins
+  the settled box and the transform at once.
+- The "On" chip's dropdown items are not guesswork either — Google ships the
+  `role="menu"` markup inside the card unopened, so it reads out of the static HTML.
+
+`21-verify-willow.cjs` diffs the built view against `20-containers.json` element by
+element and prints the deltas; run it after touching this file. Two entries always
+differ and should: `.activity-column` (Willow's holds the list too, Gemini's wraps
+only the header block) and `.activity-row-product` (10.6px narrower, because
+"Willow Apps" is a shorter string than "Gemini Apps").
+
+**Never click an unknown control on the live page to find out what it does.** Both
+48px icon buttons on that page — the one on each row and the one on each date group —
+are deletes that fire immediately with no confirmation, and their `aria-label` says
+so (`"Delete activity item …"`, `"Delete all activity from Yesterday."`). A scraper
+that assumed the row button was an overflow menu permanently destroyed a real entry
+from the account. `16-observe.cjs` exists for this: it installs listeners and records
+while a human drives, and clicks nothing itself.
+
+## The other three cloned settings surfaces
+
+`src/settings/tabs/{import-memory,spark-settings,usage-limits}/`, routed at `/import`,
+`/spark-settings` and `/usage`. All three are **UI only** — no action is wired.
+
+| Willow view | Gemini original | Page surface |
+| --- | --- | --- |
+| `import-memory` | `/import` | `#131314` (gem surface) |
+| `spark-settings` | `/gemini-spark` | `#1f1f1f` (lumi surface-bright), cards `#171717` |
+| `usage-limits` | `/usage` | `#0f0f0f` (from `body`; every wrapper is transparent) |
+
+The three palettes are genuinely different — don't unify them.
+
+Scrapers live in `tools/ui-research/scrapers/settings/`, captures alongside. `08-verify.cjs`
+diffs a built page against its Gemini `measure.json` element by element; run it after
+touching any of these. `11-verify-menu-routing.cjs` drives Willow's own gear menu and
+asserts each entry lands on the right route.
+
+### Read the `href` before clicking anything
+
+`01-recon-menu.cjs` dumps each settings entry's markup without activating it. That is how
+these three were opened safely: two turned out to be plain links (`href="/import"`,
+`href="/usage"`) so they could be reached by navigating a throwaway tab, and Spark settings
+has its own URL (`/gemini-spark`) once observed. **No menu clicking was needed for any of
+them.** `safeClick` in `lib.cjs` refuses any control whose accessible name matches a
+destructive verb; Spark settings is a page of three delete buttons, so this matters.
+
+### Things measurement caught that would otherwise have been wrong
+
+- **`font-variation-settings` is load-bearing and is not derivable from `font-weight`.**
+  Google Sans Flex runs the body scale at `"wdth" 92` and the headline at `"wdth" 94`, both
+  narrower than the 100 default, and the label scale asks for `"wght" 370` while its
+  `font-weight` computes 500. Styling from weight alone made the Import-memory action button
+  84px against Gemini's 82. The "emphasized" body scales are `"wght" 540` — a real axis
+  value, not a synthesised bold.
+- **Two containers cap their *content* box, not their border box.** Neither
+  `.usage-metrics-container` (`max-width: 50rem`) nor Spark settings' `.container`
+  (`max-width: 880px`) declares `box-sizing`, so their padding sits outside the cap and they
+  measure 824 and 924. Under a border-box reset every card inside comes out 24–44px narrow.
+- **The Import-memory prompt card needs `box-sizing: content-box` too**, for the same reason
+  in reverse: `max-block-size: min(3.375em, 20dvh)` caps the content box while
+  `padding-block-end: 3em` sits outside it (57.4 + 51 = 108.4). Border-box absorbs the
+  padding into the cap and the fade strip disappears.
+- **That fade is a `mask-image`, not an overlaid gradient**:
+  `linear-gradient(180deg, #000 calc(100% - 3em), transparent)`, with the Copy button
+  absolutely positioned over the masked strip.
+- **Gemini's scrollbar thumb is transparent at rest** and painted only while the scroll
+  container is hovered. Without reproducing that, Chrome's default bar cuts a bright stripe
+  through the prompt card and its fade.
+- **The Usage-limits cards are two elements 4px apart, not one with a divider** — each
+  rounds only its outer corners (16px outside, 4px facing the seam).
+- **Its `/usage` page has a `-luminous` and a `-non-luminous` theme.** The captured account
+  renders luminous, so that is what is cloned: link `#3186ff` (the Spark accent, not
+  `#a8c7fa`) and a flat `#e6e6e6` progress bar. The non-luminous variant's three-stop brand
+  gradient is deliberately not reproduced.
+- **Icon families are per-glyph.** `power_settings_new` and `monitor` are Google Symbols;
+  `code`, `delete`, `info` and `content_copy` are Luminous. That is what Gemini requests via
+  `data-mat-icon-namespace`, and it matches the `monitor` note in
+  [`features/spark/AGENTS.md`](../../features/spark/AGENTS.md).
+
+### Verifying icons: measure the rendered element, not a probe span
+
+`14-rendered-icons.cjs` checks every icon on these pages by comparing `scrollWidth` against
+`clientWidth` on the real element — a failed ligature overflows its fixed box.
+
+**Do not test glyphs with a bare off-screen span.** Two versions of that probe disagreed and
+both wrongly reported `power_settings_new` and `monitor` as missing. Setting `font-family`
+is not sufficient; the `google-symbols` / `luminous-symbols` class `MaterialSymbol` applies
+carries the rest of what makes the ligature form, so a probe without the class measures
+something the app never renders.
+
+### Where the clones differ from the originals, deliberately
+
+- Spark settings' third card is 24px shorter than Gemini's because "Willow" is two
+  characters shorter than "Gemini", so its description wraps to one line instead of two.
+  Same cause as the section title measuring 5.3px narrower. Both are correct.
+- `usage-limits` shows placeholder percentages (`USAGE` in the component) because Willow
+  tracks no quota. The reset times are computed from the clock so the page never shows a
+  stale timestamp.
+- `import-memory` renders its empty record list even when there is nothing to show, because
+  Gemini does: a zero-height flex item still consumes the column's 16px gap, and omitting it
+  makes the section 16px short.
+
 ## Related packages
 
 **This package imports from:**
@@ -238,6 +390,7 @@ not be mounted.
 - [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
 - [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
 - [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
+- [`features/code-beta`](../../features/code-beta/AGENTS.md) — Labs: a second coding app on a vendored Codex harness
 - [`features/design`](../../features/design/AGENTS.md) — the design surface
 - [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
 - [`features/onboarding`](../../features/onboarding/AGENTS.md) — first-run flow

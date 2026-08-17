@@ -14,6 +14,8 @@
     "build:no-env": "npm --prefix apps/studio run build:no-env",
     "preview": "npm --prefix apps/studio run preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "codex:check": "node tools/scripts/sync-codex-upstream.mjs",
+    "codex:update": "node tools/scripts/sync-codex-upstream.mjs --update",
     "lint": "eslint .",
     "test": "npm --prefix apps/studio run test",
     "agent-builder:start": "npm --prefix services/agent-builder start",

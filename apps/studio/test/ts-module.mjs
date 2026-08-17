@@ -27,6 +27,10 @@
  * limit. They are deliberately NOT walked: published JS needs no type-stripping,
  * and recursing into a package's own tree would transpile hundreds of files to
  * reach one export.
+ *
+ * Vite's `?raw` and `?url` suffixes are honoured, and `.json` is imported as its
+ * parsed value — all three are things Vite resolves specially, so a module using
+ * them would otherwise be untestable here.
  */
 
 import fs from 'node:fs';
@@ -78,6 +82,22 @@ const isBuiltin = (specifier) => specifier.startsWith('node:');
 
 const isBare = (specifier) =>
   !specifier.startsWith('.') && !specifier.startsWith('@willow/') && !isBuiltin(specifier);
+
+/**
+ * Vite query suffixes this understands.
+ *
+ * `?raw` hands back the file's text as the default export — the repo imports
+ * shaders and, in `features/code-beta`, vendored prompt files that way. `?url`
+ * hands back a path string, matching the asset stub below.
+ *
+ * The suffix is stripped before resolution and remembered, because the file on
+ * disk has no `?raw` in its name.
+ */
+const splitQuery = (specifier) => {
+  const at = specifier.indexOf('?');
+  if (at === -1) return { path: specifier, query: '' };
+  return { path: specifier.slice(0, at), query: specifier.slice(at + 1) };
+};
 
 const requireFromRepo = createRequire(path.join(REPO_ROOT, 'package.json'));
 
@@ -150,21 +170,47 @@ const isAsset = (file) => ASSET_EXTENSIONS.has(path.extname(file).toLowerCase())
  * transpiled once and keeps a single instance, which matters for modules holding
  * state. `pending` carries the current import chain to name a cycle if one exists.
  */
-const buildModule = async (file, cache, pending) => {
+const buildModule = async (file, cache, pending, query = '') => {
   const absolute = path.resolve(file);
-  const cached = cache.get(absolute);
+  // Keyed with the query: the same file imported both normally and as `?raw`
+  // is two different modules.
+  const key = query ? `${absolute}?${query}` : absolute;
+  const cached = cache.get(key);
   if (cached) return cached;
 
-  if (pending.includes(absolute)) {
-    const cycle = [...pending, absolute].map((entry) => path.basename(entry)).join(' -> ');
+  if (pending.includes(key)) {
+    const cycle = [...pending, key].map((entry) => path.basename(entry)).join(' -> ');
     throw new Error(`import cycle: ${cycle}`);
+  }
+
+  // `?raw` is the file's text; `?url` is its path. Both terminate the walk —
+  // neither is a module with imports of its own.
+  if (query === 'raw') {
+    const url = toDataUrl(
+      `export default ${JSON.stringify(fs.readFileSync(absolute, 'utf8'))};`,
+    );
+    cache.set(key, url);
+    return url;
+  }
+  if (query === 'url') {
+    const url = toDataUrl(`export default ${JSON.stringify(absolute)};`);
+    cache.set(key, url);
+    return url;
   }
 
   // An asset is a URL string to Vite, not a module. Stand one up rather than reading
   // binary through esbuild.
   if (isAsset(absolute)) {
     const url = toDataUrl(`export default ${JSON.stringify(absolute)};`);
-    cache.set(absolute, url);
+    cache.set(key, url);
+    return url;
+  }
+
+  // JSON is a module whose default export is the parsed value. esbuild's `ts`
+  // loader would read it as a statement and produce nonsense.
+  if (absolute.endsWith('.json')) {
+    const url = toDataUrl(`export default ${fs.readFileSync(absolute, 'utf8')};`);
+    cache.set(key, url);
     return url;
   }
 
@@ -178,10 +224,11 @@ const buildModule = async (file, cache, pending) => {
       if (url) specifiers.set(specifier, url);
       continue;
     }
-    const target = resolveSpecifier(absolute, specifier);
+    const { path: bare, query } = splitQuery(specifier);
+    const target = resolveSpecifier(absolute, bare);
     specifiers.set(
       specifier,
-      await buildModule(target, cache, [...pending, absolute]),
+      await buildModule(target, cache, [...pending, key], query),
     );
   }
 
@@ -200,7 +247,7 @@ const buildModule = async (file, cache, pending) => {
   });
 
   const url = toDataUrl(code);
-  cache.set(absolute, url);
+  cache.set(key, url);
   return url;
 };
 

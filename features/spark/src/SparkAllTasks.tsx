@@ -587,11 +587,14 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 }}
               >
                 <span>{filter}</span>
+                {/* Gemini's chevron is a 24px Luminous glyph at weight 300, roundness 100. */}
                 <MaterialSymbol
                   {...SYMBOL_PROPS}
                   name="keyboard_arrow_down"
-                  size={20}
-                  opticalSize={20}
+                  size={24}
+                  weight={300}
+                  roundness={100}
+                  opticalSize={24}
                 />
               </button>
 

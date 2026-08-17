@@ -1829,9 +1829,12 @@
   flex-direction: column;
 }
 
+/* `gds-title-l`: 20px/24px weight 470 on `"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470`,
+ * a slightly wider axis than Spark's 92% body text. */
 .spark-task-detail__thinking-header-copy strong {
   color: #e6e6e6;
   font-size: 20px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
   font-weight: 470;
   line-height: 24px;
   font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;

@@ -1,0 +1,485 @@
+/*
+ * Settings > Import memory to Willow.
+ *
+ * Transcribed from Gemini's `/import` route, not designed. Geometry came from
+ * `getBoundingClientRect`; the declarations came from CDP `CSS.getMatchedStylesForNode`,
+ * because Gemini's stylesheets are cross-origin and `document.styleSheets` exposes no
+ * rules for them. Captures and the scrapers that produced them:
+ *
+ *   tools/ui-research/captures/settings/import-memory/
+ *     structure.txt   every wrapper and the gap it carries
+ *     matched.txt     the authored CSS behind each class
+ *     measure.json    geometry + computed styles
+ *     responsive.json the container's percentage math at 9 widths
+ *     tokens.json     the gem-sys token values resolved for the dark theme
+ *   tools/ui-research/scrapers/settings/
+ *
+ * Gemini's `--gem-sys-*` tokens are re-declared locally with the values the dark theme
+ * resolves them to, which is what `MemoryTab.css` and `ConnectedAppsTab.css` already do.
+ */
+
+.import-memory {
+  --im-surface: #131314;
+  --im-surface-container: #1e1f20;
+  --im-on-surface: #e3e3e3;
+  --im-on-surface-variant: #c4c7c5;
+  --im-outline-low: #444746;
+  --im-outline-variant: #444746;
+  --im-surface-container-highest: #333537;
+  --im-primary: #a8c7fa;
+  --im-on-primary: #062e6f;
+
+  --im-spacing-xs: 4px;
+  --im-spacing-s: 8px;
+  --im-spacing-m: 12px;
+  --im-spacing-l: 16px;
+  --im-spacing-xxl: 24px;
+  --im-corner-medium: 12px;
+  --im-corner-full: 9999px;
+
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  background-color: var(--im-surface);
+  color: var(--im-on-surface);
+}
+
+/*
+ * The container's spacing is in percentages of the available width, not pixels — measured
+ * at nine widths, every one of them landing on margin 1% 5.25% and padding 3% 6.5%
+ * (e.g. at 1248px available: margin 9.6/50.4, padding 28.8/62.4). That is what keeps the
+ * 800px column centred with proportional gutters instead of a fixed inset.
+ */
+.import-memory__container {
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin: 1% 5.25%;
+  padding: 3% 6.5%;
+  border-radius: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-xs);
+  width: 100%;
+}
+
+/*
+ * Below Gemini's own breakpoint the container drops its side margin and tightens the
+ * padding to 2.5% — measured at 900/800/700/600. Gemini switches on a `desktop` class it
+ * sets from JS; a media query is the closest equivalent that needs no script.
+ */
+@media (max-width: 960px) {
+  .import-memory__container {
+    margin: 0;
+    padding: 3% 2.5%;
+  }
+}
+
+.import-memory__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-xxl);
+  max-width: 800px;
+  width: 100%;
+}
+
+/* ---- scrollbars ------------------------------------------------------------------- */
+
+/*
+ * Gemini's scrollbar is 12px wide but its thumb is fully transparent at rest, painted only
+ * while the scroll container is hovered — which is why the prompt card shows no track
+ * even though its text overflows. Reproduced here because the default Chrome scrollbar cuts
+ * a visible white bar through the card and its fade.
+ */
+.import-memory ::-webkit-scrollbar,
+.import-memory ::-webkit-scrollbar-corner {
+  background: transparent;
+  height: 12px;
+  width: 12px;
+}
+
+.import-memory ::-webkit-scrollbar-thumb {
+  background: content-box transparent;
+  border: 2px solid transparent;
+  border-radius: var(--im-corner-full);
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.import-memory :hover::-webkit-scrollbar-thumb {
+  background: content-box var(--im-surface-container-highest);
+}
+
+.import-memory ::-webkit-scrollbar-thumb:hover,
+.import-memory ::-webkit-scrollbar-thumb:active {
+  background: content-box var(--im-outline-variant);
+}
+
+.import-memory ::-webkit-scrollbar-button {
+  height: 0;
+  width: 0;
+}
+
+/* ---- type scale ------------------------------------------------------------------- */
+
+/*
+ * Google Sans Flex is a variable font and these are the axis values Gemini actually
+ * renders with, read off each element's computed `font-variation-settings`.
+ *
+ * They are not derivable from `font-weight`, and ignoring them is visible: the body
+ * scale runs at `"wdth" 92` (a narrower cut than the 100 default), and the label scale
+ * asks for `"wght" 370` while its `font-weight` computes 500 — the axis wins for
+ * rendering, so a label styled from `font-weight` alone comes out ~2px wider per short
+ * word. Only the two headings sit at width 100, and each carries its own roundness:
+ * 100 for display-s, 20 for headline-m.
+ */
+.import-memory .gds-display-s,
+.import-memory .gds-headline-m,
+.import-memory .gds-title-m,
+.import-memory .gds-body-l,
+.import-memory .gds-body-m,
+.import-memory .gds-body-s,
+.import-memory .gds-label-l {
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  letter-spacing: normal;
+}
+
+.import-memory .gds-display-s {
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  font-variation-settings: 'ROND' 100, 'slnt' 0, 'wdth' 100, 'wght' 360;
+}
+
+.import-memory .gds-headline-m {
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 380;
+  font-variation-settings: 'ROND' 20, 'slnt' 0, 'wdth' 100, 'wght' 380;
+}
+
+.import-memory .gds-title-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+}
+
+.import-memory .gds-body-l {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+}
+
+.import-memory .gds-body-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+}
+
+.import-memory .gds-body-s {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+}
+
+/* No line-height: the pill supplies `normal`, which is what Gemini's button computes
+   once Material's `.mdc-button { line-height: inherit }` overrides the class. */
+.import-memory .gds-label-l {
+  font-size: 14px;
+  font-weight: 500;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 370;
+}
+
+/* ---- header --------------------------------------------------------------------- */
+
+.import-memory__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-s);
+}
+
+.import-memory__title {
+  margin: 0;
+  color: var(--im-on-surface);
+  text-wrap: pretty;
+}
+
+/* ---- the two numbered steps ------------------------------------------------------ */
+
+.import-memory__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-l);
+}
+
+.import-memory__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-m);
+}
+
+.import-memory__step-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--im-spacing-s);
+}
+
+/* 24px is the icon-xl token, which is what sizes this badge. */
+.import-memory__step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: var(--im-on-surface);
+  background-color: var(--im-surface-container);
+}
+
+.import-memory__section-title {
+  margin: 0;
+  flex: 1;
+  color: var(--im-on-surface);
+}
+
+/* ---- step 1: the prompt card ----------------------------------------------------- */
+
+.import-memory__prompt-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: var(--im-corner-medium);
+  border: 1px solid var(--im-outline-low);
+  padding: var(--im-spacing-m) var(--im-spacing-l);
+  overflow: clip;
+  background-color: var(--im-surface-container);
+  cursor: pointer;
+}
+
+/*
+ * The card is deliberately short — `max-block-size: min(3.375em, 20dvh)` — and the text
+ * scrolls inside it. The bottom 3em fades out via a mask rather than an overlaid gradient,
+ * and `padding-block-end: 3em` is what stops the last line sitting under the fade (and
+ * under the Copy button, which is absolutely positioned over that same strip).
+ */
+.import-memory__prompt-text {
+  color: var(--im-on-surface);
+  /*
+   * content-box, and not incidentally: `max-block-size` caps the CONTENT box, so the 3em
+   * bottom padding sits outside the cap and the card ends up 3.375em + 3em tall
+   * (57.4 + 51 = 108.4 measured). Under a border-box reset the padding is absorbed into
+   * the cap instead and the card collapses to 57px, losing the whole fade strip.
+   */
+  box-sizing: content-box;
+  max-block-size: min(3.375em, 20dvh);
+  overflow-y: auto;
+  white-space: pre-line;
+  padding-block-end: 3em;
+  mask-image: linear-gradient(180deg, #000 calc(100% - 3em), transparent);
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 3em), transparent);
+}
+
+.import-memory__prompt-actions {
+  position: absolute;
+  inset-block-end: var(--im-spacing-m);
+  inset-inline-end: var(--im-spacing-l);
+}
+
+/* ---- step 2: the paste card ------------------------------------------------------ */
+
+.import-memory__paste-card {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  gap: var(--im-spacing-m);
+  border-radius: var(--im-corner-medium);
+  border: 1px solid var(--im-outline-low);
+  padding: var(--im-spacing-m) var(--im-spacing-l);
+}
+
+/*
+ * Focus and "has content" share one appearance: a 2px primary outline. Because the border
+ * grows from 1px to 2px the padding is trimmed by the same pixel, otherwise the card
+ * shifts its contents by 1px the moment it is focused.
+ */
+.import-memory__paste-card:focus-within,
+.import-memory__paste-card.has-content {
+  border: 2px solid var(--im-primary);
+  padding: 11px 15px;
+}
+
+.import-memory__paste-textarea {
+  color: var(--im-on-surface);
+  /* Same reason as the prompt text: min-block-size caps the content box, so the 2px
+     padding is additive (40.4 + 4 = 44.4 measured). */
+  box-sizing: content-box;
+  white-space: pre-line;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 2px;
+  field-sizing: content;
+  min-block-size: min(2.375em, 20dvh);
+  max-block-size: min(10.25em, 40dvh);
+  overflow-y: auto;
+}
+
+.import-memory__paste-textarea::placeholder {
+  color: var(--im-on-surface-variant);
+}
+
+.import-memory__paste-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---- buttons -------------------------------------------------------------------- */
+
+/*
+ * Both card buttons are 40px pills with a 4px block margin, which is what makes their
+ * action rows 48px. The outlined one takes the page surface as its fill so it reads as
+ * lifted off the card it sits on.
+ */
+.import-memory__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  position: relative;
+  gap: var(--im-spacing-s);
+  block-size: 40px;
+  min-width: 64px;
+  margin-block: var(--im-spacing-xs);
+  padding: 0 var(--im-spacing-l);
+  border: none;
+  outline: none;
+  border-radius: var(--im-corner-full);
+  cursor: pointer;
+  user-select: none;
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  /* Material's buttons compute `line-height: normal`; a numeric one shifts the label. */
+  line-height: normal;
+  letter-spacing: normal;
+}
+
+.import-memory__pill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+}
+
+.import-memory__pill:not(:disabled):hover::before {
+  opacity: 0.08;
+}
+
+.import-memory__pill:not(:disabled):active::before {
+  opacity: 0.12;
+}
+
+.import-memory__pill--outlined {
+  border: 1px solid var(--im-outline-low);
+  background-color: var(--im-surface);
+  color: var(--im-on-surface-variant);
+  transition: border 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.import-memory__pill--filled {
+  background-color: var(--im-primary);
+  color: var(--im-on-primary);
+  transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Material's disabled filled button: 12% container, 38% label, both of on-surface. */
+.import-memory__pill--filled:disabled {
+  background-color: rgba(227, 227, 227, 0.12);
+  color: rgba(227, 227, 227, 0.38);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ---- "Import chats" section ------------------------------------------------------ */
+
+.import-memory__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--im-spacing-l);
+}
+
+.import-memory__section-heading {
+  margin: 0;
+  color: var(--im-on-surface);
+}
+
+.import-memory__subtitle {
+  color: var(--im-on-surface-variant);
+  text-wrap: pretty;
+}
+
+/*
+ * The action-bar button is the same filled pill but sized to its content, and its leading
+ * icon carries a -4px inline start margin so the glyph optically aligns with the 16px
+ * padding rather than sitting inside it.
+ */
+/* No flex gap here: this button's spacing comes from the icon's own margins, and keeping
+   both would widen it by 8px (measured 91.9 against Gemini's 82). */
+.import-memory__action-button {
+  width: fit-content;
+  margin-block: 0;
+  gap: 0;
+}
+
+.import-memory__action-icon {
+  margin: 0 var(--im-spacing-s) 0 -4px;
+}
+
+/*
+ * The list of imported records, empty until an import happens. It is rendered even when
+ * empty because Gemini does: a zero-height flex item still consumes the column's 16px gap,
+ * and dropping it makes the section 16px shorter than the original.
+ */
+.import-memory__record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-memory__disclaimer {
+  color: var(--im-on-surface);
+  text-wrap: pretty;
+}
+
+.import-memory__link {
+  color: var(--im-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.import-memory__link:hover {
+  text-decoration: underline;
+}

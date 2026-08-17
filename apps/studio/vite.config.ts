@@ -275,6 +275,9 @@ export default defineConfig(() => {
         { find: "@willow/media", replacement: path.resolve(ROOT, "features/media/src") },
         { find: "@willow/spark", replacement: path.resolve(ROOT, "features/spark/src") },
         { find: "@willow/chat", replacement: path.resolve(ROOT, "features/chat/src") },
+        // Must precede "@willow/code": Vite takes the first match, so the
+        // shorter prefix would otherwise swallow every code-beta import.
+        { find: "@willow/code-beta", replacement: path.resolve(ROOT, "features/code-beta/src") },
         { find: "@willow/code", replacement: path.resolve(ROOT, "features/code/src") },
         { find: "@willow/gems", replacement: path.resolve(ROOT, "features/gems/src") },
         { find: "@willow/notebooks", replacement: path.resolve(ROOT, "features/notebooks/src") },
