@@ -11,10 +11,13 @@ import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { useAutoSave } from './use-auto-save';
 import { workbenchStore } from './runtime/sandpack/index';
 import { getCachedFirstName, cacheFirstName } from '@willow/core/display-name';
+import { deriveFallbackTitle } from '@willow/core/fallback-title';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { EFFORT_LABEL } from './harness/overlay/effort';
+import { setUltraEngaged, ultraEngaged } from './code-beta-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import logoG from '@willow/assets/brand/logo-glyph.png';
@@ -400,14 +403,21 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
   }
 
+  // Code Beta: shared with the workbench composer, which offers the same choice.
+  const isUltra = useStore(ultraEngaged);
+
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
   const activeEffortRecord = activeModel
     ? { ...activeModel, thinkingLevel: currentThinkingLevel }
     : undefined;
-  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
-    ? getThinkingEffortLabel(activeEffortRecord, true)
-    : '';
+  // Ultra is not a numeric level, so it is named here; without this the pill
+  // would keep showing whichever level Ultra was chosen over.
+  const activeEffortDisplayLabel = isUltra
+    ? EFFORT_LABEL.ultra
+    : activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+      ? getThinkingEffortLabel(activeEffortRecord, true)
+      : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
     .join(' ');
@@ -531,10 +541,19 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           const data = await response.json();
           name = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
-        name = name.replace(/^["']|["']$/g, '').trim() || 'New Project';
-        setProjectName(name);
+        // Strip filesystem-illegal characters as well as the quotes: this name
+        // becomes the Code/<name> folder on disk, and ':' and friends make every
+        // folder operation throw "Name is not allowed" on Windows, after which
+        // the project silently never syncs.
+        name = name.replace(/^["']|["']$/g, '').replace(/[\/:*?"<>|]/g, '').trim();
+        // Reaching here empty is common rather than exceptional — only the
+        // Gemini branch above is implemented, so any other configured naming
+        // provider lands here, as does a quota error or a revoked key. The
+        // prompt names the project, and only one too long to read as a label
+        // falls through to 'New Project'.
+        setProjectName(name || deriveFallbackTitle(initialPrompt, 'New Project'));
       } catch {
-        setProjectName('New Project');
+        setProjectName(deriveFallbackTitle(initialPrompt, 'New Project'));
       } finally {
         setIsGeneratingName(false);
       }
@@ -1280,7 +1299,30 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
+                            /*
+                              * Code Beta only: Ultra, offered on every model.
+                              *
+                              * The landing composer carries it as well as the
+                              * workbench's, because the first prompt is usually typed
+                              * here — offering it only after the session had started
+                              * would mean the opening turn could never run at Ultra.
+                              * Both read the same store, so the choice holds across
+                              * the handover.
+                              */
+                            extraEfforts={[
+                              {
+                                id: 'codex-ultra',
+                                label: EFFORT_LABEL.ultra,
+                                badge: 'Sub-agents',
+                                selected: isUltra,
+                                onSelect: () => setUltraEngaged(true),
+                              },
+                            ]}
                             onSelect={(id) => {
+                              // Picking a level clears Ultra: the two are one radio
+                              // group, so leaving it on would keep delegating after
+                              // the user asked for something else.
+                              setUltraEngaged(false);
                               setSelectedModelId(id);
                               const sel = ALL_MODELS.find(m => m.id === id);
                               if (sel) {

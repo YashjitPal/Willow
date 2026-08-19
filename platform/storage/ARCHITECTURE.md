@@ -76,6 +76,7 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `src/media-storage.ts` | `WillowMediaDB` IndexedDB: per-project media item lists + covers. Also owns project-kind helpers (`getMediaProjectIds`, `autoDetectProjectKinds`) and `deleteProjectData`. |
 | `src/indexeddb/willow-db.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
 | `src/local-fs/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
+| `src/local-fs/notebooks-disk.ts` | Every `Notebooks/` directory operation, in the shape of `media-disk.ts`: create a notebook folder with its manifest and two sub-folders, write/delete a source file, rename or delete the folder, and **move one chat file between two directories** (copy before remove). Pure disk — the notebook registry stays localStorage and every function returns a failure value rather than throwing. |
 | `src/synced-folders.ts` | **The registry a feature plugs into.** A feature declares one top-level workspace folder (`Gems/`) plus how an item serializes; nothing here knows which features exist. Top-level sibling of `src/project-contributors.ts`, which covers sub-folders *inside* one project. See [§13](#13-how-to-extend-safely-recipes). |
 | `src/local-fs/folder-sync-engine.ts` | **The one reconcile algorithm**, shared by every registered folder. Pure: no React, no `FileSystemDirectoryHandle`, everything arrives through `FolderSyncPorts` — which is what makes the sync rules unit-testable instead of only reviewable. Owns revisions, tombstones, dirty flushes, conflict copies, and every delete-safety rule. |
 | `src/local-fs/synced-folder-driver.ts` | Adapter binding a registered folder to a real directory handle: supplies the engine with disk I/O, localStorage-backed sync records (`willow_synced_*` keys), and the per-item in-tab + cross-tab lock. |
@@ -99,6 +100,7 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `willow_chat_timestamps:<scope>` | `{ [chatId]: epochMs }` for newest-first sort | LocalFSContext |
 | `willow_chat_sync_state:<scope>` | revisions, disk mtimes, dirty flags, tombstones | LocalFSContext |
 | `willow_pinned_chats:v2:<scope>` | `string[]` of pinned chat ids | Sidebar |
+| `willow_notebooks:v1:<scope>` | the notebook **registry** — metadata, frozen `fsFolder`, sources (text + `fsName`), `chatIds` membership | notebooks-backend |
 | `willow_synced_ids:<folder>:<scope>` | `string[]` of item ids for one registered folder | syncedFolderDriver |
 | `willow_synced_timestamps:<folder>:<scope>` | `{ [itemId]: epochMs }` | syncedFolderDriver |
 | `willow_synced_state:<folder>:<scope>` | revisions, disk mtimes, dirty flags, tombstones (same shape as the chat equivalent) | syncedFolderDriver |
@@ -196,6 +198,15 @@ Mutations:
 - `renameLocalFSProject(oldName, newName)` — renames the disk folder (native `move()` → recursive copy+delete fallback). Keeps disk in lock-step with a UI rename.
 - `renameLocalFSChat(oldChatId, newChatId)` — collision-safe scoped IndexedDB + metadata + disk rename.
 
+Notebooks (all no-ops returning `false`/`null` with no folder connected — the
+notebook registry is localStorage and disk is a mirror):
+- `ensureLocalFSNotebookDir(notebookId)` — creates `Notebooks/<name>/` with its manifest, `Sources/` and `Chats/`, assigning the folder name on first call.
+- `saveLocalFSNotebookSource(notebookId, payload)` — writes into `Sources/`, returns the final `fsName` (collision-suffixed). Record it on the source or the next poll writes a second copy.
+- `deleteLocalFSNotebookSource(notebookId, fsName)`.
+- `renameLocalFSNotebookFolder(notebookId)` — re-derives the name from the current title and moves the folder; returns the new name. Holds `notebookRenameOpsRef` for the duration (invariant 20).
+- `deleteLocalFSNotebookFolder(notebookId)` — **refuses while its `Chats/` still holds files.** Deleting a notebook is a grouping decision, not a decision to delete conversations; unfile them first.
+- `moveLocalFSChatToNotebook(chatId, notebookId | null)` — the filing path: record `notebookId` + `locationDirty`, move the file, re-read its mtime, clear the flag. A failure leaves it dirty for the reconciler (invariant 11).
+
 Reads / refresh:
 - `loadLocalFSChat(chatId)` — IndexedDB first, disk fallback (re-caches).
 - `refreshLocalChats()` — revision-aware reconciliation with dirty retries, external-edit detection, and tombstones.
@@ -245,7 +256,16 @@ both are cited here as escapes so this file stays greppable.)
     │                                 //   userProfile.workspaceName
     │                                 //   || "<FirstName>'s Willow" || "My Willow"
     ├── Chats/
-    │   └── <chatId>.json             // inbox chats (chatId = generated title)
+    │   └── <chatId>.json             // UNFILED chats only (chatId = generated title)
+    ├── Notebooks/
+    │   └── <Notebook title>/         // ensureNotebookFolderName() — sanitized,
+    │       │                         //   de-duped, then FROZEN in Notebook.fsFolder
+    │       ├── .willow.json          // { id } — the notebook's uuid
+    │       ├── Sources/
+    │       │   ├── <upload>.pdf      // original bytes + extension
+    │       │   └── <title>.md        // kind 'text' | 'website' (URL on line 1)
+    │       └── Chats/
+    │           └── <chatId>.json     // this notebook's chats, moved out of Chats/
     ├── Code/
     │   └── <projectName>/
     │       ├── .willow.json          // { id } — the stable project id
@@ -264,12 +284,28 @@ both are cited here as escapes so this file stays greppable.)
         └── <gemId>.json              // gemId = sanitized gem name
 ```
 
-`Chats/`, `Code/` and `Media/` are hand-wired (they predate the registry).
+`Chats/`, `Code/`, `Media/` and `Notebooks/` are hand-wired (they predate the
+registry, or cannot be expressed by it — see [§13](#13-how-to-extend-safely-recipes)).
 `Gems/` is the first folder driven by `registerSyncedFolder`, and is the pattern
-new folders should follow — see [§13](#13-how-to-extend-safely-recipes).
+new folders should follow.
 
 `kind` is decided by which parent the folder is under (`Code/` → code,
 `Media/` → media). A folder present in **both** is treated as `code`.
+
+**A chat file has a location, and it moves.** `Chats/<id>.json` and
+`Notebooks/<name>/Chats/<id>.json` are the same chat in two places, never two
+chats: filing a chat into a notebook *moves* the file, and unfiling moves it back.
+`ChatSyncRecord.notebookId` (`''` = the global folder) records where it belongs and
+`locationDirty` records that disk has not caught up yet. Everything that opens a
+chat directory goes through `resolveChatDir`, and the reconciler scans the global
+folder plus every notebook's as **one** logical set — see invariants 18-20.
+
+The notebook's `.willow.json` is written by the same generic `writeProjectManifest`
+the project folders use, and means the same thing: the folder name is a display
+convenience, the id inside is the identity (invariant 6). A folder whose manifest
+names a *different* notebook is refused rather than written into, since a
+hand-renamed folder that collides with a derived name would otherwise collect
+another notebook's sources and chats.
 
 ---
 
@@ -486,6 +522,44 @@ Chats use React state (`localChats` from context) directly — no event needed.
     `localChatsRef.current` wholesale, so overlapping iterations can drop a
     concurrent `push` and lose a chat. Keep it a plain sequential `await` loop.
     Pinned by `apps/studio/test/chat-reconcile-race.test.mjs`.
+18. **A chat is only "externally deleted" once it is absent from EVERY scanned
+    folder.** A chat file lives in `Chats/` **or** in a notebook's `Chats/`, and it
+    moves between them, so "not in the directory I expected" is not evidence of a
+    deletion — it is the normal state during a filing, and it is what a user
+    dragging the file in Explorer produces. The re-probe must sweep every folder
+    the pass enumerated, and a probe that fails for any reason other than
+    `NotFoundError` abandons the decision (this is invariant 5 applied per chat).
+    Two further absences are **not** deletions either: a chat whose notebook folder
+    could not be opened this pass, and one whose notebook the registry can no
+    longer name — unaccounted for is not gone. A `locationDirty` chat earns the
+    same protection `dirty` does, since a pending move means its whereabouts are
+    unknown by construction; flush the cached body to the *wanted* folder instead.
+19. **Location settles before content, and `locationDirty` decides who wins.**
+    When the folder a chat's file was found in disagrees with its record:
+    `locationDirty` means the app has an intent disk has not caught up with →
+    **complete the move** and clear the flag, never revert the registry. Clean
+    means nothing in the app asked → **adopt** the location the file is in and file
+    the chat there (invariant 3, the same way a project's folder wins over its
+    registry name). This single tie-break is what stops a file ping-ponging
+    between two folders on every poll. The move must re-resolve the file handle
+    **and** re-read its mtime afterwards: a copy-then-delete move strands the old
+    handle and produces a new timestamp, and without the re-read every later poll
+    reads the move as an external edit (invariant 7). Content is reconciled after
+    location, or the write lands in the folder the file is leaving.
+20. **A notebook rename suppresses the external-delete pass.** Same hazard as
+    invariant 13 and the same 800 ms settle window, one layer down: renaming a
+    notebook folder is a recursive copy followed by a recursive delete, so for its
+    duration every chat inside is in two places or in neither. Without the
+    `notebookRenameOpsRef` guard — checked **before** the loop, not inside it — that
+    window reads as a mass external delete and tombstones every chat in the
+    notebook. The backfill stands down for the same window, or it writes sources
+    into the copy that is about to be deleted.
+
+Invariants 18-20 are pinned by
+[`notebook-chat-location.test.mjs`](../../apps/studio/test/notebook-chat-location.test.mjs)
+(29 cases: a model of the tie-break that must settle in one poll, the delete
+pass's four abstentions, the folder-name rules read out of the shipped source, and
+source assertions on the ordering each rule depends on).
 
 ---
 
@@ -605,8 +679,17 @@ the registry contract). If you change the engine, those are the gate.
 
 Chats, Code and Media predate the registry and keep bespoke paths, because they
 carry extra behaviour the descriptor model does not express (project manifests,
-per-project sub-folders, blob-URL lifecycles, cover extraction). If you are
-genuinely in that territory:
+per-project sub-folders, blob-URL lifecycles, cover extraction).
+
+**Notebooks are the newest example, and were checked against the registry first.**
+Three things rule it out, each of them structural rather than a matter of effort:
+`SyncedFolderDescriptor.folder` is one path segment directly under the workspace
+root, so `Notebooks/<name>/Sources` cannot be named at all; `SyncedItem.contents`
+is `string`, and a notebook's sources are uploads with original bytes; and a
+notebook holds **chats that also exist under another owner** — `Chats/` — so its
+items move between folders rather than belonging to one. Hence
+`notebooks-disk.ts` alongside `media-disk.ts`, with the location rules as
+invariants 18-20 instead. If you are genuinely in that territory:
 - Write a `refreshX()` that diffs disk vs state, is **change-only**, and is
   **delete-safe** (scan-failure → no deletes; a grace guard if it can race with
   saves). Call it from `pollDiskNow`. Never delete without an `onDisk`-style gate.

@@ -15,7 +15,6 @@ import {
   Badge,
   Collapsible,
   ShimmerText,
-  Spinner,
   StatusIcon,
   cn,
   formatDuration,
@@ -78,8 +77,6 @@ function AgentChip({ agent }: { agent: SubAgent }) {
 
   const meta = AGENT_META[agent.kind];
   const running = agent.status === 'running';
-  const elapsed = useElapsed(agent.startedAt, running);
-  const duration = agent.endedAt ? agent.endedAt - agent.startedAt : elapsed;
 
   return (
     <motion.button
@@ -90,64 +87,45 @@ function AgentChip({ agent }: { agent: SubAgent }) {
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => focusAgent(focused ? null : agent.id)}
       aria-pressed={focused}
+      /*
+       * A row, not a card. Sub-agents sit in the same stream as the tool calls
+       * and read as more of the same work, so they carry the same weight: no
+       * panel, no progress bar, no ring, no timer. The activity line shimmers
+       * while it runs, which is the whole of the status.
+       */
       className={cn(
-        'group/chip relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg border px-2.5 py-2 text-left',
-        'transition-[border-color,background-color] duration-200',
-        focused
-          ? 'border-[hsl(var(--cb-accent)/0.45)] bg-[hsl(var(--cb-accent-soft)/0.4)]'
-          : running
-            ? 'border-[hsl(var(--cb-accent)/0.25)] bg-[hsl(var(--cb-surface))] hover:border-[hsl(var(--cb-accent)/0.4)]'
-            : 'border-[hsl(var(--cb-line))] bg-[hsl(var(--cb-surface))] hover:border-[hsl(var(--cb-line-strong))]',
+        'group/chip flex w-full items-baseline gap-2 py-0.5 text-left',
+        focused && 'text-[hsl(var(--cb-ink))]',
       )}
     >
-      {/* Progress reads along the bottom edge so it never competes with text. */}
-      <span aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-[hsl(var(--cb-line-subtle))]">
-        <span
-          className={cn(
-            'block h-full origin-left transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
-            agent.status === 'error' ? 'bg-[hsl(var(--cb-negative))]' : 'bg-[hsl(var(--cb-accent))]',
-          )}
-          style={{ transform: `scaleX(${agent.progress})` }}
-        />
+      {/* Matches the tool rows' chevron column so the two align. */}
+      <span className="flex w-3 shrink-0 justify-center" />
+
+      <span className="shrink-0 self-center text-[hsl(var(--cb-ink-faint))]">
+        <meta.icon size={13} strokeWidth={1.9} />
       </span>
 
-      <span className={cn('relative flex size-7 shrink-0 items-center justify-center rounded-md', meta.wash)}>
-        <meta.icon size={14} strokeWidth={1.9} className={meta.tint} />
-        {running && (
-          <Spinner
-            size={26}
-            strokeWidth={1.25}
-            progress={agent.progress > 0.02 ? agent.progress : undefined}
-            className={cn('absolute inset-0 m-auto', meta.tint)}
-          />
+      <span className="shrink-0 text-xs font-medium text-[hsl(var(--cb-ink-muted))]">
+        {meta.label}
+      </span>
+
+      <span className="min-w-0 flex-1 truncate text-xs text-[hsl(var(--cb-ink))]">
+        {agent.name}
+      </span>
+
+      <span className="min-w-0 shrink truncate text-[11px]">
+        {running && agent.activity ? (
+          <ShimmerText>{agent.activity}</ShimmerText>
+        ) : (
+          <span className="text-[hsl(var(--cb-ink-ghost))]">{agent.result ?? agent.objective}</span>
         )}
       </span>
 
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-baseline gap-1.5">
-          <span className="truncate text-xs font-medium text-[hsl(var(--cb-ink))]">{agent.name}</span>
-          <span className="shrink-0 text-[11px] text-[hsl(var(--cb-ink-ghost))]">{meta.label}</span>
-        </span>
-        <span className="block min-w-0 truncate text-[11px]">
-          {running && agent.activity ? (
-            <ShimmerText>{agent.activity}</ShimmerText>
-          ) : (
-            <span className="text-[hsl(var(--cb-ink-faint))]">{agent.result ?? agent.objective}</span>
-          )}
-        </span>
-      </span>
-
-      <span className="flex shrink-0 items-center gap-1.5">
-        <span className="cb-tabular text-[11px] text-[hsl(var(--cb-ink-ghost))]">
-          {running ? formatTimer(elapsed) : formatDuration(duration)}
-        </span>
-        <StatusIcon status={agent.status} size={13} />
-        <ArrowUpRight
-          size={12}
-          aria-hidden
-          className="text-[hsl(var(--cb-ink-ghost))] opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100"
-        />
-      </span>
+      <ArrowUpRight
+        size={12}
+        aria-hidden
+        className="shrink-0 self-center text-[hsl(var(--cb-ink-ghost))] opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100"
+      />
     </motion.button>
   );
 }
@@ -162,23 +140,23 @@ export function AgentGroup({ agentIds }: { agentIds: string[] }) {
   const done = group.filter((agent) => agent.status === 'success').length;
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 px-0.5">
-        <span className="text-[11px] font-medium text-[hsl(var(--cb-ink-faint))]">
+    <div>
+      {/* One quiet label, then the rows. The rule and the counter that used to
+          bracket this made a section header out of what is a few lines. */}
+      <div className="flex w-full items-baseline gap-2 py-0.5">
+        <span className="flex w-3 shrink-0 justify-center" />
+        <span className="text-xs font-medium text-[hsl(var(--cb-ink-muted))]">
           {running > 0
             ? `${running} sub-${running === 1 ? 'agent' : 'agents'} running`
             : `${group.length} sub-${group.length === 1 ? 'agent' : 'agents'}`}
         </span>
-        <span className="h-px flex-1 bg-[hsl(var(--cb-line-subtle))]" />
         <span className="cb-tabular text-[11px] text-[hsl(var(--cb-ink-ghost))]">
           {done}/{group.length}
         </span>
       </div>
-      <div className="space-y-1.5">
-        {group.map((agent) => (
-          <AgentChip key={agent.id} agent={agent} />
-        ))}
-      </div>
+      {group.map((agent) => (
+        <AgentChip key={agent.id} agent={agent} />
+      ))}
     </div>
   );
 }

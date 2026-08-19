@@ -57,8 +57,6 @@ export function ComputerUseCard({ call }: { call: ComputerUseCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       // Always open: the screenshot is the result, and a collapsed header says
       // nothing useful about what the agent saw.
@@ -83,7 +81,7 @@ export function ComputerUseCard({ call }: { call: ComputerUseCall }) {
         ) : null
       }
       body={
-        <div className="border-t border-[hsl(var(--cb-line-subtle))] bg-[hsl(var(--cb-sunken))]">
+        <div className="bg-[hsl(var(--cb-sunken))]">
           {call.limited && (
             <p
               className={cn(
@@ -111,7 +109,7 @@ export function ComputerUseCard({ call }: { call: ComputerUseCall }) {
           {call.result && (
             <p
               className={cn(
-                'border-t border-[hsl(var(--cb-line-subtle))] px-3 py-2 text-xs leading-relaxed',
+                'px-3 py-2 text-xs leading-relaxed',
                 call.status === 'error'
                   ? 'text-[hsl(var(--cb-negative))]'
                   : 'text-[hsl(var(--cb-ink-muted))]',

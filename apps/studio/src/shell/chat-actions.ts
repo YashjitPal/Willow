@@ -2,19 +2,19 @@
  * Chat actions that more than one surface raises, and the one storage key they
  * all agree on.
  *
- * Two surfaces now offer Pin / Rename / Delete for a chat: the Recents row's
- * three-dot menu, and Gemini's top-right conversation-actions menu. Only the
- * sidebar implements them. It owns the scope-guarded pin list, the rename
- * sanitizer and dup-check, the pin carry across a rename, and the Code-mode and
- * scanned-chat id maps — so the second surface asks rather than reimplements,
- * and there is still exactly one writer.
+ * Two surfaces now offer Pin / Rename / Delete / Add to notebook for a chat: the
+ * Recents row's three-dot menu, and Gemini's top-right conversation-actions menu.
+ * Only the sidebar implements them. It owns the scope-guarded pin list, the rename
+ * sanitizer and dup-check, the pin carry across a rename, the Code-mode and
+ * scanned-chat id maps, and the notebook picker — so the second surface asks rather
+ * than reimplements, and there is still exactly one writer.
  *
  * A window event rather than context because the two surfaces sit in different
  * subtrees of StudioLayout, and this matches the `willow_disk_changed` pattern
  * already used across the shell.
  */
 
-export type ChatActionName = 'pin' | 'rename' | 'delete';
+export type ChatActionName = 'pin' | 'rename' | 'delete' | 'notebook';
 
 export interface ChatActionIntent {
   action: ChatActionName;

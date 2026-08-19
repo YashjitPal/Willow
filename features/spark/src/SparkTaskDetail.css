@@ -7,15 +7,61 @@
   --spark-base-surface: var(--studio-surface, #0f0f0f);
   --spark-raised-surface: #1f1f1f;
   --spark-panel-surface: #1f1f1f;
+  /* Blue's formula-derived glow. The component overrides this with the active
+   * workspace colour's `getWorkspaceTheme(...).glowAccent`. */
+  --spark-task-detail-accent: #14204f;
+  position: relative;
+  isolation: isolate;
   display: flex;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--spark-base-surface);
+  /* Gemini's remy-viewer and split-pane-container are transparent. Keeping an
+   * opaque fill here covers the new-composer's negative-z glow completely. */
+  background: transparent;
   color: #e3e3e3;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   letter-spacing: 0;
+}
+
+/* Gemini's task viewer carries a second, wider glow on the split root. The home-page
+ * composer glow is intentionally smaller; this layer is what lets the task-detail
+ * glow continue past the library and into the space before the right-hand panel. */
+.spark-task-detail::before {
+  position: absolute;
+  top: 100px;
+  left: 15%;
+  z-index: 0;
+  width: 100%;
+  max-width: 792px;
+  height: 50%;
+  max-height: 300px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    ellipse 2140% 120% at center 14%,
+    var(--spark-task-detail-accent) 0,
+    var(--spark-base-surface) 50%
+  );
+  content: "";
+  filter: blur(200px);
+  pointer-events: none;
+  opacity: 0.7;
+  transform: translateX(-50%);
+  animation: spark-task-detail-background-grow 0.6s cubic-bezier(0.2, 0, 0, 1) both;
+  transition: opacity 3s ease;
+}
+
+@keyframes spark-task-detail-background-grow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -45%) scale(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -45%) scale(1);
+  }
 }
 
 @supports (background: color-mix(in srgb, black, white)) {
@@ -38,61 +84,69 @@
 
 .spark-task-detail__library {
   position: relative;
-  width: 41.5%;
+  width: auto;
   min-width: 430px;
   max-width: 740px;
   height: 100%;
   min-height: 0;
   flex: 0 1 41.5%;
   padding-left: 8px;
-  overflow: hidden;
-  background: var(--spark-base-surface);
+  overflow: visible;
+  /* Gemini leaves the split-view library transparent so the root glow can show
+   * through the gap between the composer and the task rows. */
+  background: transparent;
+  --spark-library-opacity-duration: 200ms;
+  will-change: flex, opacity;
   transition:
-    width 220ms cubic-bezier(0.2, 0, 0, 1),
-    min-width 220ms cubic-bezier(0.2, 0, 0, 1),
-    flex-basis 220ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 140ms ease;
+    flex 450ms cubic-bezier(0.2, 0, 0, 1),
+    min-width 450ms cubic-bezier(0.2, 0, 0, 1),
+    padding-left 450ms cubic-bezier(0.2, 0, 0, 1),
+    opacity var(--spark-library-opacity-duration) linear,
+    visibility 450ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .spark-task-detail.is-library-collapsed .spark-task-detail__library {
-  width: 0;
+  --spark-library-opacity-duration: 150ms;
+  width: auto;
   min-width: 0;
-  max-width: 0;
-  flex-basis: 0;
+  flex: 0 0 0%;
   padding-left: 0;
   opacity: 0;
+  visibility: hidden;
+  overflow: hidden;
   pointer-events: none;
 }
 
 .spark-task-detail__library-inner {
   position: relative;
-  z-index: 1;
+  display: flex;
   width: 100%;
   max-width: 660px;
   height: 100%;
+  min-height: 0;
+  flex-direction: column;
   margin: 0 auto;
   padding: 56px 0 32px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 
-.spark-task-detail__library-inner:hover {
+.spark-task-detail__recent-list:hover {
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
-.spark-task-detail__library-inner::-webkit-scrollbar,
+.spark-task-detail__recent-list::-webkit-scrollbar,
 .spark-task-detail__conversation-scroll::-webkit-scrollbar {
   width: 12px;
 }
 
-.spark-task-detail__library-inner::-webkit-scrollbar-track,
+.spark-task-detail__recent-list::-webkit-scrollbar-track,
 .spark-task-detail__conversation-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.spark-task-detail__library-inner::-webkit-scrollbar-thumb,
+.spark-task-detail__recent-list::-webkit-scrollbar-thumb,
 .spark-task-detail__conversation-scroll::-webkit-scrollbar-thumb {
   border: 4px solid transparent;
   border-radius: 9999px;
@@ -100,22 +154,26 @@
   background-clip: padding-box;
 }
 
-.spark-task-detail__library-inner:hover::-webkit-scrollbar-thumb,
+.spark-task-detail__recent-list:hover::-webkit-scrollbar-thumb,
 .spark-task-detail__conversation-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.22);
 }
 
-.spark-task-detail__new-composer,
+/* Both detail composers are Chat's `InputBar` now, so these wrappers carry placement only —
+ * the surface, corners and elevation belong to `Composer.tsx`. */
+.spark-task-detail__new-composer {
+  position: relative;
+}
+
+/* Keep the left composer's overlays above the task-list divider (z-index: 28). */
+.spark-task-detail__new-composer .spark-composer-host > div {
+  z-index: 30;
+}
+
+/* The follow-up box is Chat's `InputBar` now, so this is only its placement — the surface,
+ * corners and elevation all belong to `Composer.tsx`. */
 .spark-task-detail__followup-composer {
   position: relative;
-  display: flex;
-  width: 100%;
-  min-height: 65.6px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 12px 16px;
-  border-radius: 32px;
-  background: #1e1f20;
 }
 
 /*
@@ -126,57 +184,37 @@
 .spark-task-detail__new-composer {
   width: min(660px, calc(100% - 88px));
   margin: -6px auto 0;
-  isolation: isolate;
 }
 
 .spark-task-detail__new-composer::before {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
   z-index: -1;
-  width: 792px;
+  width: 800px;
   height: 160px;
+  max-width: 792px;
   border-radius: 9999px;
-  background: rgb(20, 32, 79);
+  background: var(--spark-task-detail-accent);
   content: "";
-  filter: blur(100px);
+  filter: blur(38px);
   pointer-events: none;
-  transform: translate(-50%, -72px);
+  transform: translate(-50%, -50%);
+  animation: spark-task-detail-glow-reveal 0.6s cubic-bezier(0.05, 0.7, 0.1, 1) both;
 }
 
-.spark-task-detail__new-composer textarea,
-.spark-task-detail__followup-composer textarea {
-  width: auto;
-  min-width: 0;
-  height: 24px;
-  min-height: 24px;
-  max-height: 144px;
-  margin: 0 12px 4px 8px;
-  flex: 1 1 120px;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  outline: 0;
-  resize: none;
-  background: transparent;
-  color: #e3e3e3;
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 24px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
+@keyframes spark-task-detail-glow-reveal {
+  0% {
+    width: 200px;
+    height: 40px;
+    opacity: 0;
+  }
 
-.spark-task-detail__new-composer textarea::placeholder,
-.spark-task-detail__followup-composer textarea::placeholder {
-  color: #bdc1c6;
-  opacity: 1;
-}
-
-.spark-task-detail__new-composer textarea.is-dictating,
-.spark-task-detail__followup-composer textarea.is-dictating {
-  opacity: 0;
-  pointer-events: none;
+  100% {
+    width: 600px;
+    height: 100px;
+    opacity: 1;
+  }
 }
 
 .spark-task-detail__context-chips {
@@ -344,6 +382,10 @@
 
 .spark-task-detail__recent {
   position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
   margin-top: 26px;
 }
 
@@ -360,26 +402,33 @@
  * on the processing trigger. Without it this renders at the inherited 16px/24px. */
 .spark-task-detail .spark-task-detail__filter-button {
   display: inline-flex;
+  width: auto;
   height: 32px;
+  align-self: flex-start;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   /* -8px, not the -16px Gemini's own rule uses: its trigger sits inside a
    * `.section-header` that already carries 8px of inline padding, which Willow's
    * markup does not have. Measured target is dx 0 against the pane's left edge. */
-  margin: 0 0 0 -8px;
-  padding: 0 8px;
+  margin: 0;
+  padding: 0 16px;
   border: 0;
   border-radius: 9999px;
   background: transparent;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 540;
   line-height: 20px;
   cursor: pointer;
 }
 
 .spark-task-detail__filter-button:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* Gemini's nested gds title line paints at 18.4px inside the 32px trigger. */
+.spark-task-detail__filter-button > span:first-child {
+  line-height: 18.4px;
 }
 
 .spark-task-detail__filter-menu {
@@ -428,9 +477,15 @@
 
 .spark-task-detail__recent-list {
   display: flex;
+  min-height: 0;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 4px;
   padding: 16px 8px 16px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 
 /* Same surface as Gemini's `.goal-card`: half-alpha `--lumi-sys-color--surface` at
@@ -490,8 +545,10 @@
   overflow: hidden;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 600;
+  /* Read tasks use the normal body treatment. Unread completed tasks opt into emphasis below. */
+  font-weight: 400;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -655,75 +712,76 @@
 }
 
 .spark-task-detail__library-divider {
-  position: relative;
-  z-index: 28;
-  width: 1px;
-  height: 100%;
-  flex: 0 0 1px;
-}
-
-.spark-task-detail__library-divider::before,
-.spark-task-detail__library-divider::after {
   position: absolute;
-  content: "";
-}
-
-.spark-task-detail__library-divider::before {
-  top: 16px;
-  bottom: 16px;
-  left: 0;
-  width: 1px;
-  background: transparent;
-  transition: background-color 140ms ease;
-}
-
-.spark-task-detail__library-divider::after {
   top: 0;
-  bottom: 0;
-  left: -10px;
-  width: 21px;
-}
-
-.spark-task-detail__library-divider:hover::before,
-.spark-task-detail__library-divider:focus-within::before {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/*
- * Gemini's `.split-pane-button`: a bare 6×52 pill in #171717
- * (--lumi-sys-color--surface-dim), fully rounded, vertically centred in a 28px
- * wrapper — no border, no shadow, no glyph, and always visible rather than
- * hover-revealed. Measured 6×52 at 677,387 against an 808px-tall pane.
- *
- * The glyph inside is hidden rather than removed from the markup so the button
- * keeps its accessible name.
- */
-.spark-task-detail__library-divider button {
-  position: absolute;
-  top: 50%;
   left: 0;
-  z-index: 2;
+  z-index: 28;
+  display: flex;
+  width: 28px;
+  height: calc(100% - 16px);
+  align-items: center;
+  justify-content: flex-start;
+  margin: 8px 0;
+  overflow: visible;
+  cursor: w-resize;
+  transition: left 450ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-task-detail.is-library-collapsed .spark-task-detail__library-divider {
+  left: 8px;
+  cursor: e-resize;
+}
+
+.spark-task-detail__library-divider button {
   display: inline-flex;
   width: 6px;
   height: 52px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
+  margin-left: 8px;
   padding: 0;
   border: 0;
   border-radius: 9999px;
   background: #171717;
-  color: #d3d6d4;
-  cursor: pointer;
-  transform: translate(-50%, -50%);
-  transition: background-color 120ms ease;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: default;
+  overflow: hidden;
+  transition: width 200ms ease-in-out;
 }
 
 .spark-task-detail__library-divider button > * {
-  display: none;
+  display: flex;
+  flex: 0 0 16px;
+  opacity: 0;
+  transition: opacity 200ms ease-in-out;
 }
 
-.spark-task-detail__library-divider button:hover {
-  background: #292929;
+.spark-task-detail__library-divider:hover button,
+.spark-task-detail__library-divider:has(button:focus-visible) button {
+  width: 16px;
+  cursor: pointer;
+}
+
+.spark-task-detail__library-divider:hover button > *,
+.spark-task-detail__library-divider:has(button:focus-visible) button > * {
+  opacity: 1;
+}
+
+.spark-task-detail__library-divider button:focus-visible {
+  outline: 2px solid var(--lumi-sys-color--on-surface, #e3e3e3);
+  outline-offset: 2px;
+}
+
+.spark-task-detail__task-row.is-unread .spark-task-detail__task-title {
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+}
+
+/* Opening wins immediately, including during hydration before the read flag is persisted. */
+.spark-task-detail__task-row.is-selected .spark-task-detail__task-title {
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
 }
 
 /*
@@ -732,13 +790,26 @@
  * against an 868px pane — roughly a 1:2 split — so the flex ratios below are 1 and 2.
  */
 .spark-task-detail__workspace {
+  position: relative;
   display: flex;
   min-width: 0;
   height: 100%;
   min-height: 0;
-  flex: 1 1 auto;
-  gap: 8px;
+  flex: 1 1 58.5%;
+  gap: 0;
+  overflow: hidden;
   padding: 8px 8px 8px 0;
+  will-change: flex;
+  transition:
+    flex 450ms cubic-bezier(0.2, 0, 0, 1),
+    gap 450ms cubic-bezier(0.2, 0, 0, 1),
+    padding-left 450ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-task-detail.is-library-collapsed .spark-task-detail__workspace {
+  flex: 0 0 100%;
+  gap: 8px;
+  padding-left: 8px;
 }
 
 .spark-task-detail__panel {
@@ -753,6 +824,150 @@
   border: 1px solid #171717;
   border-radius: 28px;
   background: var(--spark-panel-surface);
+}
+
+/* Gemini mounts the plan panel as a sibling of the chat pane and transitions its
+ * flex basis from zero to 18.75rem. The discrete display transition removes the
+ * otherwise-empty flex gap after the close animation finishes. */
+.spark-task-detail__progress-panel {
+  position: relative;
+  display: flex;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex: 0 0 0%;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: flex, opacity;
+  transition:
+    flex 450ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 450ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 450ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-task-detail__progress-panel.is-open {
+  flex: 0 0 300px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+@starting-style {
+  .spark-task-detail__progress-panel.is-open {
+    flex: 0 0 0%;
+    opacity: 0;
+  }
+}
+
+.spark-task-detail__progress-panel-scroll {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: rgba(196, 199, 197, 0.4) transparent;
+  scrollbar-width: thin;
+}
+
+.spark-task-detail__progress-panel-section {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.spark-task-detail .spark-task-detail__progress-panel-header {
+  display: flex;
+  width: 100%;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 0;
+  border: 0;
+  background: transparent;
+  color: #e6e6e6;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.spark-task-detail__progress-panel-header.is-empty {
+  cursor: default;
+}
+
+.spark-task-detail__progress-panel-header.is-static {
+  cursor: default;
+}
+
+.spark-task-detail__progress-panel-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.spark-task-detail__progress-panel-title {
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.spark-task-detail__progress-panel-chevron {
+  flex: 0 0 24px;
+  color: rgba(255, 255, 255, 0.55);
+  opacity: 0;
+}
+
+.spark-task-detail__progress-panel-header:hover .spark-task-detail__progress-panel-chevron,
+.spark-task-detail__progress-panel-header:focus-visible .spark-task-detail__progress-panel-chevron {
+  opacity: 1;
+}
+
+.spark-task-detail__progress-panel-content {
+  padding: 8px 16px;
+}
+
+.spark-task-detail__progress-panel-summary {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  text-align: center;
+}
+
+.spark-task-detail__progress-panel-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spark-task-detail__progress-panel-file,
+.spark-task-detail__progress-panel-capability {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-task-detail__progress-panel-file > span,
+.spark-task-detail__progress-panel-capability > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Same surface and corners as the chat pane, at twice its width. */
@@ -778,7 +993,7 @@
 
 @media (max-width: 980px) {
   /* Too narrow for two panes: stack them and let the workspace scroll. */
-  .spark-task-detail__workspace {
+  .spark-task-detail.has-computer-use:not(.is-progress-open) .spark-task-detail__workspace {
     flex-direction: column;
   }
 
@@ -859,10 +1074,38 @@
 /*
  * Gemini's equivalent is `.remy-plan-pill`: 76×22.7, `background: #171717`
  * (--lumi-sys-color--surface-dim), fully rounded, `padding: 4px 12px`, label
- * gds-body-s 13px/#e6e6e6. Willow's keeps its status glyph and chevron because they
- * open the progress popover, which Gemini's pill does not do — hence 24px rather
- * than 22.7px, so three children still fit without clipping.
+ * gds-body-s 13px/#e6e6e6. Its wrapper also uses Gemini's measured 300ms
+ * opacity-and-scale transition when the right-side progress panel opens.
  */
+.spark-task-detail__status-pill-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  opacity: 1;
+  scale: 1;
+  transition: opacity 300ms ease, scale 300ms ease, display 300ms allow-discrete;
+}
+
+@media (max-width: 720px) {
+  .spark-task-detail__progress-popover {
+    right: 8px;
+    width: min(300px, calc(100% - 16px));
+  }
+}
+
+@starting-style {
+  .spark-task-detail__status-pill-wrapper {
+    opacity: 0;
+    scale: 0.9;
+  }
+}
+
+.spark-task-detail__status-pill-wrapper.is-hidden {
+  display: none;
+  opacity: 0;
+  scale: 0.9;
+}
+
 /* Two classes, to clear the `font: inherit` button reset — this had been rendering at
  * 16px/24px rather than the 13px/17px it asks for. */
 .spark-task-detail .spark-task-detail__status-pill {
@@ -888,36 +1131,31 @@
   color: #c4c7c5;
 }
 
-.spark-task-detail__status-pill:hover,
+.spark-task-detail__status-pill:hover {
+  background: #232323;
+}
+
 .spark-task-detail__status-pill.is-open {
   background: #232323;
 }
 
-.spark-task-detail__progress-popover,
-.spark-task-detail__task-menu {
-  position: absolute;
-  top: 48px;
-  right: 12px;
-  z-index: 20;
-  border: 0;
-  background: #1f1f1f;
-  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
-  animation: spark-task-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
-  transform-origin: 100% 0;
-}
-
 .spark-task-detail__progress-popover {
+  position: absolute;
   top: 43px;
   right: 60px;
-  width: 304px;
+  z-index: 20;
+  width: 300px;
   height: auto;
-  max-height: min(404px, calc(100% - 55px));
+  max-height: calc(100dvh - 7.5rem);
   padding: 20px 16px 16px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 0;
   border-radius: 28px;
   background: #101010;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  animation: spark-task-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: 100% 0;
   overscroll-behavior: contain;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   scrollbar-width: thin;
@@ -945,19 +1183,7 @@
   line-height: 17px;
 }
 
-.spark-task-detail__status-symbol.is-running {
-  animation: spark-task-progress-spin 1.5s linear infinite;
-}
-
-.spark-task-detail__menu-divider {
-  height: 1px;
-  margin: 6px 8px;
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.spark-task-detail__popover-group {
-  margin-top: 12px;
-}
+.spark-task-detail__popover-group { margin-top: 12px; }
 
 .spark-task-detail__popover-group h2 {
   height: 24px;
@@ -968,81 +1194,7 @@
   line-height: 24px;
 }
 
-.spark-task-detail__popover-schedule {
-  display: flex;
-  height: 48px;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 0 8px;
-}
-
-.spark-task-detail__popover-schedule-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-}
-
-.spark-task-detail__popover-schedule-copy strong {
-  overflow: hidden;
-  color: #e6e6e6;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-task-detail__popover-schedule-copy > span {
-  overflow: hidden;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
-  line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-task-detail__popover-toggle {
-  position: relative;
-  display: inline-flex;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 36px;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 3px;
-  border: 0;
-  border-radius: 10px;
-  background: #a8c7fa;
-  cursor: pointer;
-}
-
-.spark-task-detail__popover-toggle > span {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #062e6f;
-}
-
-.spark-task-detail__popover-toggle.is-off {
-  justify-content: flex-start;
-  border: 1px solid #8e918f;
-  background: transparent;
-}
-
-.spark-task-detail__popover-toggle.is-off > span {
-  background: #c4c7c5;
-}
-
-.spark-task-detail__popover-toggle:disabled {
-  cursor: default;
-  opacity: 0.72;
-}
-
-.spark-task-detail__popover-files {
-  margin-top: 24px;
-}
+.spark-task-detail__popover-files { margin-top: 24px; }
 
 .spark-task-detail__popover-file-list {
   display: grid;
@@ -1067,13 +1219,8 @@
   white-space: nowrap;
 }
 
-.spark-task-detail__popover-capabilities {
-  margin-top: 23px;
-}
-
-.spark-task-detail__popover-capabilities > h2 {
-  margin-bottom: 8px;
-}
+.spark-task-detail__popover-capabilities { margin-top: 23px; }
+.spark-task-detail__popover-capabilities > h2 { margin-bottom: 8px; }
 
 .spark-task-detail__popover-capability {
   display: flex;
@@ -1087,16 +1234,31 @@
   line-height: 20px;
 }
 
+.spark-task-detail__status-symbol.is-running {
+  animation: spark-task-progress-spin 1.5s linear infinite;
+}
+
+.spark-task-detail__menu-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.spark-task-detail__task-menu {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 20;
+  border: 0;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  animation: spark-task-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: 100% 0;
+}
+
 .spark-task-detail__capability-icon {
   flex: 0 0 24px;
   overflow: visible !important;
-}
-
-.spark-task-detail__popover-empty {
-  margin: 8px 0 0;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 13px;
-  line-height: 17px;
 }
 
 .spark-task-detail__task-menu {
@@ -2013,7 +2175,7 @@
   bottom: 0;
   left: 0;
   z-index: 6;
-  padding: 28px 24px 30px;
+  padding: 27.4px 24px 16px;
   background: linear-gradient(
     to bottom,
     transparent 0,
@@ -2023,32 +2185,68 @@
 }
 
 /*
- * Gemini's composer sits at #1e1f20 on a #1f1f1f panel — nearly the same colour —
- * so what separates them is the level1 elevation on the composer itself
- * (`input-box-shadow`: 0 0 20px 0 rgba(0,0,0,.28)), not a lighter surface. Willow's
- * old `0 1px 2px rgba(0,0,0,.12)` was too tight to read at all, which left the
- * composer looking like it had no boundary.
+ * Gemini's composer sits at #1e1f20 on a #1f1f1f panel — nearly the same colour — so what
+ * separates them is the level1 elevation on the composer itself
+ * (`input-box-shadow`: 0 0 20px 0 rgba(0,0,0,.28)), not a lighter surface.
+ *
+ * Chat's composer carries a much tighter `0 2px 8px -2px rgba(0,0,0,.16)`, which is right
+ * against the page background it normally sits on but vanishes against this panel. So the
+ * elevation is raised here, on the box rather than the wrapper — the wrapper is square and
+ * a shadow on it would trace corners the composer does not have.
  */
 .spark-task-detail__followup-composer {
+  z-index: 1;
   max-width: 632px;
   margin: 0 auto;
-  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
   transform: translateX(12px);
 }
 
-.spark-task-detail__followup-composer.has-error + .spark-task-detail__disclaimer {
-  margin-top: 38px;
+.spark-task-detail__new-composer .willow-gemini-composer,
+.spark-task-detail__followup-composer .willow-gemini-composer {
+  min-height: 65.6px;
+}
+
+.spark-task-detail__new-composer .willow-gemini-composer {
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+}
+
+/* Gemini's Spark `input-area-v2.remy-mode:focus-within` focus bloom, read from
+ * the live authored rule and its resolved motion/elevation tokens. It briefly
+ * raises the same 20px shadow from level 1 (.28) to level 2 (.4) at 20%, then
+ * returns to level 1 over 1000ms on standard-decelerate. */
+@keyframes spark-task-detail-composer-focus-bloom {
+  0% {
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  }
+
+  20% {
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  100% {
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  }
+}
+
+.spark-task-detail__new-composer .willow-gemini-composer:focus-within {
+  animation: spark-task-detail-composer-focus-bloom 1000ms cubic-bezier(0, 0, 0, 1);
+}
+
+.spark-task-detail__followup-composer .willow-gemini-composer {
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
 }
 
 /* Gemini's is `p.gds-body-s`: 13px/17px weight 400 in #c4c7c5, centred. */
 .spark-task-detail__disclaimer {
+  width: calc(100% - 24px);
   min-height: 17px;
-  margin: 3px auto 0;
+  margin: 16px auto 0;
   color: #c4c7c5;
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
   text-align: center;
+  transform: translateX(15px);
 }
 
 /* Same measured dialog surface as `SparkTaskDialogs.css` — see the note there. */
@@ -2163,7 +2361,14 @@
   opacity: 0.45;
 }
 
-.spark-task-detail :is(button, textarea, input):focus-visible {
+/*
+ * Spark's own controls in this view. The `:not()` keeps it out of the composer, which is
+ * Chat's `InputBar` and brings its own focus treatment — an `outline-none` textarea inside a
+ * box that shows focus by other means. Without the exclusion this painted a 2px #a8c7fa
+ * rectangle around the textarea every time it took focus, and the same composer in Chat
+ * showed nothing, which is exactly the inconsistency sharing the component is meant to avoid.
+ */
+.spark-task-detail :is(button, textarea, input):not(.spark-composer-host *):focus-visible {
   outline: 2px solid #a8c7fa;
   outline-offset: 2px;
 }
@@ -2299,11 +2504,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .spark-task-detail__progress-popover {
-    right: 8px;
-    width: min(304px, calc(100% - 16px));
   }
 
   .spark-task-detail__user-bubble {

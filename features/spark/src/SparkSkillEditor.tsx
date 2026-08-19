@@ -264,7 +264,9 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
             * onto the name field. The page's own back-nav supplies the context. */}
           {draft.fileName && (
             <div className="spark-skill-editor__file">
-              <MaterialSymbol family="luminous" name="description" size={20} weight={320} roundness={100} />
+              {/* `google-symbols`: the Luminous subset carries no `description`, and a
+                * ligature a face lacks renders as the letters of its own name. */}
+              <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} />
               <span>{draft.fileName}</span>
             </div>
           )}

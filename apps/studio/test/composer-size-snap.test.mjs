@@ -250,3 +250,16 @@ it('never leaves the measurement padding on the painted box', () => {
   assert.match(source, /style\.paddingRight = '';/,
     'the measurement no longer clears its inline paddingRight');
 });
+
+it('does not expand an empty composer when only its placeholder wraps', () => {
+  const source = codeOnly(AUTOSIZE());
+
+  assert.match(source, /const hasPromptText = promptText\.length > 0;/,
+    'the autosize hook must distinguish entered text from placeholder layout');
+  assert.match(source, /hasPromptText && hypotheticalScrollHeight > baseHeight/,
+    'a wrapped placeholder can still set the composer multiline state');
+  assert.match(source, /hasPromptText[\s\S]*?naturalExpandedScrollHeight >= baseHeight \* 3/,
+    'a wrapped placeholder can still reveal the fullscreen control');
+  assert.match(source, /else if \(hasPromptText && scrollHeight > baseHeight\)/,
+    'a wrapped placeholder can still increase the textarea height');
+});

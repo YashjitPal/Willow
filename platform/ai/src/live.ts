@@ -168,6 +168,9 @@ export class GeminiLiveSession {
   private playCtx: AudioContext | null = null;
   private playGain: GainNode | null = null;
   private playCursor = 0; // AudioContext time at which the next chunk should start
+  // Keep a small jitter buffer so socket burstiness cannot force sources to be
+  // scheduled directly at the render deadline.
+  private static readonly PLAYBACK_LEAD_SECONDS = 0.08;
   private activeSources = new Set<AudioBufferSourceNode>();
   private lastAudioRate: number = OUTPUT_SAMPLE_RATE_DEFAULT;
   // Hidden <audio> sink — see initAudio() for why playback is routed through
@@ -556,6 +559,9 @@ export class GeminiLiveSession {
    * still inside the user-gesture (autoplay-safe) and let the WS catch up.
    */
   private async initAudio(): Promise<void> {
+    // Each session starts from the documented Live output format. Do not let a
+    // missing MIME rate in a later session inherit a value from an old stream.
+    this.lastAudioRate = OUTPUT_SAMPLE_RATE_DEFAULT;
     // `mediaDevices` is undefined on insecure origins (non-HTTPS, non-localhost)
     // — catch that explicitly so the user sees a useful message instead of
     // "Cannot read properties of undefined".
@@ -698,8 +704,10 @@ export class GeminiLiveSession {
     src.connect(gain);
 
     const now = ctx.currentTime;
-    // Small scheduling lead so the very first chunk doesn't clip.
-    const startAt = Math.max(this.playCursor, now + 0.02);
+    // A larger lead absorbs normal WebSocket delivery jitter. Starting chunks
+    // only 20ms ahead made occasional late sources audible as clicks or pitchy
+    // boundary artifacts on a busy browser audio thread.
+    const startAt = Math.max(this.playCursor, now + GeminiLiveSession.PLAYBACK_LEAD_SECONDS);
     src.start(startAt);
     this.playCursor = startAt + buf.duration;
 

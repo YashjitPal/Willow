@@ -14,16 +14,80 @@
 
 import { atom, map } from 'nanostores';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
+import { levelToEffort, type CodexEffort } from './harness/overlay/effort';
 
 /* ---------------------------------------------------------------------- */
 /* Stores                                                                  */
 /* ---------------------------------------------------------------------- */
+
+/**
+ * Whether Ultra is engaged.
+ *
+ * Only Ultra is tracked, because it is the only effort Willow cannot already
+ * express: the numeric levels are part of the selected model itself
+ * (`…::effort-N`), so storing them again here would create a second source of
+ * truth that could drift from the model pill. Ultra has nowhere else to live —
+ * it is not a saved-model id, and writing one into `selectedModelId` would
+ * leave the Code tab unable to resolve the selection after a tab switch.
+ *
+ * It sits in a store rather than a component because both composers offer it,
+ * and a choice made on the landing screen has to hold once the workbench takes
+ * over.
+ */
+const ULTRA_KEY = 'willow:code-beta:ultra';
+
+export const ultraEngaged = atom<boolean>(readStoredUltra());
+
+function readStoredUltra(): boolean {
+  try {
+    return localStorage.getItem(ULTRA_KEY) === 'true';
+  } catch {
+    /* Private-mode or blocked storage; off is the right default. */
+    return false;
+  }
+}
+
+export function setUltraEngaged(engaged: boolean): void {
+  ultraEngaged.set(engaged);
+  try {
+    localStorage.setItem(ULTRA_KEY, String(engaged));
+  } catch {
+    /* Not worth failing a click over. */
+  }
+}
+
+/**
+ * The effort a turn should run at.
+ *
+ * Ultra wins when engaged; otherwise the model's own level is authoritative, so
+ * the composer never asks for an effort the pill is not showing.
+ */
+export function effectiveEffort(
+  ultra: boolean,
+  thinkingLevel: number | undefined,
+): CodexEffort {
+  return ultra ? 'ultra' : levelToEffort(thinkingLevel);
+}
 
 /** Every tool call ever made this session, flat and keyed by id. */
 export const calls = map<Record<string, ToolCall>>({});
 
 /** Every sub-agent, flat and keyed by id. */
 export const agents = map<Record<string, SubAgent>>({});
+
+/**
+ * One entry in a turn's transcript, in the order it happened.
+ *
+ * Codex reads as a single narrated stream: the agent says what it is about to
+ * do, the card for that work appears at that point, then it carries on. That is
+ * only possible if prose and tool calls share one ordered list — keeping them in
+ * separate collections loses the interleaving, and the cards end up bunched
+ * above prose that refers to them in a different order.
+ */
+export type TurnSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'call'; id: string }
+  | { kind: 'agents'; ids: string[] };
 
 export interface TurnActivity {
   id: string;
@@ -35,6 +99,8 @@ export interface TurnActivity {
   /** Ordered, so the transcript renders work in the order it happened. */
   callIds: string[];
   agentIds: string[];
+  /** Narration and work, interleaved. */
+  timeline: TurnSegment[];
   error?: string;
 }
 
@@ -81,6 +147,7 @@ export function beginTurn(id: string): void {
     activity: null,
     callIds: [],
     agentIds: [],
+    timeline: [],
   });
   activeTurnId.set(id);
 }
@@ -131,21 +198,44 @@ const patchTurn = (id: string, update: (turn: TurnActivity) => TurnActivity): vo
   if (turn) turns.setKey(id, update(turn));
 };
 
+/** Appends to the trailing prose segment, or starts one. */
+const withText = (timeline: TurnSegment[], chunk: string): TurnSegment[] => {
+  const last = timeline[timeline.length - 1];
+  if (last?.kind === 'text') {
+    return [...timeline.slice(0, -1), { kind: 'text', text: last.text + chunk }];
+  }
+  return [...timeline, { kind: 'text', text: chunk }];
+};
+
 /**
  * Folds one harness event into the store.
  *
- * Text and `turn-end` are handled by the caller — the sidebar owns the message
- * body and its own generating flags — so this deliberately ignores them rather
- * than keeping a second copy of the transcript.
+ * `turn-end` is handled by the caller, which owns the message body and its own
+ * generating flags. Text is handled *here* as well as there: the sidebar still
+ * accumulates it for the stored message, while this keeps its position relative
+ * to the tool calls, which is the only place that ordering exists.
  */
 export function applyHarnessEvent(turnId: string, event: HarnessEvent): void {
   switch (event.type) {
+    case 'text': {
+      if (event.chunk === '') break;
+      patchTurn(turnId, (turn) => ({
+        ...turn,
+        timeline: withText(turn.timeline, event.chunk),
+      }));
+      break;
+    }
+
     case 'call-start': {
       calls.setKey(event.call.id, event.call);
       patchTurn(turnId, (turn) =>
         turn.callIds.includes(event.call.id)
           ? turn
-          : { ...turn, callIds: [...turn.callIds, event.call.id] },
+          : {
+              ...turn,
+              callIds: [...turn.callIds, event.call.id],
+              timeline: [...turn.timeline, { kind: 'call', id: event.call.id }],
+            },
       );
       break;
     }
@@ -163,7 +253,11 @@ export function applyHarnessEvent(turnId: string, event: HarnessEvent): void {
         agents.setKey(agent.id, agent);
         ids.push(agent.id);
       }
-      patchTurn(turnId, (turn) => ({ ...turn, agentIds: [...turn.agentIds, ...ids] }));
+      patchTurn(turnId, (turn) => ({
+        ...turn,
+        agentIds: [...turn.agentIds, ...ids],
+        timeline: [...turn.timeline, { kind: 'agents', ids }],
+      }));
       break;
     }
 
@@ -178,9 +272,56 @@ export function applyHarnessEvent(turnId: string, event: HarnessEvent): void {
       break;
 
     default:
-      // 'text', 'thought' and 'turn-end' belong to the caller.
+      // 'thought' and 'turn-end' belong to the caller.
       break;
   }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Splitting a turn into work and answer                                   */
+/* ---------------------------------------------------------------------- */
+
+export interface SplitTurn {
+  /** Narration and tool calls, in order — everything before the answer. */
+  work: TurnSegment[];
+  /** The closing prose. What stays on screen once the turn settles. */
+  answer: string;
+}
+
+/**
+ * Splits a turn into the work that produced the answer and the answer itself.
+ *
+ * The answer is the prose after the last piece of work, which is what Codex
+ * leaves on screen when a turn finishes. Everything before it — the running
+ * commentary and the cards it refers to — collapses behind one row, because
+ * once there is an answer the narration is evidence rather than the point.
+ *
+ * A turn with no tool calls is all answer: there was no work to hide, and
+ * collapsing a plain reply behind a disclosure would be absurd.
+ */
+export function splitTurn(timeline: TurnSegment[]): SplitTurn {
+  const lastWork = timeline.reduce(
+    (found, segment, index) => (segment.kind === 'text' ? found : index),
+    -1,
+  );
+
+  if (lastWork === -1) {
+    const answer = timeline.map((s) => (s.kind === 'text' ? s.text : '')).join('');
+    return { work: [], answer };
+  }
+
+  const trailing = timeline.slice(lastWork + 1);
+  return {
+    work: timeline.slice(0, lastWork + 1),
+    answer: trailing.map((s) => (s.kind === 'text' ? s.text : '')).join(''),
+  };
+}
+
+const EMPTY_TIMELINE: TurnSegment[] = [];
+
+export function turnTimeline(turnId: string | undefined): TurnSegment[] {
+  if (!turnId) return EMPTY_TIMELINE;
+  return turns.get()[turnId]?.timeline ?? EMPTY_TIMELINE;
 }
 
 /* ---------------------------------------------------------------------- */

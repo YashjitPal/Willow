@@ -11,6 +11,7 @@ import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { useAutoSave } from './use-auto-save';
 import { workbenchStore } from './runtime/sandpack/index';
 import { getCachedFirstName, cacheFirstName } from '@willow/core/display-name';
+import { deriveFallbackTitle } from '@willow/core/fallback-title';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
@@ -531,10 +532,19 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           const data = await response.json();
           name = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
-        name = name.replace(/^["']|["']$/g, '').trim() || 'New Project';
-        setProjectName(name);
+        // Strip filesystem-illegal characters as well as the quotes: this name
+        // becomes the Code/<name> folder on disk, and ':' and friends make every
+        // folder operation throw "Name is not allowed" on Windows, after which
+        // the project silently never syncs.
+        name = name.replace(/^["']|["']$/g, '').replace(/[\/:*?"<>|]/g, '').trim();
+        // Reaching here empty is common rather than exceptional — only the
+        // Gemini branch above is implemented, so any other configured naming
+        // provider lands here, as does a quota error or a revoked key. The
+        // prompt names the project, and only one too long to read as a label
+        // falls through to 'New Project'.
+        setProjectName(name || deriveFallbackTitle(initialPrompt, 'New Project'));
       } catch {
-        setProjectName('New Project');
+        setProjectName(deriveFallbackTitle(initialPrompt, 'New Project'));
       } finally {
         setIsGeneratingName(false);
       }

@@ -28,6 +28,9 @@ export interface StreamHandlers {
 
 type Mode = 'text' | 'patch' | 'call';
 
+/** Shared by every marker in the protocol, opening and closing alike. */
+const MARKER_PREFIX = '***';
+
 export class ResponseStreamParser {
   #buffer = '';
   #mode: Mode = 'text';
@@ -49,11 +52,14 @@ export class ResponseStreamParser {
       newline = this.#buffer.indexOf('\n');
     }
 
-    // Prose is flushed eagerly so text appears as it is typed. A partial line
-    // is only held back when it could still turn out to be an envelope opener.
-    if (this.#mode === 'text' && this.#buffer.length > 0 && !this.#couldOpen(this.#buffer)) {
-      this.handlers.onText(this.#buffer);
-      this.#buffer = '';
+    // Prose is flushed eagerly so text appears as it is typed, but only up to
+    // the point where an envelope might begin.
+    if (this.#mode === 'text' && this.#buffer.length > 0) {
+      const cut = this.#flushBoundary(this.#buffer);
+      if (cut > 0) {
+        this.handlers.onText(this.#buffer.slice(0, cut));
+        this.#buffer = this.#buffer.slice(cut);
+      }
     }
   }
 
@@ -73,43 +79,110 @@ export class ResponseStreamParser {
       this.#patchLines = [];
     }
 
+    // Likewise a call whose closer never arrived. Dropping it would end the
+    // turn silently, since the loop only continues while calls are being made;
+    // delivering it either works or produces a tool error the model can answer.
+    if (this.#mode === 'call' && this.#callName !== '') {
+      this.#closeCall();
+    }
+
     this.#mode = 'text';
   }
 
   /**
-   * True when the partial line might still turn out to be an envelope opener,
-   * so the parser should wait for its newline rather than emitting it as prose.
+   * The earliest envelope opener in a string, wherever it sits.
    *
-   * Both directions matter, and missing the second one is a real bug: while the
-   * buffer is shorter than an opener it is a *prefix of* one
-   * (`"*** Cal"`), but as soon as it passes that length it *starts with* one
-   * (`"*** Call: read_file"`). Checking only the first flushes the opener as
-   * text the moment the next token arrives, and the envelope is never seen —
-   * which is exactly what happens with small token chunks.
+   * Position-independent because models routinely append the marker straight
+   * onto the sentence introducing it — `"...what we're starting with.*** Call:
+   * list_files"` — with no newline between. Anchoring to the start of a line
+   * misses that entirely: the envelope renders as prose, no tool runs, and
+   * because the turn loop only continues while calls are being made, the turn
+   * ends right there.
+   *
+   * The cost is that prose quoting a marker mid-sentence is taken literally.
+   * That is the right trade: the harness owns these markers and instructs the
+   * model to emit them only as envelopes, whereas the failure it prevents is
+   * total.
    */
-  #couldOpen(partial: string): boolean {
-    const trimmed = partial.trimStart();
-    if (trimmed === '') return false;
+  #findOpener(text: string): { index: number; opener: string } | null {
+    let found: { index: number; opener: string } | null = null;
     for (const opener of [PATCH_BEGIN, CALL_BEGIN]) {
-      if (opener.startsWith(trimmed) || trimmed.startsWith(opener)) return true;
+      const index = text.indexOf(opener);
+      if (index !== -1 && (found === null || index < found.index)) {
+        found = { index, opener };
+      }
     }
-    return false;
+    return found;
+  }
+
+  /**
+   * How much of a partial line is safe to emit as prose.
+   *
+   * Two things are held back: a complete opener still waiting for its newline,
+   * and a trailing fragment that could still grow into one. Missing the second
+   * is a real bug — while the buffer is shorter than an opener it is only a
+   * *prefix of* one (`"*** Cal"`), and flushing it means the envelope is never
+   * recognised once the rest arrives. With small token chunks that is the
+   * common case rather than the edge case.
+   */
+  #flushBoundary(buffer: string): number {
+    /*
+     * Every marker in the protocol begins `***`, and every one occupies a whole
+     * line. So the safe cut is the first point where a marker has begun, or
+     * could still begin once more tokens arrive — from there on, nothing can be
+     * emitted as prose until the line is complete and `#line` has classified
+     * it.
+     *
+     * Anchoring this to openers alone was not enough. `*** End Call` is not an
+     * opener, so a buffer holding `*** End` looked like ordinary prose and was
+     * flushed; by the time the rest arrived the line was already on screen, and
+     * a model that had lost the thread filled the transcript with terminators.
+     */
+    for (let i = 0; i < buffer.length; i += 1) {
+      const suffix = buffer.slice(i);
+      if (suffix.startsWith(MARKER_PREFIX)) return i;
+      if (suffix.length < MARKER_PREFIX.length && MARKER_PREFIX.startsWith(suffix)) return i;
+    }
+    return buffer.length;
   }
 
   #line(raw: string): void {
     const trimmed = raw.trim();
 
     if (this.#mode === 'text') {
-      if (trimmed === PATCH_BEGIN) {
-        this.#mode = 'patch';
-        this.#patchLines = [PATCH_BEGIN];
-        this.handlers.onPatchOpen();
-        this.handlers.onPatchLine(PATCH_BEGIN);
-        return;
-      }
-      if (trimmed.startsWith(CALL_BEGIN)) {
+      /*
+       * A closing marker with nothing open is protocol noise, never prose.
+       *
+       * Models emit these when they lose track of the envelope — one stray
+       * `*** End Call` tends to become a dozen — and rendering them puts raw
+       * protocol in front of the user. Dropping them costs nothing: no reply
+       * legitimately consists of a lone terminator.
+       */
+      if (trimmed === CALL_END || trimmed === PATCH_END) return;
+
+      const found = this.#findOpener(raw);
+      if (found) {
+        // Whatever preceded the marker is ordinary prose and belongs in the
+        // transcript. No newline is appended: the envelope becomes its own
+        // block, so the sentence should not gain a break it never had.
+        const before = raw.slice(0, found.index);
+        if (before.trim() !== '') this.handlers.onText(before);
+
+        const rest = raw.slice(found.index + found.opener.length);
+
+        if (found.opener === PATCH_BEGIN) {
+          this.#mode = 'patch';
+          this.#patchLines = [PATCH_BEGIN];
+          this.handlers.onPatchOpen();
+          this.handlers.onPatchLine(PATCH_BEGIN);
+          // A patch crammed onto the opener's line is still a patch line.
+          if (rest.trim() !== '') this.#line(rest);
+          return;
+        }
+
+        // For a call the remainder of the line is the tool name.
         this.#mode = 'call';
-        this.#callName = trimmed.slice(CALL_BEGIN.length).trim();
+        this.#callName = rest.trim();
         this.#callBody = [];
         return;
       }
@@ -130,14 +203,25 @@ export class ResponseStreamParser {
     }
 
     // mode === 'call'
-    if (trimmed === CALL_END) {
-      this.#mode = 'text';
-      this.handlers.onCall(this.#callName, this.#callBody.join('\n'));
-      this.#callName = '';
-      this.#callBody = [];
+    //
+    // `endsWith` rather than equality, because the same habit that appends the
+    // opener to a sentence also appends the closer to the body (`{}*** End
+    // Call`). Anchoring to a whole line leaves the call unterminated, and an
+    // unterminated call is a stalled turn.
+    if (trimmed.endsWith(CALL_END)) {
+      const tail = trimmed.slice(0, trimmed.length - CALL_END.length);
+      if (tail.trim() !== '') this.#callBody.push(tail);
+      this.#closeCall();
       return;
     }
     this.#callBody.push(raw);
+  }
+
+  #closeCall(): void {
+    this.#mode = 'text';
+    this.handlers.onCall(this.#callName, this.#callBody.join('\n'));
+    this.#callName = '';
+    this.#callBody = [];
   }
 }
 

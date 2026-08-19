@@ -231,6 +231,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   const [chatSearchDropdownOpen, setChatSearchDropdownOpen] = React.useState(false);
   const [chatSearchDirection, setChatSearchDirection] = React.useState<'down' | 'up'>('down');
   const chatSearchRef = React.useRef<HTMLDivElement>(null);
+  const [notebookSearchDropdownOpen, setNotebookSearchDropdownOpen] = React.useState(false);
+  const [notebookSearchDirection, setNotebookSearchDirection] = React.useState<'down' | 'up'>('down');
+  const notebookSearchRef = React.useRef<HTMLDivElement>(null);
   const [personalDropdownOpen, setPersonalDropdownOpen] = React.useState(false);
   const [personalDirection, setPersonalDirection] = React.useState<'down' | 'up'>('down');
   const personalRef = React.useRef<HTMLDivElement>(null);
@@ -384,6 +387,16 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
 
   const selectedChatSearchModelName = selectableEmbeddingModels.find(
     (model: any) => model.modelId === modelConfig.systemDefaults?.chatSearch,
+  )?.name || 'Lexical search';
+
+  /*
+   * Falls back to the same "Lexical search" label as chat search when nothing is
+   * chosen, and for the same reason: an unset value is not an error state, it is
+   * the free, offline default. A notebook still retrieves without an embedding
+   * model — it ranks passages by term overlap instead of by meaning.
+   */
+  const selectedNotebookSearchModelName = selectableEmbeddingModels.find(
+    (model: any) => model.modelId === modelConfig.systemDefaults?.notebookSearch,
   )?.name || 'Lexical search';
 
   const selectedPersonalModelName = isPersonalAutomatic
@@ -1791,6 +1804,94 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                         >
                           <span className="font-medium">{model.name}</span>
                           {modelConfig.systemDefaults?.chatSearch === model.modelId && (
+                            <Check size={14} className="text-white" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/*
+              * Notebook Source Search — the same control as Chat Search Model above,
+              * deliberately, so there is one mental model for "how does Willow
+              * search". Unset means term-overlap ranking over the notebook's
+              * passages: no key, no cost, works offline. Choosing a model ranks by
+              * meaning instead, at one embedding call per passage (cached for the
+              * session) plus one per question.
+              */}
+            <div className="flex items-center justify-between py-2">
+              <div className="flex flex-col">
+                <span className="text-[14px] font-semibold text-white">Notebook Source Search</span>
+                <span className="text-[12px] text-zinc-500">How notebook sources are searched for passages to ground on.</span>
+              </div>
+              <div
+                className="relative w-64"
+                ref={notebookSearchRef}
+                data-dropdown="notebook-search-model"
+              >
+                <button
+                  onClick={() => {
+                    if (notebookSearchDropdownOpen) {
+                      setNotebookSearchDropdownOpen(false);
+                    } else {
+                      setNotebookSearchDirection(determineDirection(notebookSearchRef));
+                      setNotebookSearchDropdownOpen(true);
+                    }
+                  }}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                >
+                  <span>{selectedNotebookSearchModelName}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-200 ${notebookSearchDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {notebookSearchDropdownOpen && (
+                  <div className={`absolute ${notebookSearchDirection === 'up' ? 'bottom-full mb-2 origin-bottom animate-dropdownOpenUp' : 'top-full mt-2 origin-top animate-dropdownOpen'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden`}>
+                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                      <button
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setModelConfig((previous: any) => ({
+                            ...previous,
+                            systemDefaults: {
+                              ...previous.systemDefaults,
+                              notebookSearch: 'linear',
+                            },
+                          }));
+                          setNotebookSearchDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${!selectableEmbeddingModels.some((model: any) => model.modelId === modelConfig.systemDefaults?.notebookSearch) ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                      >
+                        <span className="font-medium">Lexical search</span>
+                        {!selectableEmbeddingModels.some((model: any) => model.modelId === modelConfig.systemDefaults?.notebookSearch) && (
+                          <Check size={14} className="text-white" />
+                        )}
+                      </button>
+                      {selectableEmbeddingModels.map((model: any) => (
+                        <button
+                          key={`notebook-${model.provider}-${model.id || model.modelId}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setModelConfig((previous: any) => ({
+                              ...previous,
+                              systemDefaults: {
+                                ...previous.systemDefaults,
+                                notebookSearch: model.modelId,
+                              },
+                            }));
+                            setNotebookSearchDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${modelConfig.systemDefaults?.notebookSearch === model.modelId ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          <span className="font-medium">{model.name}</span>
+                          {modelConfig.systemDefaults?.notebookSearch === model.modelId && (
                             <Check size={14} className="text-white" />
                           )}
                         </button>

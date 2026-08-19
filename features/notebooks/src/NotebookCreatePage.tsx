@@ -8,12 +8,12 @@ import './notebooks.css';
 import { NOTEBOOK_VERTICALS, type NotebookVertical } from './notebook-types';
 import { NotebooksSplashScreen } from './NotebooksSplashScreen';
 import {
-  createNotebook,
   hydrateNotebooks,
   notebooksHydratedStore,
   notebooksStore,
   subscribeToNotebookWrites,
 } from './notebooks-store';
+import { useNotebookDisk } from './useNotebookDisk';
 
 /**
  * The "What are you working on?" create screen — Gemini's
@@ -173,6 +173,7 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
   const isSubmittingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
+  const { createNotebookWithFolder } = useNotebookDisk();
 
   useEffect(() => {
     hydrateNotebooks();
@@ -228,7 +229,7 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
   const submit = () => {
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
-    const notebook = createNotebook({ title, vertical });
+    const notebook = createNotebookWithFolder({ title, vertical });
     onCreated(notebook.id);
   };
 

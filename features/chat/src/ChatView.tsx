@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion, useAnimationControls } from 'framer-motion';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
 import {
   $chatNotebookId,
@@ -8,7 +8,9 @@ import {
   consumeNotebookHandoff,
   getActiveNotebookGrounding,
 } from '@willow/notebooks/notebook-chat-store';
-import { addChatToNotebook, notebooksStore } from '@willow/notebooks/notebooks-store';
+import { resolveNotebookEmbeddingModel } from '@willow/notebooks/source-retrieval';
+import { notebooksStore } from '@willow/notebooks/notebooks-store';
+import { useNotebookDisk } from '@willow/notebooks/useNotebookDisk';
 import { HeroSection, PinnedChatGreeting, useGreetingReady } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import { TextShimmer } from '@willow/ui/text-shimmer';
@@ -39,6 +41,7 @@ import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-stor
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
 import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
+import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
 import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
 import {
   attachChatTurnListener,
@@ -56,7 +59,8 @@ import {
 import { runChatTurn } from './chat-turn-runner';
 import { friendlyChatErrorFor } from './chat-errors';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
-import { chatSystemPromptFor, getShortModelName, liveSystemPrompt, resolveChatModel } from './chat-model';
+import { chatSystemPromptFor, getShortModelName, resolveChatModel } from './chat-model';
+import { voiceAgentSystemPrompt } from './voice-agent-prompt';
 import { useOffscreenMessageSkip } from './offscreen-message-skip';
 import { MARKDOWN_BLOCK_BLEED_PX } from '@willow/ui/streaming-markdown-styles';
 import { personalChatTools } from './personal-tools';
@@ -300,6 +304,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // Drives the boot dock (see `isBootHydrating`), NOT any disk work.
     isChatListHydrated,
   } = useLocalFS();
+
+  // Filing a notebook chat has a registry half and a disk half; this hook owns both.
+  // Wrapped for a stable identity so the filing effect below can key on the chat id
+  // alone — `fileChat` closes over a context callback, and re-firing the effect on
+  // every provider re-render would put an idempotent disk probe behind each one.
+  const { fileChat: fileChatLatest } = useNotebookDisk();
+  const fileChat = useEventCallback(fileChatLatest);
 
   // A background turn outlives this component, so the runner cannot call through
   // the context — by the time it saves, this ChatView may be gone. Both are safe
@@ -767,11 +778,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // Fallback handled below
         }
 
-        // Fallback: If Gemini naming is slow, fails, or has no key, use the first 5 words of the user prompt
+        // `generateChatTitle` returns '' rather than throwing, so this branch —
+        // not the catch above — is what runs when the naming model is slow, out
+        // of quota, or has no key. The prompt it was handed names the chat
+        // instead, and only a prompt too long to read as a label falls through
+        // to FALLBACK_CHAT_TITLE.
         if (!title) {
-          const words = userMsg.trim().split(/\s+/);
-          const rawFallback = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
-          title = rawFallback.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
+          title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
         }
 
         if (title) {
@@ -956,12 +969,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [panelIsOpen]);
 
-  // Publish the panel state so the shell can hide the ConversationActionsMenu
-  // while thinking-steps or sources occupy the top-right corner.
-  useEffect(() => {
-    $chatPanelOpen.set(panelIsOpen);
-    return () => { $chatPanelOpen.set(false); };
-  }, [panelIsOpen]);
+  // The `$chatPanelOpen` publish lives further down, next to `openResource` — it has
+  // to account for that panel too, and it is declared below. See `anyRightPanelOpen`.
 
   /**
    * Hold the reading position still across the panel transition.
@@ -1101,6 +1110,89 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // The three right-hand panels share one slot, so opening any one closes the
   // other two. Gemini's `context-sidebar` is a single host for the same reason.
+
+  /*
+   * The chat column's immersive slide.
+   *
+   * Measured off Gemini with scrapers/canvas/20-recorder.cjs; the raw keyframes are
+   * in captures/canvas/recording/gemini-0.jsonl and the writeup in
+   * captures/canvas/IMMERSIVE-TRANSITION-SPEC.md. Its `.chat-container` runs:
+   *
+   *   open:   transform translateX(80%)  -> translateX(0)   500ms cubic-bezier(0.2,0,0,1)
+   *   close:  transform translateX(-20%) -> translateX(0)   500ms cubic-bezier(0.2,0,0,1)
+   *   both:   opacity   0 -> 1                              200ms linear
+   *
+   * The asymmetry is Gemini's, not a mistake: the column is never animated OUT, only
+   * in, from whichever side the incoming layout arrives from. Cross-checked against
+   * the geometry timeline — 80% of the measured 470.7px column is 376.56px, and the
+   * first sampled transform was `matrix(1, 0, 0, 1, 376.53, 0)`.
+   *
+   * Imperative controls, because this must fire on a STATE CHANGE and never on
+   * mount — otherwise every chat you open slides in from -20%. A `key` remount would
+   * also trigger it and is wrong: the scroll container is inside this element and
+   * would lose its scroll position.
+   *
+   * Skipped below 960px, where the panel is a fullscreen overlay over a single-column
+   * grid so there is no sideways move to make. That bound is Willow's own layout
+   * breakpoint; Gemini's narrow layout was not measured.
+   */
+  /*
+   * Hide the shell's ConversationActionsMenu while ANY right-hand panel is open.
+   *
+   * `StudioLayout` gates that menu on `!chatPanelOpen`, so thinking-steps and sources
+   * already make the top-right three-dot disappear and come back on close. The
+   * resource panel has its own controls in that same corner, so it belongs in the
+   * same gate.
+   *
+   * Deliberately a SEPARATE value rather than folding `openResource` into
+   * `panelIsOpen` above. That one also drives the scroll-pin and the observer
+   * coalescing, both built for the thinking sidebar's 300ms WIDTH animation — it
+   * snapshots scroll position and corrects it per frame while the text re-wraps. The
+   * resource panel snaps its grid and moves by transform instead, so nothing re-wraps
+   * and arming that machinery would be correcting for a reflow that never happens.
+   *
+   * It also has to live here rather than beside `panelIsOpen`: `openResource` is
+   * declared below those effects, which is the same reason the note up there gives for
+   * not using `contextSidebarOpen`.
+   */
+  const anyRightPanelOpen = panelIsOpen || !!openResource;
+  useEffect(() => {
+    $chatPanelOpen.set(anyRightPanelOpen);
+    return () => { $chatPanelOpen.set(false); };
+  }, [anyRightPanelOpen]);
+
+  const immersiveControls = useAnimationControls();
+  /*
+   * Gated on the panel state ACTUALLY CHANGING, not on a "first run" flag.
+   *
+   * The flag version shipped a bug: StrictMode double-invokes effects on mount in
+   * development, so the first pass cleared the flag and returned and the second pass
+   * ran the animation — with `openResource` still null, i.e. the CLOSE keyframes,
+   * `translateX(-20%) -> 0`. Opening a new chat therefore slid the composer and the
+   * text above it to the right, with no panel anywhere in sight.
+   *
+   * Comparing against the previous value is immune to that: two invocations with the
+   * same state are a no-op however many times they run, and it also stops a chat
+   * switch that clears an already-closed panel from animating.
+   */
+  const prevOpenResourceRef = useRef<RichResource | null>(null);
+  useEffect(() => {
+    const wasOpen = !!prevOpenResourceRef.current;
+    const isOpen = !!openResource;
+    prevOpenResourceRef.current = openResource;
+    if (wasOpen === isOpen) return;
+    if (typeof window === 'undefined' || window.innerWidth < 960) return;
+    immersiveControls.set({ x: openResource ? '80%' : '-20%', opacity: 0 });
+    void immersiveControls.start({
+      x: 0,
+      opacity: 1,
+      transition: {
+        x: { duration: 0.5, ease: [0.2, 0, 0, 1] },
+        opacity: { duration: 0.2, ease: 'linear' },
+      },
+    });
+  }, [openResource, immersiveControls]);
+
   const handleOpenResource = useCallback((resource: RichResource) => {
     if (!isSidebarCollapsed) onCollapseSidebar?.();
     setOpenThinkingMessageId(null);
@@ -2240,6 +2332,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
         history = [];
       }
 
+      /*
+       * Notebook grounding, resolved before the turn is built because retrieval is
+       * asynchronous now — it ranks the notebook's passages against THIS question
+       * rather than sending every source in full, and may embed the query first.
+       *
+       * Failures degrade to an empty string rather than aborting the send: a
+       * notebook chat that cannot retrieve should answer ungrounded, not refuse.
+       * `selectChunks` already falls back from embeddings to lexical internally,
+       * so reaching this catch means something further out went wrong.
+       */
+      let notebookGrounding = '';
+      try {
+        notebookGrounding = await getActiveNotebookGrounding(notebooksStore.get(), {
+          query: text,
+          model: resolveNotebookEmbeddingModel(modelConfig, apiKeys),
+        });
+      } catch {
+        notebookGrounding = '';
+      }
+
       // A temporary chat carries nothing personal in and saves nothing out, so
       // the same flag governs both halves of personalization: the prompt blocks
       // and the tools. Computed once here so they cannot disagree — the
@@ -2270,14 +2382,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
             ? `Configured user resources:\n${(modelConfig.resources || []).map((resource: any) => `- ${resource.name}: ${resource.uri || resource.content || ''}`).join('\n')}`
             : '',
           /*
-           * Notebook sources, when this chat belongs to a notebook.
+           * Notebook sources, when this chat belongs to a notebook. Resolved above,
+           * because retrieval is async.
            *
            * Here and not in the user's message: folding the preamble into the
            * message text rendered it inside the visible user bubble, and only
            * grounded the first turn. This array is rebuilt every turn, so a source
            * added mid-conversation reaches the next one and nothing is displayed.
            */
-          getActiveNotebookGrounding(notebooksStore.get()),
+          notebookGrounding,
         ].filter(Boolean).join('\n\n'),
         personalTools,
         history,
@@ -2332,13 +2445,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * Record the chat on the notebook it was started from, so the notebook's "Past
    * chats" list can find it. Keyed on the id so it runs when the chat is first
    * persisted rather than on every render.
+   *
+   * `fileChat` and not `addChatToNotebook`: filing has a disk half, and the chat's
+   * file has to end up in `Notebooks/<name>/Chats/` rather than the global folder.
+   * Whichever lands first is fine — if the first save beat this, the file is moved;
+   * if this won, the save writes straight into the notebook's folder and the move
+   * is a no-op. It runs again for the generated title because that id is a new file
+   * (see `renameLocalFSChat`, which carries the notebook across).
    */
   useEffect(() => {
     const notebookId = $chatNotebookId.get();
     const id = chatTitle || chatSessionId;
     if (!notebookId || !id) return;
-    addChatToNotebook(notebookId, id);
-  }, [chatTitle, chatSessionId]);
+    void fileChat(id, notebookId);
+  }, [chatTitle, chatSessionId, fileChat]);
 
   // ── Live mode ──────────────────────────────────────────────────────────────
   // A live "turn" maps onto the exact same message shape as a typed turn:
@@ -2526,7 +2646,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // untouched and neither field set, i.e. exactly the pre-existing request.
     const voiceOptions = buildLiveVoiceOptions(
       liveModelId,
-      liveSystemPrompt({ personalize: !isIncognito }),
+      voiceAgentSystemPrompt({ personalize: !isIncognito }),
     );
     liveSettingsSignatureRef.current = `${liveModelId}|${voiceSettingsSignature(liveModelId)}`;
 
@@ -2973,18 +3093,64 @@ export const ChatView: React.FC<ChatViewProps> = ({
   return (
     <LayoutGroup id="willow-chat-layout">
     <div
+      /*
+       * With a resource open this is Gemini's `chat-window.immersives-mode`, taken
+       * from its own authored rule rather than fitted to a screenshot
+       * (`CSS.getMatchedStylesForNode` — tools/ui-research/captures/canvas/):
+       *
+       *   grid-template-columns: minmax(360px, 1fr) minmax(0, 2fr);
+       *   gap: var(--gem-sys-spacing--xxl);            // 24px
+       *   max-width: 1800px;
+       *   margin: 0 max(var(--gem-sys-spacing--xxl), 50% - 1800px/2);
+       *
+       * THE COLUMN RATIO AND SIDE MARGIN ARE DELIBERATELY NOT REPRODUCED HERE.
+       *
+       * Gemini insets this grid by `max(24px, 50% - 900px)`, caps it at 1800px, and
+       * splits it `minmax(360px,1fr) minmax(0,2fr)` — which would put the prose's
+       * first content at 104 in a 1536 viewport instead of Willow's 80, and is the
+       * "text starts too far left" report. It was implemented and then reverted,
+       * twice, because both attempts broke the panel:
+       *
+       *   1. `mx-…` on top of the base `w-full` made the grid 48px wider than its
+       *      parent and switched on horizontal scrolling across the whole shell.
+       *   2. Fixing that with `w-auto` collapsed the SECOND track instead — the
+       *      panel measured 2x754 pinned to the right edge, with its close button
+       *      inside a 2px-wide box. `minmax(0, 2fr)` permits a zero-width track, so
+       *      any error in the free-space calculation lands there rather than being
+       *      caught.
+       *
+       * `1.03fr / 1.97fr` is therefore kept: it is what shipped working. Anyone
+       * retrying the measured values must verify the PANEL's rendered width at
+       * several viewports, not just the prose's left edge — the panel collapsing is
+       * silent, and it reads as "the close animation lags" because the button is
+       * still nominally there. Gemini's authored rule is recorded in
+       * captures/canvas/03-gemini-matched-styles.json.
+       *
+       * THE LAYOUT SNAPS — there is deliberately no transition on this element.
+       *
+       * Measured: Gemini's chat column is `w=470.7` on every one of the 25 samples
+       * through the 500ms open, and `w=1484` through the close. Nothing about its
+       * width interpolates; the grid changes in one frame and the visible motion is
+       * `translateX` on the column (see `immersiveControls` above) plus `scale` on
+       * the panel. This element used to transition `grid-template-columns` over
+       * 500ms, which interpolated the column's WIDTH — so the prose re-wrapped
+       * continuously for half a second. That was the jerkiness; easing could never
+       * have fixed it, because the problem was that text reflow was being animated.
+       */
       className={`relative grid h-full min-h-0 w-full overflow-hidden grid-cols-[minmax(0,1fr)] ${
         openResource
           ? 'min-[960px]:grid-cols-[minmax(0,1.03fr)_minmax(0,1.97fr)] min-[960px]:gap-x-6'
           : 'min-[960px]:grid-cols-[minmax(0,1fr)_0fr] min-[960px]:gap-x-0'
       }`}
-      style={{
-        transitionProperty: 'grid-template-columns, column-gap',
-        transitionDuration: '500ms',
-        transitionTimingFunction: 'cubic-bezier(0.2, 0, 0, 1)',
-      }}
     >
-      <div
+      {/*
+        * Gemini's `.chat-container`. `immersiveControls` slides it; the transform is
+        * written by Framer, so nothing here may set one of its own or the two fight.
+        * The `transition-[margin-right,width]` below is the unrelated thinking/sources
+        * sidebar, which is a different mechanism and is left alone.
+        */}
+      <motion.div
+        animate={immersiveControls}
         className={`relative flex h-full min-h-0 min-w-0 w-full ${
           contextSidebarOpen ? 'min-[1024px]:w-[calc(100%_-_428px)]' : ''
         } flex-col transition-[margin-right,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
@@ -3048,9 +3214,57 @@ export const ChatView: React.FC<ChatViewProps> = ({
           onAnimationComplete={() => {
             if (isFirstTurnEntranceActive) setIsFirstTurnEntranceActive(false);
           }}
-          className={`mx-auto flex w-full max-w-[760px] flex-col pl-7 pr-7 pt-[72px] pb-[20px] transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
-            contextSidebarOpen ? 'min-[1024px]:pl-9' : ''
-          }`}
+          /*
+           * A 24px inset while a resource is open puts the prose's first content at
+           * 104 in a 1536 viewport, which is where Gemini's `.conversation-container`
+           * starts (measured; Willow's own is 80 without it). With the base `pl-7`
+           * that is 28 + 24, and the content box is the same 397px it was when this
+           * was written as `pl-[52px]`.
+           *
+           * The inset is applied HERE rather than on the grid, and that is the whole
+           * point. Gemini gets its 24px by insetting the grid, but the panel lives in
+           * that same grid, so every attempt to move it dragged the panel too —
+           * first overflowing the shell horizontally, then collapsing the panel to
+           * 2px wide. An inset on this column cannot do either: it changes no track
+           * sizing and the panel's right edge does not move. Willow's right edge
+           * already agrees with Gemini's to within a pixel anyway (its 15px scrollbar
+           * gutter plus the panel's 32px margin comes to Gemini's 48px inset), so
+           * left is the only side that was ever wrong.
+           *
+           * The cost, accepted deliberately: the column becomes asymmetric (52 left,
+           * 28 right) and ~11px narrower than Gemini's 414.66, where Gemini keeps
+           * symmetry by shifting the whole column instead.
+           *
+           * IT IS A TRANSPARENT BORDER AND NOT PADDING, AND THAT IS LOAD-BEARING.
+           *
+           * `transition-[padding-left]` below belongs to the thinking/sources
+           * sidebar, which eases `pl-7 -> pl-9` alongside its 300ms width animation.
+           * It is present in the CLOSED state — it has to be, or closing that sidebar
+           * would snap. But "resource closed" and "sidebar closed" are the same
+           * state, so a transition that is mounted for one is mounted for the other,
+           * and while this inset was padding the resource close changed padding-left
+           * from 52 to 28 with that transition live. Measured against the compiled
+           * CSS (scrapers/canvas/41-css-mechanism.cjs): closing stepped
+           * 52 -> 38.77 -> 36.30 -> ... -> 28 over 270ms while opening snapped, which
+           * is the open/close asymmetry that was reported. Padding-left is the text
+           * measure, so that re-wrapped every line of every reply on every frame for
+           * 300ms, on top of the column's own slide — the same "animating text
+           * reflow" defect that removing the grid's `grid-template-columns`
+           * transition fixed. Layout events ran 9-15 per 50ms for exactly that
+           * window and fell to the sampler's floor of 3 the moment it ended.
+           *
+           * A border-left is the same geometry and the same box model, but it is not
+           * named by `transition-property`, so it snaps in both directions no matter
+           * which state the transition is mounted in. Moving this back to padding
+           * reintroduces the stutter; changing it to margin or transform does not
+           * work either (margin fights `mx-auto`, transform makes this a containing
+           * block for any fixed-position descendant).
+           */
+          className={`mx-auto flex w-full max-w-[760px] flex-col border-l-transparent pl-7 pr-7 pt-[72px] pb-[20px] ${
+            openResource
+              ? 'min-[960px]:border-l-[24px]'
+              : 'transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
+          } ${contextSidebarOpen ? 'min-[1024px]:pl-9' : ''}`}
         >
           {visibleMessages.map((msg, visibleIndex) => {
             // Index into the FULL array, not the slice. Reading `gapBefore` off
@@ -3739,12 +3953,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </motion.div>
         </div>
       </div>
-      </div>
+      </motion.div>
 
-      <AnimatePresence>
-        {thinkingMessage && (
+      {/*
+        * One presence for all three right-hand panels, not one each.
+        *
+        * They occupy the same corner and animate along the same axis — each
+        * slides in from x:424 and back out to x:424. Given a presence per
+        * panel, swapping one for another ran both animations at once: the
+        * outgoing panel slid right while the incoming one slid left across it,
+        * which reads as a flicker rather than a transition. Opening "Show
+        * thinking steps" over the resource preview is the case that shows it,
+        * because `handleOpenThinking` clears the resource and sets the thinking
+        * id in the same commit.
+        *
+        * `mode="wait"` is the whole fix: the outgoing panel finishes leaving
+        * before the incoming one starts arriving, so the corner is empty in
+        * between and the swap reads as two deliberate movements.
+        *
+        * Keys are prefixed by kind because two different panels can belong to
+        * the same message id, and an unchanged key would swap the contents
+        * without animating at all.
+        */}
+      <AnimatePresence mode="wait">
+        {thinkingMessage ? (
           <ThinkingStepsSidebar
-            key={thinkingMessage.id}
+            key={`thinking-${thinkingMessage.id}`}
             thinkingText={thinkingMessage.isError
               ? thinkingMessage.errorDetail || 'No additional error details were provided by the service.'
               : thinkingMessage.thinkingText || ''}
@@ -3752,27 +3986,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
             isError={!!thinkingMessage.isError}
             onClose={() => setOpenThinkingMessageId(null)}
           />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {sourcesMessage && (
+        ) : sourcesMessage ? (
           <SourcesSidebar
-            key={sourcesMessage.id}
+            key={`sources-${sourcesMessage.id}`}
             sources={sourcesMessage.citations?.sources || []}
             onClose={() => setOpenSourcesMessageId(null)}
           />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {openResource && (
+        ) : openResource ? (
           <RichResourcePanel
             key="willow-rich-resource-panel"
             resource={openResource}
             onClose={() => setOpenResource(null)}
           />
-        )}
+        ) : null}
       </AnimatePresence>
 
       {errorDialog && (

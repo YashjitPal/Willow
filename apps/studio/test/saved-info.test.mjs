@@ -47,6 +47,8 @@ const codeOnly = (source) => source
 
 const storeModule = path.join(repoRoot, 'platform', 'core', 'src', 'saved-info-store.ts');
 const chatModelModule = path.join(repoRoot, 'features', 'chat', 'src', 'chat-model.ts');
+const voicePromptModule = path.join(repoRoot, 'features', 'chat', 'src', 'voice-agent-prompt.ts');
+const profileStoreModule = path.join(repoRoot, 'platform', 'personal', 'src', 'profile', 'profile-store.ts');
 const diskModule = path.join(repoRoot, 'platform', 'storage', 'src', 'local-fs', 'saved-info-disk.ts');
 
 const entry = (text, createdAt) => ({ id: text, text, ...(createdAt ? { createdAt } : {}) });
@@ -213,9 +215,11 @@ it('renders Gemini\'s block shape, and nothing at all when there is nothing to s
     'the master switch does not suppress the block — turning saved info off does nothing');
 });
 
-it('appends saved info to both the text and the voice prompt', async () => {
-  const { chatSystemPromptFor, liveSystemPrompt, savedInfoBlock, CHAT_SYSTEM_PROMPT } =
+it('appends saved info to text but isolates it from the voice prompt', async () => {
+  const { chatSystemPromptFor, savedInfoBlock, CHAT_SYSTEM_PROMPT } =
     await importTs(chatModelModule);
+  const { voiceAgentSystemPrompt, VOICE_AGENT_SYSTEM_PROMPT } =
+    await importTs(voicePromptModule);
   const store = await importTs(storeModule);
 
   store.clearSavedInstructions();
@@ -225,40 +229,62 @@ it('appends saved info to both the text and the voice prompt', async () => {
   const now = new Date('2026-08-10T12:00:00Z');
   const line = '- ';
 
-  for (const [label, built] of [
-    ['text', chatSystemPromptFor('gemini', { now })],
-    // Voice too: "no emojis" is moot in speech, but "keep answers short" and
-    // "call me Yashjit" matter MOST out loud, where there is no skimming.
-    ['live', liveSystemPrompt({ now })],
-  ]) {
-    assert.match(built, /# Saved Information/, `${label}: saved info never reaches the prompt`);
-    assert.ok(built.includes(`${line}[`), `${label}: the entries are missing from the block`);
-    assert.match(built, /Please avoid using Emojis/, `${label}: the instruction text is missing`);
+  const text = chatSystemPromptFor('gemini', { now });
+  assert.match(text, /# Saved Information/, 'text: saved info never reaches the prompt');
+  assert.ok(text.includes(`${line}[`), 'text: the entries are missing from the block');
+  assert.match(text, /Please avoid using Emojis/, 'text: the instruction text is missing');
+  const savedAt = text.indexOf('# Saved Information');
+  const dateAt = text.indexOf('Current date:');
+  assert.ok(savedAt > CHAT_SYSTEM_PROMPT.length - 1 || savedAt > 0, 'text: block position');
+  assert.ok(savedAt < dateAt, 'text: saved info now sits after the date line');
 
-    // Order: base prompt, then saved info, then the date. The guardrails have
-    // to sit above the user data they govern.
-    const savedAt = built.indexOf('# Saved Information');
-    const dateAt = built.indexOf('Current date:');
-    assert.ok(savedAt > CHAT_SYSTEM_PROMPT.length - 1 || savedAt > 0, `${label}: block position`);
-    assert.ok(savedAt < dateAt, `${label}: saved info now sits after the date line`);
-  }
+  const live = voiceAgentSystemPrompt({ personalize: false });
+  assert.equal(live, VOICE_AGENT_SYSTEM_PROMPT);
+  assert.doesNotMatch(live, /# Saved Information|Please avoid using Emojis|Current date:/,
+    'voice inherited saved information or ordinary turn context');
+  assert.doesNotMatch(live, new RegExp(CHAT_SYSTEM_PROMPT.slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'voice inherited the normal chat prompt');
 
   // `personalize: false` is the temporary-chat path.
-  for (const built of [
-    chatSystemPromptFor('gemini', { now, personalize: false }),
-    liveSystemPrompt({ now, personalize: false }),
-  ]) {
-    assert.ok(!built.includes('# Saved Information'),
-      'a de-personalized turn still carries the user\'s saved instructions');
-    assert.match(built, /Current date: Monday, August 10, 2026/,
-      'suppressing saved info also dropped the date line');
-  }
+  const privateText = chatSystemPromptFor('gemini', { now, personalize: false });
+  assert.ok(!privateText.includes('# Saved Information'),
+    'a de-personalized text turn still carries the user\'s saved instructions');
+  assert.match(privateText, /Current date: Monday, August 10, 2026/,
+    'suppressing saved info also dropped the text date line');
 
   // The default is on, so no call site can forget to include it.
   assert.equal(savedInfoBlock().includes('Please avoid using Emojis'), true,
     'the block no longer defaults to reading the store');
 
   store.clearSavedInstructions();
+});
+
+it('gives voice only the generated personal snapshot', async () => {
+  const { voiceAgentSystemPrompt } = await importTs(voicePromptModule);
+  const { profileStore } = await importTs(profileStoreModule);
+  const previous = profileStore.get();
+  try {
+    profileStore.set({
+      enabled: true,
+      bullets: [{
+        id: 'voice-profile-test',
+        section: 'demographics',
+        text: 'The user prefers concise spoken answers.',
+        source: 'Willow chat history',
+        evidence: 'Repeated preference.',
+        origin: 'auto',
+        createdAt: '2026-08-19T00:00:00.000Z',
+      }],
+      suppressed: [],
+      digested: {},
+    });
+    const prompt = voiceAgentSystemPrompt();
+    assert.match(prompt, /# User summary from Willow data/);
+    assert.match(prompt, /The user prefers concise spoken answers/);
+    assert.doesNotMatch(prompt, /# Saved Information|# Guidelines for using personal data|Current date:/);
+  } finally {
+    profileStore.set(previous);
+  }
 });
 
 // ── 5. Temporary chat carries nothing personal in ────────────────────────────
@@ -276,7 +302,7 @@ it('withholds saved info from a temporary chat', () => {
   // decides `personalize`.
   assert.match(source, /chatSystemPromptFor\(provider, \{[^}]*personalize: !isIncognito\b/,
     'a temporary text turn is personalized again');
-  assert.match(source, /liveSystemPrompt\(\{ personalize: !isIncognito \}\)/,
+  assert.match(source, /voiceAgentSystemPrompt\(\{ personalize: !isIncognito \}\)/,
     'a temporary voice session is personalized again');
 });
 

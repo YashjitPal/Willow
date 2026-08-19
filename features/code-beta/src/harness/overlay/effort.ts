@@ -1,25 +1,39 @@
 /**
  * Reasoning effort, on Codex's own ladder.
  *
- * Effort is part of the harness, not the model: upstream carries it as
- * `model_reasoning_effort` in its config and sends it with every request. Its
- * `ReasoningEffort` enum, verified against
+ * Upstream's `ReasoningEffort` enum, verified against
  * `codex-rs/protocol/src/openai_models.rs`, is:
  *
  *     None, Minimal, Low, Medium (default), High, XHigh, Max, Ultra
  *
  * Willow's own scale (`platform/ai/src/models/efforts.ts`) is numeric 0–6 and
- * stops at "Pro". Code Beta maps onto Codex's names instead, which is the whole
- * point of running Codex's harness — including **Ultra**, the top rung, which
- * Willow has no equivalent for.
+ * stops at "Pro". Code Beta uses Codex's names instead, which is the point of
+ * running Codex's harness.
  *
- * ## The honest caveat
+ * ## Ultra is a mode, not a level
  *
- * Whether a provider *honours* a given effort is model-dependent. `ultra` is
- * accepted by the newest OpenAI reasoning models; most others top out lower and
- * will clamp or reject it. `resolveEffort` therefore returns both the requested
- * level and what Willow will actually send, so the UI can say so rather than
- * quietly implying a level that never took effect.
+ * This is the part that is easy to get wrong, and it is documented explicitly
+ * upstream. From the commit that introduced it (openai/codex #29899):
+ *
+ *   "Ultra should be one user-facing reasoning selection for work that benefits
+ *    from both maximum reasoning and proactive multi-agent delegation… clients
+ *    select `ultra`, core derives proactive multi-agent behavior when the turn
+ *    is eligible for multi-agent V2, and inference requests continue to use the
+ *    backend-compatible `max` value."
+ *
+ * And from the gating PR (#29709): *"Ultra is a product-level reasoning
+ * selection… without introducing a new backend reasoning token. Lower Ultra to
+ * `max` at the Responses API boundary."*
+ *
+ * Two consequences, and both shape this file:
+ *
+ * 1. **`ultra` is never sent on the wire.** It lowers to the model's real
+ *    ceiling. Sending the literal token would be wrong — no backend knows it.
+ * 2. **Ultra therefore works on every model.** What it changes is *harness*
+ *    behaviour: sub-agent delegation flips from "only when asked" to
+ *    proactive. That is Willow's own loop, and it is model-agnostic.
+ *
+ * So Ultra is offered everywhere, and only the ordinary API levels clamp.
  */
 
 export type CodexEffort =
@@ -62,7 +76,7 @@ export const EFFORT_HINT: Record<CodexEffort, string> = {
   high: 'Plans before acting. Multi-file changes and debugging.',
   xhigh: 'Long runs. Deep refactors and reviews where latency is worth it.',
   max: 'Exhaustive. Verifies its own work before answering.',
-  ultra: 'The ceiling. Slowest by a wide margin; use it when nothing else has worked.',
+  ultra: 'Max reasoning, and fans work out to sub-agents on its own. Slowest by far.',
 };
 
 /**
@@ -98,11 +112,15 @@ export const levelToEffort = (level: number | undefined): CodexEffort =>
   LEVEL_TO_EFFORT[Math.max(0, Math.min(6, Number(level ?? 2)))] ?? 'medium';
 
 /**
- * Which efforts a given model can actually be asked for.
+ * The API-level efforts a model actually accepts.
  *
- * Offering a level the provider silently clamps is worse than not offering it —
- * the user believes they raised the effort and nothing changed. The rules below
- * mirror what `platform/ai/src/chat.ts` really sends.
+ * These are real reasoning tokens sent on the wire, so offering one the
+ * provider silently clamps is worse than not offering it. The rules mirror what
+ * `platform/ai/src/chat.ts` really sends.
+ *
+ * **`ultra` is deliberately absent from every list.** It is not a wire value —
+ * see the module comment. `supportedEfforts` answers "what can the API be
+ * told", and the answer is never "ultra".
  */
 export function supportedEfforts(model: {
   providerId?: string;
@@ -112,13 +130,12 @@ export function supportedEfforts(model: {
   const provider = String(model.providerId ?? '').toLowerCase();
   const identity = `${model.modelId ?? ''} ${model.name ?? ''}`.toLowerCase();
 
-  // Only the newest OpenAI reasoning models accept the top of the ladder.
   const isFrontierOpenAI =
     (provider.includes('openai') || identity.includes('gpt')) &&
     /gpt-5|codex|o[34]/.test(identity);
 
   if (isFrontierOpenAI) {
-    return ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+    return ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
   }
   if (provider.includes('openai') || identity.includes('gpt')) {
     return ['none', 'low', 'medium', 'high'];
@@ -135,15 +152,175 @@ export function supportedEfforts(model: {
   return ['none', 'low', 'medium', 'high'];
 }
 
+/**
+ * What the user may pick.
+ *
+ * Every API level the model takes, **plus Ultra on every model** — because
+ * Ultra is a harness mode rather than a wire value, so nothing about it depends
+ * on the provider. Picking it on Claude sends Claude's own ceiling and turns on
+ * proactive delegation, which is exactly what it does upstream.
+ */
+export function selectableEfforts(model: {
+  providerId?: string;
+  modelId?: string;
+  name?: string;
+}): CodexEffort[] {
+  return [...supportedEfforts(model), 'ultra'];
+}
+
+/* ------------------------------------------------------------------------ */
+/* Harness-level effort                                                      */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Effort is two things, and conflating them is a mistake.
+ *
+ * **The API parameter** (`reasoning.effort`) is model-dependent. Only some
+ * models accept `ultra`; sending it elsewhere is silently downgraded, and on
+ * Gemini Pro it lands on `'low'` — the opposite of what was asked. That half
+ * has to clamp.
+ *
+ * **The harness behaviour** is not. How many tool-call rounds the agent gets,
+ * whether it is told to plan before acting, whether it is expected to verify
+ * its work — all of that is Willow's own loop and its own prompt, and it works
+ * identically on every model. A Claude model told "you are running at ultra
+ * effort, plan first and verify with computer_use" genuinely does more work,
+ * even though Anthropic's API never receives a reasoning parameter at all.
+ *
+ * So the requested level drives the harness, and only the clamped level goes on
+ * the wire. That is what makes Ultra mean something everywhere.
+ */
+export interface HarnessEffort {
+  /** Tool-call rounds allowed in one turn. */
+  maxIterations: number;
+  /** Appended to the turn's context, telling the agent how to work. */
+  guidance: string;
+  /**
+   * Upstream's two delegation modes, derived from effort exactly as
+   * `#29899` describes: `ultra` → proactive, everything else → on request.
+   */
+  delegation: 'proactive' | 'on-request';
+  /**
+   * Cap on sub-agents running at once. Mirrors upstream's
+   * `agents.max_concurrent_threads_per_session`, which defaults to 3.
+   */
+  maxConcurrentAgents: number;
+}
+
+const ON_REQUEST = 'on-request' as const;
+
+/*
+ * Guidance sets how much care to take. It does not order tools to be used.
+ *
+ * These strings used to read "Plan before acting with `update_plan`" and
+ * "Verify the result with `computer_use`", which made both unconditional: every
+ * build opened with a plan and closed with a browser session, whatever the user
+ * asked for. That is not what effort means, and it is not what upstream does.
+ *
+ * Upstream already decides both, on its own terms, and better than a blanket
+ * rule can: its planning section says outright not to plan simple or
+ * single-step work, and its validation guidance is explicitly a judgement call.
+ * Naming a tool here overrode all of that. So these describe depth — how much
+ * to read, how much to consider — and leave *which* tools that calls for to the
+ * prompt that already has rules for it.
+ */
+const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
+  none: {
+    maxIterations: 3,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 1,
+    guidance: 'Answer immediately, with the shortest thing that is correct.',
+  },
+  minimal: {
+    maxIterations: 3,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 1,
+    guidance: 'Make the smallest change that satisfies the request, and stop there.',
+  },
+  low: {
+    maxIterations: 5,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 2,
+    guidance: 'Act directly. Prefer the shortest path that actually works.',
+  },
+  medium: {
+    maxIterations: 8,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 3,
+    guidance: 'Read what you are about to change before changing it.',
+  },
+  high: {
+    maxIterations: 12,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 3,
+    guidance:
+      'Work carefully. Read what you are changing, and keep it consistent with the ' +
+      'code around it.',
+  },
+  xhigh: {
+    maxIterations: 18,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 3,
+    guidance:
+      'Be thorough. Read what you touch and its neighbours, and consider the states ' +
+      'nobody asked about — empty, loading, error.',
+  },
+  max: {
+    maxIterations: 24,
+    delegation: ON_REQUEST,
+    maxConcurrentAgents: 3,
+    guidance:
+      'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
+      'nobody asked about, and when you find a problem, fix it rather than ' +
+      'reporting it.',
+  },
+  /*
+   * Ultra. The distinguishing behaviour is delegation, not depth — see the
+   * module comment. Reasoning is already at the model's ceiling by this point;
+   * what changes is that the agent fans work out on its own rather than waiting
+   * to be told.
+   */
+  ultra: {
+    maxIterations: 32,
+    delegation: 'proactive',
+    maxConcurrentAgents: 4,
+    guidance:
+      'You are in proactive delegation mode. Work as if the result ships unreviewed.\n' +
+      '- **Split the work first.** Before writing anything, decide which parts are\n' +
+      '  independent, and start a `task` sub-agent for each. Do not do serially what\n' +
+      '  can be done in parallel — that is the whole reason this mode exists.\n' +
+      '- Delegate without being asked. At every other effort you wait to be told;\n' +
+      '  here you are expected to fan out on your own judgement.\n' +
+      '- Keep your own thread for work that must stay coherent: the plan, the parts\n' +
+      '  that reference each other, and the final synthesis of what the agents did.\n' +
+      '- Plan before acting, keep the plan current, and revise it when reality disagrees.\n' +
+      '- Read every file you touch and everything that imports it.\n' +
+      '- Verify with computer_use, and keep fixing until it passes rather than reporting a failure.\n' +
+      '- Cover the states nobody asked about: empty, loading, error, 390px wide, keyboard-only.\n' +
+      'Take the time this needs. Latency is explicitly not a concern at this level.',
+  },
+};
+
+export const harnessEffort = (effort: CodexEffort): HarnessEffort => HARNESS_EFFORT[effort];
+
 export interface ResolvedEffort {
-  /** What the user asked for. */
+  /** What the user asked for. Drives harness behaviour on every model. */
   requested: CodexEffort;
-  /** What will actually be sent, after clamping to what the model supports. */
+  /**
+   * What actually goes on the wire. **Never `ultra`** — upstream lowers it to
+   * the backend-compatible ceiling, and so does this.
+   */
   effective: CodexEffort;
   /** Numeric level for Willow's request layer. */
   level: number;
-  /** True when the request had to be lowered. */
+  /**
+   * True when an ordinary API level had to be lowered, which is a real loss.
+   * Ultra is *not* a clamp: lowering it on the wire is its designed behaviour,
+   * and the mode it selects is delivered in full.
+   */
   clamped: boolean;
+  /** Loop budget, delegation mode and prompt guidance, from the request. */
+  harness: HarnessEffort;
 }
 
 export function resolveEffort(
@@ -151,8 +328,38 @@ export function resolveEffort(
   model: { providerId?: string; modelId?: string; name?: string },
 ): ResolvedEffort {
   const supported = supportedEfforts(model);
+
+  // The harness always runs at what was asked for — that half is model-agnostic.
+  const harness = harnessEffort(requested);
+
+  /*
+   * Ultra, exactly as upstream handles it.
+   *
+   * It is not a backend token, so it is lowered to whatever this model's real
+   * ceiling is — `max` where that exists, `high` where it does not. That is not
+   * a clamp and must not be reported as one: the reasoning goes as high as the
+   * model can go, and the thing Ultra actually selects — proactive delegation —
+   * is delivered in full on every model.
+   */
+  if (requested === 'ultra') {
+    const ceiling = supported[supported.length - 1] ?? 'high';
+    return {
+      requested,
+      effective: ceiling,
+      level: effortToLevel(ceiling),
+      clamped: false,
+      harness,
+    };
+  }
+
   if (supported.includes(requested)) {
-    return { requested, effective: requested, level: effortToLevel(requested), clamped: false };
+    return {
+      requested,
+      effective: requested,
+      level: effortToLevel(requested),
+      clamped: false,
+      harness,
+    };
   }
 
   // Fall to the highest supported rung at or below the request, so asking for
@@ -163,5 +370,5 @@ export function resolveEffort(
     if (CODEX_EFFORTS.indexOf(candidate) <= wanted) effective = candidate;
   }
 
-  return { requested, effective, level: effortToLevel(effective), clamped: true };
+  return { requested, effective, level: effortToLevel(effective), clamped: true, harness };
 }

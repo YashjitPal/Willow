@@ -18,6 +18,7 @@ generation (consistent-character storyboards). The "create" tab of Willow Studio
 | `src/crop-math.ts` | Pure crop geometry: image aspect ratio, maximized crop box. |
 | `src/dropdown-placement.ts` | Whether a dropdown opens up or down given the viewport. |
 | `src/GalleryTile.tsx` | One gallery tile: the memoized `GalleryTile` shell plus the private `TileContent` interior. |
+| `src/gallery-tile.css` | The reveal that plays when a generated image lands. Every duration measured, not chosen — see below. |
 | `src/types.ts` | `MediaItem`, `MediaKind`, `MediaStatus`, `ImageAttachment`. Shared by MediaView and AgentSidebar. |
 | `src/media-icons.tsx` | The 11 hand-drawn SVG rail icons (vinyl record, scenes, aspect-ratio rectangles). |
 | `src/sunflower-art.ts` | A ~9KB pixel-art `box-shadow` string, alone in a file so it stops wrecking greps. |
@@ -90,6 +91,43 @@ instead of the source lines.
 those divs are direct children of an `AnimatePresence` — extracting the wrapper
 too would put a component boundary where Framer Motion tracks presence, and a
 broken exit animation is not something a typecheck would catch.
+
+## The tile's generating state and reveal
+
+Two separate things, and it matters which is which.
+
+**The generating animation** — the drifting liquid a tile shows while it works — is
+inline in `GalleryTile.tsx`: two copies of a Perlin texture scrolling past each other
+in opposite directions at different scales, multiply-blended, the stack blurred, the
+whole thing luminosity-blended over `#5F6368`. It is a faithful clone of Flow's and is
+**deliberately left alone**. Don't restructure it, and don't swap the texture — a
+different noise image changes its character immediately even with identical timings.
+It does hotlink `labs.google/fx/images/perlin.png`; replacing that with a local copy is
+worth doing one day, but only with the *same* pixels.
+
+**The reveal** — the ~2.7s after the image lands — is `gallery-tile.css`. Every
+duration, delay and easing in that file was measured off Google Flow with the recorder
+in `tools/ui-research/scrapers/flow/`, and was identical across six captured reveals.
+Treat them as exact and re-measure rather than re-taste. `20-verify-willow.cjs` replays
+the file in isolation and checks it against the captured values.
+
+Three things are load-bearing and none are obvious from reading the CSS:
+
+- **Opacity rides the whole overlay, not the noise layer inside it.** The overlay
+  carries the `#5F6368` base and sits at `z-index: 50`, so it is *above* the image
+  rather than behind it as in Flow. Fading only the noise would leave an opaque grey
+  card covering the image until the very end.
+- **The reveal only plays for tiles that were generating.** `revealPhase` initialises
+  to `settled` when the item already has a URL at mount, or every tile in the gallery
+  blooms on page load. It advances to `revealing` only when a tile the component
+  watched in `loading` becomes ready.
+- **`.gallery-tile-glass::after` is `display: none` at rest.** That pseudo carries the
+  `backdrop-filter` that resolves the image from an 80px blur; left at `blur(0)` it
+  still costs a compositing pass on every settled tile in the gallery.
+
+`REVEAL_DURATION_MS` in `GalleryTile.tsx` decides when the tile drops the generating
+layers, so it has to stay equal to the longest chain in the CSS (the overlay exit, at
+1192.5ms delay plus 1500ms).
 
 ## Dependencies
 

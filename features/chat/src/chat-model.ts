@@ -764,19 +764,6 @@ export const chatSystemPromptFor = (provider: ChatProvider, context: PromptConte
     context,
   );
 
-/**
- * The system prompt for a live voice session.
- *
- * The base prompt without the card fence: a spoken answer has nowhere to put a
- * card, and offering one to a voice turn only invites it to read JSON aloud.
- *
- * Saved Info applies here too. "No emojis" is moot in speech, but "keep answers
- * short" and "call me Yashjit" are the instructions that matter MOST out loud,
- * where there is no skimming past a long answer.
- */
-export const liveSystemPrompt = (context: PromptContext = {}): string =>
-  withTurnContext(CHAT_SYSTEM_PROMPT, context);
-
 export type ChatProvider =
   | 'gemini'
   | 'openai'

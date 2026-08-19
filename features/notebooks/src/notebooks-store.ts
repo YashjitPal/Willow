@@ -18,6 +18,7 @@ import {
   NOTEBOOKS_UPDATED_EVENT,
   makeNotebookId,
   readNotebooks,
+  setNotebookSourceFsName as recordNotebookSourceFsName,
   sortNotebooks,
   writeNotebooks,
 } from './notebooks-backend';
@@ -161,23 +162,18 @@ export const removeChatFromNotebook = (notebookId: string, chatId: string): void
 export const findNotebookForChat = (chatId: string): Notebook | undefined =>
   notebooksStore.get().find((notebook) => notebook.chatIds.includes(chatId));
 
-/**
- * Refile a chat from one notebook into another, for the Move Chat dialog.
+/*
+ * There is deliberately no `moveChatBetweenNotebooks` here any more.
  *
- * The remove runs first so the chat is never briefly in both — `findNotebookForChat`
- * assumes at most one owner, and a listener that ran between two independent writes
- * would see it twice. Both calls persist, so the order also decides what an
- * interrupted move leaves behind: unfiled (recoverable) rather than duplicated.
+ * Filing a chat has a disk half — the chat's own file moves between the global
+ * `Chats/` folder and `Notebooks/<name>/Chats/` — and a registry-only refile
+ * would be undone on the next poll, when the reconciler adopts the location the
+ * file is actually in. `useNotebookDisk`'s `fileChat` is the one entry point that
+ * does both halves, and it owns the remove-before-add ordering this pair needs:
+ * `findNotebookForChat` assumes at most one owner, so a chat must never be
+ * briefly in two, and an interrupted refile must leave it unfiled (recoverable)
+ * rather than duplicated.
  */
-export const moveChatBetweenNotebooks = (
-  fromNotebookId: string,
-  toNotebookId: string,
-  chatId: string,
-): void => {
-  if (fromNotebookId === toNotebookId) return;
-  removeChatFromNotebook(fromNotebookId, chatId);
-  addChatToNotebook(toNotebookId, chatId);
-};
 
 export const addNotebookSource = (
   notebookId: string,
@@ -194,4 +190,29 @@ export const removeNotebookSource = (notebookId: string, sourceId: string): void
   const notebook = getNotebook(notebookId);
   if (!notebook) return;
   updateNotebook(notebookId, { sources: notebook.sources.filter((s) => s.id !== sourceId) });
+};
+
+/**
+ * Record the file name a source got inside the notebook's `Sources/` folder.
+ *
+ * The one mutation whose implementation is **not** here: the disk backfill runs
+ * inside `LocalFSContext`, which may only import the backend, and two
+ * implementations of "patch one source's fsName" would eventually disagree about
+ * whether to bump `updatedAt` (it must not — see the backend's own note).
+ *
+ * The re-hydrate is belt and braces: `writeNotebooks` fires
+ * `NOTEBOOKS_UPDATED_EVENT` synchronously and every mounted surface re-reads off
+ * that, but a caller with no subscriber mounted still gets a current atom.
+ *
+ * Returns whether anything changed, so a caller inside a poll can stay
+ * change-only.
+ */
+export const setNotebookSourceFsName = (
+  notebookId: string,
+  sourceId: string,
+  fsName: string,
+): boolean => {
+  const changed = recordNotebookSourceFsName(notebookId, sourceId, fsName);
+  if (changed) hydrateNotebooks();
+  return changed;
 };

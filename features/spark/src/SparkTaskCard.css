@@ -73,23 +73,22 @@
   flex-direction: column;
 }
 
-/*
- * `.goal-description.gds-emphasized-body-m` — the *emphasised* weight, 540. Its CSS asks
- * for `font-weight: 600`, but that never paints: the class also names `"wght" 540` in
- * `font-variation-settings`, which wins. Measuring "Creating a schedule" against each
- * candidate settles it — the live 139.6px matches 540 exactly and 600 renders 141.95.
- * Willow had this at the plain 400, so every task title ran light.
- */
+/* Completed tasks use Chat's emphasized treatment until their first opening. */
 .spark-goal-description {
   display: -webkit-box;
   overflow: hidden;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 540;
+  font-weight: 400;
   line-height: 20px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
+}
+
+.spark-goal-description.is-unread {
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
 }
 
 /* gds-body-s. `min-height: 1lh` keeps the row height stable while a description streams in. */

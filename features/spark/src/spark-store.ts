@@ -515,7 +515,12 @@ const getSparkSyncChannel = (): BroadcastChannel | null => {
       if (durable) merged = mergeSparkSnapshots(merged, durable, current.location);
       activeSparkSyncMetadata = merged.sync;
       sparkState.set(merged.state);
-      persistSparkState(merged.state, merged.sync);
+      const viewedMergedState = markSparkTaskViewed(merged.state, current.location);
+      if (viewedMergedState === merged.state) {
+        persistSparkState(merged.state, merged.sync);
+      } else {
+        publishSparkState(viewedMergedState);
+      }
     };
   } catch {
     sparkSyncChannel = null;
@@ -605,6 +610,17 @@ const isSparkLocation = (value: unknown): value is SparkLocation => {
     default:
       return false;
   }
+};
+
+const markSparkTaskViewed = (state: SparkState, location: SparkLocation): SparkState => {
+  if (location.page !== 'task') return state;
+  let changed = false;
+  const tasks = state.tasks.map((task) => {
+    if (task.id !== location.taskId || !task.hasUnreadCompletion) return task;
+    changed = true;
+    return { ...task, hasUnreadCompletion: false };
+  });
+  return changed ? { ...state, tasks } : state;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -717,6 +733,7 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     progressLabel: wasInterrupted ? 'Interrupted' : asString(value.progressLabel) || undefined,
     scheduledLabel: asString(value.scheduledLabel) || undefined,
     scheduledTime: asString(value.scheduledTime) || undefined,
+    hasUnreadCompletion: Boolean(value.hasUnreadCompletion),
     isPinned: Boolean(value.isPinned),
     createdAt: asString(value.createdAt, now),
     updatedAt: wasInterrupted ? now : asString(value.updatedAt, now),
@@ -887,7 +904,12 @@ export const hydrateSparkState = (scopeId = 'guest'): void => {
     }
     activeSparkSyncMetadata = hydrated.sync;
     sparkState.set(hydrated.state);
-    persistSparkState(hydrated.state, hydrated.sync);
+    const viewedHydratedState = markSparkTaskViewed(hydrated.state, hydrated.state.location);
+    if (viewedHydratedState === hydrated.state) {
+      persistSparkState(hydrated.state, hydrated.sync);
+    } else {
+      publishSparkState(viewedHydratedState);
+    }
   } catch {
     activeSparkSyncMetadata = createEmptySparkSyncMetadata();
     sparkState.set(fallback);
@@ -921,7 +943,7 @@ export const isSparkScheduleRunClaimCurrent = (
 
 export const navigateSpark = (location: SparkLocation): void => {
   const current = sparkState.get();
-  publishSparkState({ ...current, location });
+  publishSparkState(markSparkTaskViewed({ ...current, location }, location));
   try {
     globalThis.history?.pushState(
       { ...(globalThis.history.state ?? {}), [SPARK_HISTORY_STATE_KEY]: location },
@@ -935,7 +957,7 @@ export const navigateSpark = (location: SparkLocation): void => {
 
 export const replaceSparkLocation = (location: SparkLocation): void => {
   const current = sparkState.get();
-  publishSparkState({ ...current, location });
+  publishSparkState(markSparkTaskViewed({ ...current, location }, location));
   try {
     globalThis.history?.replaceState(
       { ...(globalThis.history.state ?? {}), [SPARK_HISTORY_STATE_KEY]: location },
@@ -950,7 +972,7 @@ export const replaceSparkLocation = (location: SparkLocation): void => {
 export const restoreSparkLocation = (location: unknown): boolean => {
   if (!isSparkLocation(location)) return false;
   const current = sparkState.get();
-  publishSparkState({ ...current, location });
+  publishSparkState(markSparkTaskViewed({ ...current, location }, location));
   return true;
 };
 
@@ -977,12 +999,13 @@ export const createSparkTask = (
 
   const now = new Date().toISOString();
   const id = options.id ?? createTaskId();
+  const status = options.status ?? 'running';
   const task: SparkTask = {
     id,
     title: options.title?.trim() || getSparkTaskTitle(cleanPrompt),
     description: options.description?.trim() || 'Getting started',
     time: options.time ?? 'Just now',
-    status: options.status ?? 'running',
+    status,
     prompt: options.prompt?.trim() || cleanPrompt,
     response: options.response ?? '',
     modelLabel: options.modelLabel?.trim() || undefined,
@@ -999,6 +1022,8 @@ export const createSparkTask = (
     progressLabel: options.progressLabel ?? 'Working',
     scheduledLabel: options.scheduledLabel,
     scheduledTime: options.scheduledTime,
+    hasUnreadCompletion: options.hasUnreadCompletion
+      ?? (status === 'complete' && options.openTask === false),
     isPinned: options.isPinned ?? false,
     createdAt: now,
     updatedAt: now,
@@ -1032,9 +1057,16 @@ export const updateSparkTask = (taskId: string, update: SparkTaskUpdate): SparkT
   const existing = current.tasks.find((task) => task.id === taskId);
   if (!existing) return null;
 
+  const nextStatus = update.status ?? existing.status;
+  let hasUnreadCompletion = update.hasUnreadCompletion ?? existing.hasUnreadCompletion ?? false;
+  if (update.hasUnreadCompletion === undefined && update.status !== undefined && update.status !== existing.status) {
+    hasUnreadCompletion = nextStatus === 'complete'
+      && !(current.location.page === 'task' && current.location.taskId === taskId);
+  }
   const updated: SparkTask = {
     ...existing,
     ...update,
+    hasUnreadCompletion,
     title: update.title?.trim() || existing.title,
     prompt: update.prompt?.trim() || existing.prompt,
     thinkingSteps: update.thinkingSteps

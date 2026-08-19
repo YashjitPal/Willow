@@ -4,7 +4,8 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
-import { renameNotebook, setNotebookEmoji } from './notebooks-store';
+import { setNotebookEmoji } from './notebooks-store';
+import { useNotebookDisk } from './useNotebookDisk';
 
 /**
  * Gemini's emoji keyboard — `xap-emoji-picker`, 375x356.
@@ -357,6 +358,9 @@ const EmojiPicker: React.FC<{
  *   actions   the same tonal pills as the other dialogs — Cancel's label measured
  *             46.7px here and 46.725px in Delete notebook, i.e. one component
  */
+/** Exit animation plus its 25ms delay — see `.nb-sheet-exit`. */
+const RENAME_EXIT_MS = 125;
+
 export const RenameNotebookDialog: React.FC<{
   notebook: Notebook;
   onClose: () => void;
@@ -365,6 +369,23 @@ export const RenameNotebookDialog: React.FC<{
   const [emoji, setEmoji] = useState(notebook.emoji);
   const [pickerAnchor, setPickerAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { renameNotebookWithFolder } = useNotebookDisk();
+  /*
+   * Held open for the length of the exit fade — see `.nb-sheet-exit`. The parent
+   * owns the mount, so a bare `onClose()` deletes the tree in the same frame and
+   * leaves the animation nothing to play on. Same shape as the Sources dialog.
+   */
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | undefined>(undefined);
+  const requestClose = React.useCallback(() => {
+    if (closeTimerRef.current !== undefined) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(onClose, RENAME_EXIT_MS);
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   // Prefilled and focused with the caret at the end, as the sidebar's rename is.
   useEffect(() => {
@@ -379,13 +400,16 @@ export const RenameNotebookDialog: React.FC<{
 
   const save = () => {
     if (!canSave) return;
-    if (trimmed !== notebook.title) renameNotebook(notebook.id, trimmed);
+    if (trimmed !== notebook.title) renameNotebookWithFolder(notebook.id, trimmed);
     if (emoji !== notebook.emoji) setNotebookEmoji(notebook.id, emoji);
-    onClose();
+    requestClose();
   };
 
   return createPortal(
-    <div className="nb-set-scrim" onClick={onClose}>
+    <div
+      className={`nb-set-scrim ${isClosing ? 'nb-sheet-exit' : ''}`}
+      onClick={requestClose}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -395,7 +419,7 @@ export const RenameNotebookDialog: React.FC<{
       >
         <div className="nb-ren-header">
           <h2 className="nb-ren-title">Rename notebook</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className="nb-ren-close">
+          <button type="button" aria-label="Close" onClick={requestClose} className="nb-ren-close">
             <MaterialSymbol name="close" family="google-symbols" size={24} />
           </button>
         </div>
@@ -434,7 +458,7 @@ export const RenameNotebookDialog: React.FC<{
         </div>
 
         <div className="nb-ren-actions">
-          <button type="button" onClick={onClose} className="nb-pill">Cancel</button>
+          <button type="button" onClick={requestClose} className="nb-pill">Cancel</button>
           <button type="button" disabled={!canSave} onClick={save} className="nb-pill">Save</button>
         </div>
       </div>

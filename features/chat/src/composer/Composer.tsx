@@ -119,10 +119,18 @@ export const getChatTranscribingBg = (color?: string) => {
   return `bg-[${theme.sendButton.bg}]`;
 };
 
+/** The host-facing handle behind `composerRef`. */
+export interface ComposerHandle {
+  setPrompt: (text: string) => void;
+  focus: () => void;
+}
+
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
-  onSubmit?: (prompt: string, mode: Mode, attachments?: Attachment[]) => void;
+  /** `tool` is whichever chip was attached from the plus menu, or null. Chat ignores
+   *  it — it reads the tool off its own state — but Spark stores it on the task. */
+  onSubmit?: (prompt: string, mode: Mode, attachments?: Attachment[], tool?: ToolId | null) => void;
   modelConfig: any;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
@@ -153,7 +161,18 @@ export const InputBar: React.FC<{
   /** Whether the user has added the Gemini Live model. When false and the
    *  prompt is empty, a dulled send button is shown instead of the live icon. */
   liveAvailable?: boolean;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false }) => {
+  /** Overrides the resting placeholder. Spark asks for a task rather than a
+   *  question, so it reads "Describe a task" there. Dictation still takes
+   *  precedence — its own placeholder announces that the mic is listening. */
+  placeholder?: string;
+  /** Locks the whole box: the textarea, the plus menu, the mic and the send slot. Spark's
+   *  follow-up composer uses it while a task is running, when a reply cannot be accepted
+   *  yet. Distinct from `isGenerating`, which keeps the box live and turns send into stop. */
+  disabled?: boolean;
+  /** Lets the host write into the box. The draft is local state, so a surface that
+   *  fills the composer from outside — Spark's Suggested cards — needs a way in. */
+  composerRef?: React.MutableRefObject<ComposerHandle | null>;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const [isThemesOpen, setIsThemesOpen] = useState(false);
@@ -218,6 +237,24 @@ export const InputBar: React.FC<{
     const newAttachments = files.map(createComposerAttachment);
     setAttachments(prev => [...prev, ...newAttachments]);
   }, []);
+
+  /*
+   * Publish the host handle. An effect rather than a render-time assignment so the ref is
+   * never left pointing at a component that has since unmounted.
+   */
+  useEffect(() => {
+    if (!composerRef) return undefined;
+    composerRef.current = {
+      setPrompt: (text: string) => {
+        setPromptText(text);
+        window.requestAnimationFrame(() => textareaRef.current?.focus());
+      },
+      focus: () => textareaRef.current?.focus(),
+    };
+    return () => {
+      composerRef.current = null;
+    };
+  }, [composerRef]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -356,9 +393,9 @@ export const InputBar: React.FC<{
 
   // Submit prompt internally
   const handleSubmit = () => {
-    // Enter reaches here too, so the generation guard has to live in the
-    // submit path rather than only on the button.
-    if (isGenerating) return;
+    // Enter reaches here too, so both guards have to live in the submit path rather than
+    // only on the button.
+    if (isGenerating || disabled) return;
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
       // Leave fullscreen in its OWN commit, before submitting.
       //
@@ -383,7 +420,7 @@ export const InputBar: React.FC<{
         });
       }
       const submittedAttachments = attachments;
-      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments);
+      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments, selectedTool);
       setPromptText("");
       setAttachments([]);
       attachmentsRef.current = [];
@@ -551,6 +588,7 @@ export const InputBar: React.FC<{
   const composerPaddingExpanded = isDictationActive ? false : isSolidExpanded;
   const showComposerMaximizeToggle = chatVariant
     && !isDictationActive
+    && !disabled
     && (canMaximizeComposer || isComposerMaximized);
 
   const githubImportDialog = (
@@ -698,6 +736,7 @@ export const InputBar: React.FC<{
             <textarea
               ref={textareaRef}
               value={promptText}
+              disabled={disabled}
               aria-hidden={chatVariant && isDictationActive ? true : undefined}
               aria-busy={chatVariant && isTranscribingDictation ? true : undefined}
               tabIndex={chatVariant && isDictationActive ? -1 : undefined}
@@ -719,7 +758,7 @@ export const InputBar: React.FC<{
                   setAttachments(prev => [...prev, ...newAttachments]);
                 }
               }}
-              placeholder={dictationPlaceholder || (chatVariant ? "Ask Willow" : "Ask anything")}
+              placeholder={dictationPlaceholder || placeholder || (chatVariant ? "Ask Willow" : "Ask anything")}
               style={{
                 height: '24px',
                 minHeight: '24px',
@@ -779,9 +818,10 @@ export const InputBar: React.FC<{
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                  disabled={disabled}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? 'w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537]' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none`}
+                  className={`${chatVariant ? 'w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537]' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
                 >
                   {chatVariant
                     ? (
@@ -884,11 +924,11 @@ export const InputBar: React.FC<{
               <button
                 ref={micButtonRef}
                 onClick={isMicMuteToggle ? handleToggleLiveMicMute : handleToggleDictation}
-                disabled={isTranscribingDictation && !isMicMuteToggle}
+                disabled={disabled || (isTranscribingDictation && !isMicMuteToggle)}
                 aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
                 aria-pressed={isMicMuteToggle ? liveMicMuted : undefined}
                 title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative outline-none flex items-center justify-center w-8 h-8 rounded-full ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
+                className={`relative outline-none flex items-center justify-center w-8 h-8 rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
                   // ChatGPT transitions only the colour group, over 200ms on
                   // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
                   isMicMuteToggle
@@ -943,7 +983,7 @@ export const InputBar: React.FC<{
                   // and the Chat spacing math stays valid.
                   liveActive ? onStopLive?.() : onStartLive?.();
                 }}
-                disabled={isDictationActive && !isGenerating}
+                disabled={disabled || (isDictationActive && !isGenerating)}
                 title={
                   isGenerating
                     ? 'Stop response'
@@ -966,7 +1006,7 @@ export const InputBar: React.FC<{
                     ? { backgroundColor: getWorkspaceTheme(effectiveWorkspaceColor).sendButton.bg }
                     : undefined
                 }
-                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? isGenerating || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'

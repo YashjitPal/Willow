@@ -332,7 +332,6 @@ export function resolveLanguage(
  */
 export function buildLanguageDirective(language: LanguageOption): string {
   if (language.code === AUTO_LANGUAGE) return '';
-  return `Speak and respond in ${language.label} (${language.code}) regardless of the language the user speaks in, unless the user explicitly asks you to switch languages.`;
+  return `User's preferred voice is: ${language.label}`;
 }
-
 

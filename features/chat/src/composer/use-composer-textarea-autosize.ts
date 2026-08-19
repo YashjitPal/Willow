@@ -128,6 +128,11 @@ export const useComposerTextareaAutosize = ({
             textareaRef.current.style.height = `${baseHeight}px`;
             
             const hypotheticalScrollHeight = textareaRef.current.scrollHeight;
+            // `scrollHeight` includes wrapped placeholder text. During Spark's
+            // task-detail entrance the left pane changes width, so an empty
+            // "Describe a task" placeholder can briefly wrap and otherwise
+            // leave the composer stuck in its multiline state after it widens.
+            const hasPromptText = promptText.length > 0;
             // An attachment expands the box for the same reason a tool chip does.
             // Gemini's composer puts the editor on its own grid row and the controls on
             // the row below whenever anything is attached — its `text-input` and
@@ -135,7 +140,7 @@ export const useComposerTextareaAutosize = ({
             // 112px / 40px / 38px with 8px row gaps against a 12px padding. Willow already
             // had that two-row arrangement; it simply was not reachable from an attachment.
             const shouldExpand = (chatVariant && isComposerMaximized)
-              || (hypotheticalScrollHeight > baseHeight)
+              || (hasPromptText && hypotheticalScrollHeight > baseHeight)
               || !!selectedTool
               || hasAttachments;
             
@@ -154,6 +159,7 @@ export const useComposerTextareaAutosize = ({
             textareaRef.current.style.height = `${baseHeight}px`;
             const naturalExpandedScrollHeight = textareaRef.current.scrollHeight;
             const nextCanMaximizeComposer = chatVariant
+              && hasPromptText
               && shouldExpand
               && naturalExpandedScrollHeight >= baseHeight * 3;
             setCanMaximizeComposer(nextCanMaximizeComposer);
@@ -168,7 +174,7 @@ export const useComposerTextareaAutosize = ({
             if (chatVariant && isComposerMaximized) {
               textareaRef.current.style.height = '100%';
               textareaRef.current.style.overflowY = 'auto';
-            } else if (scrollHeight > baseHeight) {
+            } else if (hasPromptText && scrollHeight > baseHeight) {
               const newHeight = Math.min(scrollHeight, maxTextareaHeight);
               textareaRef.current.style.height = `${newHeight}px`;
               textareaRef.current.style.overflowY = scrollHeight > maxTextareaHeight ? 'auto' : 'hidden';

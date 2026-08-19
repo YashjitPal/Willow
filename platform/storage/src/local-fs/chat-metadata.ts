@@ -15,6 +15,24 @@ export interface ChatSyncRecord {
   dirty: boolean;
   tombstone: boolean;
   updatedAt: number;
+  /**
+   * Which folder this chat's file belongs in: a notebook id, or `''` for the
+   * global `Chats/`. This is the app's *intent*, not an observation — the
+   * reconciler compares it against where the file actually turned up and either
+   * completes the move or adopts the new location (see `locationDirty`).
+   */
+  notebookId: string;
+  /**
+   * The move has been asked for but not yet landed on disk.
+   *
+   * Same durable-dirty contract as `dirty` for content: set before the move,
+   * cleared after it succeeds, so an interrupted move is retried on the next
+   * poll rather than lost. It is also the tie-break that stops a file
+   * ping-ponging — while it is set, disk is behind the registry and the move is
+   * completed; while it is clear, a file in an unexpected folder was moved by the
+   * user and the registry follows it.
+   */
+  locationDirty: boolean;
 }
 
 export interface ChatMetadataKeys {
@@ -49,6 +67,15 @@ export const validateTimestampMap = (value: unknown): Record<string, number> => 
   return next;
 };
 
+/**
+ * Narrow a stored sync map.
+ *
+ * Rebuilt field by field, deliberately: an unknown key from an older or newer
+ * build is dropped rather than carried. The flip side is that **every field on
+ * `ChatSyncRecord` must be listed here** — one that is not gets silently erased
+ * on the next localStorage round trip, so the feature that depends on it appears
+ * to work until the first reload.
+ */
 export const validateSyncRecords = (value: unknown): Record<string, ChatSyncRecord> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const next: Record<string, ChatSyncRecord> = {};
@@ -61,6 +88,12 @@ export const validateSyncRecords = (value: unknown): Record<string, ChatSyncReco
       dirty: raw.dirty === true,
       tombstone: raw.tombstone === true,
       updatedAt: Number.isFinite(raw.updatedAt) ? Math.max(0, raw.updatedAt) : 0,
+      // A malformed id falls back to the global folder rather than being dropped.
+      // `''` is the normal value here, so it cannot use `isValidChatId`.
+      notebookId: typeof raw.notebookId === 'string' && raw.notebookId.length <= 240
+        ? raw.notebookId
+        : '',
+      locationDirty: raw.locationDirty === true,
     };
   }
   return next;

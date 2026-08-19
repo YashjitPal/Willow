@@ -106,6 +106,36 @@ const STYLE_CSS = [
   '}',
   '.smd-link:hover { color: #ffffff; text-decoration-color: #ffffff; }',
   '.smd-rich-resource-group { margin: 32px 0; white-space: normal; }',
+  /*
+   * The query container is the card's TEXT COLUMN, and deliberately not the group
+   * or the card, because both of those contain the YouTube iframe.
+   *
+   * `container-type` implies `contain: layout style inline-size`. That embed is an
+   * out-of-process frame, so the browser has to re-stitch it into this page's
+   * rendering whenever anything about its box changes, and a frame where it has
+   * not yet produced its picture paints as flat card background. Exactly that
+   * blanking was reported (captures/canvas/flicker/playing-1-35a607af.png is one
+   * of the blank frames) shortly after this query was first written with the
+   * container on the group. It could not be pinned on the containment — the DOM
+   * was provably still, the element was never recreated, its rect never moved and
+   * it never reloaded — but it could not be cleared either, because the symptom
+   * went dormant before an A/B could settle it. Containing only the text keeps the
+   * iframe out of the question entirely.
+   *
+   * The text column tracks the same widths the group does, so the behaviour is
+   * unchanged: measured 320px in a normal thread and 171px once the immersive
+   * panel opens and the chat column shrinks. 240 sits between them. (In group
+   * terms that is a 544px card, against 520 when the container was the group —
+   * a range no real layout lands in; the real values are 704 and 405.)
+   */
+  '.smd-rich-resource-text { container-type: inline-size; }',
+  // Only while the card is side by side with its video. Below 768px it stacks and
+  // the description gets the full width underneath, where it still reads.
+  '@media (min-width: 768px) {',
+  '  @container (max-width: 240px) {',
+  '    .smd-rich-resource-description { display: none; }',
+  '  }',
+  '}',
   '.smd-inline-code {',
   '  display: inline;',
   '  border-radius: 9999px;',

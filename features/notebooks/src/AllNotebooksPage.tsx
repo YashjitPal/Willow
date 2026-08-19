@@ -7,13 +7,13 @@ import { NotebooksSplashScreen } from './NotebooksSplashScreen';
 import { formatSourceCount } from './notebook-types';
 import type { Notebook } from './notebook-types';
 import {
-  deleteNotebook,
   hydrateNotebooks,
   notebooksHydratedStore,
   notebooksStore,
   subscribeToNotebookWrites,
   toggleNotebookPinned,
 } from './notebooks-store';
+import { useNotebookDisk } from './useNotebookDisk';
 
 /**
  * The "All notebooks" grid — Gemini's `project-mgmt` in `notebook-card-view`.
@@ -48,6 +48,7 @@ const NotebookCard: React.FC<{
   onOpen: () => void;
 }> = ({ notebook, index, onOpen }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { deleteNotebookWithFolder } = useNotebookDisk();
 
   return (
     <div
@@ -138,7 +139,11 @@ const NotebookCard: React.FC<{
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  deleteNotebook(notebook.id);
+                  // The card disappears on the click; the folder removal and the
+                  // unfiling of this notebook's chats run on behind it. Not awaited
+                  // for the same reason the notebook page's dialog does not — see
+                  // `useNotebookDisk`.
+                  void deleteNotebookWithFolder(notebook.id);
                   setIsMenuOpen(false);
                 }}
                 className="flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] leading-5 text-[#e3e3e3] hover:bg-white/[0.08]"

@@ -223,7 +223,13 @@ it('brings the Recents heading in with the chats, never before them', () => {
   assert.ok(gate, 'could not locate the Recents gate, or the header is no longer inside it');
   assert.match(gate[1], /isChatListHydrated/,
     'Recents no longer waits for the chat registry');
-  assert.match(gate[1], /localChats\.length > 0/,
+  /*
+   * `sortedChats`, not `localChats`: a chat filed into a notebook is dropped from
+   * Recents but stays in the registry, so the unfiltered count is no longer a
+   * count of what renders — gating on it puts the heading over an empty list the
+   * moment every chat is filed, which is the exact bug this test exists to catch.
+   */
+  assert.match(gate[1], /sortedChats\.length > 0/,
     'the Recents heading can render with no chats beneath it');
 
   // Deliberately NOT the slow flag: `isInitializingLocalFS` additionally waits

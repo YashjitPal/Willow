@@ -9,6 +9,14 @@
  * composer and filter row stay put while the tasks move under them. Willow scrolled
  * the whole page, which meant the fade mask below had nothing to act on.
  */
+/*
+ * `isolation: isolate` is load-bearing, as it is on `.spark-home`. The composer glow is a
+ * `z-index: -1` pseudo-element, and a negative z-index paints above its *stacking context's*
+ * background but below everything static in it. Without isolation here this element is not a
+ * stacking context — `container-type: inline-size` does not make one, and it is otherwise
+ * static with `z-index: auto` — so the glow resolved against `main.z-10` instead and was
+ * painted underneath this element's own opaque #0f0f0f fill. It rendered nothing at all.
+ */
 .spark-all-tasks {
   container-type: inline-size;
   display: flex;
@@ -20,6 +28,7 @@
    * the heading at y=56. Willow's 40px started the whole column 16px high. */
   padding: 56px 0 48px;
   overflow: hidden;
+  isolation: isolate;
   background: var(--studio-surface, #0f0f0f);
   color: #e3e3e3;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
@@ -63,12 +72,24 @@
   text-align: center;
 }
 
+/* No z-index and no isolation, so the glow below stays behind the task rows and their
+ * translucent fill can darken it — see the note on `.spark-composer-anchor` in
+ * `SparkHome.css`. */
 .spark-all-tasks__composer-anchor {
   position: relative;
-  z-index: 1;
   min-height: 65.6px;
   margin-top: 27px;
-  isolation: isolate;
+}
+
+/*
+ * The task list insets the composer where the home page does not: measured on Gemini,
+ * `input-area-v2` is 660px wide with `margin: -6px 0` on /spark and 580px wide with
+ * `margin: -6px 40px` on /spark/tasks, both capped at `max-width: 660px`. Chat's composer
+ * fills its 660px column, so the 40px a side has to come from here.
+ */
+.spark-all-tasks__composer-anchor .spark-composer-host {
+  width: calc(100% - 80px);
+  margin: 0 auto;
 }
 
 .spark-all-tasks__composer-anchor::before {
@@ -86,191 +107,6 @@
   transform: translate(-50%, -72px);
 }
 
-/*
- * `input-area-v2` is the pill: 580x65.6, inset 40px on each side of the 660px column, on
- * the same level-1 elevation the menus and dialogs use. Willow ran it to the full 660 and
- * gave it a tight drop shadow instead of the soft ambient one.
- */
-.spark-all-tasks__composer {
-  position: relative;
-  display: flex;
-  min-height: 65.6px;
-  align-items: center;
-  margin: 0 40px;
-  padding: 12px 16px;
-  border-radius: 32px;
-  background: #1e1f20 !important;
-  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
-}
-
-.spark-all-tasks__icon-button,
-.spark-all-tasks__send-button,
-.spark-all-tasks__stop-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-
-.spark-all-tasks__icon-button {
-  background: transparent;
-  color: #e6e6e6;
-}
-
-.spark-all-tasks__icon-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-all-tasks__icon-button:disabled,
-.spark-all-tasks__send-button:disabled,
-.spark-all-tasks__stop-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.spark-all-tasks__send-button {
-  background: #a8c7fa;
-  color: #062e6f;
-}
-
-.spark-all-tasks__stop-button {
-  border: 2px solid #c4c7c5;
-  background: transparent;
-  color: #e6e6e6;
-}
-
-.spark-all-tasks__stop-button > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 1px;
-  background: currentColor;
-}
-
-.spark-all-tasks__send-button:hover {
-  background: #b8d2fa;
-}
-
-.spark-all-tasks__stop-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-all-tasks__composer textarea {
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  min-height: 24px;
-  max-height: 120px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  outline: 0;
-  resize: none;
-  background: transparent;
-  color: #e3e3e3;
-  font-family: inherit;
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 24px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.spark-all-tasks__input-stack {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 20px 0 8px;
-}
-
-.spark-all-tasks__context-row {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.spark-all-tasks__context-chip {
-  display: inline-flex;
-  max-width: min(240px, 100%);
-  height: 32px;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 10px;
-  border-radius: 16px;
-  background: #303134;
-  color: #e3e3e3;
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.spark-all-tasks__context-chip > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-all-tasks__context-chip > button {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #c4c7c5;
-  cursor: pointer;
-}
-
-.spark-all-tasks__context-chip > button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-all-tasks__composer textarea::placeholder {
-  color: #bdc1c6;
-  opacity: 1;
-}
-
-.spark-all-tasks__composer textarea.is-dictating {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.spark-all-tasks__waveform {
-  position: absolute;
-  top: 50%;
-  right: 58px;
-  left: 54px;
-  width: auto;
-  transform: translateY(-50%);
-}
-
-.spark-all-tasks__voice-error {
-  width: 100%;
-  margin: 8px auto 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #3c2021;
-  color: #f2b8b5;
-  font-size: 12px;
-  line-height: 16px;
-}
 
 /*
  * Flex column, so the height constraint reaches the list. This was `display: block`,
@@ -567,16 +403,21 @@
   flex-direction: column;
 }
 
-/* `gds-emphasized-body-m` at its real painted weight of 540 — see the note on
- * `.spark-goal-description` in `SparkTaskCard.css`. */
+/* Read tasks use the normal body treatment; unread completions opt into emphasis below. */
 .spark-all-tasks__task-title {
   overflow: hidden;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 540;
+  font-weight: 400;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.spark-all-tasks__task-row.is-unread .spark-all-tasks__task-title {
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
 }
 
 .spark-all-tasks__task-description {
@@ -952,10 +793,6 @@
   background: rgba(168, 199, 250, 0.08);
 }
 
-.spark-all-tasks__icon-button:focus-visible,
-.spark-all-tasks__send-button:focus-visible,
-.spark-all-tasks__stop-button:focus-visible,
-.spark-all-tasks__context-chip > button:focus-visible,
 .spark-all-tasks__filter-button:focus-visible,
 .spark-all-tasks__filter-menu button:focus-visible,
 .spark-all-tasks__search button:focus-visible,
@@ -1004,10 +841,6 @@
     line-height: 36px;
   }
 
-  .spark-all-tasks__composer {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
 }
 
 @media (max-width: 520px) {
@@ -1076,12 +909,6 @@
     padding-top: 4px;
     font-size: 24px;
     line-height: 32px;
-  }
-
-  .spark-all-tasks__composer {
-    margin-top: 18px;
-    padding-right: 12px;
-    padding-left: 12px;
   }
 
   .spark-all-tasks__toolbar {

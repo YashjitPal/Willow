@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 
@@ -30,12 +30,18 @@ import './notebooks.css';
  * (chat row). So the trailing spacer is load-bearing, not decoration — drop it and
  * both panels come out 28px narrow.
  *
- * ── There is no open/close animation ───────────────────────────────────────
+ * ── The open/close animation is Willow's, not Gemini's ─────────────────────
  *
- * A 49-frame trace of the entrance showed `opacity: 1` from the first frame and a
- * *static* `translateY(4px)` throughout, and no entry appeared in
- * `getAnimations()`. The menu simply appears. That static 4px is also where the
- * 44px vertical offset comes from — 40px trigger + 4px.
+ * Gemini has none: a 49-frame trace of the entrance showed `opacity: 1` from the
+ * first frame and a *static* `translateY(4px)` throughout, with no entry in
+ * `getAnimations()`. That static 4px is also where the 44px vertical offset comes
+ * from — 40px trigger + 4px.
+ *
+ * It animates anyway, DELIBERATELY, because Willow's chat surface menu does and
+ * the two sit in the same corner of the same app — asked for by name. The curves
+ * are copied from `ConversationActionsMenu.css` so the two are one behaviour:
+ * 120ms `scale(0.8)` in from the top right, 100ms linear out after a 25ms hold.
+ * Do not "restore" this to no animation against the Gemini trace.
  *
  * Anchoring, measured on both menus: the panel's RIGHT edge aligns with the
  * trigger's right edge, and its top sits 4px below the trigger's bottom.
@@ -89,11 +95,38 @@ const ANCHOR_GAP = 4;
  */
 export const MENU_TRIGGER_ATTR = { 'data-nb-menu-trigger': '' } as const;
 
+/**
+ * Exit animation plus its 25ms delay. The panel is unmounted by its parent, so
+ * this component has to hold the parent off for exactly as long as the animation
+ * runs — hence one constant rather than a duration in the CSS and a guess here.
+ */
+const MENU_EXIT_MS = 125;
+
 export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClose }) => {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | undefined>(undefined);
+
+  /*
+   * Every close goes through here so the exit animation is never skipped.
+   *
+   * The parent owns the mount (`{isHeaderMenuOpen && <NotebookMenu …>}`), so the
+   * panel cannot outlive a bare `onClose()` — calling it directly removes the node
+   * in the same frame and the animation has nothing to play on. This plays first
+   * and reports the close afterwards.
+   */
+  const requestClose = React.useCallback(() => {
+    if (closeTimerRef.current !== undefined) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(onClose, MENU_EXIT_MS);
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') requestClose(); };
     /*
      * Close on a pointerdown outside the panel. Capture phase, so a click on some
      * other control closes this menu before that control acts on it.
@@ -103,7 +136,7 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
       if (panelRef.current?.contains(event.target)) return;
       // A trigger press is a toggle, handled by the trigger itself.
       if (event.target.closest('[data-nb-menu-trigger]')) return;
-      onClose();
+      requestClose();
     };
     document.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onDown, true);
@@ -111,7 +144,7 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onDown, true);
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   /*
    * Portalled to <body>: the notebook page sits inside the studio shell, whose
@@ -122,7 +155,7 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
     <div
       ref={panelRef}
       role="menu"
-      className="nb-surface nb-menu"
+      className={`nb-surface nb-menu ${isClosing ? 'nb-menu-exit' : 'nb-menu-enter'}`}
       style={{
         // Right-aligned to the trigger; `right` avoids needing the panel's own width.
         right: Math.max(8, window.innerWidth - (anchor.x + anchor.w)),
@@ -135,7 +168,10 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
           type="button"
           role="menuitem"
           onClick={() => {
-            onClose();
+            // The action runs now and the panel fades out behind it, as the chat
+            // surface's menu does — waiting for the animation would delay a
+            // dialog by the length of a fade.
+            requestClose();
             item.onSelect();
           }}
           className={`nb-menu-item ${item.danger ? 'is-danger' : ''}`}

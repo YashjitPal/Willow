@@ -205,14 +205,22 @@
  * Gemini's `.input-glow-anchor`, and the composer inside it carries
  * `margin-block: calc(var(--gem-sys-spacing--m) * -.5)` = -6px, which is why the
  * anchor measures 53.6px around a 65.6px composer.
+ *
+ * `z-index: auto` with no isolation is deliberate: Gemini's anchor creates **no stacking
+ * context**, which is what lets the glow's `z-index: -1` resolve against `.spark-home` and
+ * paint *behind* the Recent rows. Each row's `rgba(15,15,15,.5)` fill then darkens the glow
+ * into the rounded rectangle Gemini shows.
+ *
+ * With `z-index: 1; isolation: isolate` here the glow was trapped in a context that
+ * outranked the rows and painted over them instead. The fill still composited correctly
+ * against the #0f0f0f page underneath — and 50% of #0f0f0f over #0f0f0f is #0f0f0f — so it
+ * changed not a single pixel and the rows read as completely flat.
  */
 .spark-composer-anchor {
   position: relative;
-  z-index: 1;
   display: flex;
   width: 100%;
   justify-content: center;
-  isolation: isolate;
 }
 
 /*
@@ -252,278 +260,6 @@
   pointer-events: none;
   transform: translate(-50%, -45%);
   animation: spark-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-/*
- * `--lumi-sys-color--surface-bright` (#1f1f1f) is set on Gemini's `.remy-input-area`
- * host, but `input-area-v2`'s own sheet overrides it — the painted surface measures
- * rgb(30,31,32). Keep #1e1f20. Height likewise: `min-height: 4rem` with the real
- * content resolving to 65.6px.
- */
-.spark-composer {
-  display: flex;
-  width: 100%;
-  min-height: 65.6px;
-  align-items: center;
-  align-self: stretch;
-  margin-block: -6px;
-  padding: 12px 16px;
-  border-radius: 32px;
-  background: #1e1f20 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.spark-composer-icon-button,
-.spark-composer-stop-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #e6e6e6;
-  cursor: pointer;
-  transition: background-color 140ms ease;
-}
-
-.spark-composer-send-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: #ffffff !important;
-  cursor: pointer;
-  background-color: var(--spark-send-bg, #127352) !important;
-  transition: background-color 200ms ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.spark-composer-send-button:hover {
-  background-color: var(--spark-send-hover, #0d5c41) !important;
-}
-
-.spark-composer-send-button.is-blue {
-  background-color: #1b3f95 !important;
-}
-.spark-composer-send-button.is-blue:hover {
-  background-color: #153277 !important;
-}
-
-.spark-composer-send-button.is-green {
-  background-color: #127352 !important;
-}
-.spark-composer-send-button.is-green:hover {
-  background-color: #0d5c41 !important;
-}
-
-.spark-composer-send-button.is-pink {
-  background-color: #8c064b !important;
-}
-.spark-composer-send-button.is-pink:hover {
-  background-color: #70053c !important;
-}
-
-.spark-composer-send-button.is-yellow {
-  background-color: #7c6100 !important;
-}
-.spark-composer-send-button.is-yellow:hover {
-  background-color: #634e00 !important;
-}
-
-.spark-composer-send-button.is-orange {
-  background-color: #863e00 !important;
-}
-.spark-composer-send-button.is-orange:hover {
-  background-color: #6b3200 !important;
-}
-
-.spark-composer-send-button.is-purple {
-  background-color: #512192 !important;
-}
-.spark-composer-send-button.is-purple:hover {
-  background-color: #450e83 !important;
-}
-
-.spark-composer-send-button.is-lilac {
-  background-color: #6f3c92 !important;
-}
-.spark-composer-send-button.is-lilac:hover {
-  background-color: #5f2c81 !important;
-}
-
-.spark-composer-send-button.is-coral {
-  background-color: #900021 !important;
-}
-.spark-composer-send-button.is-coral:hover {
-  background-color: #78001a !important;
-}
-
-.spark-composer-send-button.is-teal {
-  background-color: #00625c !important;
-}
-.spark-composer-send-button.is-teal:hover {
-  background-color: #00514c !important;
-}
-
-@keyframes spark-composer-send-enter {
-  0% {
-    opacity: 0;
-    animation-timing-function: linear;
-  }
-  20% {
-    opacity: 0;
-    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.spark-composer-send-enter {
-  animation: spark-composer-send-enter 250ms linear both;
-}
-
-.spark-composer-stop-button {
-  border: 2px solid #c4c7c5;
-  background: transparent;
-  color: #e6e6e6;
-}
-
-.spark-composer-stop-button > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 1px;
-  background: currentColor;
-}
-
-.spark-composer-icon-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-composer-stop-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-composer textarea {
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  min-height: 24px;
-  max-height: 120px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  outline: 0;
-  resize: none;
-  background: transparent;
-  color: #e3e3e3;
-  font: inherit;
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 24px;
-  letter-spacing: 0;
-  white-space: pre-wrap;
-}
-
-.spark-composer__input-stack {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 20px 0 8px;
-}
-
-.spark-composer__context-row {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.spark-composer__context-chip {
-  display: inline-flex;
-  max-width: min(240px, 100%);
-  height: 32px;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 10px;
-  border-radius: 16px;
-  background: #303134;
-  color: #e3e3e3;
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.spark-composer__context-chip > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spark-composer__context-chip > button {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #c4c7c5;
-  cursor: pointer;
-}
-
-.spark-composer__context-chip > button:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.spark-composer textarea::placeholder {
-  color: #bdc1c6;
-  opacity: 1;
-}
-
-.spark-composer textarea.is-dictating {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.spark-composer__waveform {
-  position: absolute;
-  top: 50%;
-  right: 58px;
-  left: 54px;
-  width: auto;
-  transform: translateY(-50%);
-}
-
-.spark-composer__voice-error {
-  position: relative;
-  z-index: 2;
-  max-width: calc(100% - 32px);
-  margin: 8px 16px 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #3c2021;
-  color: #f2b8b5;
-  font-size: 12px;
-  line-height: 16px;
 }
 
 /*
@@ -677,8 +413,11 @@
   overflow: hidden;
   color: #e6e6e6;
   font-size: 15px;
-  font-weight: 600;
+  /* Gemini's markdown-style emphasis uses the variable font's painted 540
+   * weight rather than the browser's traditional 600 bold. */
+  font-weight: 540;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
@@ -699,10 +438,6 @@
 }
 
 .spark-release-button:focus-visible,
-.spark-composer-icon-button:focus-visible,
-.spark-composer-send-button:focus-visible,
-.spark-composer-stop-button:focus-visible,
-.spark-composer__context-chip > button:focus-visible,
 .spark-all-tasks-button:focus-visible,
 .spark-suggested-row:focus-visible {
   outline: 2px solid #a8c7fa;
@@ -715,18 +450,6 @@
     right: 16px;
   }
 
-  .spark-composer {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-
-  .spark-composer textarea {
-    margin: 0;
-  }
-
-  .spark-composer__input-stack {
-    margin-right: 8px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -744,11 +467,6 @@
     line-height: 30px;
   }
 
-  .spark-composer {
-    height: auto;
-    min-height: 64px;
-  }
-
   .spark-suggested-description {
     -webkit-line-clamp: 2;
   }
@@ -756,9 +474,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .spark-release-button,
-  .spark-composer-icon-button,
-  .spark-composer-send-button,
-  .spark-composer-stop-button,
   .spark-suggested-indicator {
     transition: none;
   }

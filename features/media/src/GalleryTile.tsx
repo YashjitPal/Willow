@@ -12,28 +12,46 @@
 
 import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   MoreVertical,
-  Plus,
   X,
   Heart,
   Undo2,
   RotateCcw,
-  Download,
-  Edit2,
-  Share2,
   Trash2,
   Check,
-  Copy,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { ImagesIcon, VideoIcon } from './media-icons';
+import { FlowMenuItem, FlowMenuSeparator, MENU_EXIT_MS } from './HeaderMenus';
+import './gallery-tile.css';
 import type { MediaItem, MediaKind } from './types';
 
+/**
+ * How long the reveal runs, start to finish. Must match the longest chain in
+ * `gallery-tile.css` — the overlay exit, at 1192.5ms delay + 1500ms — because it is what
+ * decides when the tile drops the generating layers and settles.
+ */
+const REVEAL_DURATION_MS = 2692.5;
 
-
+/*
+ * The tile menu's own box, needed before it renders because the placement has to know whether it
+ * fits below the trigger. Flow's is 182.32px wide, sized to its longest label; Willow's labels are
+ * shorter, so the width is pinned instead of letting it shrink away from Flow's proportions.
+ *
+ * The height is derived rather than measured so it cannot drift the next time a row is added:
+ * 8px of surface padding either side, nine 34px rows, four 1px rules with 4px of margin above
+ * and below each, and a 4px flex gap between all thirteen children.
+ */
+const MENU_WIDTH = 184;
+const MENU_ROWS = 9;
+const MENU_SEPARATORS = 4;
+const MENU_HEIGHT =
+  16
+  + MENU_ROWS * 34
+  + MENU_SEPARATORS * (1 + 8)
+  + (MENU_ROWS + MENU_SEPARATORS - 1) * 4;
 
 
 
@@ -86,7 +104,8 @@ const TileContent = React.memo(({
   onAddToPrompt,
   onAnimate,
   projectName = 'Default',
-  onSetAsCover
+  onSetAsCover,
+  onToggleFavorite
 }: { 
   item: MediaItem; 
   isMenuOpen: boolean; 
@@ -103,6 +122,7 @@ const TileContent = React.memo(({
   onAnimate?: (item: MediaItem) => void;
   projectName?: string;
   onSetAsCover?: (url: string, isVideo?: boolean) => void;
+  onToggleFavorite?: (id: string) => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -134,8 +154,8 @@ const TileContent = React.memo(({
     requestAnimationFrame(() => {
       const x = clientX - 4;
       const y = clientY - 4;
-      const dropdownWidth = 180;
-      const dropdownHeight = 342;
+      const dropdownWidth = MENU_WIDTH;
+      const dropdownHeight = MENU_HEIGHT;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
 
@@ -257,6 +277,16 @@ const TileContent = React.memo(({
     transformOrigin: 'top right'
   });
 
+  /* Kept mounted for the length of `flow-menu-out`; unmounting on the click instead would make
+   * the menu vanish with no close animation at all. Same trick as `FlowMenu`. */
+  const [menuMounted, setMenuMounted] = React.useState(isMenuOpen);
+  React.useEffect(() => {
+    if (isMenuOpen) { setMenuMounted(true); return undefined; }
+    if (!menuMounted) return undefined;
+    const timer = window.setTimeout(() => setMenuMounted(false), MENU_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [isMenuOpen, menuMounted]);
+
   React.useEffect(() => {
     const handleClose = (event: Event) => {
       if (event.type === 'scroll') {
@@ -290,8 +320,8 @@ const TileContent = React.memo(({
       // Offset slightly northwest (4px left, 4px up) to align closer to the cursor tip
       const x = contextMenuCoords.x - 4;
       const y = contextMenuCoords.y - 4;
-      const dropdownWidth = 180;
-      const dropdownHeight = 342;
+      const dropdownWidth = MENU_WIDTH;
+      const dropdownHeight = MENU_HEIGHT;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
 
@@ -329,8 +359,8 @@ const TileContent = React.memo(({
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
 
-      const dropdownWidth = 180;
-      const dropdownHeight = 342; // exact height of the menu with current button padding and dividers
+      const dropdownWidth = MENU_WIDTH;
+      const dropdownHeight = MENU_HEIGHT;
 
       const centerRightOffset = (dropdownWidth - triggerRect.width) / 2;
       const spaceOnRight = viewportWidth - triggerRect.right;
@@ -363,55 +393,58 @@ const TileContent = React.memo(({
     return () => window.removeEventListener('resize', updatePosition);
   }, [isMenuOpen, contextMenuCoords]);
 
+  /*
+   * Flow's menu, down to the glyph names and the grouping: Favorite at the top, Animate on its
+   * own, then the action cluster, then the cover, then the destructive row. `flow-menu.css`
+   * carries the styling, and `FlowMenuItem` is the same component the header's menus use because
+   * it is the same component in Flow. Copy is Willow's own addition to the cluster; Flow has no
+   * equivalent. Flow's first group also holds a Reuse prompt row, which Willow keeps only in the
+   * hover toolbar.
+   */
   const dropdownContent = (
     <>
-      <button 
-        onClick={(e) => {
+      <FlowMenuItem
+        body
+        glyph="favorite"
+        fill={!!item.favorite}
+        label="Favorite"
+        onSelect={(e) => {
+          e.stopPropagation();
+          onMenuOpenChange(false);
+          if (onToggleFavorite) onToggleFavorite(item.id);
+        }}
+      />
+
+      <FlowMenuSeparator />
+
+      <FlowMenuItem
+        body
+        glyph="motion_blur"
+        label="Animate"
+        onSelect={(e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (onAnimate) onAnimate(item);
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <svg 
-          xmlns="http://www.w3.org/2000/svg" 
-          viewBox="25 0 100 50" 
-          className="w-[20px] h-[20px] text-zinc-100" 
-          fill="currentColor"
-        >
-          <defs>
-            <mask id="inner-hole" maskUnits="userSpaceOnUse" x="0" y="0" width="150" height="50">
-              <rect x="0" y="0" width="150" height="50" fill="white" />
-              <circle cx="100" cy="25" r="15" fill="black" />
-            </mask>
-          </defs>
-          <g fill="currentColor" mask="url(#inner-hole)">
-            <circle cx="100" cy="25" r="25" />
-            <rect x="35" y="0" width="65" height="10" />
-            <rect x="25" y="20" width="10" height="10" />
-            <rect x="45" y="20" width="55" height="10" />
-            <rect x="27" y="40" width="8" height="10" />
-            <rect x="45" y="40" width="55" height="10" />
-          </g>
-        </svg>
-        <span>Animate</span>
-      </button>
-      
-      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-      
-      <button 
-        onClick={(e) => {
+      />
+
+      <FlowMenuSeparator />
+
+      <FlowMenuItem
+        body
+        glyph="add"
+        label="Add to prompt"
+        onSelect={(e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (onAddToPrompt) onAddToPrompt(item);
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <Plus size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Add to prompt</span>
-      </button>
-      <button 
-        onClick={async (e) => {
+      />
+      <FlowMenuItem
+        body
+        glyph="download"
+        label="Download"
+        onSelect={async (e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (item.url) {
@@ -449,26 +482,24 @@ const TileContent = React.memo(({
             }
           }
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <Download size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Download</span>
-      </button>
-      <button 
-        onClick={(e) => {
+      />
+      <FlowMenuItem
+        body
+        glyph="whiteboard"
+        label="Rename"
+        onSelect={(e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (setIsRenaming) {
             setIsRenaming(true);
           }
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <Edit2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Rename</span>
-      </button>
-      <button 
-        onClick={async (e) => {
+      />
+      <FlowMenuItem
+        body
+        glyph="content_copy"
+        label="Copy"
+        onSelect={async (e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (item.url) {
@@ -528,55 +559,37 @@ const TileContent = React.memo(({
             }
           }
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <Copy size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Copy</span>
-      </button>
-      
-      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-      
-      <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-        <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Share</span>
-      </button>
-      
-      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-      
-      <button 
-        onClick={(e) => {
+      />
+      <FlowMenuItem body glyph="share" label="Share" />
+
+      <FlowMenuSeparator />
+
+      <FlowMenuItem
+        body
+        glyph="photo_library"
+        label="Set as cover"
+        onSelect={(e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (item.url && onSetAsCover) {
             onSetAsCover(item.url, item.kind === 'video');
           }
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100"
-      >
-        <ImageIcon size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Set as cover</span>
-      </button>
-      
-      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-      
-      <button
-        onClick={(e) => {
+      />
+
+      <FlowMenuSeparator />
+
+      <FlowMenuItem
+        body
+        danger
+        glyph="delete"
+        label="Move to trash"
+        onSelect={(e) => {
           e.stopPropagation();
           onMenuOpenChange(false);
           if (onDelete) onDelete(item.id);
         }}
-        className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-[#ff6b6b]"
-      >
-        <Trash2 size={18} strokeWidth={2.5} className="text-[#ff6b6b]" />
-        <span>Move to trash</span>
-      </button>
-      
-      <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-      
-      <button className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[14px] font-medium text-zinc-100">
-        <Share2 size={18} strokeWidth={2.5} className="text-zinc-100" />
-        <span>Share</span>
-      </button>
+      />
     </>
   );
 
@@ -597,114 +610,155 @@ const TileContent = React.memo(({
     }
   }, [item.status, item.url, item.kind]);
 
-  const showGeneratingOverlay = item.status === 'generating' || (item.status === 'completed' && !isImageReady);
+  const mediaReady = item.status === 'completed' && !!item.url && isImageReady;
+
+  /*
+   * A tile that was already complete when it mounted — restored from storage, or
+   * scrolled back into view — starts settled. Without that, every tile in the gallery
+   * would play the reveal on page load.
+   */
+  const [revealPhase, setRevealPhase] = React.useState<'loading' | 'revealing' | 'settled'>(
+    () => (item.status === 'completed' && item.url ? 'settled' : 'loading')
+  );
+
+  /* useLayoutEffect, not useEffect: this runs before paint, so the frame on which the
+   * image becomes ready is the same frame the reveal starts on. */
+  React.useLayoutEffect(() => {
+    if (revealPhase !== 'loading' || !mediaReady) return;
+    setRevealPhase('revealing');
+    const timer = setTimeout(() => setRevealPhase('settled'), REVEAL_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [revealPhase, mediaReady]);
+
+  const isRevealing = revealPhase === 'revealing';
+  /*
+   * Keyed off revealPhase alone, deliberately.
+   *
+   * Deriving this from isImageReady as well left exactly one commit — after the preload
+   * resolved but before the phase effect had run — in which `isImageReady` was true while
+   * the phase was still `loading`. In that commit the overlay's condition was false and
+   * the image's was too, so the tile unmounted both layers and painted its bare #0c0c0c
+   * background. Measured off a real generation, that was a full-tile black flash: 100% of
+   * the tile's pixels at luminance 12 for ~150ms. Gating both layers on the same phase
+   * value means there is no state in which neither is mounted.
+   */
+  const showGeneratingOverlay = item.status !== 'failed' && revealPhase !== 'settled';
+  // The image mounts with the reveal, not before, so the glass fades it in from zero.
+  const showMedia = item.status === 'completed' && !!item.url && revealPhase !== 'loading';
 
   return (
   <>
-    <AnimatePresence>
-      {showGeneratingOverlay && (
-        <motion.div 
-          className="mesh-container-generating"
-          initial={{ opacity: 1 }}
-          exit={{ opacity: 0, filter: 'blur(12px)' }}
-          transition={{ duration: 2.2, ease: [0.16, 1, 0.3, 1] }}
-          style={{ zIndex: 50, pointerEvents: 'none' }}>
-          <div className="absolute inset-0 z-10 overflow-hidden rounded-[18px] opacity-100 pointer-events-none" style={{ filter: 'brightness(1) contrast(1)', mixBlendMode: 'luminosity' }}>
-            <div className="absolute inset-0 bg-black" style={{ filter: 'blur(12px) contrast(0.9)' }}>
-              <div 
-                className="absolute inset-0 bg-transparent mix-blend-normal origin-center"
-                style={{
-                  backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
-                  backgroundRepeat: 'repeat',
-                  backgroundSize: '100%',
-                  backgroundPosition: '0% 50%',
-                  animation: 'flow-perlin-1 9s linear infinite',
-                  filter: 'contrast(1.5)',
-                  transform: 'scale(3.5)',
-                  opacity: 1
-                }}
-              />
-              <div 
-                className="absolute inset-0 bg-transparent mix-blend-multiply origin-center"
-                style={{
-                  backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
-                  backgroundRepeat: 'repeat',
-                  backgroundSize: '100%',
-                  backgroundPosition: '0% 50%',
-                  animation: 'flow-perlin-2 6s linear infinite',
-                  filter: 'contrast(1.5)',
-                  transform: 'scale(2)',
-                  opacity: 1
-                }}
-              />
-            </div>
+    {showGeneratingOverlay && (
+      <div
+        className={`mesh-container-generating ${isRevealing ? 'mesh-container-generating--revealing' : ''}`}
+        style={{ zIndex: 50, pointerEvents: 'none' }}
+      >
+        <div
+          className={`absolute inset-0 z-10 overflow-hidden rounded-[18px] opacity-100 pointer-events-none ${isRevealing ? 'mesh-noise--revealing' : ''}`}
+          style={{ filter: 'brightness(1) contrast(1)', mixBlendMode: 'luminosity' }}
+        >
+          <div className="absolute inset-0 bg-black" style={{ filter: 'blur(12px) contrast(0.9)' }}>
+            <div 
+              className="absolute inset-0 bg-transparent mix-blend-normal origin-center"
+              style={{
+                backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
+                backgroundRepeat: 'repeat',
+                backgroundSize: '100%',
+                backgroundPosition: '0% 50%',
+                animation: 'flow-perlin-1 9s linear infinite',
+                filter: 'contrast(1.5)',
+                transform: 'scale(3.5)',
+                opacity: 1
+              }}
+            />
+            <div 
+              className="absolute inset-0 bg-transparent mix-blend-multiply origin-center"
+              style={{
+                backgroundImage: 'url("https://labs.google/fx/images/perlin.png")',
+                backgroundRepeat: 'repeat',
+                backgroundSize: '100%',
+                backgroundPosition: '0% 50%',
+                animation: 'flow-perlin-2 6s linear infinite',
+                filter: 'contrast(1.5)',
+                transform: 'scale(2)',
+                opacity: 1
+              }}
+            />
           </div>
-          
-          <style dangerouslySetInnerHTML={{ __html: `
-          .mesh-container-generating {
-            position: absolute;
-            inset: 0;
-            border-radius: 18px;
-            background-color: #5F6368; 
-            overflow: hidden;
-            container-type: inline-size;
-          }
-          
-          @keyframes flow-perlin-1 {
-            0% { background-position: 100cqw center; }
-            100% { background-position: 0px center; } 
-          }
-          
-          @keyframes flow-perlin-2 {
-            0% { background-position: 0% center; }
-            100% { background-position: 100cqw center; }
-          }
-        `}} />
+        </div>
+        
+        <style dangerouslySetInnerHTML={{ __html: `
+        .mesh-container-generating {
+          position: absolute;
+          inset: 0;
+          border-radius: 18px;
+          background-color: #5F6368; 
+          overflow: hidden;
+          container-type: inline-size;
+        }
+        
+        @keyframes flow-perlin-1 {
+          0% { background-position: 100cqw center; }
+          100% { background-position: 0px center; } 
+        }
+        
+        @keyframes flow-perlin-2 {
+          0% { background-position: 0% center; }
+          100% { background-position: 100cqw center; }
+        }
+      `}} />
 
         {/* Foreground Content */}
-        <div className="absolute top-4 left-4 pointer-events-none z-30 select-none">
-          {item.kind === 'image' ? (
-            <ImagesIcon className="text-zinc-400 w-[20px] h-[20px] shrink-0" />
-          ) : (
-            <VideoIcon className="text-zinc-400 w-[20px] h-[20px] shrink-0 translate-y-[0.5px]" />
-          )}
-        </div>
+        <div className={`absolute inset-0 z-30 pointer-events-none ${isRevealing ? 'mesh-chrome--revealing' : ''}`}>
+          <div className="absolute top-4 left-4 pointer-events-none select-none">
+            {/* Sized through the prop, not a utility class: these are icon-font glyphs now, and
+              * their width/height/font-size are set inline, which outranks `w-[20px]`. */}
+            {item.kind === 'image' ? (
+              <ImagesIcon size={20} className="text-zinc-400 shrink-0" />
+            ) : (
+              <VideoIcon size={20} className="text-zinc-400 shrink-0" />
+            )}
+          </div>
 
-        <div className="absolute top-4 right-4 pointer-events-none z-30 select-none">
-          <span className="text-[15px] font-normal text-zinc-400 leading-none">
-            {progress}%
-          </span>
-        </div>
-
-        {item.modelId !== 'upload' && (
-          <div className="absolute bottom-3.5 left-3.5 right-[60px] flex items-center pointer-events-none z-30 min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out">
-            <span className="text-[12px] font-normal text-white/80 truncate max-w-full leading-normal">
-              {item.prompt}
+          <div className="absolute top-4 right-4 pointer-events-none select-none">
+            <span className="text-[15px] font-normal text-zinc-400 leading-none">
+              {progress}%
             </span>
           </div>
-        )}
 
-        {/* Lower Right Re-prompt Button */}
-        <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out pointer-events-none group-hover:pointer-events-auto z-30">
-          <div className="bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onRePrompt) onRePrompt(item);
-              }}
-              className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
-              title="Use prompt again"
-            >
-              <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2.5} style={{ transform: 'scaleY(-1)' }} />
-            </button>
+          {item.modelId !== 'upload' && (
+            <div className="absolute bottom-3.5 left-3.5 right-[60px] flex items-center pointer-events-none min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out">
+              <span className="text-[12px] font-normal text-white/80 truncate max-w-full leading-normal">
+                {item.prompt}
+              </span>
+            </div>
+          )}
+
+          {/* Lower Right Re-prompt Button */}
+          <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out pointer-events-none group-hover:pointer-events-auto">
+            <div className="bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[2px] shadow-xl">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onRePrompt) onRePrompt(item);
+                }}
+                className="w-[30px] h-[30px] flex items-center justify-center rounded-[8px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
+                title="Use prompt again"
+              >
+                <Undo2 size={18} className="text-[#1a1a1a]" strokeWidth={2.5} style={{ transform: 'scaleY(-1)' }} />
+              </button>
+            </div>
           </div>
         </div>
-      </motion.div>
+      </div>
     )}
-    </AnimatePresence>
  
-    {item.status === 'completed' && item.url && (
-      <div ref={containerRef} className="w-full h-full relative" onContextMenu={handleContextMenu}>
+    {showMedia && (
+      <div
+        ref={containerRef}
+        className={`gallery-tile-glass ${isRevealing ? 'gallery-tile-glass--revealing' : 'gallery-tile-glass--settled'}`}
+        onContextMenu={handleContextMenu}
+      >
         {item.kind === 'video' ? (
           <>
             <MediaVideo
@@ -713,7 +767,7 @@ const TileContent = React.memo(({
               loop
               muted
               playsInline
-              className="w-full h-full object-cover rounded-[18px]"
+              className={`w-full h-full object-cover rounded-[18px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
               draggable={false}
             />
             <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
@@ -732,7 +786,7 @@ const TileContent = React.memo(({
           <img
             src={item.url}
             alt={item.shortenedPrompt || item.prompt}
-            className="w-full h-full object-cover rounded-[18px]"
+            className={`w-full h-full object-cover rounded-[18px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
             draggable="false"
           />
         )}
@@ -826,7 +880,7 @@ const TileContent = React.memo(({
       </div>
     )}
  
-    {item.status === 'completed' && item.url && (
+    {showMedia && (
       <>
         <div className={`absolute top-3 right-3 transition-all duration-300 z-30 ${
           isRenaming 
@@ -835,10 +889,14 @@ const TileContent = React.memo(({
         }`}>
           <div className="flex items-center gap-[3.5px] bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[3.5px] shadow-xl pointer-events-auto" ref={menuRef}>
             <button 
-              onClick={(e) => e.stopPropagation()}
-              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onToggleFavorite) onToggleFavorite(item.id);
+              }}
+              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
+              title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
             >
-               <Heart size={17} className="text-[#1a1a1a]" strokeWidth={2} />
+               <Heart size={17} className="text-[#1a1a1a]" strokeWidth={2} fill={item.favorite ? 'currentColor' : 'none'} />
             </button>
             <button 
               onClick={(e) => {
@@ -861,38 +919,23 @@ const TileContent = React.memo(({
             </button>
           </div>
  
-          {/* Dropdown Menu */}
+          {/*
+            * Dropdown menu. One surface for both ways in — the three-dot button and a right-click —
+            * because Flow animates both the same way: 200ms of `flow-menu-in` opening, 100ms of
+            * `flow-menu-out` closing. The exit is why this stays mounted past `isMenuOpen`.
+            */}
           {createPortal(
-            contextMenuCoords ? (
-              isMenuOpen && (
-                <div
-                  ref={dropdownRef}
-                  style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
-                  className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
-                >
-                  {dropdownContent}
-                </div>
-              )
-            ) : (
-              <AnimatePresence>
-                {isMenuOpen && (
-                  <motion.div
-                    ref={dropdownRef}
-                    initial={{ opacity: 0, y: menuStyle.bottom !== 'auto' ? -8 : 8 }}
-                    animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 650, damping: 38 } }}
-                    exit={{ 
-                      opacity: 0, 
-                      y: isHovered ? (menuStyle.bottom !== 'auto' ? 8 : -8) : -8, 
-                      transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
-                    }}
-                    style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
-                    className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
-                  >
-                    {dropdownContent}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            ),
+            menuMounted ? (
+              <div
+                ref={dropdownRef}
+                role="menu"
+                data-state={isMenuOpen ? 'open' : 'closed'}
+                style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
+                className="flow-menu flow-menu--fit pointer-events-auto"
+              >
+                {dropdownContent}
+              </div>
+            ) : null,
             document.body
           )}
         </div>
@@ -952,9 +995,9 @@ const TileContent = React.memo(({
           <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-gradient-to-t from-black/45 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 px-5 pb-4 flex items-end pointer-events-none rounded-b-[18px]">
             <div className="flex items-center gap-2.5 w-full min-w-0">
               {item.kind === 'image' ? (
-                <ImagesIcon className="text-white w-[17px] h-[17px] shrink-0" />
+                <ImagesIcon size={17} className="text-white shrink-0" />
               ) : (
-                <VideoIcon className="text-white w-[17px] h-[17px] shrink-0 translate-y-[1.5px]" />
+                <VideoIcon size={17} className="text-white shrink-0" />
               )}
               <span className="text-[14px] font-normal text-white truncate max-w-full">
                 {item.shortenedPrompt || item.prompt}
@@ -1002,7 +1045,8 @@ const GalleryTile = React.memo(({
   onSetIsRenaming,
   onSetAsCover,
   onAddToPrompt,
-  onAnimate
+  onAnimate,
+  onToggleFavorite
 }: {
   item: MediaItem;
   projectName: string;
@@ -1032,6 +1076,7 @@ const GalleryTile = React.memo(({
   onSetAsCover: (url: string, isVideo?: boolean) => void;
   onAddToPrompt: (item: MediaItem) => void;
   onAnimate: (item: MediaItem) => void;
+  onToggleFavorite: (id: string) => void;
 }) => {
   const handleMenuOpenChange = React.useCallback(
     (open: boolean, isContext?: boolean) => onMenuOpenChange(item.id, open, isContext),
@@ -1094,6 +1139,7 @@ const GalleryTile = React.memo(({
         onSetAsCover={onSetAsCover}
         onAddToPrompt={onAddToPrompt}
         onAnimate={onAnimate}
+        onToggleFavorite={onToggleFavorite}
       />
 
       {/* Smooth fading local dark overlay for all other images/videos */}

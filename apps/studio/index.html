@@ -59,9 +59,18 @@
           captions are set in it. Without this second request Chrome synthesises
           an oblique from the monospaced upright and the letterforms are visibly
           wrong. `1,0,300..400` reproduces Gemini's own italic file byte for byte.
+
+      Google Sans Text is the body face Gemini and Flow actually set their UI in, and
+      several surfaces here already name it first in their font stack — Media's composer,
+      the Gems views, the tooltip and dialog stylesheets. It was never loaded, so all of
+      them silently fell through to Inter, which has a larger x-height and a taller cap
+      height: Flow's placeholder measures 181.26px against Willow's 189.4px for the same
+      string at the same declared 14px, and it reads as visibly bigger text.
+
+      Families must be listed alphabetically or the endpoint returns 400.
     -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
@@ -90,7 +99,7 @@
     />
     <noscript>
       <link
-        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
         rel="stylesheet"
       />
       <link
@@ -131,12 +140,28 @@
         src: url("https://fonts.gstatic.com/l/font?kit=daaDSSYgOGmYaRLpq55MPuzv2kUK2zvmTflyWwG1oySatCZuAYA-8NIsLW680OBb5BBuQa5Dapuzovt2J0psqvrJKUiguriqj38pHhH1_FWVNba9XW1Z0j1SYPtVC_039jdnbiSlMoNYz-sc0l6o2XJnFRZd3LtfgXCEn5sBwOYz9JY-vfCcEZCekq8BFb41oUHJ21PTFnZb2RMMwYCzB7F1mdUaFrYUswpxtQdEmjoEM8p6oWeeN_ktEB1SdkIa-kcux3UrQOn_dQjRWbZcMVX1_RESDzbwHtbyk5rWjbipp7mDJwP4NckVMay3Le8j78DOKTOoejXKXxhX1w78YI4BFD7bbtw99OVHnoVj&skey=bef131c18897d264&v=v38") format("woff2");
       }
 
+      /*
+       * Google Symbols, subsetted to the ligatures Willow actually names.
+       *
+       * The subset is regenerated rather than hand-edited, by
+       * `tools/ui-research/scrapers/flow/54-symbols-subset.cjs --add=<new names>`, which works
+       * out the current contents by measuring rather than guessing. The full family is 2.8MB;
+       * this is 96KB for 194 icons.
+       *
+       * Adding a glyph means regenerating this URL. There is no fallback for a missing one:
+       * a ligature the face does not contain renders as its own name in words, and because
+       * the individual letters are present the browser never falls through to another face.
+       * `article_spark` in Media's composer was exactly that, arriving as three stray icons.
+       *
+       * Axes are FILL, ROND and wght — the three `MaterialSymbol` emits for this family.
+       * Asking for GRAD or opsz as well makes the endpoint serve TTF instead of woff2.
+       */
       @font-face {
         font-family: "Google Symbols";
         font-style: normal;
         font-weight: 100 700;
         font-display: block;
-        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1XMoDZlWmzc_IiQP9Pl2qlTD28M00Ic5PBvgjUKh-hL5SsUfna8181gW5cw07ABjrw0mO9bD6GPxon5_oEbD-5h7ZDXXSzrmdLquZIuQBxUvaZArLpc9_WPlurKXilymEUxDQvP0_oYFlasoxiIzXiRU4pPzsiilP73kTDJCtscKKmgltNUNlkgsmao8Q6wHI_VgfRzzLWzxNYqELfM8E-dJuRFXxp-qY128dH8PUnZKTVj8zx2u_KXEpS3nOjzA0GPRNGz5f8ukRCl18Ct-hICEEPmxO7Q4sW_wAB-ZWkbBgTvN4Uun_d4BIf2dGSJve8OMEcsl17MRztjGqzBqxrF_leL8bF7GGpPDmkcMvu8h4yNIYPDnJENzL3NAuDqCmcCizwv6Lv7vHOa7yN-Gnmgdmf0dHOb_4TrJAKxeZTOYhYtXCdwVRTrpQZCogvxSOk5-y9GRF-XojLdO34CzwJA1gLhT40E1V-vuu1qmY6xFZS6yyylg2QrI2M7Om51UN_pFu4SjeXHSZiR06KF9GGbLYS4dTg9WX-7HPtoEwO29n3xpg2CgMYf8YvjMM-wkgDd4CyuqOtvTC75KUZvV_3KO42o7eR&skey=f8ec4d50247dc1c1&v=v448") format("woff2");
+        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1pSPywlmmzc_ohQP9PqGjLH2zrYh5ZLaTJtwfdIRa2No-1TuDB6kg8inacthKv-YpxL_ajgJZwaHsxv245qkTrCzBk5VK1ZwA7Z2yh_pYj25WejGK0EKtNIBVg_oYQv2prMUme0cI-M1zIMrbO__oZ8-6dSnJV9B5EXoWpp46fZhQHO83laDFnSQb-bZXwz_yIQ1dHlk12FaNpgXHiYG5WeBb8YBPOQVjsdBSH9X8BC-8U_MCNmu1IMflOUcwtDgdNCBuZVg3x6Q4nZn84a0EdG3gFKRCuQeM8U1qXtJmT&skey=f8ec4d50247dc1c1&v=v454") format("woff2");
       }
 
       .material-symbols-rounded,

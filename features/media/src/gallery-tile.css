@@ -1,0 +1,182 @@
+/*
+ * The gallery tile's reveal — what happens in the ~2.7s after a generated image lands.
+ *
+ * The generating animation itself is NOT here. It lives inline in GalleryTile.tsx and is
+ * deliberately untouched; this file only replaces what used to be a single 2.2s
+ * cross-fade out of it.
+ *
+ * Every duration, delay and easing below was measured off Google Flow with the recorder
+ * in tools/ui-research/scrapers/flow/, not chosen. Flow drives its reveal through four
+ * Web Animations API calls plus a rAF loop; those are transcribed here as CSS so the
+ * choreography reads as one declarative spec. The values were identical across six
+ * separate captured reveals, so treat them as exact and re-measure rather than re-taste.
+ * `20-verify-willow.cjs` replays this file in isolation and checks it against them.
+ *
+ * Timeline, t=0 when the decoded image is ready (total 2692.5ms):
+ *
+ *      0      chrome     opacity 1 -> 0                 200ms  ease-out
+ *      0      image      opacity 0 -> 1                 300ms  ease-in
+ *    187.5    overlay    opacity 1 -> 0.9, noise blooms 750ms  ease-out
+ *    375      glass      opacity 0 -> 1                 750ms  ease-out
+ *   1192.5    overlay    opacity 0.9 -> 0, normalises  1500ms  ease-out
+ *   1500      glass      backdrop blur 80px -> 0       1150ms  ease-out
+ *
+ * The overlay easing to 0.9 rather than straight to 0 is what gives the bloom: the
+ * liquid flares just as the image lands, then drains away over a slow 1.5s while the
+ * backdrop blur resolves underneath it.
+ */
+
+/* ------------------------------------------------------------------ *
+ * The image, and the blur it resolves out of
+ * ------------------------------------------------------------------ */
+
+.gallery-tile-glass {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  border-radius: 18px;
+}
+
+/*
+ * The blur that makes the image resolve rather than merely fade. `::after` paints after
+ * its parent's content, so its backdrop includes the <img> beneath it.
+ *
+ * Flow animates a --blur-amount custom property from a rAF loop and reads it back via
+ * backdrop-filter: blur(var(--blur-amount)). Animating backdrop-filter directly is
+ * equivalent and needs neither @property registration nor a JS loop.
+ */
+.gallery-tile-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  pointer-events: none;
+  backdrop-filter: blur(80px);
+}
+
+/* At rest the pseudo is switched off rather than left at blur(0). A settled gallery
+ * holds dozens of tiles and an inert backdrop-filter still costs a compositing pass
+ * each. Flow does the same thing once its reveal finishes. */
+.gallery-tile-glass--settled::after {
+  display: none;
+}
+
+.gallery-tile-glass--revealing {
+  animation: gallery-tile-glass-in 750ms ease-out 375ms both;
+}
+
+.gallery-tile-glass--revealing::after {
+  animation: gallery-tile-unblur 1150ms ease-out 1500ms both;
+}
+
+.gallery-tile-image--revealing {
+  animation: gallery-tile-image-in 300ms ease-in both;
+}
+
+@keyframes gallery-tile-image-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes gallery-tile-glass-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes gallery-tile-unblur {
+  from { backdrop-filter: blur(80px); }
+  to   { backdrop-filter: blur(0px); }
+}
+
+/* ------------------------------------------------------------------ *
+ * The generating overlay's exit
+ * ------------------------------------------------------------------ */
+
+/*
+ * Opacity rides the overlay itself rather than the noise layer inside it, because the
+ * overlay carries the #5F6368 base and sits at z-index 50 — above the image, not behind
+ * it as in Flow. Fading the noise alone would leave an opaque grey card covering the
+ * image until the very end. Fading the overlay takes the base and the noise together,
+ * which is what lets the image emerge.
+ *
+ * Written as one animation with four stops, not two overlapping ones. Two animations on
+ * the same property would fight: the second one's `both` fill applies its start value
+ * backwards from t=0 and, being later in the list, wins — so the first stage would never
+ * be seen. Percentages are the measured millisecond offsets over the 2692.5ms total, and
+ * each stop carries the easing for the segment beginning at it.
+ */
+.mesh-container-generating--revealing {
+  animation: gallery-tile-overlay-out 2692.5ms both;
+}
+
+@keyframes gallery-tile-overlay-out {
+  0% {
+    opacity: 1;
+    animation-timing-function: linear;
+  }
+  6.9638% {
+    opacity: 1;
+    animation-timing-function: ease-out;
+  }
+  34.8189% {
+    opacity: 0.9;
+    animation-timing-function: linear;
+  }
+  44.2897% {
+    opacity: 0.9;
+    animation-timing-function: ease-out;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The flare, on the luminosity-blended noise layer. Its inline `filter` is overridden
+ * here because animations outrank inline styles in the cascade. */
+.mesh-noise--revealing {
+  animation: gallery-tile-noise-bloom 2692.5ms both;
+}
+
+@keyframes gallery-tile-noise-bloom {
+  0% {
+    filter: brightness(1) contrast(1);
+    animation-timing-function: linear;
+  }
+  6.9638% {
+    filter: brightness(1) contrast(1);
+    animation-timing-function: ease-out;
+  }
+  34.8189% {
+    filter: brightness(1.2) contrast(1.25);
+    animation-timing-function: linear;
+  }
+  44.2897% {
+    filter: brightness(1.2) contrast(1.25);
+    animation-timing-function: ease-out;
+  }
+  100% {
+    filter: brightness(1) contrast(1);
+  }
+}
+
+/* Flow dismisses the loading chrome first, as its own short beat before the reveal. */
+.mesh-chrome--revealing {
+  animation: gallery-tile-chrome-out 200ms ease-out both;
+}
+
+@keyframes gallery-tile-chrome-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-tile-glass--revealing,
+  .gallery-tile-glass--revealing::after,
+  .gallery-tile-image--revealing,
+  .mesh-container-generating--revealing,
+  .mesh-noise--revealing,
+  .mesh-chrome--revealing {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}

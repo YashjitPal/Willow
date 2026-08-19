@@ -121,14 +121,50 @@ export function resolveBinding(
       provider: selected.providerId as never,
       model: selected.modelId,
       apiKey,
+      /*
+       * Both, and both are load-bearing.
+       *
+       * `thinkingLevel` is Willow's numeric scale, which every adapter maps
+       * through its own table — and those tables stop below Codex's ladder.
+       * `chat.ts` maps level 6 to `"max"` for OpenAI, and on Gemini Pro level 6
+       * misses the map entirely and falls through to `'low'`, turning the
+       * highest setting into the lowest.
+       *
+       * `reasoningEffort` is checked first by every adapter
+       * (`options.reasoningEffort || <map lookup>`), so passing the resolved
+       * name explicitly is the only way `ultra` and `xhigh` ever reach the
+       * wire. Without it the Ultra selection was decorative.
+       */
       thinkingLevel: resolved.level,
+      reasoningEffort: resolved.effective,
       baseUrl: selected.baseUrl ?? config?.[selected.providerId]?.baseUrl,
       apiFormat: selected.apiFormat as never,
-      toolPolicy: selected.toolPolicy as never,
       profileId: selected.profileId,
-      // The harness runs its own loop, so provider-side iteration must not also
-      // fire — two loops would double every tool call.
-      maxToolIterations: 1,
+
+      /*
+       * No provider-side tools. The harness has its own, over a text protocol
+       * the provider never sees, and it executes them itself.
+       *
+       * This used to inherit the saved model's policy, which defaults to
+       * `provider-native`. The model would then reach for a native tool — search
+       * on Gemini, typically — and the provider loop would want a second round
+       * to feed the result back. With the cap below set to 1 that round was
+       * fatal, and a turn that had just finished planning died with "AI tool
+       * loop exceeded the 1-iteration safety limit."
+       */
+      toolPolicy: 'disabled',
+      enableSearch: false,
+
+      /*
+       * Headroom, not a budget. The harness enforces the real limit itself, in
+       * its own loop, where exhausting it is reported to the user as a sentence
+       * rather than thrown as an error.
+       *
+       * With tools disabled the provider loop should run exactly once, so this
+       * only ever catches something unforeseen — and for that, a few rounds that
+       * complete beat one that throws mid-turn.
+       */
+      maxToolIterations: 4,
     },
   };
 }

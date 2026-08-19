@@ -466,6 +466,14 @@ describe('Gemini language handling', () => {
     assert.match(storeSource, /directive \? `\$\{systemPrompt\}\\n\\n\$\{directive\}` : systemPrompt/);
   });
 
+  it('adds only the selected-language preference line', () => {
+    assert.match(
+      providersSource,
+      /return `User's preferred voice is: \$\{language\.label\}`;/,
+    );
+    assert.doesNotMatch(providersSource, /regardless of the language the user speaks/);
+  });
+
   it('leaves a speechConfig provider needing no ChatView change', () => {
     // buildLiveVoiceOptions already returns the field, and live.ts already sends
     // it, so a future provider is a registry entry and nothing more.
@@ -649,7 +657,6 @@ describe('the panel orb leaves the session orb alone', () => {
     assert.match(chatViewSource, /orbProps=\{\{ workspaceColor \}\}/);
   });
 });
-
 
 
 

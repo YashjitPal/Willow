@@ -30,7 +30,16 @@ import {
 } from '../indexeddb/willow-db';
 import type { ChatAttachment } from '@willow/core/attachments';
 import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '@willow/projects/registry';
-import { setNotebookStorageScope } from '@willow/notebooks/notebooks-backend';
+import {
+  adoptChatIntoNotebook,
+  deriveNotebookFolderName,
+  ensureNotebookFolderName,
+  readNotebookChatIndex,
+  readNotebooks,
+  setNotebookFolderName,
+  setNotebookSourceFsName,
+  setNotebookStorageScope,
+} from '@willow/notebooks/notebooks-backend';
 import {
   LEGACY_CHAT_KEYS,
   LEGACY_CHAT_MIGRATION_KEY,
@@ -66,6 +75,18 @@ import {
   saveProjectFilesToDisk,
   type FileContent,
 } from './code-disk';
+import {
+  dataUrlToBlob,
+  deleteNotebookFolder,
+  deleteNotebookSourceFromDisk,
+  ensureNotebookDir,
+  ensureNotebookDirIn,
+  moveFileBetweenDirs,
+  openNotebookChatsDir,
+  renameNotebookFolder,
+  saveNotebookSourceToDisk,
+  type NotebookSourcePayload,
+} from './notebooks-disk';
 import {
   deleteSavedInfoFromDisk,
   readSavedInfoFromDisk,
@@ -105,6 +126,25 @@ interface LocalFSContextType {
   saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob) => Promise<string | null>;
   deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<boolean>;
   renameLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string) => Promise<string | null>;
+  /*
+   * Notebooks on disk: `Notebooks/<name>/{Sources,Chats}`. Addressed by notebook
+   * id, never by folder name — the folder name is stored on the notebook and
+   * resolved in here, so no caller can derive a name that disagrees with the one
+   * the folder actually has.
+   */
+  ensureLocalFSNotebookDir: (notebookId: string) => Promise<boolean>;
+  saveLocalFSNotebookSource: (notebookId: string, payload: NotebookSourcePayload) => Promise<string | null>;
+  deleteLocalFSNotebookSource: (notebookId: string, fsName: string) => Promise<boolean>;
+  /** Call after the title has been committed, and only if it actually changed. */
+  renameLocalFSNotebookFolder: (notebookId: string) => Promise<string | null>;
+  /** Refuses while the notebook's `Chats/` still holds files. */
+  deleteLocalFSNotebookFolder: (notebookId: string) => Promise<boolean>;
+  /**
+   * Move a chat's file into a notebook's `Chats/`, or back to the global one with
+   * `null`. The disk half of filing; the registry half belongs to the notebooks
+   * store, and `useNotebookDisk` does both.
+   */
+  moveLocalFSChatToNotebook: (chatId: string, notebookId: string | null) => Promise<boolean>;
   renameLocalFSProject: (oldName: string, newName: string) => Promise<boolean>;
   saveLocalFSCover: (projectName: string, url: string) => Promise<boolean>;
   generateChatTitle: (userMessage: string, assistantMessage?: string) => Promise<string>;
@@ -141,6 +181,15 @@ interface LocalFSContextType {
 }
 
 const LocalFSContext = createContext<LocalFSContextType | null>(null);
+
+/**
+ * The workspace folder holding every *unfiled* chat.
+ *
+ * A chat filed into a notebook lives in `Notebooks/<name>/Chats/` instead, so
+ * this is one of several directories a chat file can be in — see
+ * `resolveChatDir`, which is the only thing that should spell either path.
+ */
+const CHATS_DIR_NAME = 'Chats';
 
 export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any }> = ({ children, modelConfig }) => {
   const { user, userProfile, loading: isAuthLoading } = useAuth();
@@ -201,7 +250,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const isSwitchingChatScopeRef = useRef(false);
   const projectSaveQueuesRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const chatReconcilePromiseRef = useRef<Promise<void> | null>(null);
-  const pendingChatsDirRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const pendingWorkspaceDirRef = useRef<FileSystemDirectoryHandle | null>(null);
   // oldName -> { newName, ts } for recently renamed project folders. Save paths
   // resolve project folders by NAME, often seconds after capturing it (fetches,
   // debounces) — a write addressed to a just-renamed-away folder would recreate
@@ -218,6 +267,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // deleted, and the reconcile PERSISTS that loss (invariant #13).
   const projectRenameOpsRef = useRef(0);
   const projectRenameSettleUntilRef = useRef(0);
+  // The same guard for a notebook-folder move, and it matters more: a notebook's
+  // folder holds its CHATS, so the copy-then-delete window makes every chat the
+  // notebook owns look externally deleted — and the chat reconciler acts on that
+  // by tombstoning the row and reaping the body (invariants 5 and 13).
+  const notebookRenameOpsRef = useRef(0);
+  const notebookRenameSettleUntilRef = useRef(0);
 
   // Follow the rename chain (A→B→C) for a project name captured before one or
   // more renames landed. Entries expire after 60s — long enough for any
@@ -330,7 +385,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // account, root, or workspace changes.
       manifestIdCacheRef.current.clear();
       coverHydratedRef.current.clear();
-      pendingChatsDirRef.current = null;
+      pendingWorkspaceDirRef.current = null;
       providerGenerationRef.current += 1;
     }
     const hasScopedMetadata = localStorage.getItem(keys.chats) !== null || localStorage.getItem(keys.sync) !== null;
@@ -735,16 +790,156 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, []);
 
-  const reconcileChatsWithDisk = useCallback(async (chatsDir: FileSystemDirectoryHandle): Promise<void> => {
-    const diskFiles = new Map<string, { handle: FileSystemFileHandle; mtime: number }>();
-    for await (const entry of (chatsDir as any).values()) {
-      if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
-      const chatId = entry.name.slice(0, -5);
-      if (!isValidChatId(chatId)) continue;
+  /**
+   * Which notebook's folder a chat's file belongs in — `''` for the global `Chats/`.
+   *
+   * The sync record is authoritative, because it is the field a move sets and the
+   * reconciler maintains. The registry is consulted **only when there is no record
+   * at all**, which means no file has ever been written under this id and there is
+   * therefore no current location to preserve. That case is the chat started
+   * *inside* a notebook: `ChatView` files it the moment it is persisted, so its
+   * very first write should land in the notebook's folder rather than in the global
+   * one and be moved a poll later.
+   *
+   * `previousId` carries the location across a rename (temp id -> AI title). Taking
+   * it from the old record rather than re-reading the registry is deliberate: the
+   * registry is keyed by id, and the new title is registered by a React effect that
+   * may not have run yet.
+   */
+  const chatNotebookId = useCallback((chatId: string, previousId?: string | null): string => {
+    const record = chatSyncRecordsRef.current[chatId];
+    if (record) return record.notebookId;
+    const carried = previousId ? chatSyncRecordsRef.current[previousId] : undefined;
+    if (carried) return carried.notebookId;
+    const { chatOwner } = readNotebookChatIndex();
+    return chatOwner[chatId] || (previousId ? chatOwner[previousId] || '' : '');
+  }, []);
+
+  /**
+   * The directory a chat file goes in, for a location from `chatNotebookId`.
+   *
+   * Every chat read, write, move and delete resolves its directory here, so the
+   * two possible paths are spelled once — two call sites spelling them separately
+   * eventually means a chat written to a folder nobody scans.
+   *
+   * `create` distinguishes the two contracts this layer has always had. A write
+   * may build what it needs; a read or a delete may not, because a fabricated
+   * empty folder is indistinguishable from "everything in here was deleted" and
+   * the reconciler acts on that. A write to a notebook that has no folder yet
+   * builds the whole shape (manifest and `Sources/` too), so a folder that appears
+   * because a chat moved into it looks like one the create screen made.
+   */
+  const resolveChatDir = useCallback(async (
+    workspaceDir: FileSystemDirectoryHandle,
+    notebookId: string,
+    { create = false }: { create?: boolean } = {},
+  ): Promise<FileSystemDirectoryHandle | null> => {
+    if (!notebookId) {
       try {
-        const file = await entry.getFile();
-        diskFiles.set(chatId, { handle: entry, mtime: file.lastModified });
-      } catch {}
+        return await workspaceDir.getDirectoryHandle(CHATS_DIR_NAME, { create });
+      } catch {
+        return null;
+      }
+    }
+    if (!create) {
+      const assigned = readNotebookChatIndex().folderByNotebookId[notebookId] || '';
+      return assigned ? openNotebookChatsDir(workspaceDir, assigned, { create: false }) : null;
+    }
+    const folderName = ensureNotebookFolderName(notebookId);
+    if (!folderName) return null;
+    if (!(await ensureNotebookDirIn(workspaceDir, folderName, notebookId))) return null;
+    return openNotebookChatsDir(workspaceDir, folderName, { create: true });
+  }, []);
+
+  /**
+   * One chat file, as found on disk.
+   *
+   * `dir`/`notebookId` are where it actually *is*, which is not necessarily where
+   * the record says it should be — reconciling that difference is what the
+   * location pass below does.
+   */
+  interface DiskChatFile {
+    handle: FileSystemFileHandle;
+    mtime: number;
+    dir: FileSystemDirectoryHandle;
+    notebookId: string;
+  }
+
+  const reconcileChatsWithDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+    /*
+     * Read once for the whole pass. A chat filed while this runs is picked up by
+     * the next one, and `chatNotebookId` prefers the sync record anyway — which a
+     * concurrent filing writes — so a stale index can only affect a chat that has
+     * no record at all.
+     */
+    const notebookIndex = readNotebookChatIndex();
+
+    /*
+     * The global folder is the one directory this pass cannot do without: an empty
+     * scan set makes every known chat look externally deleted, and the pass at the
+     * bottom acts on that. Failing to open it aborts the whole reconcile
+     * (invariant 5: a failed scan performs zero deletions).
+     */
+    let globalChatsDir: FileSystemDirectoryHandle;
+    try {
+      globalChatsDir = await workspaceDir.getDirectoryHandle(CHATS_DIR_NAME, { create: true });
+    } catch {
+      return;
+    }
+
+    const diskFiles = new Map<string, DiskChatFile>();
+    /** Every directory this pass could read, including the global one as `''`. */
+    const dirByNotebookId = new Map<string, FileSystemDirectoryHandle>([['', globalChatsDir]]);
+    /**
+     * Notebooks whose folder could not be opened. Their chats are **unaccounted
+     * for, not deleted** — a folder renamed by hand in Explorer looks exactly like
+     * this, and reading it as a deletion would tombstone every chat inside and reap
+     * their bodies.
+     */
+    const unreadableNotebooks = new Set<string>();
+
+    const scanChatsDir = async (dir: FileSystemDirectoryHandle, notebookId: string): Promise<void> => {
+      for await (const entry of (dir as any).values()) {
+        if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
+        const chatId = entry.name.slice(0, -5);
+        if (!isValidChatId(chatId)) continue;
+        let mtime = 0;
+        try { mtime = (await entry.getFile()).lastModified; } catch { continue; }
+        const existing = diskFiles.get(chatId);
+        if (existing) {
+          /*
+           * The same id in two folders — a copy, or a move made outside the app
+           * that only got halfway. Keep whichever copy the app expects (else the
+           * global one, since it is scanned first) and leave the other file
+           * completely alone: it holds a conversation, and deleting it on the
+           * strength of a guess about which is newer is not recoverable.
+           */
+          const expected = chatNotebookId(chatId);
+          if (existing.notebookId === expected || notebookId !== expected) continue;
+        }
+        diskFiles.set(chatId, { handle: entry, mtime, dir, notebookId });
+      }
+    };
+
+    try {
+      await scanChatsDir(globalChatsDir, '');
+    } catch {
+      // A partial global scan is still a scan of an unknown subset, so it cannot
+      // be trusted to prove absence either.
+      return;
+    }
+    for (const { notebookId, folderName } of notebookIndex.folders) {
+      const dir = await openNotebookChatsDir(workspaceDir, folderName, { create: false });
+      if (!dir) {
+        unreadableNotebooks.add(notebookId);
+        continue;
+      }
+      dirByNotebookId.set(notebookId, dir);
+      try {
+        await scanChatsDir(dir, notebookId);
+      } catch {
+        unreadableNotebooks.add(notebookId);
+      }
     }
 
     const knownIds = new Set<string>([...localChatsRef.current, ...diskFiles.keys()]);
@@ -762,9 +957,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     // is retried on every reconcile and can never resurrect the chat.
     for (const [chatId, record] of Object.entries(chatSyncRecordsRef.current)) {
       if (!record.tombstone) continue;
-      if (diskFiles.has(chatId)) {
+      const disk = diskFiles.get(chatId);
+      if (disk) {
         try {
-          await chatsDir.removeEntry(`${chatId}.json`);
+          // From whichever folder it turned up in, not from where the record
+          // expected it: a deleted chat the user had moved is still deleted.
+          await disk.dir.removeEntry(`${chatId}.json`);
           diskFiles.delete(chatId);
         } catch {}
       }
@@ -782,17 +980,101 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     const RECONCILE_CONCURRENCY = 8;
     const diskEntries = [...diskFiles];
     let nextEntryIndex = 0;
-    const reconcileEntry = async ([chatId, disk]: [string, { handle: FileSystemFileHandle; mtime: number }]) => {
+    const reconcileEntry = async ([chatId, disk]: [string, DiskChatFile]) => {
       await enqueueChatOperation([chatId], async () => {
         let record = chatSyncRecordsRef.current[chatId];
         if (record?.tombstone) return;
+
+        /*
+         * ── Location, before content ──────────────────────────────────────────
+         *
+         * Which folder the file is in decides which folder the content work below
+         * writes to, so it is settled first. The whole scheme rests on one
+         * tie-break, and it is what stops a file ping-ponging between two folders
+         * on every poll: `locationDirty` means the app asked for a move that disk
+         * has not caught up with, so the move is completed and the registry is
+         * never reverted. Clear means nobody in the app asked, so the user moved
+         * the file themselves and disk is authoritative for where a file is
+         * (invariant 3) — the record follows the file, and the registry follows
+         * the record.
+         */
+        let activeDir = disk.dir;
+        let activeNotebookId = disk.notebookId;
+        /** The file's mtime as it stands now — a move gives it a new one. */
+        let observedMtime = disk.mtime;
+        /** Re-resolved after a move: a copy-then-delete one strands the old handle. */
+        let activeHandle = disk.handle;
+        const wantedNotebookId = record ? record.notebookId : (notebookIndex.chatOwner[chatId] || '');
+        if (disk.notebookId !== wantedNotebookId) {
+          if (record?.locationDirty) {
+            const targetDir = await resolveChatDir(workspaceDir, wantedNotebookId, { create: true });
+            const moved = !!targetDir && await moveFileBetweenDirs(disk.dir, targetDir, `${chatId}.json`);
+            if (moved && targetDir) {
+              activeDir = targetDir;
+              activeNotebookId = wantedNotebookId;
+              /*
+               * Re-resolve the file where it now lives, and re-read its mtime.
+               * Both matter. A copy-then-delete move leaves `disk.handle`
+               * pointing at a file that no longer exists, so the content pass
+               * below would read nothing and bail. And a move gives the file a
+               * new timestamp, which the next poll would otherwise read as an
+               * external edit — re-loading the body and firing an update event
+               * every 3 seconds forever (invariant 7: change-only).
+               */
+              try {
+                activeHandle = await targetDir.getFileHandle(`${chatId}.json`);
+                observedMtime = (await activeHandle.getFile()).lastModified;
+              } catch {}
+              const latest = chatSyncRecordsRef.current[chatId];
+              if (latest) {
+                chatSyncRecordsRef.current[chatId] = {
+                  ...latest,
+                  diskMtime: observedMtime,
+                  locationDirty: false,
+                  updatedAt: Date.now(),
+                };
+                record = chatSyncRecordsRef.current[chatId];
+              }
+            }
+            // A failed move leaves `locationDirty` set and the file where it is;
+            // the next poll retries it. Same durable-dirty contract as content
+            // (invariant 11).
+          } else {
+            if (record) {
+              chatSyncRecordsRef.current[chatId] = {
+                ...record,
+                notebookId: disk.notebookId,
+                locationDirty: false,
+                updatedAt: Date.now(),
+              };
+              record = chatSyncRecordsRef.current[chatId];
+            }
+            // Fires the notebooks-updated event only when something really moved,
+            // so an idle poll writes nothing and re-renders nothing.
+            adoptChatIntoNotebook(chatId, disk.notebookId || null);
+          }
+        } else if (record?.locationDirty) {
+          /*
+           * The file is already where the record wants it, so whatever move was
+           * outstanding has landed — by `saveLocalFSChat` writing the new content
+           * straight into the target folder, or by a retry that succeeded and
+           * lost its record update to a scope switch. Clearing the flag here is
+           * what makes the intent converge instead of staying dirty forever.
+           */
+          chatSyncRecordsRef.current[chatId] = {
+            ...record,
+            locationDirty: false,
+            updatedAt: Date.now(),
+          };
+          record = chatSyncRecordsRef.current[chatId];
+        }
 
         // Order matters for cost. The overwhelmingly common case is "nothing
         // changed", and deciding that needs only an mtime comparison plus a
         // presence probe — NOT the chat body. Loading every body up front made
         // startup scale with total history size, which is what made a large
         // Recents list hang the app until the scan finished.
-        const diskChanged = !record || !record.diskMtime || disk.mtime !== record.diskMtime;
+        const diskChanged = !record || !record.diskMtime || observedMtime !== record.diskMtime;
         if (!record?.dirty && !diskChanged) {
           let bodyPresent = false;
           try { bodyPresent = await hasChatBody(chatId, chatStorageScopeRef.current); } catch {}
@@ -815,7 +1097,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         let diskBody: any[] | null = null;
         let diskText = '';
         try {
-          const file = await disk.handle.getFile();
+          const file = await activeHandle.getFile();
           diskText = await file.text();
           const parsed = JSON.parse(diskText);
           if (Array.isArray(parsed)) diskBody = parsed;
@@ -826,14 +1108,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         if (record?.dirty && cached) {
           const cachedText = JSON.stringify(cached, null, 2);
           const contentDiffers = JSON.stringify(diskBody) !== JSON.stringify(cached);
-          const externallyChanged = contentDiffers && (!record.diskMtime || disk.mtime !== record.diskMtime);
+          const externallyChanged = contentDiffers && (!record.diskMtime || observedMtime !== record.diskMtime);
           if (externallyChanged && diskBody) {
             // Preserve the external version under a deterministic conflict copy
-            // before retrying the local dirty revision at the original name.
+            // before retrying the local dirty revision at the original name. The
+            // copy is written beside the original, whichever folder that is now.
             const conflictId = makeConflictId(chatId);
             await saveChatBody(conflictId, diskBody, chatStorageScopeRef.current);
-            await writeFileRecursively(chatsDir, `${conflictId}.json`, diskText);
-            const conflictFile = await (await chatsDir.getFileHandle(`${conflictId}.json`)).getFile();
+            await writeFileRecursively(activeDir, `${conflictId}.json`, diskText);
+            const conflictFile = await (await activeDir.getFileHandle(`${conflictId}.json`)).getFile();
             const conflictRevision = nextChatRevision(conflictId);
             chatSyncRecordsRef.current[conflictId] = {
               revision: conflictRevision,
@@ -842,14 +1125,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               dirty: false,
               tombstone: false,
               updatedAt: Date.now(),
+              notebookId: activeNotebookId,
+              locationDirty: false,
             };
-            chatTimestampsRef.current[conflictId] = disk.mtime;
+            chatTimestampsRef.current[conflictId] = observedMtime;
             localChatsRef.current.push(conflictId);
           }
 
           try {
-            await writeFileRecursively(chatsDir, `${chatId}.json`, cachedText);
-            const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+            await writeFileRecursively(activeDir, `${chatId}.json`, cachedText);
+            const written = await (await activeDir.getFileHandle(`${chatId}.json`)).getFile();
             record = chatSyncRecordsRef.current[chatId];
             if (record && record.dirty) {
               chatSyncRecordsRef.current[chatId] = {
@@ -872,12 +1157,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           chatSyncRecordsRef.current[chatId] = {
             revision,
             diskRevision: revision,
-            diskMtime: disk.mtime,
+            diskMtime: observedMtime,
             dirty: false,
             tombstone: false,
             updatedAt: Date.now(),
+            // Where the file actually is, which the block above has already
+            // reconciled against where the app wanted it.
+            notebookId: activeNotebookId,
+            locationDirty: false,
           };
-          chatTimestampsRef.current[chatId] = disk.mtime;
+          chatTimestampsRef.current[chatId] = observedMtime;
         }
         if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
       });
@@ -892,6 +1181,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       })
     );
 
+    /*
+     * A notebook rename is a folder copy followed by a folder delete, so for the
+     * length of it every chat inside that notebook is either in two places or in
+     * neither. Read by the pass below that is a mass external delete, and it
+     * would tombstone the whole notebook's history and reap the bodies — the
+     * same trap `projectRenameOpsRef` exists for (invariants 5 and 13). The
+     * settle window covers the observer events that arrive just after the last
+     * write. Everything above is safe during a rename: it only ever acts on
+     * files it actually found.
+     */
+    if (notebookRenameOpsRef.current > 0 || Date.now() < notebookRenameSettleUntilRef.current) {
+      persistChatMetadata();
+      return;
+    }
+
     // Deliberately sequential, unlike the pass above. This loop reassigns
     // `localChatsRef.current` wholesale, so overlapping iterations could drop a
     // concurrent push. It is also nearly free in practice — on a healthy
@@ -900,11 +1204,23 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     // A clean cached chat missing from disk is an external deletion, including
     // one made while the app was closed. Only an explicitly dirty revision is
     // eligible to be flushed back to disk.
+    const scannedDirs = [...dirByNotebookId.values()];
     for (const chatId of [...localChatsRef.current]) {
       if (diskFiles.has(chatId)) continue;
       await enqueueChatOperation([chatId], async () => {
         const record = chatSyncRecordsRef.current[chatId];
         if (record?.tombstone) return;
+
+        /*
+         * The notebook this chat belongs to was not enumerated, so its files were
+         * never looked at. Unaccounted for is not deleted — a notebook folder
+         * renamed by hand in a file manager reads as unreadable, and a registry
+         * entry that vanished without its chats being unfiled first reads as
+         * unknown. Treating either as a deletion would erase every chat in the
+         * notebook (invariant 5).
+         */
+        const wanted = record ? record.notebookId : (notebookIndex.chatOwner[chatId] || '');
+        if (wanted && (unreadableNotebooks.has(wanted) || !notebookIndex.folderByNotebookId[wanted])) return;
 
         // `diskFiles` was enumerated at the top of this reconcile, but we only
         // reach this decision after every per-chat await above — seconds later.
@@ -914,17 +1230,41 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         // title is exactly that write, which is why this hit reliably on the
         // first message of a new chat. Re-check disk before believing the
         // snapshot; absence has to be true *now* to count as a deletion.
-        try {
-          await chatsDir.getFileHandle(`${chatId}.json`);
+        //
+        // Every folder is re-probed, not just the expected one: a chat file can
+        // legitimately be in the global `Chats/` or in any notebook's, and a
+        // file found somewhere unexpected is a move for the next poll's scan to
+        // adopt — never a delete.
+        let foundNow = false;
+        for (const dir of scannedDirs) {
+          try {
+            await dir.getFileHandle(`${chatId}.json`);
+            foundNow = true;
+            break;
+          } catch (error: any) {
+            // Only a genuine "not there" is evidence. A permission or transient
+            // failure must not be read as a delete, and it says nothing about
+            // the folders not yet probed either, so the whole decision is
+            // abandoned rather than continuing the sweep.
+            if (error?.name && error.name !== 'NotFoundError') return;
+          }
+        }
+        if (foundNow) {
           if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
           return;
-        } catch (error: any) {
-          // Only a genuine "not there" is evidence. A permission or transient
-          // failure must not be read as a delete.
-          if (error?.name && error.name !== 'NotFoundError') return;
         }
 
-        if (record?.dirty) {
+        /*
+         * `locationDirty` earns the same protection as `dirty`, for the same
+         * reason: a move has been asked for and has not landed, so where the file
+         * is right now is unknown *by construction*. Absence from the folders this
+         * pass could read is therefore not evidence of a deletion — the file may
+         * be sitting in a notebook folder the registry no longer names, which is
+         * what a notebook deleted while no folder was connected leaves behind.
+         * Writing the cached body to the wanted folder both saves the conversation
+         * and converges the state, so the flush below covers both flags.
+         */
+        if (record?.dirty || record?.locationDirty) {
           let body: any[] | null = null;
           try { body = await loadChatBody(chatId, chatStorageScopeRef.current); } catch {}
           if (!body) {
@@ -939,17 +1279,27 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             // watcher/poll tick retries.
             return;
           }
+          // Flushed to where the record says it belongs, creating the notebook's
+          // folder if the move never landed. A folder we cannot resolve leaves
+          // the record dirty for the next tick rather than dropping the write.
+          const targetDir = await resolveChatDir(workspaceDir, wanted, { create: true });
+          if (!targetDir) return;
           try {
-            await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(body, null, 2));
-            const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+            await writeFileRecursively(targetDir, `${chatId}.json`, JSON.stringify(body, null, 2));
+            const written = await (await targetDir.getFileHandle(`${chatId}.json`)).getFile();
             const latest = chatSyncRecordsRef.current[chatId];
-            if (latest?.dirty) {
+            if (latest?.dirty || latest?.locationDirty) {
               chatSyncRecordsRef.current[chatId] = {
                 ...latest,
-                diskRevision: latest.revision,
+                // Only a dirty flush publishes a new content revision. A
+                // location-only flush wrote the body disk already had.
+                diskRevision: latest.dirty ? latest.revision : latest.diskRevision,
                 diskMtime: written.lastModified,
                 dirty: false,
                 updatedAt: Date.now(),
+                // The file now exists in the wanted folder, so any pending move
+                // has been satisfied by this write.
+                locationDirty: false,
               };
             }
           } catch {
@@ -966,6 +1316,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           dirty: false,
           tombstone: true,
           updatedAt: Date.now(),
+          // Kept rather than cleared: a tombstone can be resurrected by a
+          // cross-tab merge, and where the chat belonged is still true.
+          notebookId: record?.notebookId || '',
+          locationDirty: false,
         };
         localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
         delete chatTimestampsRef.current[chatId];
@@ -976,18 +1330,22 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
 
     persistChatMetadata();
-  }, [enqueueChatOperation, nextChatRevision, persistChatMetadata]);
+  }, [enqueueChatOperation, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   // All startup, watcher, focus, and manual refreshes enter one reconciliation
   // loop. Requests arriving during a long scan are queued for another pass
   // instead of being dropped.
-  const syncChatsWithDisk = useCallback(async (chatsDir: FileSystemDirectoryHandle): Promise<void> => {
-    pendingChatsDirRef.current = chatsDir;
+  //
+  // The handle is the **workspace** directory, not `Chats/`: a chat file can be
+  // in the global folder or in any notebook's, and only `reconcileChatsWithDisk`
+  // gets to decide which (see `resolveChatDir`).
+  const syncChatsWithDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+    pendingWorkspaceDirRef.current = workspaceDir;
     if (chatReconcilePromiseRef.current) return chatReconcilePromiseRef.current;
     const run = (async () => {
-      while (pendingChatsDirRef.current) {
-        const nextDir = pendingChatsDirRef.current;
-        pendingChatsDirRef.current = null;
+      while (pendingWorkspaceDirRef.current) {
+        const nextDir = pendingWorkspaceDirRef.current;
+        pendingWorkspaceDirRef.current = null;
         await reconcileChatsWithDisk(nextDir);
       }
     })();
@@ -1102,8 +1460,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               workspaceDir = await handle.getDirectoryHandle(workspaceName);
             } catch {}
             if (workspaceDir) {
-              const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-              await syncChatsWithDisk(chatsDir);
+              await syncChatsWithDisk(workspaceDir);
 
               // Recover & re-tag projects from disk (self-healing registry).
               await syncProjectsFromDisk(workspaceDir);
@@ -1131,7 +1488,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return () => {
       cancelled = true;
       providerGenerationRef.current += 1;
-      pendingChatsDirRef.current = null;
+      pendingWorkspaceDirRef.current = null;
     };
   }, [isSupported, isAuthLoading, buildChatScopeId, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
 
@@ -1227,8 +1584,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       try {
         const workspaceName = getSanitizedWorkspaceName();
         const workspaceDir = await handle.getDirectoryHandle(workspaceName, { create: true });
-        const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-        await syncChatsWithDisk(chatsDir);
+        await syncChatsWithDisk(workspaceDir);
 
         // Recover & re-tag projects from disk (self-healing registry).
         await syncProjectsFromDisk(workspaceDir);
@@ -1254,7 +1610,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // handle. The catalog in IndexedDB is intentionally retained so a later
       // re-selection can recover the same stable root ID.
       providerGenerationRef.current += 1;
-      pendingChatsDirRef.current = null;
+      pendingWorkspaceDirRef.current = null;
       await removeStoredDirectoryHandle();
       directoryHandleRef.current = null;
       setLocalFolderName(null);
@@ -1291,8 +1647,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             workspaceDir = await handle.getDirectoryHandle(workspaceName);
           } catch {}
           if (workspaceDir) {
-            const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-            await syncChatsWithDisk(chatsDir);
+            await syncChatsWithDisk(workspaceDir);
 
             // Recover & re-tag projects from disk (self-healing registry).
             await syncProjectsFromDisk(workspaceDir);
@@ -1461,21 +1816,36 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (isFirstRename && localChatsRef.current.includes(chatId) && !targetRecord?.tombstone) return false;
 
       const rootHandle = await getActiveHandle();
-      let chatsDir: FileSystemDirectoryHandle | null = null;
+      /*
+       * Where this chat's file belongs. Resolved once, before anything is
+       * written, and `previousId` is what carries a notebook across the temp-id →
+       * title rename: the record for the new title does not exist yet, and the
+       * notebook registry may not have caught up either (`ChatView` files the
+       * chat from an effect).
+       */
+      const notebookId = chatNotebookId(chatId, previousId);
+      let targetDir: FileSystemDirectoryHandle | null = null;
+      let previousDir: FileSystemDirectoryHandle | null = null;
       if (rootHandle) {
         try {
           const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
-          chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-          if (isFirstRename) {
+          targetDir = await resolveChatDir(workspaceDir, notebookId, { create: true });
+          // The old name's file is wherever it was written, which is a different
+          // folder only if the chat was filed while the rename was in flight.
+          const previousNotebookId = previousRecord ? previousRecord.notebookId : notebookId;
+          previousDir = previousNotebookId === notebookId
+            ? targetDir
+            : await resolveChatDir(workspaceDir, previousNotebookId, { create: false });
+          if (isFirstRename && targetDir) {
             try {
-              await chatsDir.getFileHandle(`${chatId}.json`);
+              await targetDir.getFileHandle(`${chatId}.json`);
               return false;
             } catch (error: any) {
               if (error?.name && error.name !== 'NotFoundError') return false;
             }
           }
         } catch {
-          chatsDir = null;
+          targetDir = null;
         }
       }
 
@@ -1491,6 +1861,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         dirty: true,
         tombstone: false,
         updatedAt: now,
+        notebookId,
+        /*
+         * Carried, not cleared. This write lands in the folder the record wants,
+         * but it says nothing about a file a failed move may have left behind
+         * elsewhere, so the intent stays until the reconciler has seen the file
+         * where it belongs and cleared it.
+         */
+        locationDirty: targetRecord?.locationDirty === true,
       };
       updateScopedChatTimestamp(chatId, now);
       if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
@@ -1504,6 +1882,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           dirty: false,
           tombstone: true,
           updatedAt: now,
+          notebookId: previousRecord?.notebookId || '',
+          locationDirty: false,
         };
         localChatsRef.current = localChatsRef.current.filter((id) => id !== previousId);
         delete chatTimestampsRef.current[previousId];
@@ -1544,14 +1924,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
 
       setActiveChatId((current) => current === null || current === previousId ? chatId : current);
-      if (!chatsDir) return true;
+      if (!targetDir) return true;
 
       try {
-        await writeFileRecursively(chatsDir, `${chatId}.json`, JSON.stringify(messages, null, 2));
-        if (previousId) {
-          try { await chatsDir.removeEntry(`${previousId}.json`); } catch {}
+        await writeFileRecursively(targetDir, `${chatId}.json`, JSON.stringify(messages, null, 2));
+        if (previousId && previousDir) {
+          try { await previousDir.removeEntry(`${previousId}.json`); } catch {}
         }
-        const written = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
+        const written = await (await targetDir.getFileHandle(`${chatId}.json`)).getFile();
         const latest = chatSyncRecordsRef.current[chatId];
         if (latest?.revision === revision) {
           chatSyncRecordsRef.current[chatId] = {
@@ -1568,7 +1948,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp]);
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp, chatNotebookId, resolveChatDir]);
 
   // Disk write lives in ./code-disk (see saveLocalFSProjectInner).
   const saveLocalFSProjectChat = useCallback((projectName: string, chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => (
@@ -1620,6 +2000,315 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const renameLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string): Promise<string | null> => (
     renameMediaFileOnDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName)
   ), [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+
+  /*
+   * ── Notebooks on disk ────────────────────────────────────────────────────────
+   *
+   * Thin wrappers over ./notebooks-disk, in the same shape as the media ones
+   * above. What they add on top of the driver is the two things that need the
+   * registry, and so cannot live in the storage layer:
+   *
+   *  - resolving the notebook's folder name (and assigning one the first time),
+   *  - holding the rename guard, since a notebook rename moves every chat file the
+   *    notebook owns.
+   *
+   * The registry stays authoritative for whether a notebook EXISTS — notebooks
+   * work with no folder connected, which is why every one of these returns a
+   * failure value instead of throwing when there is no handle.
+   */
+
+  /**
+   * The notebook's folder name, minting one on first use.
+   *
+   * Gated on a live handle on purpose: `ensureNotebookFolderName` persists the
+   * name it picks, and a name recorded with no folder behind it would have the
+   * reconciler scanning a directory that was never created.
+   */
+  const notebookFolderNameFor = useCallback(async (notebookId: string): Promise<string> => {
+    if (!notebookId) return '';
+    const rootHandle = await getActiveHandle();
+    if (!rootHandle) return '';
+    return ensureNotebookFolderName(notebookId);
+  }, [getActiveHandle]);
+
+  /** The folder name a notebook already has. Never mints one — for delete paths. */
+  const existingNotebookFolderName = (notebookId: string): string => (
+    notebookId ? readNotebooks().find((entry) => entry.id === notebookId)?.fsFolder || '' : ''
+  );
+
+  const ensureLocalFSNotebookDir = useCallback(async (notebookId: string): Promise<boolean> => {
+    const folderName = await notebookFolderNameFor(notebookId);
+    if (!folderName) return false;
+    const dir = await ensureNotebookDir({ getActiveHandle, getSanitizedWorkspaceName }, folderName, notebookId);
+    return !!dir;
+  }, [getActiveHandle, getSanitizedWorkspaceName, notebookFolderNameFor]);
+
+  /**
+   * Write one source into the notebook's `Sources/` folder and return the file
+   * name it got — which the caller must store on the source, since collisions are
+   * resolved with a `(1)` suffix and a name derived again later would not match.
+   */
+  const saveLocalFSNotebookSource = useCallback(async (notebookId: string, payload: NotebookSourcePayload): Promise<string | null> => {
+    const folderName = await notebookFolderNameFor(notebookId);
+    if (!folderName) return null;
+    return saveNotebookSourceToDisk({ getActiveHandle, getSanitizedWorkspaceName }, folderName, notebookId, payload);
+  }, [getActiveHandle, getSanitizedWorkspaceName, notebookFolderNameFor]);
+
+  const deleteLocalFSNotebookSource = useCallback(async (notebookId: string, fsName: string): Promise<boolean> => {
+    const folderName = existingNotebookFolderName(notebookId);
+    if (!folderName || !fsName) return false;
+    return deleteNotebookSourceFromDisk({ getActiveHandle, getSanitizedWorkspaceName }, folderName, fsName);
+  }, [getActiveHandle, getSanitizedWorkspaceName]);
+
+  /**
+   * Move the notebook's folder to match its (already renamed) title, and return
+   * the new folder name.
+   *
+   * Reads the new title from the registry rather than taking it as an argument, so
+   * the folder name can only ever be derived from what was actually persisted.
+   * **Call this only when the title really changed**: a folder rename copies every
+   * chat file the notebook owns, so running it on a no-op rename is a lot of I/O
+   * for nothing.
+   *
+   * A notebook with no folder yet returns null and is left alone — the next write
+   * creates the folder under the new title.
+   */
+  const renameLocalFSNotebookFolder = useCallback(async (notebookId: string): Promise<string | null> => {
+    const notebooks = readNotebooks();
+    const notebook = notebooks.find((entry) => entry.id === notebookId);
+    const oldName = notebook?.fsFolder || '';
+    if (!notebook || !oldName) return null;
+    const newName = deriveNotebookFolderName(notebook, notebooks);
+    if (!newName || newName === oldName) return null;
+    const rootHandle = await getActiveHandle();
+    if (!rootHandle) return null;
+
+    notebookRenameOpsRef.current++;
+    try {
+      const moved = await renameNotebookFolder({ getActiveHandle, getSanitizedWorkspaceName }, oldName, newName);
+      if (!moved) return null;
+      // Recorded only once the move has landed: this name is what every later
+      // lookup resolves through, so writing it early points every read — and the
+      // reconciler — at a folder that does not exist yet.
+      setNotebookFolderName(notebookId, newName);
+      return newName;
+    } finally {
+      notebookRenameOpsRef.current--;
+      // Keep the guard up briefly after the move, so the observer's last debounced
+      // event cannot land on a reconcile. Same 800ms the project rename uses.
+      notebookRenameSettleUntilRef.current = Date.now() + 800;
+    }
+  }, [getActiveHandle, getSanitizedWorkspaceName]);
+
+  /**
+   * Remove a deleted notebook's folder. Refuses while its `Chats/` still holds
+   * files — deleting a notebook is a grouping decision, not a decision to delete
+   * conversations, so the caller unfiles them first.
+   */
+  const deleteLocalFSNotebookFolder = useCallback(async (notebookId: string): Promise<boolean> => {
+    const folderName = existingNotebookFolderName(notebookId);
+    if (!folderName) return false;
+    return deleteNotebookFolder({ getActiveHandle, getSanitizedWorkspaceName }, folderName);
+  }, [getActiveHandle, getSanitizedWorkspaceName]);
+
+  /**
+   * Bring a workspace that predates this mirror up to the shape on disk, one poll
+   * at a time.
+   *
+   * Every notebook in a workspace created before `Notebooks/` existed has no
+   * folder, its sources exist only in localStorage, and its chats' files are all
+   * still in the global `Chats/`. None of those are errors and none of them are
+   * repaired by the live write paths, because those only run when the user touches
+   * something. So the poll walks the registry and closes each gap once.
+   *
+   * **Change-only (invariant 7).** Each of the three halves is guarded by the
+   * absence of the thing it writes — no `fsFolder`, no `fsName`, a record that
+   * disagrees — so a workspace already in the target shape performs zero writes,
+   * fires no events and re-renders nothing. That matters more here than anywhere
+   * else in this file: this runs every 3 seconds.
+   *
+   * **Only ever in the registry -> record direction.** It files chats the registry
+   * says are filed; it never unfiles one because the registry does not mention it.
+   * A registry that reads as empty — a scope switch mid-poll, a cleared
+   * localStorage — must not be able to move every notebook chat back to the global
+   * folder (invariant 5's rule applied to moves). The reverse direction already has
+   * an owner: the reconciler adopts the location the **file** is in, which is why
+   * this runs after it and re-reads the index rather than reusing a snapshot taken
+   * before it.
+   */
+  const backfillNotebooksToDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+    /*
+     * A rename is a folder copy followed by a folder delete, so for its duration
+     * `fsFolder` names a directory that is half-there or already gone. A source
+     * written into it lands in the copy that is about to be deleted. Skipping
+     * costs one poll; the settle window is the same one the delete pass uses.
+     */
+    if (notebookRenameOpsRef.current > 0 || Date.now() < notebookRenameSettleUntilRef.current) return;
+
+    const notebooks = readNotebooks();
+
+    // ── 1. Folders ─────────────────────────────────────────────────────────────
+    // Only notebooks that have never been assigned one. A folder the user deleted
+    // by hand is deliberately NOT rebuilt here: that would be a per-notebook
+    // directory probe on every poll forever, and the next write into it rebuilds
+    // it anyway (`resolveChatDir` and `saveLocalFSNotebookSource` both create).
+    for (const notebook of notebooks) {
+      if (notebook.fsFolder) continue;
+      const folderName = ensureNotebookFolderName(notebook.id);
+      if (!folderName) continue;
+      await ensureNotebookDirIn(workspaceDir, folderName, notebook.id);
+    }
+
+    // ── 2. Sources ─────────────────────────────────────────────────────────────
+    for (const notebook of notebooks) {
+      for (const source of notebook.sources) {
+        if (source.fsName) continue;
+        /*
+         * Nothing to write is not a failure. A large upload keeps only its name
+         * and type — the bytes were over the inline cap and the text could not be
+         * extracted — and a 0-byte file named after someone's lecture notes reads
+         * as data loss. Left without an `fsName`, which costs this in-memory
+         * check per poll and no writes.
+         */
+        const blob = source.dataUrl ? dataUrlToBlob(source.dataUrl) : null;
+        if (!blob && !source.content?.trim() && !source.url) continue;
+        const fsName = await saveLocalFSNotebookSource(notebook.id, {
+          title: source.title,
+          kind: source.kind,
+          blob,
+          content: source.content,
+          url: source.url,
+        });
+        if (fsName) setNotebookSourceFsName(notebook.id, source.id, fsName);
+      }
+    }
+
+    // ── 3. Chat locations ──────────────────────────────────────────────────────
+    /*
+     * Read after the reconcile above, so an adoption it just made is already in
+     * here and this pass agrees with it instead of moving the file back.
+     *
+     * Only the intent is recorded; the file is moved by the reconciler on the next
+     * poll. Not merely to keep one mover — `moveLocalFSChatToNotebook` derives the
+     * source folder from `record.notebookId`, and that is the exact field this pass
+     * exists to correct, so it would be asking a stale value where to move from.
+     * The reconciler moves from the directory it just *found* the file in, which is
+     * the only trustworthy answer. It also re-reads the moved file's mtime, without
+     * which the next poll reads the move as an external edit forever (invariant 7).
+     *
+     * A record already carrying the flag is left alone: the intent is outstanding,
+     * and restating it would reset `updatedAt` on every poll until the move landed.
+     */
+    const { chatOwner } = readNotebookChatIndex();
+    for (const [chatId, notebookId] of Object.entries(chatOwner)) {
+      const record = chatSyncRecordsRef.current[chatId];
+      // No record at all means no file has ever been written under this id, and
+      // `chatNotebookId` already prefers the registry in that case — the first
+      // write lands in the notebook's folder with nothing to migrate.
+      if (!record || record.tombstone) continue;
+      if (record.notebookId === notebookId || record.locationDirty) continue;
+      await enqueueChatOperation([chatId], async () => {
+        // Re-read inside the queue: a filing made while this pass walked the rest
+        // of the registry has already written both halves correctly.
+        const latest = chatSyncRecordsRef.current[chatId];
+        if (!latest || latest.tombstone) return;
+        if (latest.notebookId === notebookId || latest.locationDirty) return;
+        chatSyncRecordsRef.current[chatId] = {
+          ...latest,
+          notebookId,
+          locationDirty: true,
+          updatedAt: Date.now(),
+        };
+        persistChatMetadata();
+      });
+    }
+  }, [enqueueChatOperation, persistChatMetadata, saveLocalFSNotebookSource]);
+
+  /**
+   * File a chat into a notebook, or back out of one, by moving its file.
+   *
+   * `null` means the global `Chats/` folder. The registry half of filing belongs
+   * to the notebooks store; this is only the disk half, and the two are joined by
+   * `useNotebookDisk` so no caller has to remember there are two.
+   *
+   * The intent is recorded **before** the move and only cleared after it lands, so
+   * an interruption is retried by the reconciler rather than lost — the same
+   * durable-dirty contract content writes have (invariant 11). Which means the
+   * return value is "did the file move now", not "did the filing take": with no
+   * folder connected there is nothing to move and the answer is still yes.
+   */
+  const moveLocalFSChatToNotebook = useCallback(async (chatId: string, notebookId: string | null): Promise<boolean> => {
+    if (!chatId) return false;
+    const wanted = notebookId || '';
+
+    return await enqueueChatOperation([chatId], async () => {
+      const record = chatSyncRecordsRef.current[chatId];
+      if (record?.tombstone) return false;
+
+      const from = record ? record.notebookId : chatNotebookId(chatId);
+      const now = Date.now();
+      /*
+       * `revision` is deliberately untouched: it tracks CONTENT, and bumping it
+       * would make the local copy look newer than what disk has — i.e. dirty —
+       * and schedule a body rewrite for a move. `updatedAt` is what lets another
+       * tab's merge prefer this record at an equal revision.
+       */
+      chatSyncRecordsRef.current[chatId] = {
+        revision: record?.revision || 0,
+        diskRevision: record?.diskRevision || 0,
+        diskMtime: record?.diskMtime || 0,
+        dirty: record?.dirty === true,
+        tombstone: false,
+        updatedAt: now,
+        notebookId: wanted,
+        locationDirty: true,
+      };
+      persistChatMetadata();
+
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle) {
+        // No folder connected: nothing to move, and the intent is already stored.
+        // It is completed by the reconciler the next time a folder is connected.
+        return true;
+      }
+
+      let moved = false;
+      let movedMtime = 0;
+      try {
+        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
+        // Source resolved without `create`: if the old folder is not there the
+        // file is not either, and fabricating it would leave an empty stray.
+        const fromDir = await resolveChatDir(workspaceDir, from, { create: false });
+        const toDir = await resolveChatDir(workspaceDir, wanted, { create: true });
+        if (fromDir && toDir) {
+          moved = await moveFileBetweenDirs(fromDir, toDir, `${chatId}.json`);
+          if (moved) {
+            // Re-read the mtime a copy-then-delete move gave the file, or the
+            // next poll reads the move as an external edit and reloads the body
+            // on every tick (invariant 7).
+            try { movedMtime = (await (await toDir.getFileHandle(`${chatId}.json`)).getFile()).lastModified; } catch {}
+          }
+        }
+      } catch {}
+
+      if (!moved) {
+        // `locationDirty` stays set; the reconciler completes it on the next poll.
+        return false;
+      }
+
+      const latest = chatSyncRecordsRef.current[chatId];
+      if (latest && latest.notebookId === wanted) {
+        chatSyncRecordsRef.current[chatId] = {
+          ...latest,
+          diskMtime: movedMtime || latest.diskMtime,
+          locationDirty: false,
+          updatedAt: Date.now(),
+        };
+        persistChatMetadata();
+      }
+      return true;
+    }) ?? false;
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   /**
    * Rename a project folder on disk so it stays in lock-step with a UI rename
@@ -1851,7 +2540,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (!rootHandle) return cached;
       try {
         const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-        const chatsDir = await workspaceDir.getDirectoryHandle('Chats');
+        // No `create` on a read path: fabricating a folder here once made every
+        // cached chat look externally deleted. A filed chat whose notebook folder
+        // is missing simply reads as "not on disk" and the cached body stands.
+        const chatsDir = await resolveChatDir(workspaceDir, chatNotebookId(chatId), { create: false });
+        if (!chatsDir) return cached;
         const file = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
         if (cached && record?.diskMtime === file.lastModified) return cached;
         const parsed = JSON.parse(await file.text());
@@ -1865,6 +2558,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           dirty: false,
           tombstone: false,
           updatedAt: Date.now(),
+          // Read from the folder the record already named, so the location is
+          // confirmed rather than changed.
+          notebookId: record?.notebookId || '',
+          locationDirty: false,
         };
         chatTimestampsRef.current[chatId] = file.lastModified;
         if (!localChatsRef.current.includes(chatId)) localChatsRef.current.push(chatId);
@@ -1874,7 +2571,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         return cached;
       }
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata]);
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   /*
    * Point the personal profile at the same folder, and start the builder.
@@ -2010,8 +2707,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // loaded), abort as a no-op — fabricating an empty workspace here made
       // every cached chat look externally-deleted and reaped their bodies.
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const chatsDir = await workspaceDir.getDirectoryHandle('Chats', { create: true });
-      await syncChatsWithDisk(chatsDir);
+      await syncChatsWithDisk(workspaceDir);
     } catch (err: any) {
       // A missing workspace folder is the expected no-op case (see above), not
       // an error worth spamming every poll tick.
@@ -2241,6 +2937,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const workspaceDir = await handle.getDirectoryHandle(workspaceName);
         await syncProjectsFromDisk(workspaceDir);
         await refreshLocalChats();
+        // After the reconcile, deliberately: the backfill files chats the
+        // registry says are filed, and the reconcile adopts chats the *disk*
+        // says are filed. Running it second means an adoption just made is
+        // already visible here, so the two never fight over one chat.
+        await backfillNotebooksToDisk(workspaceDir);
         await syncRegisteredFolders(workspaceDir);
       } while (pollPendingRef.current);
     } catch {
@@ -2248,7 +2949,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } finally {
       isPollingRef.current = false;
     }
-  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, refreshLocalChats, syncRegisteredFolders]);
+  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, refreshLocalChats, backfillNotebooksToDisk, syncRegisteredFolders]);
 
   // Real-time disk watcher.
   // PRIMARY: FileSystemObserver (recent Chromium) gives true change events — when
@@ -2335,6 +3036,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const deleteLocalFSChat = useCallback(async (chatId: string): Promise<boolean> => {
     return enqueueChatOperation([chatId], async () => {
       const previous = chatSyncRecordsRef.current[chatId];
+      const notebookId = chatNotebookId(chatId);
       const revision = nextChatRevision(chatId);
       chatSyncRecordsRef.current[chatId] = {
         revision,
@@ -2343,10 +3045,19 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         dirty: false,
         tombstone: true,
         updatedAt: Date.now(),
+        notebookId,
+        locationDirty: false,
       };
       localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
       delete chatTimestampsRef.current[chatId];
       persistChatMetadata();
+      /*
+       * Unfiled from its notebook as part of the delete, for two reasons: the
+       * notebook should not go on listing a conversation that no longer exists,
+       * and a chat id IS its title, so the next chat the naming model calls the
+       * same thing would take this id back and be born inside this notebook.
+       */
+      if (notebookId) adoptChatIntoNotebook(chatId, null);
       // Announced BEFORE the body is removed, so an in-flight turn for this chat
       // is aborted and discarded rather than saved. saveLocalFSChat clears the
       // tombstone and re-adds the id to the chat list, so a completion landing
@@ -2360,15 +3071,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (rootHandle) {
         try {
           const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-          const chatsDir = await workspaceDir.getDirectoryHandle('Chats');
-          await chatsDir.removeEntry(`${chatId}.json`);
+          const chatsDir = await resolveChatDir(workspaceDir, notebookId, { create: false });
+          if (chatsDir) await chatsDir.removeEntry(`${chatId}.json`);
         } catch {
-          // Tombstone remains and the reconciler retries.
+          // Tombstone remains and the reconciler retries — from whichever folder
+          // the file actually turns up in, so a hand-moved file is still deleted.
         }
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata]);
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   const deleteLocalFSProjectInner = useCallback(async (_projectId: string, projectName: string): Promise<boolean> => {
     // Try deleting project folder from filesystem
@@ -2454,16 +3166,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const previousNewTimestamp = chatTimestampsRef.current[newChatId];
 
       const rootHandle = await getActiveHandle();
+      // A rename keeps the chat in its notebook: the folder is decided by the old
+      // id's record, and both files live in it.
+      const notebookId = chatNotebookId(oldChatId);
       let chatsDir: FileSystemDirectoryHandle | null = null;
       if (rootHandle) {
         try {
           const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-          chatsDir = await workspaceDir.getDirectoryHandle('Chats');
-          try {
-            await chatsDir.getFileHandle(`${newChatId}.json`);
-            return false;
-          } catch (error: any) {
-            if (error?.name && error.name !== 'NotFoundError') return false;
+          chatsDir = await resolveChatDir(workspaceDir, notebookId, { create: false });
+          if (chatsDir) {
+            try {
+              await chatsDir.getFileHandle(`${newChatId}.json`);
+              return false;
+            } catch (error: any) {
+              if (error?.name && error.name !== 'NotFoundError') return false;
+            }
           }
         } catch {
           chatsDir = null;
@@ -2482,6 +3199,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         dirty: true,
         tombstone: false,
         updatedAt: now,
+        notebookId,
+        locationDirty: oldRecord?.locationDirty === true,
       };
       chatSyncRecordsRef.current[oldChatId] = {
         revision: nextChatRevision(oldChatId),
@@ -2490,6 +3209,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         dirty: false,
         tombstone: true,
         updatedAt: now,
+        notebookId,
+        locationDirty: false,
       };
       chatTimestampsRef.current[newChatId] = chatTimestampsRef.current[oldChatId] || now;
       delete chatTimestampsRef.current[oldChatId];
@@ -2540,7 +3261,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata]);
+  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   return (
     <LocalFSContext.Provider
@@ -2562,6 +3283,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         saveLocalFSMedia,
         deleteLocalFSMediaFile,
         renameLocalFSMediaFile,
+        ensureLocalFSNotebookDir,
+        saveLocalFSNotebookSource,
+        deleteLocalFSNotebookSource,
+        renameLocalFSNotebookFolder,
+        deleteLocalFSNotebookFolder,
+        moveLocalFSChatToNotebook,
         renameLocalFSProject,
         saveLocalFSCover,
         generateChatTitle,
