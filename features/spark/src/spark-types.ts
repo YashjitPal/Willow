@@ -6,6 +6,13 @@ export type SparkTaskStatus =
   | 'failed'
   | 'cancelled';
 
+/** Live agent lifecycle used by the processing-state UI. */
+export type SparkActivityPhase = 'queued' | 'thinking' | 'working';
+
+export type SparkActivityEntry =
+  | { id: string; kind: 'narration'; text: string }
+  | { id: string; kind: 'tool'; tool: string };
+
 export type SparkReaction = 'like' | 'dislike' | null;
 
 export interface SparkTaskApproval {
@@ -38,6 +45,12 @@ export interface SparkTaskTurn {
   modelLabel?: string;
   /** Displayable thought summaries returned by the model, not hidden chain-of-thought. */
   thinkingSteps?: string[];
+  /** Stable Gemini-style heading for this turn's work timeline. */
+  activityTitle?: string;
+  activityLog?: SparkActivityEntry[];
+  /** Capabilities actually invoked while this turn ran. */
+  usedTools?: string[];
+  activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   reaction?: SparkReaction;
   createdAt: string;
@@ -65,6 +78,12 @@ export interface SparkTask {
   modelLabel?: string;
   /** Displayable thought summaries returned by the model, not hidden chain-of-thought. */
   thinkingSteps?: string[];
+  /** Stable Gemini-style heading for this task's work timeline. */
+  activityTitle?: string;
+  activityLog?: SparkActivityEntry[];
+  /** Capabilities actually invoked while this task ran. */
+  usedTools?: string[];
+  activityPhase?: SparkActivityPhase;
   turns: SparkTaskTurn[];
   attachments?: SparkTaskAttachment[];
   tools?: string[];

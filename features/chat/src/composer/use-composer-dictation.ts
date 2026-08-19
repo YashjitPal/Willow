@@ -26,7 +26,74 @@
 
 import { useState, useRef, useEffect, useCallback, type RefObject } from 'react';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
-import { transcribeRecordedAudio } from '@willow/ai/transcription';
+import {
+  isChromeNativeTranscriptionModel,
+  transcribeRecordedAudio,
+} from '@willow/ai/transcription';
+
+interface NativeSpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    0?: { transcript?: string };
+  }>;
+}
+
+interface NativeSpeechRecognitionErrorEvent extends Event {
+  error?: string;
+}
+
+interface NativeSpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  processLocally?: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: NativeSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: NativeSpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+type NativeSpeechRecognitionAvailability = 'available' | 'downloadable' | 'downloading' | 'unavailable';
+
+interface NativeSpeechRecognitionConstructor {
+  new (): NativeSpeechRecognition;
+  available?: (options: { langs: string[]; processLocally: true }) => Promise<NativeSpeechRecognitionAvailability>;
+  install?: (options: { langs: string[]; processLocally: true }) => Promise<boolean>;
+}
+
+const getNativeSpeechRecognition = (): NativeSpeechRecognitionConstructor | null => {
+  if (typeof window === 'undefined') return null;
+  const browserWindow = window as typeof window & {
+    SpeechRecognition?: NativeSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: NativeSpeechRecognitionConstructor;
+  };
+  return browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition || null;
+};
+
+const prepareNativeSpeechRecognition = async (
+  Recognition: NativeSpeechRecognitionConstructor,
+  language: string,
+) => {
+  if (!Recognition.available || !Recognition.install) {
+    throw new Error('Chrome on-device transcription needs the latest Google Chrome. Update Chrome or choose another transcription model.');
+  }
+
+  const options = { langs: [language], processLocally: true as const };
+  const availability = await Recognition.available(options);
+  if (availability === 'available') return;
+  if (availability === 'unavailable') {
+    throw new Error(`Chrome on-device transcription is not available for ${language}. Choose another transcription model.`);
+  }
+
+  const installed = await Recognition.install(options);
+  if (!installed) {
+    throw new Error(`Chrome could not install the on-device speech pack for ${language}. Try again or choose another transcription model.`);
+  }
+};
 
 export interface UseComposerDictationOptions {
   /** Live prompt text, mirrored into a ref so async callbacks read the latest. */
@@ -79,6 +146,8 @@ export const useComposerDictation = ({
   const dictationPhaseRef = useRef(dictationPhase);
   const dictationRequestIdRef = useRef(0);
   const dictationRecorderRef = useRef<MediaRecorder | null>(null);
+  const nativeRecognitionRef = useRef<NativeSpeechRecognition | null>(null);
+  const nativeTranscriptRef = useRef('');
   const dictationStreamRef = useRef<MediaStream | null>(null);
   const dictationAbortRef = useRef<AbortController | null>(null);
   const dictationRevealTimerRef = useRef<number | null>(null);
@@ -172,6 +241,16 @@ export const useComposerDictation = ({
     if (dictationPhaseRef.current !== 'recording') return;
     setDictationPhase('processing');
 
+    const nativeRecognition = nativeRecognitionRef.current;
+    if (nativeRecognition) {
+      try {
+        nativeRecognition.stop();
+      } catch {
+        nativeRecognition.abort();
+      }
+      return;
+    }
+
     const recorder = dictationRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       try {
@@ -192,12 +271,19 @@ export const useComposerDictation = ({
 
   const startDictationRecording = useCallback(async () => {
     const requestId = ++dictationRequestIdRef.current;
+    const useChromeNative = isChromeNativeTranscriptionModel(modelConfig?.systemDefaults?.transcription);
+    const NativeRecognition = useChromeNative ? getNativeSpeechRecognition() : null;
+    const recognitionLanguage = navigator.language || 'en-US';
     if (dictationRevealTimerRef.current) {
       window.clearTimeout(dictationRevealTimerRef.current);
       dictationRevealTimerRef.current = null;
     }
     dictationAbortRef.current?.abort();
     dictationAbortRef.current = null;
+    if (nativeRecognitionRef.current) {
+      try { nativeRecognitionRef.current.abort(); } catch {}
+      nativeRecognitionRef.current = null;
+    }
     releaseDictationStream();
     setDictationPlaceholder(null);
     setIsModelsOpen(false);
@@ -214,7 +300,13 @@ export const useComposerDictation = ({
     setDictationPhase('recording');
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      if (useChromeNative && !NativeRecognition) {
+        throw new Error('Chrome native transcription is not supported in this browser. Use the latest Google Chrome or choose another model.');
+      }
+      if (useChromeNative && NativeRecognition) {
+        await prepareNativeSpeechRecognition(NativeRecognition, recognitionLanguage);
+      }
+      if (!navigator.mediaDevices?.getUserMedia || (!useChromeNative && typeof MediaRecorder === 'undefined')) {
         throw new Error('Voice recording is not supported in this browser.');
       }
 
@@ -236,6 +328,78 @@ export const useComposerDictation = ({
 
       dictationStreamRef.current = stream;
       setDictationStream(stream);
+
+      if (useChromeNative && NativeRecognition) {
+        const recognition = new NativeRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = recognitionLanguage;
+        recognition.maxAlternatives = 1;
+        recognition.processLocally = true;
+        nativeTranscriptRef.current = '';
+
+        recognition.onresult = (event) => {
+          if (dictationRequestIdRef.current !== requestId) return;
+          let transcript = '';
+          for (let index = 0; index < event.results.length; index += 1) {
+            transcript += event.results[index]?.[0]?.transcript || '';
+          }
+          nativeTranscriptRef.current = transcript;
+          const basePrompt = dictationPrevPromptRef.current;
+          const selectionStart = Math.max(0, Math.min(dictationSelectionRef.current.start, basePrompt.length));
+          const selectionEnd = Math.max(selectionStart, Math.min(dictationSelectionRef.current.end, basePrompt.length));
+          const before = basePrompt.slice(0, selectionStart);
+          const after = basePrompt.slice(selectionEnd);
+          const leadingSpace = before && !/\s$/.test(before) ? ' ' : '';
+          const trailingSpace = after && !/^\s/.test(after) ? ' ' : '';
+          const nextPrompt = `${before}${leadingSpace}${transcript}${trailingSpace}${after}`;
+          promptTextRef.current = nextPrompt;
+          setPromptText(nextPrompt);
+        };
+
+        recognition.onerror = (event) => {
+          if (dictationRequestIdRef.current !== requestId) return;
+          if (event.error === 'aborted') return;
+          nativeRecognitionRef.current = null;
+          releaseDictationStream(stream);
+          revealDictationResult(
+            requestId,
+            nativeTranscriptRef.current,
+            event.error === 'not-allowed'
+              ? 'Chrome did not allow microphone access.'
+              : 'Chrome native transcription failed. Try again or choose another model.',
+          );
+        };
+        recognition.onend = () => {
+          if (dictationRequestIdRef.current !== requestId) return;
+          if (nativeRecognitionRef.current !== recognition) return;
+          nativeRecognitionRef.current = null;
+          releaseDictationStream(stream);
+          if (dictationPhaseRef.current === 'processing') {
+            revealDictationResult(
+              requestId,
+              nativeTranscriptRef.current,
+              nativeTranscriptRef.current ? undefined : "Didn't catch that. Try speaking again.",
+            );
+          } else if (dictationPhaseRef.current === 'recording') {
+            revealDictationResult(
+              requestId,
+              nativeTranscriptRef.current,
+              nativeTranscriptRef.current ? undefined : 'Chrome native transcription stopped unexpectedly. Try again.',
+            );
+          }
+        };
+        nativeRecognitionRef.current = recognition;
+        try {
+          recognition.start();
+        } catch (error) {
+          nativeRecognitionRef.current = null;
+          releaseDictationStream(stream);
+          throw error;
+        }
+        return;
+      }
+
       const preferredMimeType = [
         'audio/webm;codecs=opus',
         'audio/webm',
@@ -309,6 +473,10 @@ export const useComposerDictation = ({
   useEffect(() => () => {
     dictationRequestIdRef.current += 1;
     dictationAbortRef.current?.abort();
+    if (nativeRecognitionRef.current) {
+      try { nativeRecognitionRef.current.abort(); } catch {}
+      nativeRecognitionRef.current = null;
+    }
     if (dictationRevealTimerRef.current) window.clearTimeout(dictationRevealTimerRef.current);
     if (dictationPlaceholderTimerRef.current) window.clearTimeout(dictationPlaceholderTimerRef.current);
     const recorder = dictationRecorderRef.current;

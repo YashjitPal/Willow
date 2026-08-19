@@ -6,7 +6,6 @@ import {
   isAbortError,
   streamChat,
   type ChatMessage as AiChatMessage,
-  type StreamPhase,
 } from '@willow/ai/chat';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import {
@@ -49,19 +48,23 @@ import {
   updateSparkSkill,
   updateSparkTask,
   updateSparkTaskResponseTransient,
-  updateSparkTaskThinkingTransient,
+  updateSparkTaskActivityTransient,
   updateSparkTaskTurn,
   updateSparkTaskTurnResponseTransient,
-  updateSparkTaskTurnThinkingTransient,
+  updateSparkTaskTurnActivityTransient,
   type SparkTaskAttachment,
 } from './spark-store';
 import type {
   SparkReaction,
+  SparkActivityPhase,
   SparkSchedule,
   SparkSkill,
   SparkTask,
   SparkTaskTurn,
+  SparkActivityEntry,
 } from './spark-types';
+import { runSparkHarnessTurn } from './harness/spark-harness';
+import type { HarnessEvent } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
 import { SparkHome } from './SparkHome';
 import {
@@ -84,24 +87,7 @@ interface SparkWorkspaceProps {
   setSelectedModelId?: (id: string) => void;
 }
 
-const SPARK_SYSTEM_PROMPT =
-  'You are Willow Spark, a task-focused AI assistant. Complete the user task as far as the available tools allow, ' +
-  'state the useful result directly, and clearly identify any action that still needs user approval. Use concise ' +
-  'Markdown when it improves readability. Never claim that you performed an external action you did not perform.';
-
 const BROWSER_REQUEST_PATTERN = /(?:https?:\/\/|\b(?:browse|navigate|visit|open)\b.{0,32}\b(?:site|website|page|url)\b)/i;
-
-const TOOL_LABELS: Record<string, string> = {
-  images: 'Create image',
-  thinking: 'Thinking',
-  research: 'Deep research',
-  web: 'Web search',
-  learn: 'Study and learn',
-  canvas: 'Canvas',
-  github: 'GitHub',
-  quizzes: 'Quizzes',
-  spotify: 'Spotify',
-};
 
 const CONNECTION_LABELS: Record<string, string> = {
   workspace: 'Google Workspace',
@@ -161,15 +147,6 @@ const getNextScheduleRunAt = (schedule: Pick<SparkSchedule, 'frequency' | 'time'
   return fallback.toISOString();
 };
 
-const getPhaseLabel = (phase: StreamPhase): string => {
-  switch (phase) {
-    case 'thinking': return 'Thinking';
-    case 'searching': return 'Searching the web';
-    case 'executing': return 'Using tools';
-    case 'responding': return 'Writing';
-  }
-};
-
 const appendDisplayableThinkingSteps = (steps: string[], thought: string): string[] => {
   const startsNewStep = /^\s*\n{2,}/.test(thought);
   const incoming = thought
@@ -195,6 +172,42 @@ const appendDisplayableThinkingSteps = (steps: string[], thought: string): strin
     next[lastIndex] = `${previous}${separator}${step}`.slice(0, 600);
   });
   return next.slice(-12);
+};
+
+const appendSparkNarration = (entries: SparkActivityEntry[], text: string): SparkActivityEntry[] => {
+  const next = [...entries];
+  text
+    .split(/\n{2,}/)
+    .map((part) => part.replace(/\s+/g, ' ').trim().replace(/^\*\*|\*\*$/g, '').slice(0, 600))
+    .filter(Boolean)
+    .forEach((part) => {
+      const last = next.at(-1);
+      if (last?.kind === 'narration' && last.text === part) return;
+      next.push({ id: `spark-activity-${Date.now()}-${next.length}`, kind: 'narration', text: part });
+    });
+  return next.slice(-40);
+};
+
+const normalizeRuntimeToolName = (name: string): string => {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'computer' || normalized.includes('browser')) return 'computer';
+  if (normalized.includes('gmail') || normalized.includes('email')) return 'app:gmail';
+  if (normalized.includes('calendar')) return 'app:google-calendar';
+  if (normalized.includes('drive')) return 'app:google-drive';
+  if (normalized.includes('docs')) return 'app:google-docs';
+  if (normalized.includes('youtube')) return 'app:youtube';
+  if (normalized.includes('spotify')) return 'app:spotify';
+  if (normalized.includes('github')) return 'app:github';
+  if (normalized.includes('contact')) return 'app:contacts';
+  if (normalized.includes('opentable')) return 'app:opentable';
+  if (normalized.includes('task')) return 'app:google-tasks';
+  if (normalized.includes('search') || normalized.includes('grounding')) return 'web_search';
+  if (normalized.includes('code') || normalized.includes('execute')) return 'code_execution';
+  if (normalized.startsWith('app:')) return normalized;
+  if (normalized.includes('image')) return 'images';
+  if (normalized.includes('research')) return 'research';
+  return normalized;
 };
 
 const getTaskAttachmentIds = (task: SparkTask): string[] => [
@@ -342,37 +355,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     };
   }, [apiKeys, modelConfig, selectedModelId]);
 
-  const buildSystemPrompt = useCallback((tools: readonly string[]) => {
-    const toolList = tools.map((tool) => {
-      if (tool.startsWith('app:')) return CONNECTION_LABELS[tool.slice(4)] ?? tool.slice(4);
-      return TOOL_LABELS[tool] ?? tool;
-    }).join(', ');
-    const skillContext = skills
-      .slice(0, 12)
-      .map((savedSkill) => `- ${savedSkill.name}: ${savedSkill.instructions.slice(0, 4000)}`)
-      .join('\n');
-    const connectedBuiltIns = Object.entries(connections)
-      .filter(([, connected]) => connected)
-      .map(([id]) => CONNECTION_LABELS[id] ?? id);
-    const connectedCustomApps = customApps
-      .filter((app) => app.connected)
-      .map((app) => `${app.name} (${app.url})`);
-    const connectedAppList = [...connectedBuiltIns, ...connectedCustomApps].join(', ');
-
-    return [
-      SPARK_SYSTEM_PROMPT,
-      toolList ? `The user explicitly selected these capabilities: ${toolList}.` : '',
-      tools.includes('learn') ? 'Teach step by step and check understanding.' : '',
-      tools.includes('quizzes') ? 'When useful, finish with a concise knowledge-check quiz.' : '',
-      skillContext
-        ? `Apply these saved skills only when relevant:\n${skillContext}`
-        : '',
-      connectedAppList
-        ? `The user has enabled these app connections: ${connectedAppList}. Treat this as preference context only; do not claim to have read an app unless a real tool result supplies its data.`
-        : '',
-    ].filter(Boolean).join('\n\n');
-  }, [connections, customApps, skills]);
-
   const getExecutionSettings = useCallback((prompt: string, tools: readonly string[]) => {
     const execution = resolveExecutionModel();
     const selectedTools = new Set(tools);
@@ -426,16 +408,24 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     updateSparkTask(taskId, {
       status: 'running',
       description: 'Working on your task',
-      progressLabel: 'Thinking',
+      progressLabel: 'Thinking it through...',
+      activityPhase: 'queued',
       response: '',
       modelLabel: execution.modelLabel,
       thinkingSteps: [],
+      activityTitle: undefined,
+      activityLog: [],
+      usedTools: [],
       reaction: undefined,
       tools,
     });
 
     let response = '';
     let thinkingSteps: string[] = [];
+    let activityTitle: string | undefined;
+    let activityLog: SparkActivityEntry[] = [];
+    let usedTools: string[] = [];
+    let activityPhase: SparkActivityPhase = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
       publishTimer = undefined;
@@ -444,11 +434,29 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     const queueResponsePublish = () => {
       if (!publishTimer) publishTimer = setTimeout(publishResponse, 80);
     };
-    const publishThought = (thought: string) => {
-      const nextSteps = appendDisplayableThinkingSteps(thinkingSteps, thought);
-      if (nextSteps === thinkingSteps) return;
-      thinkingSteps = nextSteps;
-      if (isCurrentRun()) updateSparkTaskThinkingTransient(taskId, thinkingSteps);
+    const publishNarration = (text: string) => {
+      activityLog = appendSparkNarration(activityLog, text);
+      if (activityPhase === 'queued') activityPhase = 'thinking';
+      if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
+      if (isCurrentRun()) updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+    };
+    const publishUsedTool = (name: string) => {
+      const tool = normalizeRuntimeToolName(name);
+      if (!tool) return;
+      if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }];
+      activityPhase = 'working';
+      if (isCurrentRun()) {
+        updateSparkTaskActivityTransient(taskId, activityLog);
+        updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it...' });
+      }
+    };
+    const publishCapability = (name: string) => {
+      const tool = normalizeRuntimeToolName(name);
+      if (!tool) return;
+      if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
+      activityPhase = 'working';
+      if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it...' });
     };
 
     try {
@@ -456,13 +464,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (attachments.length && resolvedAttachments.length !== attachments.length) {
         throw new Error('One or more attached files are no longer available. Reattach them and retry.');
       }
-      await streamChat(
-        [...history, {
-          role: 'user',
-          content: prompt,
-          attachments: resolvedAttachments,
-        }],
-        {
+      const harnessResult = await runSparkHarnessTurn({
+        prompt,
+        history: [...history, { role: 'user', content: prompt, attachments: resolvedAttachments }],
+        scope: executionScope,
+        model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
@@ -474,24 +480,47 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           apiFormat: execution.apiFormat,
           toolPolicy: execution.toolPolicy,
           profileId: execution.profileId,
-          signal: controller.signal,
+          label: execution.modelLabel,
         },
-        (token: string) => {
+        capabilities: {
+          skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          connectedApps: [
+            ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
+            ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
+          ],
+          selectedCapabilities: tools,
+          onCapability: publishCapability,
+        },
+        signal: controller.signal,
+        onEvent: (event: HarnessEvent) => {
           if (!isCurrentRun()) return;
-          response += token;
-          queueResponsePublish();
+          if (event.type === 'text') {
+            response += event.chunk;
+            queueResponsePublish();
+          } else if (event.type === 'work-title') {
+            const title = event.title.trim();
+            if (title && !activityTitle) {
+              activityTitle = title;
+              updateSparkTask(taskId, { activityTitle });
+            }
+          } else if (event.type === 'work-log') {
+            publishNarration(event.text);
+          } else if (event.type === 'thought') {
+            // Provider reasoning is intentionally private in Spark.
+          } else if (event.type === 'activity') {
+            if (event.label?.toLowerCase().includes('working')) {
+              activityPhase = 'working';
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it...' });
+            } else if (event.label?.toLowerCase().includes('thinking') && activityPhase === 'queued') {
+              activityPhase = 'thinking';
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+            }
+          } else if (event.type === 'call-start') {
+            publishUsedTool(event.call.kind);
+          }
         },
-        () => undefined,
-        buildSystemPrompt(tools),
-        (phase: StreamPhase) => {
-          if (isCurrentRun() && !response) updateSparkTask(taskId, { progressLabel: getPhaseLabel(phase) });
-        },
-        async (name: string) => ({
-          status: 'unavailable',
-          error: `The ${name} tool is not connected to this Spark runtime. Do not claim that it succeeded.`,
-        }),
-        publishThought,
-      );
+      });
+      if (harnessResult.reason === 'error') throw new Error(harnessResult.error || 'Spark harness failed.');
 
       if (publishTimer) clearTimeout(publishTimer);
       if (!isCurrentRun()) return;
@@ -499,9 +528,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         status: 'complete',
         description: 'Task completed',
         progressLabel: 'Done',
+        activityPhase: undefined,
         response: response.trim() || 'The task completed without a text response.',
         modelLabel: execution.modelLabel,
         thinkingSteps,
+        activityTitle,
+        activityLog,
+        usedTools,
         tools,
         approval: undefined,
       });
@@ -514,15 +547,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         status: 'failed',
         description: 'Task failed',
         progressLabel: 'Failed',
+        activityPhase: undefined,
         response: response.trim() || `Something went wrong: ${error instanceof Error ? error.message : 'Unknown error.'}`,
         modelLabel: execution.modelLabel,
         thinkingSteps,
+        activityTitle,
+        activityLog,
+        usedTools,
       });
       updateLinkedScheduleRunStatus(taskId, 'Failed', true);
     } finally {
       finishSparkRun(runKey, controller);
     }
-  }, [buildSystemPrompt, getExecutionSettings]);
+  }, [connections, customApps, getExecutionSettings, skills]);
 
   const createTask = useCallback((
     prompt: string,
@@ -606,12 +643,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       response: '',
       modelLabel: execution.modelLabel,
       thinkingSteps: [],
+      activityTitle: undefined,
+      activityLog: [],
+      usedTools: [],
+      activityPhase: 'queued',
       reaction: undefined,
     });
     updateSparkTask(taskId, {
       status: 'running',
       description: 'Working on your follow-up',
-      progressLabel: 'Thinking',
+      progressLabel: 'Thinking it through...',
+      activityPhase: 'queued',
     });
     if (!execution.apiKey) {
       updateSparkTaskTurn(taskId, turnId, {
@@ -629,16 +671,45 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
 
     let response = '';
     let thinkingSteps: string[] = [];
+    let activityTitle: string | undefined;
+    let activityLog: SparkActivityEntry[] = [];
+    let usedTools: string[] = [];
+    let activityPhase: SparkActivityPhase = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
       publishTimer = undefined;
       if (isCurrentRun()) updateSparkTaskTurnResponseTransient(taskId, turnId, response);
     };
-    const publishThought = (thought: string) => {
-      const nextSteps = appendDisplayableThinkingSteps(thinkingSteps, thought);
-      if (nextSteps === thinkingSteps) return;
-      thinkingSteps = nextSteps;
-      if (isCurrentRun()) updateSparkTaskTurnThinkingTransient(taskId, turnId, thinkingSteps);
+    const publishNarration = (text: string) => {
+      activityLog = appendSparkNarration(activityLog, text);
+      if (activityPhase === 'queued') activityPhase = 'thinking';
+      if (isCurrentRun()) {
+        updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
+        updateSparkTaskTurn(taskId, turnId, { activityPhase });
+        updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+      }
+    };
+    const publishUsedTool = (name: string) => {
+      const tool = normalizeRuntimeToolName(name);
+      if (!tool) return;
+      if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }];
+      activityPhase = 'working';
+      if (isCurrentRun()) {
+        updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
+        updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase: 'working' });
+        updateSparkTask(taskId, { activityPhase: 'working', progressLabel: 'Working on it...' });
+      }
+    };
+    const publishCapability = (name: string) => {
+      const tool = normalizeRuntimeToolName(name);
+      if (!tool) return;
+      if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
+      activityPhase = 'working';
+      if (isCurrentRun()) {
+        updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase: 'working' });
+        updateSparkTask(taskId, { activityPhase: 'working', progressLabel: 'Working on it...' });
+      }
     };
 
     try {
@@ -647,13 +718,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if ((turn.attachments?.length ?? 0) !== resolvedAttachments.length) {
         throw new Error('One or more attached files are no longer available. Reattach them and retry.');
       }
-      await streamChat(
-        [...history, {
-          role: 'user',
-          content: turn.prompt,
-          attachments: resolvedAttachments,
-        }],
-        {
+      const harnessResult = await runSparkHarnessTurn({
+        prompt: turn.prompt,
+        history: [...history, { role: 'user', content: turn.prompt, attachments: resolvedAttachments }],
+        scope: executionScope,
+        model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
@@ -665,35 +734,66 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           apiFormat: execution.apiFormat,
           toolPolicy: execution.toolPolicy,
           profileId: execution.profileId,
-          signal: controller.signal,
+          label: execution.modelLabel,
         },
-        (token: string) => {
+        capabilities: {
+          skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          connectedApps: [
+            ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
+            ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
+          ],
+          selectedCapabilities: tools,
+          onCapability: publishCapability,
+        },
+        signal: controller.signal,
+        onEvent: (event: HarnessEvent) => {
           if (!isCurrentRun()) return;
-          response += token;
-          if (!publishTimer) publishTimer = setTimeout(publishResponse, 80);
+          if (event.type === 'text') {
+            response += event.chunk;
+            if (!publishTimer) publishTimer = setTimeout(publishResponse, 80);
+          } else if (event.type === 'work-title') {
+            const title = event.title.trim();
+            if (title && !activityTitle) {
+              activityTitle = title;
+              updateSparkTaskTurn(taskId, turnId, { activityTitle });
+              updateSparkTask(taskId, { activityTitle });
+            }
+          } else if (event.type === 'work-log') {
+            publishNarration(event.text);
+          } else if (event.type === 'thought') {
+            // Provider reasoning is intentionally private in Spark.
+          } else if (event.type === 'activity') {
+            if (event.label?.toLowerCase().includes('working')) {
+              activityPhase = 'working';
+              updateSparkTaskTurn(taskId, turnId, { activityPhase });
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it...' });
+            } else if (event.label?.toLowerCase().includes('thinking') && activityPhase === 'queued') {
+              activityPhase = 'thinking';
+              updateSparkTaskTurn(taskId, turnId, { activityPhase });
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+            }
+          } else if (event.type === 'call-start') {
+            publishUsedTool(event.call.kind);
+          }
         },
-        () => undefined,
-        buildSystemPrompt(tools),
-        (phase: StreamPhase) => {
-          if (isCurrentRun() && !response) updateSparkTask(taskId, { progressLabel: getPhaseLabel(phase) });
-        },
-        async (name: string) => ({
-          status: 'unavailable',
-          error: `The ${name} tool is not connected to this Spark runtime. Do not claim that it succeeded.`,
-        }),
-        publishThought,
-      );
+      });
+      if (harnessResult.reason === 'error') throw new Error(harnessResult.error || 'Spark harness failed.');
       if (publishTimer) clearTimeout(publishTimer);
       if (!isCurrentRun()) return;
       updateSparkTaskTurn(taskId, turnId, {
         response: response.trim() || 'The follow-up completed without a text response.',
         modelLabel: execution.modelLabel,
         thinkingSteps,
+        activityTitle,
+        activityLog,
+        usedTools,
+        activityPhase: undefined,
       });
       updateSparkTask(taskId, {
         status: 'complete',
         description: 'Task updated',
         progressLabel: 'Done',
+        activityPhase: undefined,
       });
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
@@ -703,16 +803,21 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         response: response.trim() || `Something went wrong: ${error instanceof Error ? error.message : 'Unknown error.'}`,
         modelLabel: execution.modelLabel,
         thinkingSteps,
+        activityTitle,
+        activityLog,
+        usedTools,
+        activityPhase: undefined,
       });
       updateSparkTask(taskId, {
         status: 'failed',
         description: 'Follow-up failed',
         progressLabel: 'Failed',
+        activityPhase: undefined,
       });
     } finally {
       finishSparkRun(runKey, controller);
     }
-  }, [buildSystemPrompt, buildTurnHistory, getExecutionSettings]);
+  }, [buildTurnHistory, connections, customApps, getExecutionSettings, skills]);
 
   const submitFollowUp = useCallback((
     taskId: string,
@@ -1092,10 +1197,14 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               ]),
             ]}
             onProgress={(message) => {
+              const currentUsedTools = sparkState.get().tasks.find((candidate) => candidate.id === task.id)?.usedTools ?? [];
               updateSparkTask(task.id, {
                 status: 'running',
                 description: 'Using the local browser',
                 progressLabel: message,
+                usedTools: currentUsedTools.includes('computer')
+                  ? currentUsedTools
+                  : [...currentUsedTools, 'computer'],
               });
             }}
             onResponse={(response) => {
@@ -1142,6 +1251,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
                 description: 'Continuing with the approved task',
                 progressLabel: 'Opening the local browser',
                 response: '',
+                usedTools: Array.from(new Set([
+                  ...(sparkState.get().tasks.find((candidate) => candidate.id === task.id)?.usedTools ?? []),
+                  'computer',
+                ])),
               }
             : {
                 status: 'cancelled',

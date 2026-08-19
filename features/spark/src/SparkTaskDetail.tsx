@@ -5,6 +5,8 @@ import type {
   SparkReaction,
   SparkSchedule,
   SparkTask,
+  SparkActivityPhase,
+  SparkActivityEntry,
   SparkTaskAttachment,
 } from './spark-store';
 import { getActiveSparkStorageScope } from './spark-store';
@@ -432,8 +434,8 @@ const SparkThinkingStepsPanel: React.FC<{
 
 /**
  * Gemini's `remy-processing-state`: the collapsible step row that sits above a
- * response in the thread. Collapsed it shows the latest step with a chevron;
- * expanded it lists the rest, plus a tool block per capability the task used.
+ * response in the thread. Its trigger is a stable heading for the overall job;
+ * expanded content contains the changing narration and tool rows.
  *
  * Measured off the live element: the trigger is 32px tall and fully rounded with
  * `padding: 0 8px`, its label is gds-body-s (13px/17px) in
@@ -443,14 +445,34 @@ const SparkThinkingStepsPanel: React.FC<{
  * pointer.
  */
 const SparkProcessingState: React.FC<{
-  steps: readonly string[];
-  toolLabels?: readonly { icon: string; label: string }[];
-}> = ({ steps, toolLabels = [] }) => {
+  title?: string;
+  activity?: readonly SparkActivityEntry[];
+  phase?: SparkActivityPhase;
+}> = ({ title, activity = [], phase }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
-  if (!steps.length) return null;
+  if (!activity.length && !phase && !title) return null;
 
-  const latest = steps[steps.length - 1];
+  if (phase === 'queued') {
+    return (
+      <div className="spark-task-detail__pending-dots" aria-live="polite" aria-label="Starting task">
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+
+  if (phase === 'thinking' && !activity.length && !title) {
+    return (
+      <div className="spark-task-detail__processing-working is-thinking" aria-live="polite">
+        <MaterialSymbol family="luminous" name="spark_outline" size={28} opticalSize={28} className="spark-task-detail__processing-spark is-animated" />
+        <span>Thinking it through...</span>
+      </div>
+    );
+  }
+
+  const heading = title || (phase === 'thinking' ? 'Thinking it through...' : 'Working');
 
   return (
     <div className="spark-task-detail__processing-state">
@@ -461,8 +483,8 @@ const SparkProcessingState: React.FC<{
         aria-controls={detailsId}
         onClick={() => setIsExpanded((open) => !open)}
       >
-        <span className="spark-task-detail__processing-label">{latest}</span>
-        <MaterialSymbol
+        <span className="spark-task-detail__processing-label">{heading}</span>
+        {activity.length > 0 && <MaterialSymbol
           family="luminous"
           name="expand_more"
           size={20}
@@ -470,29 +492,33 @@ const SparkProcessingState: React.FC<{
           roundness={100}
           opticalSize={20}
           className={`spark-task-detail__processing-chevron${isExpanded ? ' is-expanded' : ''}`}
-        />
+        />}
       </button>
 
-      {isExpanded && (
-        <div id={detailsId} className="spark-task-detail__processing-details">
-          {steps.slice(0, -1).map((step, index) => (
-            <div key={`${index}-${step.slice(0, 24)}`} className="spark-task-detail__processing-step">
-              {step}
+      <div
+        id={detailsId}
+        className={`spark-task-detail__processing-details-wrapper${isExpanded ? ' is-expanded' : ''}`}
+        aria-hidden={!isExpanded}
+      >
+        <div className="spark-task-detail__processing-details">
+          {activity.map((entry) => entry.kind === 'narration' ? (
+            <div key={entry.id} className="spark-task-detail__processing-step">
+              <span className="spark-task-detail__processing-node"><SparkActivityClock /></span>
+              <span>{entry.text}</span>
+            </div>
+          ) : (
+            <div key={entry.id} className="spark-task-detail__processing-tool">
+              <span className="spark-task-detail__processing-node"><SparkToolIcon tool={entry.tool} /></span>
+              <span>{getToolCapabilityLabel(entry.tool).label}</span>
             </div>
           ))}
-          {toolLabels.map((tool) => (
-            <div key={tool.label} className="spark-task-detail__processing-tool">
-              <MaterialSymbol
-                family="google-symbols"
-                name={tool.icon}
-                size={20}
-                weight={320}
-                roundness={100}
-                opticalSize={20}
-              />
-              <span>{tool.label}</span>
-            </div>
-          ))}
+          {activity.length > 1 && <button type="button" className="spark-task-detail__processing-show-less" onClick={() => setIsExpanded(false)}>Show less</button>}
+        </div>
+      </div>
+      {phase === 'working' && (
+        <div className="spark-task-detail__processing-working" aria-live="polite">
+          <MaterialSymbol family="luminous" name="spark_outline" size={28} opticalSize={28} className="spark-task-detail__processing-spark is-animated" />
+          <span>Working on it...</span>
         </div>
       )}
     </div>
@@ -500,6 +526,15 @@ const SparkProcessingState: React.FC<{
 };
 
 const TASK_CAPABILITY_LABELS: Record<string, { icon: string; label: string }> = {
+  read: { icon: 'description', label: 'Read' },
+  list: { icon: 'folder_open', label: 'List files' },
+  search: { icon: 'search', label: 'Search files' },
+  edit: { icon: 'edit_note', label: 'Edit file' },
+  create: { icon: 'description', label: 'Create file' },
+  delete: { icon: 'delete', label: 'Delete file' },
+  command: { icon: 'terminal', label: 'Run command' },
+  app: { icon: 'apps', label: 'Connected app' },
+  mcp: { icon: 'extension', label: 'MCP tool' },
   images: { icon: 'add_photo_alternate', label: 'Create image' },
   thinking: { icon: 'lightbulb', label: 'Thinking' },
   research: { icon: 'travel_explore', label: 'Deep research' },
@@ -512,27 +547,90 @@ const TASK_CAPABILITY_LABELS: Record<string, { icon: string; label: string }> = 
   quizzes: { icon: 'quiz', label: 'Quizzes' },
   spotify: { icon: 'music_note', label: 'Spotify' },
   computer: { icon: 'computer', label: 'Computer' },
+  web_search: { icon: 'public', label: 'Google Search' },
+  code_execution: { icon: 'code', label: 'Code execution' },
+};
+
+const APP_TOOL_LABELS: Record<string, string> = {
+  gmail: 'Gmail',
+  'google-calendar': 'Google Calendar',
+  'google-drive': 'Google Drive',
+  'google-docs': 'Google Docs',
+  youtube: 'YouTube',
+  spotify: 'Spotify',
+  github: 'GitHub',
+  contacts: 'Contacts',
+  opentable: 'OpenTable',
+  'google-tasks': 'Google Tasks',
+};
+
+const APP_TOOL_ICONS: Record<string, string> = {
+  gmail: 'mail',
+  'google-calendar': 'calendar_month',
+  'google-drive': 'add_to_drive',
+  'google-docs': 'description',
+  youtube: 'play_circle',
+  spotify: 'music_note',
+  github: 'code',
+  contacts: 'contacts',
+  opentable: 'restaurant',
+  'google-tasks': 'task_alt',
+};
+
+const getToolCapabilityLabel = (tool: string): { icon: string; label: string } => {
+  if (tool === 'computer') return { icon: 'monitor', label: 'Computer' };
+  const known = TASK_CAPABILITY_LABELS[tool];
+  if (known) return known;
+  if (tool.startsWith('app:')) {
+    const appId = tool.slice(4);
+    const label = APP_TOOL_LABELS[appId]
+      ?? appId.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return { icon: APP_TOOL_ICONS[appId] ?? 'apps', label: label || 'App' };
+  }
+  const label = tool.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return { icon: 'extension', label: label || 'Tool' };
+};
+
+const SparkActivityClock: React.FC = () => (
+  <MaterialSymbol
+    family="luminous"
+    name="search_activity"
+    size={20}
+    weight={320}
+    roundness={100}
+    opticalSize={20}
+    className="spark-task-detail__processing-clock"
+  />
+);
+
+const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
+  const meta = getToolCapabilityLabel(tool);
+  if (tool === 'create') {
+    return (
+      <span className="spark-task-detail__create-file-icon" aria-hidden="true">
+        <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} opticalSize={20} />
+        <MaterialSymbol family="google-symbols" name="add" size={10} weight={500} roundness={100} opticalSize={10} />
+      </span>
+    );
+  }
+  return <MaterialSymbol family={tool === 'list' ? 'material-rounded' : 'google-symbols'} name={meta.icon} size={20} weight={320} roundness={100} opticalSize={20} className="spark-task-detail__processing-tool-icon" />;
 };
 
 const SparkResponseActions: React.FC<{
   responseText: string;
   needsInput?: boolean;
-  thinkingSteps?: readonly string[];
   reaction: SparkResponseReaction;
   onReactionChange: (reaction: SparkResponseReaction) => void;
   onRetry: () => void;
-  onShowThinking?: () => void;
 }> = ({
   responseText,
   needsInput = false,
-  thinkingSteps = [],
   reaction,
   onReactionChange,
   onRetry,
-  onShowThinking,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPhase, setMenuPhase] = useState<'closed' | 'open' | 'closing'>('closed');
   const [menuPosition, setMenuPosition] = useState<ResponseMenuPosition>({
     left: 0,
     top: 0,
@@ -541,10 +639,18 @@ const SparkResponseActions: React.FC<{
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const copiedTimerRef = useRef<number | null>(null);
+  const menuCloseTimerRef = useRef<number | null>(null);
   const menuId = useId();
+  const menuOpen = menuPhase !== 'closed';
 
   const closeMenu = (restoreTriggerFocus = false) => {
-    setMenuOpen(false);
+    if (menuPhase === 'closed' || menuPhase === 'closing') return;
+    setMenuPhase('closing');
+    if (menuCloseTimerRef.current !== null) window.clearTimeout(menuCloseTimerRef.current);
+    menuCloseTimerRef.current = window.setTimeout(() => {
+      setMenuPhase('closed');
+      menuCloseTimerRef.current = null;
+    }, 125);
     if (restoreTriggerFocus) {
       window.requestAnimationFrame(() => menuTriggerRef.current?.focus());
     }
@@ -554,9 +660,14 @@ const SparkResponseActions: React.FC<{
     const trigger = menuTriggerRef.current;
     if (!trigger) return;
 
+    if (menuCloseTimerRef.current !== null) {
+      window.clearTimeout(menuCloseTimerRef.current);
+      menuCloseTimerRef.current = null;
+    }
+
     const rect = trigger.getBoundingClientRect();
-    const menuWidth = 208;
-    const menuHeight = thinkingSteps.length && onShowThinking ? 124 : 88;
+    const menuWidth = 240;
+    const menuHeight = 88;
     const left = Math.min(
       Math.max(8, rect.left - 8),
       Math.max(8, window.innerWidth - menuWidth - 8),
@@ -573,11 +684,11 @@ const SparkResponseActions: React.FC<{
           top: rect.bottom + 4,
           placement: 'below',
         });
-    setMenuOpen(true);
+    setMenuPhase('open');
   };
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (menuPhase !== 'open') return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -604,10 +715,11 @@ const SparkResponseActions: React.FC<{
       window.removeEventListener('resize', closeOnViewportChange);
       window.removeEventListener('scroll', closeOnViewportChange, true);
     };
-  }, [menuOpen]);
+  }, [menuPhase]);
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    if (menuCloseTimerRef.current !== null) window.clearTimeout(menuCloseTimerRef.current);
   }, []);
 
   const copyResponse = async () => {
@@ -701,13 +813,13 @@ const SparkResponseActions: React.FC<{
         <button
           ref={menuTriggerRef}
           type="button"
-          className={menuOpen ? 'is-selected' : undefined}
+          className={menuPhase === 'open' ? 'is-selected' : undefined}
           aria-label="More response options"
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-expanded={menuPhase === 'open'}
           aria-controls={menuOpen ? menuId : undefined}
           title="More"
-          onClick={() => menuOpen ? closeMenu() : openMenu()}
+          onClick={() => menuPhase === 'open' ? closeMenu() : openMenu()}
         >
           <MaterialSymbol {...SYMBOL_PROPS} name="more_horiz" size={20} opticalSize={20} />
         </button>
@@ -721,7 +833,7 @@ const SparkResponseActions: React.FC<{
         <div
           ref={menuRef}
           id={menuId}
-          className={`spark-task-detail__response-menu opens-${menuPosition.placement}`}
+          className={`spark-task-detail__response-menu opens-${menuPosition.placement}${menuPhase === 'closing' ? ' is-closing' : ''}`}
           role="menu"
           aria-label="More response options"
           style={{
@@ -731,18 +843,6 @@ const SparkResponseActions: React.FC<{
           }}
           onKeyDown={handleMenuKeyDown}
         >
-          {thinkingSteps.length > 0 && onShowThinking && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => runMenuAction(onShowThinking)}
-            >
-              <span className="spark-task-detail__response-menu-icon">
-                <MaterialSymbol {...SYMBOL_PROPS} name="psychology" size={20} opticalSize={20} />
-              </span>
-              <span>Show thinking steps</span>
-            </button>
-          )}
           <button type="button" role="menuitem" onClick={() => runMenuAction(onRetry)}>
             <span className="spark-task-detail__response-menu-icon">
               <MaterialSymbol {...SYMBOL_PROPS} name="refresh" size={20} opticalSize={20} />
@@ -1294,6 +1394,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       ? 'I need your approval before I can continue with this task.'
       : terminalResponseFallback);
   const hasVisibleResponse = Boolean(response);
+  const currentProcessingTools = (currentTask.usedTools ?? currentTask.tools ?? [])
+    .filter((tool) => tool !== 'thinking')
+    .map(getToolCapabilityLabel)
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.label === entry.label) === index);
+  const hasProcessingState = Boolean(currentTask.activityTitle || currentTask.activityPhase)
+    || (currentTask.activityLog?.length ?? 0) > 0
+    || currentProcessingTools.length > 0;
   const hasRootResponseActions = needsApproval(currentTask) || (
     Boolean(response) && ['complete', 'failed', 'cancelled'].includes(taskStatus(currentTask))
   );
@@ -1655,8 +1762,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <MaterialSymbol
                   {...SYMBOL_PROPS}
                   name={getStatusSymbol(currentTask)}
-                  size={14}
-                  opticalSize={14}
+                  size={16}
+                  opticalSize={16}
                   className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}`}
                 />
                 <span>{currentTask.progressLabel || getStatusLabel(currentTask)}</span>
@@ -1783,7 +1890,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </div>
                 )}
 
-                {((isTaskActive(currentTask) && !currentTask.response) || needsApproval(currentTask)) && (
+                {(((isTaskActive(currentTask) && !currentTask.response) && !hasProcessingState) || needsApproval(currentTask)) && (
                   <div className="spark-task-detail__working-row" aria-live="polite">
                     {!needsApproval(currentTask) && (
                       <MaterialSymbol
@@ -1802,12 +1909,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
 
                 {/* Gemini shows the processing state inline above the response, not
                   * behind an overflow menu. */}
-                {hasVisibleResponse && (
+                {hasProcessingState && (
                   <SparkProcessingState
-                    steps={currentTask.thinkingSteps ?? []}
-                    toolLabels={(currentTask.tools ?? [])
-                      .map((tool) => TASK_CAPABILITY_LABELS[tool])
-                      .filter((entry): entry is { icon: string; label: string } => Boolean(entry))}
+                    title={currentTask.activityTitle}
+                    activity={currentTask.activityLog ?? []}
+                    phase={currentTask.activityPhase}
                   />
                 )}
 
@@ -1882,22 +1988,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     key={`task-response-${currentTask.id}`}
                     responseText={response}
                     needsInput={needsApproval(currentTask)}
-                    thinkingSteps={currentTask.thinkingSteps}
                     reaction={currentTask.reaction ?? null}
                     onReactionChange={(reaction) => {
                       onResponseReactionChange(currentTask.id, null, reaction);
                     }}
                     onRetry={() => onRetryTask(currentTask.id)}
-                    onShowThinking={() => {
-                      const steps = currentTask.thinkingSteps ?? [];
-                      if (!steps.length) return;
-                      setThinkingPanelTarget({
-                        id: `task-${currentTask.id}`,
-                        title: currentTask.title,
-                        steps: [...steps],
-                        modelLabel: currentTask.modelLabel,
-                      });
-                    }}
                   />
                 )}
               </article>
@@ -1926,6 +2021,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     >
                       {turnResponse ? (
                         <>
+                  {((turn.activityLog?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle) && (
+                    <SparkProcessingState
+                      title={turn.activityTitle}
+                      activity={turn.activityLog ?? []}
+                              phase={turn.activityPhase}
+                            />
+                          )}
                           <div
                             className="spark-task-detail__assistant-response"
                             aria-live={turnIsPending ? 'polite' : undefined}
@@ -1935,22 +2037,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           {!turnIsPending && (
                             <SparkResponseActions
                               responseText={turnResponse}
-                              thinkingSteps={turn.thinkingSteps}
                               reaction={turn.reaction ?? null}
                               onReactionChange={(reaction) => {
                                 onResponseReactionChange(currentTask.id, turn.id, reaction);
                               }}
                               onRetry={() => onRetryTurn(currentTask.id, turn.id)}
-                              onShowThinking={() => {
-                                const steps = turn.thinkingSteps ?? [];
-                                if (!steps.length) return;
-                                setThinkingPanelTarget({
-                                  id: `turn-${turn.id}`,
-                                  title: currentTask.title,
-                                  steps: [...steps],
-                                  modelLabel: turn.modelLabel || currentTask.modelLabel,
-                                });
-                              }}
                             />
                           )}
                         </>

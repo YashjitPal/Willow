@@ -26,6 +26,7 @@ import { sparkLocation } from '@willow/spark/spark-store';
 import { startNotebookChat } from '@willow/notebooks/notebook-chat-store';
 import type { StudioExperience } from '@willow/core/types';
 import { createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
+import { CHROME_NATIVE_TRANSCRIPTION_MODEL } from '@willow/ai/transcription';
 import {
   MODEL_CATALOG_UPDATED_EVENT,
   MODEL_CONFIG_STORAGE_KEY,
@@ -490,7 +491,7 @@ const App: React.FC = () => {
     systemDefaults: {
       chatRenaming: 'gemini-3.1-flash-lite',
       computerUse: 'claude-sonnet-4.5',
-      transcription: 'gemini-3.5-flash-lite',
+      transcription: CHROME_NATIVE_TRANSCRIPTION_MODEL,
       // Not an id, on purpose. Personal Intelligence routes itself to the
       // cheapest capable model the user has actually added, and re-routes when
       // they add a cheaper or newer one. Naming a model here would pin every
@@ -547,6 +548,12 @@ const App: React.FC = () => {
           systemDefaults: {
             ...DEFAULT_MODEL_CONFIG.systemDefaults,
             ...(parsed.systemDefaults || {}),
+            // The original Gemini transcription value was the shipped default,
+            // not a user selection. Migrate only that exact value; any other
+            // stored model remains the user's explicit LLM choice.
+            transcription: parsed.systemDefaults?.transcription === 'gemini-3.5-flash-lite'
+              ? CHROME_NATIVE_TRANSCRIPTION_MODEL
+              : (parsed.systemDefaults?.transcription || CHROME_NATIVE_TRANSCRIPTION_MODEL),
             // Personal Intelligence shipped for a few hours with a hardcoded id
             // as its default. A stored copy of that id is not a choice the user
             // made, so it must not be read as one — it would pin them out of the

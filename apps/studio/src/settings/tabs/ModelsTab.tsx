@@ -4,6 +4,7 @@ import { AUTO_MODEL, resolveAutoModel } from '@willow/ai/models/auto-select';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
 import { DEFAULT_PROFILE_IDS, defaultApiFormatForProvider, defaultToolPolicyForProvider } from '@willow/ai/providers/profiles';
 import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
+import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME } from '@willow/ai/transcription';
 
 const ModelCategoryIcon: React.FC<{ modelId: string; className?: string; size?: number }> = ({ modelId, className = "text-zinc-500", size = 14 }) => {
   const category = getModelCategory(modelId);
@@ -381,7 +382,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
 
   const selectedTranscriptionModelName = allSystemDefaultModels.find(
     (model: any) => model.modelId === modelConfig.systemDefaults?.transcription,
-  )?.name || (modelConfig.systemDefaults?.transcription === 'gemini-3.5-flash-lite'
+  )?.name || (modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL
+    ? CHROME_NATIVE_TRANSCRIPTION_NAME
+    : modelConfig.systemDefaults?.transcription === 'gemini-3.5-flash-lite'
     ? 'Gemini 3.5 Flash Lite'
     : modelConfig.systemDefaults?.transcription) || 'Select model';
 
@@ -2019,9 +2022,32 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 {transcriptionDropdownOpen && (
                   <div className={`absolute ${transcriptionDirection === 'up' ? 'bottom-full mb-2 origin-bottom animate-dropdownOpenUp' : 'top-full mt-2 origin-top animate-dropdownOpen'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden`}>
                     <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                      <button
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setModelConfig((previous: any) => ({
+                            ...previous,
+                            systemDefaults: {
+                              ...previous.systemDefaults,
+                              transcription: CHROME_NATIVE_TRANSCRIPTION_MODEL,
+                            },
+                          }));
+                          setTranscriptionDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left transition-all flex items-center justify-between group ${modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                      >
+                        <span className="flex flex-col">
+                          <span className="font-medium">{CHROME_NATIVE_TRANSCRIPTION_NAME}</span>
+                          <span className="text-[11px] text-zinc-500">No API key · local Chrome speech pack</span>
+                        </span>
+                        {modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL && (
+                          <Check size={14} className="text-white" />
+                        )}
+                      </button>
                       {configuredSystemDefaultModels.length === 0 ? (
                         <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
-                          No models saved or no API keys configured. Manage a provider above.
+                          No API-backed models saved or no API keys configured. Manage a provider above.
                         </div>
                       ) : configuredSystemDefaultModels.map((model: any) => (
                         <button

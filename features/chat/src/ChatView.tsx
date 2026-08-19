@@ -868,6 +868,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const [streaming, setStreaming] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  // The model stream and the visual response reveal have separate lifecycles.
+  // Keep the composer stop slot mounted until StreamingMarkdown drains the
+  // completed turn, without extending the abortable generation state.
+  const [revealingResponseId, setRevealingResponseId] = useState<string | null>(null);
   const [errorDialog, setErrorDialog] = useState<{ detail: string } | null>(null);
   const [isErrorDialogClosing, setIsErrorDialogClosing] = useState(false);
   const errorDialogCloseTimerRef = useRef<number | null>(null);
@@ -1399,6 +1403,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // So in a temporary chat that rule holds permanently rather than only until a
   // live model is added.
   const liveAvailable = hasLiveModel && !isIncognito;
+  const isResponseRevealing = revealingResponseId !== null
+    && messages.some((message) => message.id === revealingResponseId);
 
   // ── Voice + language for the live session ──────────────────────────────────
   // The panel is the orb's settings, and it draws the orb, so it should not
@@ -2141,6 +2147,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           record.errorDetail,
           record.codeExecutions,
         );
+        setRevealingResponseId(record.finalContent ? record.assistantId : null);
         setAttachedTurnId(null);
         attachedTurnIdRef.current = null;
         attachedListenerRef.current = null;
@@ -2264,6 +2271,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setThinkSeconds(0);
       thinkSecondsRef.current = 0;
       setStreaming('');
+      setRevealingResponseId(null);
       // The elapsed-seconds ticker lives on the turn record now, driven by the
       // runner: two concurrent turns would otherwise share one interval handle,
       // and stopping either would kill the other's thinking row.
@@ -2505,6 +2513,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setIsThinking(false);
     isThinkingRef.current = false;
     setStreaming('');
+    setRevealingResponseId(null);
   }, []);
 
   const closeLiveTurn = useCallback(
@@ -3452,8 +3461,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // the old fallback to `streaming` here made such a turn mirror the
             // NEXT turn's text as soon as that began streaming.
             const bodyText = generating ? streaming : msg.content;
+            const responseRevealPending = revealingResponseId === msg.id;
             const actionsReady =
               !generating &&
+              !responseRevealPending &&
               (!msg.isNew || !bodyText || responseRevealComplete[msg.id] === true);
             // Live turns: no "Thinking" shimmer, no "Thought for Xs" — the
             // voice starts near-instantly so the row is noise.
@@ -3682,11 +3693,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     animate={generating || (!!msg.isError && !!msg.isNew)}
                     reveal={generating || (!!msg.isError && !!msg.isNew)}
                     revealAsSingleChunk={!!msg.isError && !!msg.isNew}
-                    onRevealComplete={() => setResponseRevealComplete((current) => (
-                      current[msg.id] === true
-                        ? current
-                        : { ...current, [msg.id]: true }
-                    ))}
+                    onRevealComplete={() => {
+                      setResponseRevealComplete((current) => (
+                        current[msg.id] === true
+                          ? current
+                          : { ...current, [msg.id]: true }
+                      ));
+                      setRevealingResponseId((current) => (
+                        current === msg.id ? null : current
+                      ));
+                    }}
                     onOpenResource={handleOpenResource}
                     citations={msg.citations}
                   />
@@ -3942,6 +3958,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               liveMicMuted={isMicMuted}
               onToggleLiveMicMute={handleToggleMicMute}
               isGenerating={isGenerating}
+              isResponseRevealing={isResponseRevealing}
               onStopGenerating={handleStopGenerating}
               modelConfig={modelConfig}
               selectedModelId={selectedModelId}

@@ -254,6 +254,8 @@ export const PlusDropdownMenu: React.FC<{
   onToolSelect: (toolId: string) => void;
   selectedTool?: ToolId | null;
   geminiStyle?: boolean;
+  /** Spark uses Gemini's upload-only plus menu; normal Chat keeps the full tool set. */
+  sparkMode?: boolean;
   /**
    * Gemini's full upload set. Every row renders whether or not Willow can serve it yet,
    * because the menu is a clone of Gemini's and a missing row is a visible difference.
@@ -280,6 +282,7 @@ export const PlusDropdownMenu: React.FC<{
   onAddNotebook,
   personalIntelligence = false,
   onTogglePersonalIntelligence,
+  sparkMode = false,
 }) => {
   const [openSub, setOpenSub] = useState<null | 'uploads' | 'tools'>(null);
   // Vertical offset of whichever row opened the submenu, measured from the positioning
@@ -399,49 +402,64 @@ export const PlusDropdownMenu: React.FC<{
           />
         </div>
 
-        <Divider />
+        {!sparkMode && (
+          <>
+            <Divider />
 
-        <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
 
-        <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
-          <Row
-            glyph="more_horiz"
-            family="google-symbols"
-            label="More tools"
-            trailingChevron
-            ariaHasPopup
-            expanded={openSub === 'tools'}
-            onClick={() => openWith('tools')}
-          />
-        </div>
+            <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
+              <Row
+                glyph="more_horiz"
+                family="google-symbols"
+                label="More tools"
+                trailingChevron
+                ariaHasPopup
+                expanded={openSub === 'tools'}
+                onClick={() => openWith('tools')}
+              />
+            </div>
+          </>
+        )}
       </MenuCard>
 
       {openSub === 'uploads' && (
         <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
           <MenuCard width={220} origin="0 0" label="More upload options">
-            <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
-            <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
-            <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
-            <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
+            {sparkMode ? (
+              <>
+                <Row glyph="code" label="Code" onClick={act(onImportCode)} />
+                <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
+              </>
+            ) : (
+              <>
+                <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
+                <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
+                <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
+                <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
+              </>
+            )}
           </MenuCard>
         </div>
       )}
 
       {openSub === 'tools' && (
         <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
-          <MenuCard width={253} origin="0 0" label="More tools">
-            <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
-            <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
-            {onTogglePersonalIntelligence && (
-              <PersonalIntelligenceRow
-                checked={personalIntelligence}
-                onChange={onTogglePersonalIntelligence}
-              />
-            )}
-          </MenuCard>
+          {!sparkMode && (
+            <MenuCard width={253} origin="0 0" label="More tools">
+              <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
+              <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
+              {onTogglePersonalIntelligence && (
+                <PersonalIntelligenceRow
+                  checked={personalIntelligence}
+                  onChange={onTogglePersonalIntelligence}
+                />
+              )}
+            </MenuCard>
+          )}
         </div>
       )}
     </div>
