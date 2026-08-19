@@ -1,6 +1,13 @@
 import OpenAI from 'openai';
 
 export const DEFAULT_TRANSCRIPTION_MODEL = 'gemini-3.5-flash-lite';
+/** Browser-provided speech recognition. It does not require a Willow/provider API key. */
+export const CHROME_NATIVE_TRANSCRIPTION_MODEL = 'chrome-native';
+export const CHROME_NATIVE_TRANSCRIPTION_NAME = 'Chrome on-device';
+
+export const isChromeNativeTranscriptionModel = (modelId: unknown): boolean => (
+  modelId === CHROME_NATIVE_TRANSCRIPTION_MODEL
+);
 
 type TranscriptionProvider =
   | 'gemini'

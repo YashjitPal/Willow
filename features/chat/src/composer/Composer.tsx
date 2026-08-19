@@ -139,6 +139,8 @@ export const InputBar: React.FC<{
   /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
    *  to use mode="chat". Used by the standalone studio chat view. */
   chatVariant?: boolean;
+  /** Uses Spark's upload-only Gemini plus menu without changing normal Chat. */
+  sparkMode?: boolean;
   /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
   showDisclaimer?: boolean;
   /** Workspace swatch color to style the send / live button. */
@@ -157,6 +159,10 @@ export const InputBar: React.FC<{
   /** A reply is streaming. Gemini reuses the send slot as a stop control for the
    *  whole generation, so this outranks both the send and the live states. */
   isGenerating?: boolean;
+  /** The model has finished, but the response text is still being revealed. The
+   *  stop slot remains mounted while this is true, without becoming an abort
+   *  action or allowing a draft to submit through it. */
+  isResponseRevealing?: boolean;
   onStopGenerating?: () => void;
   /** Whether the user has added the Gemini Live model. When false and the
    *  prompt is empty, a dulled send button is shown instead of the live icon. */
@@ -172,7 +178,7 @@ export const InputBar: React.FC<{
   /** Lets the host write into the box. The draft is local state, so a surface that
    *  fills the composer from outside — Spark's Suggested cards — needs a way in. */
   composerRef?: React.MutableRefObject<ComposerHandle | null>;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const [isThemesOpen, setIsThemesOpen] = useState(false);
@@ -395,7 +401,9 @@ export const InputBar: React.FC<{
   const handleSubmit = () => {
     // Enter reaches here too, so both guards have to live in the submit path rather than
     // only on the button.
-    if (isGenerating || disabled) return;
+    if (isGenerating) return;
+    if (isResponseRevealing) return;
+    if (disabled) return;
     if (promptText.trim() || attachments.length > 0 || selectedTool) {
       // Leave fullscreen in its OWN commit, before submitting.
       //
@@ -545,6 +553,7 @@ export const InputBar: React.FC<{
     : 'bg-[#1e1f21]';
   
   const hasContent = promptText.trim() || hasActiveAttachments || selectedTool;
+  const responseControlActive = isGenerating || isResponseRevealing;
 
   // Gemini mounts its send button only when there is something to send. With an
   // empty box the trailing cluster is [model pill][mic] and no send node exists
@@ -565,7 +574,7 @@ export const InputBar: React.FC<{
     chatVariant
     && !hasContent
     && !liveAvailable
-    && !isGenerating
+    && !responseControlActive
     && !isTranscribingDictation
   );
 
@@ -857,6 +866,7 @@ export const InputBar: React.FC<{
                   personalIntelligence={personalIntelligence}
                   onTogglePersonalIntelligence={setProfileEnabled}
                   geminiStyle={chatVariant}
+                  sparkMode={sparkMode}
                 />
               </div>
               {/* No entrance/exit animation: measured against Gemini, both directions are
@@ -974,6 +984,9 @@ export const InputBar: React.FC<{
                   // Stop outranks send: while a reply streams this slot is the
                   // stop control, so a click here must never submit the draft.
                   if (isGenerating) return onStopGenerating?.();
+                  // Keep the stop slot inert while the finished response's
+                  // reveal drains; it must not submit a draft in this phase.
+                  if (isResponseRevealing) return;
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
                   if (!liveAvailable) return;
@@ -987,6 +1000,8 @@ export const InputBar: React.FC<{
                 title={
                   isGenerating
                     ? 'Stop response'
+                    : isResponseRevealing
+                    ? 'Finishing response'
                     : isTranscribingDictation
                     ? 'Transcribing voice'
                     : hasContent
@@ -1000,27 +1015,27 @@ export const InputBar: React.FC<{
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
-                aria-label={isGenerating ? 'Stop response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
+                aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
                 style={
-                  chatVariant && !isGenerating && !liveActive && !isTranscribingDictation
+                  chatVariant && !responseControlActive && !liveActive && !isTranscribingDictation
                     ? { backgroundColor: getWorkspaceTheme(effectiveWorkspaceColor).sendButton.bg }
                     : undefined
                 }
                 className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
-                    ? isGenerating || liveActive
+                    ? responseControlActive || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
                       ? getChatTranscribingBg(effectiveWorkspaceColor)
                       : getChatSubmitBg(effectiveWorkspaceColor)
-                    : isGenerating || liveActive
+                    : responseControlActive || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
                       ? 'bg-white'
                       : 'bg-white hover:bg-zinc-200'
                 }`}
               >
-                {isGenerating ? (
+                {responseControlActive ? (
                   <MaterialSymbol
                     family="google-symbols"
                     name="stop"
@@ -1142,8 +1157,9 @@ export const InputBar: React.FC<{
                 buttonRef={normalPlusRef} 
                 onToolSelect={(id) => setSelectedTool(id as ToolId)}
                   selectedTool={selectedTool}
-                  personalIntelligence={personalIntelligence}
-                  onTogglePersonalIntelligence={setProfileEnabled}
+                personalIntelligence={personalIntelligence}
+                onTogglePersonalIntelligence={setProfileEnabled}
+                sparkMode={sparkMode}
               />
               {selectedTool && (
                 <div className="ml-2">

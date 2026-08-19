@@ -7,9 +7,11 @@ import type {
   SparkReaction,
   SparkSkill,
   SparkTask,
+  SparkActivityPhase,
   SparkTaskAttachment,
   SparkTaskStatus,
   SparkTaskTurn,
+  SparkActivityEntry,
 } from './spark-types';
 
 export type {
@@ -20,9 +22,11 @@ export type {
   SparkReaction,
   SparkSkill,
   SparkTask,
+  SparkActivityPhase,
   SparkTaskAttachment,
   SparkTaskStatus,
   SparkTaskTurn,
+  SparkActivityEntry,
 } from './spark-types';
 
 export interface SparkState {
@@ -49,6 +53,10 @@ export interface AppendSparkTaskTurnInput {
   response: string;
   modelLabel?: string;
   thinkingSteps?: string[];
+  activityTitle?: string;
+  activityLog?: SparkActivityEntry[];
+  usedTools?: string[];
+  activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   createdAt?: string;
 }
@@ -75,11 +83,19 @@ export const INITIAL_SPARK_CONNECTIONS: Record<SparkConnectedAppId, boolean> = {
 const cloneInitialTasks = () => INITIAL_SPARK_TASKS.map((task) => ({
   ...task,
   attachments: task.attachments?.map((attachment) => ({ ...attachment })),
-  thinkingSteps: task.thinkingSteps ? [...task.thinkingSteps] : undefined,
+    thinkingSteps: task.thinkingSteps ? [...task.thinkingSteps] : undefined,
+    activityTitle: task.activityTitle,
+    activityLog: task.activityLog ? task.activityLog.map((entry) => ({ ...entry })) : undefined,
+    activityPhase: task.activityPhase,
   tools: task.tools ? [...task.tools] : undefined,
+  usedTools: task.usedTools ? [...task.usedTools] : undefined,
   turns: task.turns.map((turn) => ({
     ...turn,
     thinkingSteps: turn.thinkingSteps ? [...turn.thinkingSteps] : undefined,
+    activityTitle: turn.activityTitle,
+    activityLog: turn.activityLog ? turn.activityLog.map((entry) => ({ ...entry })) : undefined,
+    activityPhase: turn.activityPhase,
+    usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
     attachments: turn.attachments?.map((attachment) => ({ ...attachment })),
   })),
 }));
@@ -645,6 +661,16 @@ const normalizeThinkingSteps = (value: unknown): string[] => (
     : []
 );
 
+const normalizeActivityLog = (value: unknown): SparkActivityEntry[] => (
+  Array.isArray(value)
+    ? value.filter((entry): entry is SparkActivityEntry => {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.kind !== 'string') return false;
+      if (entry.kind === 'narration') return typeof entry.text === 'string' && Boolean(entry.text.trim());
+      return entry.kind === 'tool' && typeof entry.tool === 'string' && Boolean(entry.tool.trim());
+    }).slice(-40)
+    : []
+);
+
 const normalizeAttachment = (value: unknown): SparkTaskAttachment | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return null;
   return {
@@ -666,6 +692,11 @@ const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
     response: asString(value.response),
     modelLabel: asString(value.modelLabel) || undefined,
     thinkingSteps: normalizeThinkingSteps(value.thinkingSteps),
+    activityTitle: asString(value.activityTitle).replace(/\s+/g, ' ').trim().slice(0, 160) || undefined,
+    activityLog: normalizeActivityLog(value.activityLog),
+    usedTools: Array.isArray(value.usedTools)
+      ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
+      : undefined,
     attachments: Array.isArray(value.attachments)
       ? value.attachments.map(normalizeAttachment).filter((item): item is SparkTaskAttachment => Boolean(item))
       : [],
@@ -720,11 +751,16 @@ const normalizeTask = (value: unknown): SparkTask | null => {
       : asString(value.response),
     modelLabel: asString(value.modelLabel) || undefined,
     thinkingSteps: normalizeThinkingSteps(value.thinkingSteps),
+    activityTitle: asString(value.activityTitle).replace(/\s+/g, ' ').trim().slice(0, 160) || undefined,
+    activityLog: normalizeActivityLog(value.activityLog),
     turns: recoveredTurns,
     attachments: Array.isArray(value.attachments)
       ? value.attachments.map(normalizeAttachment).filter((item): item is SparkTaskAttachment => Boolean(item))
       : [],
     tools: Array.isArray(value.tools) ? value.tools.filter((tool): tool is string => typeof tool === 'string') : [],
+    usedTools: Array.isArray(value.usedTools)
+      ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
+      : undefined,
     reaction: asReaction(value.reaction),
     approval: approvalValue,
     approvalDecision: value.approvalDecision === 'allowed' || value.approvalDecision === 'denied'
@@ -1010,12 +1046,19 @@ export const createSparkTask = (
     response: options.response ?? '',
     modelLabel: options.modelLabel?.trim() || undefined,
     thinkingSteps: options.thinkingSteps ? [...options.thinkingSteps] : [],
+    activityTitle: options.activityTitle?.trim() || undefined,
+    activityLog: options.activityLog ? options.activityLog.map((entry) => ({ ...entry })) : [],
+    activityPhase: options.activityPhase ?? (status === 'running' ? 'queued' : undefined),
     turns: options.turns?.map((turn) => ({
       ...turn,
       thinkingSteps: turn.thinkingSteps ? [...turn.thinkingSteps] : undefined,
+      activityTitle: turn.activityTitle,
+      activityLog: turn.activityLog ? turn.activityLog.map((entry) => ({ ...entry })) : undefined,
+      usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
     })) ?? [],
     attachments: options.attachments?.map((attachment) => ({ ...attachment })) ?? [],
     tools: options.tools ? [...options.tools] : [],
+    usedTools: options.usedTools ? [...options.usedTools] : [],
     reaction: options.reaction,
     approval: options.approval ? { ...options.approval } : undefined,
     approvalDecision: options.approvalDecision,
@@ -1072,6 +1115,15 @@ export const updateSparkTask = (taskId: string, update: SparkTaskUpdate): SparkT
     thinkingSteps: update.thinkingSteps
       ? [...update.thinkingSteps]
       : existing.thinkingSteps,
+    activityTitle: Object.prototype.hasOwnProperty.call(update, 'activityTitle')
+      ? update.activityTitle?.trim() || undefined
+      : existing.activityTitle,
+    activityLog: update.activityLog
+      ? update.activityLog.map((entry) => ({ ...entry }))
+      : existing.activityLog,
+    usedTools: update.usedTools
+      ? [...update.usedTools]
+      : existing.usedTools,
     time: update.time ?? 'Just now',
     updatedAt: new Date().toISOString(),
   };
@@ -1124,6 +1176,24 @@ export const updateSparkTaskThinkingTransient = (
   return updated;
 };
 
+export const updateSparkTaskActivityTransient = (
+  taskId: string,
+  activityLog: readonly SparkActivityEntry[],
+): SparkTask | null => {
+  const current = sparkState.get();
+  const existing = current.tasks.find((task) => task.id === taskId);
+  if (!existing) return null;
+  const nextLog = activityLog.map((entry) => ({ ...entry }));
+  if (JSON.stringify(existing.activityLog ?? []) === JSON.stringify(nextLog)) return existing;
+
+  const updated: SparkTask = { ...existing, activityLog: nextLog };
+  sparkState.set({
+    ...current,
+    tasks: current.tasks.map((task) => (task.id === taskId ? updated : task)),
+  });
+  return updated;
+};
+
 export const appendSparkTaskTurn = (
   taskId: string,
   input: AppendSparkTaskTurnInput,
@@ -1142,6 +1212,10 @@ export const appendSparkTaskTurn = (
     response: input.response.trim(),
     modelLabel: input.modelLabel?.trim() || undefined,
     thinkingSteps: input.thinkingSteps ? [...input.thinkingSteps] : [],
+    activityTitle: input.activityTitle?.trim() || undefined,
+    activityLog: input.activityLog ? input.activityLog.map((entry) => ({ ...entry })) : [],
+    activityPhase: input.activityPhase,
+    usedTools: input.usedTools ? [...input.usedTools] : [],
     attachments: input.attachments?.map((attachment) => ({ ...attachment })),
     reaction: undefined,
     createdAt: now,
@@ -1178,6 +1252,16 @@ export const updateSparkTaskTurn = (
     thinkingSteps: update.thinkingSteps
       ? [...update.thinkingSteps]
       : existingTurn.thinkingSteps,
+    activityTitle: Object.prototype.hasOwnProperty.call(update, 'activityTitle')
+      ? update.activityTitle?.trim() || undefined
+      : existingTurn.activityTitle,
+    activityLog: update.activityLog
+      ? update.activityLog.map((entry) => ({ ...entry }))
+      : existingTurn.activityLog,
+    activityPhase: update.activityPhase === undefined ? existingTurn.activityPhase : update.activityPhase,
+    usedTools: update.usedTools
+      ? [...update.usedTools]
+      : existingTurn.usedTools,
     attachments: update.attachments
       ? update.attachments.map((attachment) => ({ ...attachment }))
       : existingTurn.attachments,
@@ -1234,6 +1318,30 @@ export const updateSparkTaskTurnThinkingTransient = (
   if (JSON.stringify(existingTurn.thinkingSteps ?? []) === JSON.stringify(nextSteps)) return existingTurn;
 
   const updatedTurn: SparkTaskTurn = { ...existingTurn, thinkingSteps: nextSteps };
+  const updatedTask: SparkTask = {
+    ...existingTask,
+    turns: existingTask.turns.map((turn) => turn.id === turnId ? updatedTurn : turn),
+  };
+  sparkState.set({
+    ...current,
+    tasks: current.tasks.map((task) => task.id === taskId ? updatedTask : task),
+  });
+  return updatedTurn;
+};
+
+export const updateSparkTaskTurnActivityTransient = (
+  taskId: string,
+  turnId: string,
+  activityLog: readonly SparkActivityEntry[],
+): SparkTaskTurn | null => {
+  const current = sparkState.get();
+  const existingTask = current.tasks.find((task) => task.id === taskId);
+  const existingTurn = existingTask?.turns.find((turn) => turn.id === turnId);
+  if (!existingTask || !existingTurn) return null;
+  const nextLog = activityLog.map((entry) => ({ ...entry }));
+  if (JSON.stringify(existingTurn.activityLog ?? []) === JSON.stringify(nextLog)) return existingTurn;
+
+  const updatedTurn: SparkTaskTurn = { ...existingTurn, activityLog: nextLog };
   const updatedTask: SparkTask = {
     ...existingTask,
     turns: existingTask.turns.map((turn) => turn.id === turnId ? updatedTurn : turn),

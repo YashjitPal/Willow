@@ -64,6 +64,10 @@ export interface AiOptions {
    * `@willow/personal` builds them and `chat-turn-runner` executes them.
    */
   personalTools?: { functionDeclarations: any[] }[];
+  /** Called when the provider emits a tool/app activity before execution. */
+  onToolCallStart?: (name: string, args?: any) => void;
+  /** Native function declarations supplied by a focused agent harness. */
+  toolDeclarations?: { functionDeclarations: any[] }[];
 }
 
 export const isAbortError = (error: unknown): boolean =>
@@ -708,6 +712,9 @@ const streamChatImpl: any = async (
     for (const block of options.personalTools ?? []) {
       if (block?.functionDeclarations?.length) tools.push(block);
     }
+    for (const block of options.toolDeclarations ?? []) {
+      if (block?.functionDeclarations?.length) tools.push(block);
+    }
 
     // The media-agent harness tools, offered only when the caller can execute
     // them. Chat mode leaves this off so the model reaches for search instead of
@@ -1134,6 +1141,9 @@ Adhere to the following rules and guidelines:
         if (cand?.groundingMetadata) {
           groundingSeen.push(cand.groundingMetadata);
           if (!hasEmittedText && cand.groundingMetadata.webSearchQueries?.length) {
+            options.onToolCallStart?.('web_search', {
+              query: cand.groundingMetadata.webSearchQueries[0],
+            });
             setPhase('searching');
           }
         }
@@ -1161,6 +1171,7 @@ Adhere to the following rules and guidelines:
           // and the result is attached to the newest block still awaiting one.
           if (part?.executableCode) {
             setPhase('executing');
+            options.onToolCallStart?.('code_execution');
             const code = typeof part.executableCode.code === 'string' ? part.executableCode.code : '';
             if (code) {
               codeExecutions.push({
@@ -1245,6 +1256,7 @@ Adhere to the following rules and guidelines:
         const responseParts = await Promise.all(
           pendingFunctionCalls.map(async (call) => {
             throwIfAborted(signal);
+            options.onToolCallStart?.(call.name, call.args);
             let toolResult: any;
             if (onToolCall) {
               toolResult = await onToolCall(call.name, call.args);
@@ -2039,6 +2051,7 @@ Adhere to the following rules and guidelines:
               toolResult = { error: err.message || 'Live search execution failed' };
             }
           } else if (onToolCall) {
+            options.onToolCallStart?.(tc.name, parsedArgs);
             try {
               toolResult = await onToolCall(tc.name, parsedArgs);
             } catch (err: any) {

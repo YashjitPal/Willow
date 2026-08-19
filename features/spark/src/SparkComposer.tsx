@@ -143,6 +143,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
     <div className={`spark-composer-host ${className}`.trim()}>
       <InputBar
         chatVariant
+        sparkMode
         composerRef={composerRef}
         disabled={disabled}
         placeholder={placeholder}
