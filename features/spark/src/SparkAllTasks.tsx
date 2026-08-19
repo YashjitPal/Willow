@@ -1,18 +1,9 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PlusDropdownMenu } from '@willow/chat/composer/PlusDropdownMenu';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import {
-  createSparkTaskAttachments,
-  deleteSparkAttachmentPayloads,
-  validateSparkAttachmentFiles,
-} from './attachment-storage';
-import { getActiveSparkStorageScope } from './spark-store';
-import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime, type SparkTask, type SparkTaskAttachment } from './spark-types';
-import { useSparkDictation } from './useSparkDictation';
+import { SparkComposer } from './SparkComposer';
 import { useSparkNow } from './useSparkNow';
 import './SparkAllTasks.css';
-import { mergeSelectedFiles } from './spark-composer-chips';
 
 type TaskFilter = 'Recent' | 'Scheduled' | 'Needs input' | 'In progress' | 'Completed';
 
@@ -49,6 +40,10 @@ export interface SparkAllTasksProps {
   onRenameTask: (taskId: string, title: string) => void;
   onTogglePin: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  /** Forwarded to the composer so the model picker and task execution agree. */
+  modelConfig?: any;
+  selectedModelId?: string;
+  setSelectedModelId?: (id: string) => void;
 }
 
 const matchesFilter = (task: SparkTask, filter: TaskFilter): boolean => {
@@ -73,13 +68,10 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   onRenameTask,
   onTogglePin,
   onDeleteTask,
+  modelConfig,
+  selectedModelId,
+  setSelectedModelId,
 }) => {
-  const [prompt, setPrompt] = useState('');
-  const [plusOpen, setPlusOpen] = useState(false);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [attachmentError, setAttachmentError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [filter, setFilter] = useState<TaskFilter>('Recent');
   const [filterOpen, setFilterOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,11 +80,6 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const filterButtonRef = useRef<HTMLButtonElement>(null);
-  const plusButtonRef = useRef<HTMLButtonElement>(null);
-  const submitInFlightRef = useRef(false);
-  const mountedRef = useRef(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const taskMenuRef = useRef<HTMLDivElement>(null);
@@ -106,13 +93,6 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   const taskOpenButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const headingId = useId();
   const filterMenuId = useId();
-  const composerErrorId = useId();
-  const {
-    error: dictationError,
-    isDictating,
-    stopDictation,
-    toggleDictation,
-  } = useSparkDictation({ value: prompt, onChange: setPrompt });
   const taskMenuId = useId();
   const renameTitleId = useId();
   const deleteTitleId = useId();
@@ -139,22 +119,6 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
       ...(task.tools ?? []).map((tool) => SPARK_TOOL_LABELS[tool] ?? tool),
     ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearchQuery));
   }), [filter, normalizedSearchQuery, tasks]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = '24px';
-    const nextHeight = Math.min(120, Math.max(24, textarea.scrollHeight));
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY = textarea.scrollHeight > 120 ? 'auto' : 'hidden';
-  }, [prompt]);
 
   useEffect(() => {
     if (!filterOpen) return;
@@ -351,216 +315,19 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
     else items[currentIndex < 0 ? items.length - 1 : (currentIndex - 1 + items.length) % items.length].focus();
   };
 
-  const submitPrompt = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const nextPrompt = prompt.trim();
-    if (!nextPrompt || submitInFlightRef.current) return;
-
-    submitInFlightRef.current = true;
-    setIsSubmitting(true);
-    stopDictation();
-    setPlusOpen(false);
-    setAttachmentError('');
-    const submissionScope = getActiveSparkStorageScope();
-    let attachments: SparkTaskAttachment[] = [];
-    try {
-      attachments = await createSparkTaskAttachments(attachedFiles, submissionScope);
-      const scopeChanged = getActiveSparkStorageScope() !== submissionScope;
-      if (!mountedRef.current || scopeChanged) {
-        await deleteSparkAttachmentPayloads(
-          attachments.map((attachment) => attachment.id),
-          submissionScope,
-        ).catch(() => undefined);
-        if (mountedRef.current) {
-          setAttachmentError('Your account changed before the task could be created. Please try again.');
-        }
-        return;
-      }
-      const tools = selectedTool ? [selectedTool] : [];
-      onSubmit(nextPrompt, attachments, tools);
-      setPrompt('');
-      setAttachedFiles([]);
-      setSelectedTool(null);
-      window.requestAnimationFrame(() => {
-        if (mountedRef.current) textareaRef.current?.focus();
-      });
-    } catch (error) {
-      if (attachments.length) {
-        await deleteSparkAttachmentPayloads(
-          attachments.map((attachment) => attachment.id),
-          submissionScope,
-        ).catch(() => undefined);
-      }
-      if (mountedRef.current) {
-        setAttachmentError(error instanceof Error
-          ? error.message
-          : 'One or more files could not be prepared.');
-      }
-    } finally {
-      submitInFlightRef.current = false;
-      if (mountedRef.current) setIsSubmitting(false);
-    }
-  };
-
   return (
     <section className="spark-all-tasks" aria-labelledby={headingId}>
       <div className="spark-all-tasks__content">
         <h1 id={headingId}>Put Willow Spark to work for you</h1>
 
         <div className="spark-all-tasks__composer-anchor">
-          <form className="spark-all-tasks__composer" aria-busy={isSubmitting} onSubmit={submitPrompt}>
-            <button
-              ref={plusButtonRef}
-              type="button"
-              className="spark-all-tasks__icon-button"
-              aria-label="Add files and context"
-              title="Add files and context"
-              aria-haspopup="menu"
-              aria-expanded={plusOpen}
-              disabled={isSubmitting}
-              onClick={() => {
-                setFilterOpen(false);
-                setOpenTaskMenuId(null);
-                setPlusOpen((open) => !open);
-              }}
-            >
-              <MaterialSymbol {...SYMBOL_PROPS} name="plus" size={24} opticalSize={24} />
-            </button>
-            <PlusDropdownMenu
-              isOpen={plusOpen}
-              onClose={() => setPlusOpen(false)}
-              onFileSelect={() => fileInputRef.current?.click()}
-              buttonRef={plusButtonRef}
-              onToolSelect={setSelectedTool}
-              geminiStyle
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              disabled={isSubmitting}
-              onChange={(event) => {
-                const incoming = Array.from(event.target.files ?? []);
-                const merged = mergeSelectedFiles(attachedFiles, incoming);
-                try {
-                  validateSparkAttachmentFiles(merged);
-                  setAttachedFiles(merged);
-                  setAttachmentError('');
-                } catch (error) {
-                  setAttachmentError(error instanceof Error
-                    ? error.message
-                    : 'These files could not be attached.');
-                }
-                event.target.value = '';
-              }}
-            />
-
-            <div className="spark-all-tasks__input-stack">
-              {(attachedFiles.length > 0 || selectedTool) && !isDictating && (
-                <div className="spark-all-tasks__context-row" aria-label="Task context">
-                  {attachedFiles.length > 0 && (
-                    <span className="spark-all-tasks__context-chip">
-                      <MaterialSymbol
-                        {...SYMBOL_PROPS}
-                        name="attach_file"
-                        size={16}
-                        opticalSize={16}
-                      />
-                      <span>
-                        {`${attachedFiles[0].name}${attachedFiles.length > 1 ? ` +${attachedFiles.length - 1}` : ''}`}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label="Remove attached files"
-                        disabled={isSubmitting}
-                        onClick={() => {
-                          setAttachedFiles([]);
-                          setAttachmentError('');
-                        }}
-                      >
-                        <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
-                      </button>
-                    </span>
-                  )}
-
-                  {selectedTool && (
-                    <span className="spark-all-tasks__context-chip spark-all-tasks__context-chip--tool">
-                      <MaterialSymbol
-                        {...SYMBOL_PROPS}
-                        name="auto_awesome"
-                        size={16}
-                        opticalSize={16}
-                      />
-                      <span>{SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${SPARK_TOOL_LABELS[selectedTool] ?? selectedTool}`}
-                        disabled={isSubmitting}
-                        onClick={() => setSelectedTool(null)}
-                      >
-                        <MaterialSymbol {...SYMBOL_PROPS} name="close" size={14} opticalSize={14} />
-                      </button>
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={prompt}
-                aria-label="Describe a task for Willow Spark"
-                aria-describedby={(dictationError || attachmentError) ? composerErrorId : undefined}
-                placeholder={isDictating ? "Listening..." : "Describe a task"}
-                autoComplete="off"
-                spellCheck
-                disabled={isSubmitting}
-                aria-hidden={isDictating || undefined}
-                tabIndex={isDictating ? -1 : undefined}
-                className={isDictating ? 'is-dictating' : ''}
-                onFocus={() => {
-                  setFilterOpen(false);
-                  setOpenTaskMenuId(null);
-                }}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }}
-              />
-            </div>
-            {prompt.trim() && !isDictating ? (
-              <button
-                type="submit"
-                className="spark-all-tasks__send-button"
-                aria-label="Create task"
-                title={isSubmitting ? 'Preparing files' : 'Create task'}
-                disabled={isSubmitting}
-              >
-                <MaterialSymbol {...SYMBOL_PROPS} name="arrow_upward" size={20} opticalSize={20} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={`spark-all-tasks__icon-button ${isDictating ? 'is-dictating' : ''} spark-mic-button`}
-                aria-label={isDictating ? "Stop listening" : "Use voice input"}
-                title={isDictating ? "Stop voice dictation" : "Use voice input"}
-                disabled={isSubmitting}
-                onClick={toggleDictation}
-              >
-                {isDictating && <SparkMicPulseOverlay />}
-                <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
-              </button>
-            )}
-          </form>
+          <SparkComposer
+            onSubmitTask={onSubmit}
+            modelConfig={modelConfig}
+            selectedModelId={selectedModelId}
+            setSelectedModelId={setSelectedModelId}
+          />
         </div>
-        {(dictationError || attachmentError) && (
-          <p id={composerErrorId} className="spark-all-tasks__voice-error" role="alert">
-            {dictationError || attachmentError}
-          </p>
-        )}
 
         <section className="spark-all-tasks__library" aria-label="Spark task list">
           <div className="spark-all-tasks__toolbar">
@@ -576,12 +343,10 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 onKeyDown={(event) => {
                   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
                   event.preventDefault();
-                  setPlusOpen(false);
                   setOpenTaskMenuId(null);
                   setFilterOpen(true);
                 }}
                 onClick={() => {
-                  setPlusOpen(false);
                   setOpenTaskMenuId(null);
                   setFilterOpen((open) => !open);
                 }}
@@ -641,7 +406,6 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 placeholder="Search tasks"
                 autoComplete="off"
                 onFocus={() => {
-                  setPlusOpen(false);
                   setFilterOpen(false);
                   setOpenTaskMenuId(null);
                 }}
@@ -679,7 +443,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 <article
                   key={task.id}
                   role="listitem"
-                  className={`spark-all-tasks__task-row${menuOpen ? ' is-menu-open' : ''}`}
+                  className={`spark-all-tasks__task-row${task.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
                 >
                   <button
                     ref={(node) => {
@@ -734,7 +498,6 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                     onClick={(event) => {
                       event.stopPropagation();
                       taskMenuButtonRef.current = event.currentTarget;
-                      setPlusOpen(false);
                       setFilterOpen(false);
                       setOpenTaskMenuId((current) => current === task.id ? null : task.id);
                     }}

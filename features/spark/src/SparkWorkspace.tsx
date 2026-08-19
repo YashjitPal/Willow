@@ -80,6 +80,8 @@ interface SparkWorkspaceProps {
   backgroundOnly?: boolean;
   modelConfig?: any;
   selectedModelId?: string;
+  /** The composer's model pill selects the model tasks run on, so it writes back here. */
+  setSelectedModelId?: (id: string) => void;
 }
 
 const SPARK_SYSTEM_PROMPT =
@@ -231,6 +233,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   backgroundOnly = false,
   modelConfig,
   selectedModelId = '',
+  setSelectedModelId,
 }) => {
   const { user } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -1071,6 +1074,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onResponseReactionChange={changeResponseReaction}
         onRetryTask={retryTask}
         onRetryTurn={retryTurn}
+        modelConfig={modelConfig}
+        selectedModelId={selectedModelId}
+        setSelectedModelId={setSelectedModelId}
         computerUse={task.approval?.kind === 'browser' && task.approvalDecision === 'allowed' ? (
           <SparkComputerUsePanel
             taskId={task.id}
@@ -1151,7 +1157,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             updateLinkedScheduleRunStatus(task.id, 'Skipped', true);
           }
         }}
-        onScheduleEnabledChange={changeScheduleEnabled}
       />
     );
   }
@@ -1165,6 +1170,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onRenameTask={renameSparkTask}
         onTogglePin={toggleSparkTaskPinned}
         onDeleteTask={deleteTaskWithAttachments}
+        modelConfig={modelConfig}
+        selectedModelId={selectedModelId}
+        setSelectedModelId={setSelectedModelId}
       />
     );
   }
@@ -1302,6 +1310,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       onViewAllTasks={goToAllSparkTasks}
       onOpenWhatsNew={() => window.open('https://gemini.google.com/updates', '_blank', 'noopener,noreferrer')}
       onSuggestedSelect={() => undefined}
+      modelConfig={modelConfig}
+      selectedModelId={selectedModelId}
+      setSelectedModelId={setSelectedModelId}
       onTogglePinTask={toggleSparkTaskPinned}
       onDeleteTask={deleteSparkTask}
       onRenameTask={renameSparkTask}

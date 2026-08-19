@@ -14,14 +14,7 @@ export const SidebarItem: React.FC<{
   actions?: React.ReactNode;
   keepActionsVisible?: boolean;
   flushRight?: boolean;
-  /**
-   * Optical correction for one icon, e.g. `ml-[2px]`.
-   *
-   * Per-row on purpose. This used to be an `ml-[2px]` baked into the lucide
-   * branch below, which centred `MediaIcon` — whose body sits ~12 viewBox units
-   * left of its own centre — at the cost of pushing the genuinely centred
-   * `Terminal` two pixels off. Corrections belong to the icon that needs them.
-   */
+  /** Optional optical correction for an individual icon. */
   iconClassName?: string;
   /**
    * The keyboard shortcut Gemini reveals in the row's trailing slot on hover —
@@ -72,14 +65,6 @@ export const SidebarItem: React.FC<{
           />
         </div>
       ) : Icon ? (
-        /*
-         * No blanket left margin — see `iconClassName`. The `ml-[2px]` that used
-         * to live here centred Media but pushed Code two pixels right of New chat
-         * and Search, which is visible collapsed, where the active row is a 32px
-         * circle and the glyph sat off its centre. Bare, every glyph starts at
-         * x=16, which is where Gemini's rail puts all of them; the icons that
-         * genuinely need a nudge now ask for one.
-         */
         <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 ${iconClassName}`}>
           <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
         </div>

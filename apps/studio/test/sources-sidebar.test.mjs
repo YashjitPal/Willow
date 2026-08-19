@@ -105,6 +105,39 @@ it('clears the other panels when sources opens', () => {
   assert.match(handler[1], /setOpenResource\(null\)/, 'the resource panel would stack behind sources');
 });
 
+it('swaps the right-hand panels one at a time, not over each other', () => {
+  /*
+   * All three panels — thinking, sources, resource preview — occupy the same
+   * corner and animate along the same axis, sliding in from x:424 and back out
+   * to x:424.
+   *
+   * Given an AnimatePresence each, swapping one for another ran both
+   * animations at once: the outgoing panel slid right while the incoming one
+   * slid left across it, which reads as a flicker rather than a transition.
+   * `handleOpenThinking` clears the resource and sets the thinking id in the
+   * same commit, so opening "Show thinking steps" over a resource preview is
+   * the case that shows it.
+   *
+   * One presence in `mode="wait"` is the fix: the outgoing panel finishes
+   * leaving before the incoming one starts arriving.
+   */
+  const view = CHAT_VIEW();
+
+  assert.match(
+    view,
+    /<AnimatePresence mode="wait">[\s\S]{0,1400}?RichResourcePanel[\s\S]{0,200}?<\/AnimatePresence>/,
+    'the three panels must share one presence, in wait mode',
+  );
+
+  // Prefixed keys: two different panels can belong to the same message id, and
+  // an unchanged key would swap the contents without animating at all.
+  assert.match(view, /key=\{`thinking-\$\{thinkingMessage\.id\}`\}/);
+  assert.match(view, /key=\{`sources-\$\{sourcesMessage\.id\}`\}/);
+
+  // And the panels must still have an exit for the wait to wait on.
+  assert.match(CHROME(), /exit=\{\{ opacity: 0, x: 424 \}\}/);
+});
+
 it('gates the 428px layout shift on either panel', () => {
   const view = CHAT_VIEW();
   assert.match(

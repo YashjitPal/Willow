@@ -317,11 +317,15 @@ test('the menu is the exact isChatOngoing complement of the temporary-chat butto
 
 test('the menu raises intents and never writes chat state itself', () => {
   // Single writer. The sidebar owns the scope-guarded pin list, the rename
-  // sanitizer and dup-check, the pin carry, and the Code-mode / scanned-chat maps.
+  // sanitizer and dup-check, the pin carry, the Code-mode / scanned-chat maps, and
+  // the notebook picker.
   assert.doesNotMatch(menuCode, /localStorage\.setItem/, 'the sidebar is the only writer');
-  for (const action of ['pin', 'rename', 'delete']) {
+  for (const action of ['pin', 'rename', 'delete', 'notebook']) {
     assert.match(menuCode, new RegExp(`emitChatActionIntent\\(\\{ action: '${action}', chatId \\}\\)`));
   }
+  // "Add to notebook" was an alert() stub for a while. It must stay a real intent —
+  // an alert here reads as a working feature to anyone reading the row.
+  assert.doesNotMatch(menuCode, /alert\([^)]*[Nn]otebook/, 'Add to notebook must not be a stub');
 });
 
 test('the sidebar routes every raised intent to the handler the row menu uses', () => {
@@ -333,9 +337,21 @@ test('the sidebar routes every raised intent to the handler the row menu uses', 
   assert.match(listener, /action === 'pin'\) togglePinChat\(chatId\)/);
   assert.match(listener, /action === 'rename'\) openRenameDialog\(chatId\)/);
   assert.match(listener, /action === 'delete'\) handleDeleteChat\(chatId\)/);
+  assert.match(listener, /action === 'notebook'\) setNotebookPickerChatId\(chatId\)/);
   // togglePinChat closes over pinnedChats, so a stale subscription would toggle
   // against an out-of-date list and drop concurrent pins.
   assert.match(listener, /\[pinnedChats, chatScopeId, pinnedChatsKey\]/);
+});
+
+test('the notebook picker is mounted once, by the sidebar, for both surfaces', () => {
+  // Same reason the rename and delete dialogs live here: two mounts would be two
+  // dialogs, and the Recents row menu and the conversation menu can both raise it.
+  assert.match(sidebarCode, /\{notebookPickerChatId && \(\s*<MoveChatDialog chatId=\{notebookPickerChatId\}/);
+  assert.doesNotMatch(menuCode, /MoveChatDialog/, 'the conversation menu asks; it does not mount the picker');
+  // Recents' own row goes through the bus too, rather than reaching for the state
+  // directly — one path in, so the two rows cannot drift.
+  assert.match(sidebarCode, /emitChatActionIntent\(\{ action: 'notebook', chatId: chatToFile \}\)/);
+  assert.doesNotMatch(sidebarCode, /alert\([^)]*to Notebook/, 'the Recents row must not be a stub');
 });
 
 test('both surfaces build the pinned-chats key from one place', () => {

@@ -12,3 +12,6 @@ target/
 fun_facts_about_antigravity.txt
 nul
 secrets.txt
+
+# Code Beta's dev-only model-request log (apps/studio/vite.config.ts)
+.code-beta/

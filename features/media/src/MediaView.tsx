@@ -34,6 +34,64 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { Avatar } from '@willow/ui/Avatar';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import {
+  ViewSettingsMenu,
+  MoreMenu,
+  SortFilterMenu,
+  DEFAULT_VIEW_SETTINGS,
+  DEFAULT_SORT_FILTER,
+  type ViewSettings,
+  type SortFilter,
+} from './HeaderMenus';
+
+/* Flow's header controls: 32x32 at a 16px radius, glyphs at 24px unfilled with weight axis 300. */
+const HEADER_ICON_BUTTON = 'w-8 h-8 shrink-0 flex items-center justify-center rounded-2xl text-white hover:bg-white/10 transition-colors outline-none';
+const HEADER_ICON_AXES = '"FILL" 0, "wght" 300';
+/* Inter runs wider than Google Sans Text at the same declared size, so naming the face matters
+ * for the project title's measured width, not just its shape. */
+const PROJECT_NAME_FONT = "'Google Sans Text', 'Inter', system-ui, -apple-system, sans-serif";
+
+/*
+ * The header's search group, measured off Flow with `tools/ui-research/scrapers/flow/69-search.cjs`:
+ * a 430x40 field, an 8px gap and a 42x40 Sort & Filter chip. The header's own insets are 24px left
+ * and 20px right, and its right-hand controls sit 12px apart — the open field stops 12px short of
+ * the account chip, which is the one control Flow keeps beside it.
+ */
+const SEARCH_FIELD_WIDTH = 430;
+const SEARCH_GROUP_GAP = 8;
+const SORT_FILTER_WIDTH = 42;
+const SEARCH_GROUP_WIDTH = SEARCH_FIELD_WIDTH + SEARCH_GROUP_GAP + SORT_FILTER_WIDTH;
+const HEADER_INSET_LEFT = 24;
+const HEADER_INSET_RIGHT = 20;
+const HEADER_GROUP_GAP = 12;
+/*
+ * One curve, both directions. Flow's search group computes `transition: 0.3s ease-in-out`, and it
+ * reads the same open as closed, so opening and closing are one animation played either way. It lives
+ * on the group two levels above the field; the field itself only transitions its border colour.
+ *
+ * An earlier pass here fitted two different beziers to Flow's traced *width* — 280ms opening, 230ms
+ * closing — which was fitting the wrong quantity. The width is a layout consequence of this eased
+ * group, and the header's other controls collapsing partway through put a kink in it that no single
+ * bezier can follow, which is why those fits never got below ~13px and drifted 20ms depending on
+ * which reps went in. The composite they did land on was front-loaded, and that is what made closing
+ * look like the bar jumped before it shrank: at 50ms, ease-in-out has covered 5.7% of the travel
+ * (Flow measures 5.2%), while 230ms of cubic-bezier(0.28, 0, 0.47, 0.91) has covered 28%.
+ *
+ * 270ms and not the 300ms Flow declares, because Flow's field does not take the full 300ms: the time
+ * it spends between a quarter and three quarters of its travel is 82.6ms opening and 82.6ms closing,
+ * and for a symmetric ease-in-out that span is 0.306 of the duration, so what is on screen runs 267ms
+ * both ways. That milestone span is used in preference to lining the traces up at their start, because
+ * both apps drop frames and the first moving sample is not the first moved pixel — an earlier attempt
+ * to align on it reported 29% divergence on data that actually agreed. Measured against Willow's own
+ * 300ms it recovers 302ms, so the estimator is sound.
+ *
+ * Position rides the same timing function as width deliberately. Flow never translates this row — its
+ * left edge moves only because the width shrinks inside a centred container, which makes position
+ * linear in the width's own progress. Sharing one curve reproduces that; giving transform its own
+ * would not.
+ */
+const SEARCH_TRANSITION = 'width 270ms ease-in-out, transform 270ms ease-in-out';
 import { getGeminiClient } from '@willow/ai/chat';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
@@ -169,6 +227,121 @@ export const MediaView: React.FC = () => {
     window.addEventListener('willow_projects_updated', updateProjectName);
     return () => window.removeEventListener('willow_projects_updated', updateProjectName);
   }, [projectId]);
+
+  // ── Header popover menus ────────────────────────────────────────────────
+  // One piece of state rather than three booleans: the menus are mutually exclusive, and
+  // opening one while another is up has to close the other, not stack them.
+  const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'settings' | 'more' | 'filter' | null>(null);
+  const viewSettingsButtonRef = React.useRef<HTMLButtonElement>(null);
+  const moreMenuButtonRef = React.useRef<HTMLButtonElement>(null);
+  const sortFilterButtonRef = React.useRef<HTMLButtonElement>(null);
+  const [viewSettings, setViewSettings] = React.useState<ViewSettings>(DEFAULT_VIEW_SETTINGS);
+  const [sortFilter, setSortFilter] = React.useState<SortFilter>(DEFAULT_SORT_FILTER);
+  const closeHeaderMenu = React.useCallback(() => setOpenHeaderMenu(null), []);
+
+  // ── Header search ───────────────────────────────────────────────────────
+  // Open is a mode, not a focus state — Flow's field stays wide after the pointer goes elsewhere
+  // and only Escape or its own back arrow puts it away, which is also what clears the query.
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [isSearchOpen, setIsSearchOpen] = React.useState(false);
+  /*
+   * The open field's geometry is measured, but it is deliberately NOT state. Setting state from the
+   * layout effect below would commit a second full MediaView render on every open and every close,
+   * and this component renders the whole gallery inline — so that second pass re-creates every tile
+   * for a change that only ever moves one row in the header. Measured values go to a ref and are
+   * written straight to the node instead; the ref is read during render only so that an unrelated
+   * re-render (typing in the field) re-emits the width the node already has rather than snapping it
+   * back to resting.
+   */
+  const searchGeometryRef = React.useRef<{ dx: number; width: number } | null>(null);
+  const headerRef = React.useRef<HTMLElement>(null);
+  const searchSlotRef = React.useRef<HTMLDivElement>(null);
+  const searchGroupRef = React.useRef<HTMLDivElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const accountButtonRef = React.useRef<HTMLButtonElement>(null);
+
+  const openSearch = React.useCallback(() => {
+    setIsSearchOpen(true);
+    // The width animation starts this frame; focusing after it would scroll the header.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+  const closeSearch = React.useCallback(() => {
+    setIsSearchOpen(false);
+    setSearchQuery('');
+    searchInputRef.current?.blur();
+  }, []);
+
+  /*
+   * Where the open field has to reach: from the header's own left inset to the account chip, which
+   * is the one control Flow keeps visible beside it. Measured rather than derived, because the
+   * slot's resting position depends on the project name's length and the chip's on the user's name.
+   * The slot itself never moves — only the row inside it is transformed — so reading it while open
+   * is stable.
+   *
+   * Writing width/transform to the node here still animates: React has already committed this
+   * render's `transition` by the time layout effects run, and the node is still painted at its
+   * previous values, so the change is what the transition interpolates from.
+   */
+  React.useLayoutEffect(() => {
+    const apply = () => {
+      const group = searchGroupRef.current;
+      if (!group) return;
+      const geometry = isSearchOpen ? searchGeometryRef.current : null;
+      group.style.width = `${geometry ? geometry.width : SEARCH_GROUP_WIDTH}px`;
+      group.style.transform = `translateX(${geometry ? geometry.dx : 0}px)`;
+    };
+    if (!isSearchOpen) {
+      searchGeometryRef.current = null;
+      apply();
+      return undefined;
+    }
+    const measure = () => {
+      const slot = searchSlotRef.current;
+      const header = headerRef.current;
+      if (!slot || !header) return;
+      const headerBox = header.getBoundingClientRect();
+      const slotBox = slot.getBoundingClientRect();
+      const chipBox = accountButtonRef.current?.getBoundingClientRect();
+      const left = headerBox.left + HEADER_INSET_LEFT;
+      const right = (chipBox ? chipBox.left : headerBox.right - HEADER_INSET_RIGHT) - HEADER_GROUP_GAP;
+      searchGeometryRef.current = { dx: left - slotBox.left, width: Math.max(SEARCH_GROUP_WIDTH, right - left) };
+      apply();
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [isSearchOpen]);
+
+  React.useEffect(() => {
+    if (!isSearchOpen) return undefined;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeSearch(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isSearchOpen, closeSearch]);
+
+  /*
+   * Clicking away closes it — but only with nothing typed, which is the rule Flow follows and not an
+   * arbitrary one: while a query is live an outside click there leaves the bar open and merely blurs
+   * it, so the results you are reading stay on screen with the terms that produced them still visible.
+   * Escape is the gesture that closes regardless, and it clears as it goes.
+   *
+   * On pointerdown rather than click, because Flow's bar is already closed before the mouse comes back
+   * up. The filter menu is portalled to the body, so in the DOM it is outside the group and has to be
+   * excluded by hand or picking a sort order would dismiss the search sitting behind it.
+   */
+  React.useEffect(() => {
+    if (!isSearchOpen) return undefined;
+    const onPointerDown = (e: PointerEvent) => {
+      if (searchQuery) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (searchGroupRef.current?.contains(target)) return;
+      if (target.closest('[role="menu"], [role="dialog"]')) return;
+      closeSearch();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [isSearchOpen, searchQuery, closeSearch]);
 
   // ── Top-left project rename ─────────────────────────────────────────────
   const [isEditingProjectName, setIsEditingProjectName] = React.useState(false);
@@ -353,6 +526,9 @@ export const MediaView: React.FC = () => {
   const [draggingItemId, setDraggingItemId] = React.useState<string | null>(null);
   const [dragMousePos, setDragMousePos] = React.useState({ x: 0, y: 0 });
   const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
+  /* Focus anywhere inside the composer, not just the textarea: Flow lifts the whole shell, and
+   * React's onFocus/onBlur are focusin/focusout, so one pair on the shell covers the controls. */
+  const [isComposerFocused, setIsComposerFocused] = React.useState(false);
   const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
   
   // React state for overlap calculations (can lag by 1 frame safely)
@@ -1470,7 +1646,11 @@ export const MediaView: React.FC = () => {
   const [generationError, setGenerationError] = React.useState<string | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
   const displayMediaItems = React.useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     let filtered = mediaItems.filter((item) => {
+      if (query && !(item.shortenedPrompt || item.prompt || '').toLowerCase().includes(query)) {
+        return false;
+      }
       if (activeSidebarTab === 'images') {
         return item.kind === 'image';
       }
@@ -1503,7 +1683,7 @@ export const MediaView: React.FC = () => {
       ];
     }
     return filtered;
-  }, [mediaItems, activeSidebarTab]);
+  }, [mediaItems, activeSidebarTab, searchQuery]);
 
   React.useEffect(() => {
     if (activeSidebarTab === 'music') {
@@ -4291,6 +4471,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   const onTileSetRenaming = useEventCallback((itemId: string, renaming: boolean) => {
     setRenamingItemId(renaming ? itemId : null);
   });
+  // Persisted straight away rather than on the debounce, for the same reason as the rename above:
+  // a reconcile landing inside the window would read the stored flag back over the state.
+  const onTileToggleFavorite = useEventCallback((id: string) => {
+    setMediaItems(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, favorite: !m.favorite } : m);
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
+      return next;
+    });
+  });
   const onTileAddToPrompt = useEventCallback((targetItem: MediaItem) => {
     if (targetItem.url) {
       setAttachments(prev => {
@@ -4564,9 +4753,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         }}
       />
 
-      {/* Top Header */}
+      {/* Top Header.
+        * 76px tall with 24px of left inset and 20px of right, which is what puts every control
+        * in the row on Flow's centre line at y=38 and lines the back arrow's glyph up with the
+        * rail's glyphs at x=28. The rail below already assumed this height (`pt-[76px]`). */}
       <header 
-        className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent pointer-events-none"
+        ref={headerRef}
+        className="absolute top-0 left-0 right-0 h-[76px] flex items-center justify-between pl-6 pr-5 shrink-0 z-[80] bg-transparent pointer-events-none"
         style={{
           transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
           opacity: isHeaderVisible ? 1 : 0,
@@ -4576,107 +4769,223 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         }}
       >
         
-        {/* Left Section */}
-        <div className={`flex items-center gap-4 w-[330px] ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+        {/* Left Section.
+          * Flow spaces this cluster with an 8px flex gap and then insets the name by a further
+          * 16px of its own, so the name sits 24px past the back arrow but only 8px before the
+          * three-dot button — the two gaps are deliberately unequal.
+          *
+          * Width is left to the content, which is what puts the search field where Flow puts it:
+          * the header is `justify-between` with the field's slot taking the slack, so an auto-width
+          * cluster leaves equal gaps either side of the field (Flow's are 233.5px to 0.1px). A fixed
+          * reservation here instead pushes the field off that centre by however much the name falls
+          * short of it. The name truncates at 210px, so this caps at 306px on its own. */}
+        {/* The open field covers this cluster, so it fades out from under it — Flow's does the
+          * same, and leaving it lit would show through the field's 10% fill. */}
+        <div
+          className={`flex items-center gap-2 shrink-0 transition-opacity duration-200 ${
+            isSearchOpen ? 'opacity-0 pointer-events-none' : isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}
+        >
+          {/* Flow's header controls are all 32x32 with a 16px radius, and every glyph in the
+            * header and rail is Google Symbols at 24px with `"FILL" 0, "wght" 300`. */}
           <button 
             onClick={() => navigate('/?mode=media')}
-            className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
+            className="w-8 h-8 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-2xl transition-colors text-white"
+            title="Go Back"
           >
-            <ArrowLeft size={24} className="text-white" />
+            <MaterialSymbol name="arrow_back" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
           </button>
-          {isEditingProjectName ? (
-            <input
-              type="text"
-              value={editingProjectNameValue}
-              onChange={(e) => setEditingProjectNameValue(e.target.value)}
-              onKeyDown={(e) => {
-                // isComposing: an IME (CJK input) Enter confirms the composition,
-                // not the rename — committing there would rename to half-typed text.
-                if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
-                  projectRenameResolvedRef.current = true;
+          {/* 16px/24px regular Google Sans Text, 16px in from the flex gap. Flow's name is an
+            * always-live <input> sized by its `size` attribute, so it grows with the title; the
+            * span here is Willow's read mode and carries the hover pill that a plain input would
+            * not need. Its negative margin cancels the pill's padding, so entering and leaving
+            * hover does not shift the three-dot button. */}
+          <div className="flex items-center min-w-0 pl-4" style={{ fontFamily: PROJECT_NAME_FONT }}>
+            {isEditingProjectName ? (
+              <input
+                type="text"
+                size={Math.max(1, editingProjectNameValue.length)}
+                value={editingProjectNameValue}
+                onChange={(e) => setEditingProjectNameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  // isComposing: an IME (CJK input) Enter confirms the composition,
+                  // not the rename — committing there would rename to half-typed text.
+                  if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
+                    projectRenameResolvedRef.current = true;
+                    void commitProjectRename(editingProjectNameValue);
+                  } else if (e.key === 'Escape') {
+                    projectRenameResolvedRef.current = true;
+                    setIsEditingProjectName(false);
+                  }
+                }}
+                onBlur={() => {
+                  // Enter/Escape already resolved this edit — the blur fired by
+                  // the input unmounting must not commit again (or at all,
+                  // after a cancel).
+                  if (projectRenameResolvedRef.current) {
+                    projectRenameResolvedRef.current = false;
+                    return;
+                  }
                   void commitProjectRename(editingProjectNameValue);
-                } else if (e.key === 'Escape') {
-                  projectRenameResolvedRef.current = true;
-                  setIsEditingProjectName(false);
-                }
-              }}
-              onBlur={() => {
-                // Enter/Escape already resolved this edit — the blur fired by
-                // the input unmounting must not commit again (or at all,
-                // after a cancel).
-                if (projectRenameResolvedRef.current) {
+                }}
+                onFocus={(e) => e.currentTarget.select()}
+                className="bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[210px]"
+                autoFocus
+                spellCheck={false}
+              />
+            ) : (
+              <span
+                className="text-base leading-6 font-normal tracking-normal text-white cursor-text hover:bg-white/10 rounded-lg px-1.5 -mx-1.5 transition-colors truncate max-w-[210px]"
+                title="Rename project"
+                onClick={() => {
                   projectRenameResolvedRef.current = false;
-                  return;
-                }
-                void commitProjectRename(editingProjectNameValue);
-              }}
-              onFocus={(e) => e.currentTarget.select()}
-              className="bg-transparent border-none outline-none text-sm font-medium text-white tracking-wide w-[190px]"
-              autoFocus
-              spellCheck={false}
-            />
-          ) : (
-            <span
-              className="text-sm font-medium text-white tracking-wide cursor-text hover:bg-white/10 rounded-md px-1.5 py-0.5 -ml-1.5 transition-colors truncate max-w-[210px]"
-              title="Rename project"
-              onClick={() => {
-                projectRenameResolvedRef.current = false;
-                setEditingProjectNameValue(projectName);
-                setIsEditingProjectName(true);
-              }}
-            >
-              {projectName}
-            </span>
-          )}
-          <button className="p-1 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white">
-            <MoreVertical size={20} />
-          </button>
-        </div>
-
-        {/* Center Section: Search */}
-        <div className={`flex items-center gap-3 flex-1 justify-center max-w-2xl ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          <div className="flex items-center bg-[#171717]/90 backdrop-blur-xl rounded-2xl h-11 w-full max-w-[500px] px-4 border border-transparent hover:border-white/10 transition-colors search-container">
-            <Search size={18} className="text-gray-400" />
-            <input 
-              type="text" 
-              className="bg-transparent border-none outline-none text-sm text-white w-full ml-3"
-              placeholder=""
-            />
+                  setEditingProjectNameValue(projectName);
+                  setIsEditingProjectName(true);
+                }}
+              >
+                {projectName}
+              </span>
+            )}
           </div>
-          <button className="flex items-center justify-center w-11 h-11 rounded-2xl bg-[#171717]/90 backdrop-blur-xl hover:bg-[#202020]/90 transition-colors border border-transparent hover:border-white/10">
-            <svg 
-              width="18" 
-              height="18" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="2.5" 
-              strokeLinecap="round" 
-              className="text-gray-300"
-            >
-              <line x1="5" y1="8" x2="19" y2="8" />
-              <line x1="8" y1="12" x2="16" y2="12" />
-              <line x1="11" y1="16" x2="13" y2="16" />
-            </svg>
+          {/* Flow dims this one to 50% white, unlike the header-right group. */}
+          <button
+            className="w-8 h-8 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-2xl transition-colors hover:text-white"
+            style={{ color: 'rgba(255, 255, 255, 0.5)' }}
+            title="More options"
+          >
+            <MaterialSymbol name="more_vert" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
           </button>
         </div>
 
-        {/* Right Section */}
-        <div className={`flex items-center gap-5 w-[330px] justify-end ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          <button className="text-gray-300 hover:text-white transition-colors">
-            <Plus size={22} />
-          </button>
-          <button className="text-gray-300 hover:text-white transition-colors">
-            <HelpCircle size={22} />
-          </button>
-          <button className="text-gray-300 hover:text-white transition-colors">
-            <Settings size={22} />
-          </button>
-          <button className="text-gray-300 hover:text-white transition-colors">
-            <MoreVertical size={22} />
-          </button>
-          
-          <button className="flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10">
+        {/*
+          * Center Section: Search.
+          *
+          * The slot keeps its resting footprint whatever the field is doing; only the row inside it
+          * is transformed. That is how Flow does it — open, the field runs the length of the bar
+          * and sits *over* the project nav rather than pushing it aside, and the nav simply fades.
+          * Animating the slot itself instead would reflow the header and shove the account chip off
+          * the right edge, which is the one thing Flow's own layout gets wrong at this width.
+          */}
+        <div className="flex flex-1 justify-center min-w-0">
+          <div
+            ref={searchSlotRef}
+            className={`relative h-10 w-[480px] max-w-full ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}
+          >
+            <div
+              ref={searchGroupRef}
+              className="absolute left-0 top-0 z-10 flex h-10 items-center"
+              style={{
+                gap: `${SEARCH_GROUP_GAP}px`,
+                width: isSearchOpen && searchGeometryRef.current ? searchGeometryRef.current.width : SEARCH_GROUP_WIDTH,
+                transform: `translateX(${isSearchOpen && searchGeometryRef.current ? searchGeometryRef.current.dx : 0}px)`,
+                transition: SEARCH_TRANSITION,
+              }}
+            >
+              {/* 40px tall, 16px radius, a 0.8px hairline that never changes — Flow's field has no
+                * hover state of its own, only its round buttons do. */}
+              <form
+                className="flex h-10 min-w-0 flex-1 items-center rounded-2xl border-[0.8px] border-[rgba(218,220,224,0.05)] bg-[rgba(218,220,224,0.1)] px-[10px] backdrop-blur-[80px] search-container"
+                style={{ gap: '6px' }}
+                onSubmit={(e) => e.preventDefault()}
+                onClick={() => { if (!isSearchOpen) openSearch(); }}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isSearchOpen) closeSearch(); else openSearch();
+                  }}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[rgba(218,220,224,0.05)] outline-none"
+                  style={{ color: isSearchOpen ? '#fff' : 'rgba(218, 220, 224, 0.75)' }}
+                  title={isSearchOpen ? 'Close search' : 'Search'}
+                >
+                  <MaterialSymbol
+                    name={isSearchOpen ? 'arrow_back' : 'search'}
+                    family="google-symbols"
+                    size={20}
+                    weight={400}
+                    variationSettings={HEADER_ICON_AXES}
+                  />
+                </button>
+                {/* Stretched and padded rather than sized by its line box, which is how Flow's is
+                  * built: the input fills the field's 38.4px content height so a click anywhere in
+                  * the field lands on the text, not on the form behind it. The text does not move —
+                  * a 20px line box centred in the 18.4px left over lands where it did before. */}
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => { if (!isSearchOpen) openSearch(); }}
+                  className="min-w-0 flex-1 self-stretch border-none bg-transparent py-[10px] pr-4 text-[16px] font-medium leading-5 text-white outline-none"
+                  style={{ fontFamily: PROJECT_NAME_FONT }}
+                  placeholder=""
+                />
+                {isSearchOpen && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearchQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-[rgba(218,220,224,0.05)] outline-none"
+                    title="Clear search"
+                  >
+                    <MaterialSymbol name="close" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
+                  </button>
+                )}
+              </form>
+              {/* The chip shares the field's fill and radius but carries no hairline, and it is the
+                * one control that brightens on hover: 0.1 -> 0.15 over 100ms. */}
+              <button
+                ref={sortFilterButtonRef}
+                onClick={() => setOpenHeaderMenu((m) => (m === 'filter' ? null : 'filter'))}
+                className="flex h-10 w-[42px] shrink-0 items-center justify-center rounded-2xl bg-[rgba(218,220,224,0.1)] text-white backdrop-blur-[80px] transition-colors duration-100 hover:bg-[rgba(218,220,224,0.15)]"
+                title="Sort & Filter"
+              >
+                <MaterialSymbol name="filter_list" family="google-symbols" size={20} weight={400} variationSettings={HEADER_ICON_AXES} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Section. Auto-width for the same reason as the left cluster — the two together are
+          * what centre the field. The four icons give way to the open field — Flow pushes them off
+          * the right edge instead, with the same result — while the account chip stays put and is
+          * what the field stops short of. */}
+        <div className={`flex items-center gap-3 shrink-0 justify-end ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+          {/* 32x32 at a 16px radius with 12px between them, and 24px glyphs at
+            * `"FILL" 0, "wght" 300` — Flow's header group, measured off the live app. */}
+          <div className={`flex items-center gap-3 transition-opacity duration-200 ${isSearchOpen ? 'opacity-0 pointer-events-none' : ''}`}>
+            <button className={HEADER_ICON_BUTTON} title="Add Media">
+              <MaterialSymbol name="add" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
+            </button>
+            <button className={HEADER_ICON_BUTTON} title="Product Help">
+              <MaterialSymbol name="help" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
+            </button>
+            <button
+              ref={viewSettingsButtonRef}
+              onClick={() => setOpenHeaderMenu((m) => (m === 'settings' ? null : 'settings'))}
+              className={HEADER_ICON_BUTTON}
+              title="View Settings"
+            >
+              <MaterialSymbol name="settings_2" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
+            </button>
+            <button
+              ref={moreMenuButtonRef}
+              onClick={() => setOpenHeaderMenu((m) => (m === 'more' ? null : 'more'))}
+              className={HEADER_ICON_BUTTON}
+              title="More"
+            >
+              <MaterialSymbol name="more_vert" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
+            </button>
+          </div>
+
+          <button
+            ref={accountButtonRef}
+            className="flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10"
+          >
             <span className="text-xs font-semibold text-gray-300 mr-1 truncate max-w-[100px]">
               {userProfile?.displayName || user?.email?.split('@')[0] || 'Guest'}
             </span>
@@ -4689,13 +4998,46 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         </div>
       </header>
 
+      <ViewSettingsMenu
+        open={openHeaderMenu === 'settings'}
+        onClose={closeHeaderMenu}
+        anchorRef={viewSettingsButtonRef}
+        settings={viewSettings}
+        onChange={setViewSettings}
+      />
+      <MoreMenu open={openHeaderMenu === 'more'} onClose={closeHeaderMenu} anchorRef={moreMenuButtonRef} />
+      <SortFilterMenu
+        open={openHeaderMenu === 'filter'}
+        onClose={closeHeaderMenu}
+        anchorRef={sortFilterButtonRef}
+        value={sortFilter}
+        onChange={setSortFilter}
+      />
+
       {/* Main Body */}
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Sidebar */}
-        <aside className={`${isSidebarCollapsed ? 'w-[74px]' : 'w-[238px]'} flex flex-col justify-between pt-[72px] pb-2 px-3 shrink-0 relative z-[75]`}>
+        {/*
+          * Flow's expanded rail: 212x48 rows inset 16px, 16px radius, on a 52.8px pitch, with a
+          * 24px glyph 12px in and the label 16px past it at 14px/20px weight 500.
+          *
+          * Collapsing drops the label and narrows the panel to 80px, which leaves a 48px content
+          * column and turns the row into a 48x48 square. The glyph must not move: Flow keeps it
+          * at x=28 in both states, so the panel's 16px inset plus half of the 48-24 remainder has
+          * to come out at 28 either way. That is why the collapsed row fills its column instead
+          * of carrying padding of its own — 8px of side padding would centre the glyph at 37.
+          *
+          * Those numbers were hard to come by. Flow's row is an icon button with the label as
+          * its *sibling*, and the button itself carries a second, screen-reader-only copy of the
+          * label — clipped to 1px, at 11px/16px, and worded differently ("View videos" against
+          * the visible "Videos"). Every scrape that looked inside the button found the hidden
+          * copy and reported an icon-only rail, which is where the earlier 40px rows and 11px
+          * text came from. The visible label has to be found by geometry, not by descent.
+          */}
+        <aside className={`${isSidebarCollapsed ? 'w-[80px]' : 'w-[244px]'} flex flex-col justify-between pt-[76px] pb-2 px-4 shrink-0 relative z-[75]`}>
           <nav 
-            className="flex flex-col gap-1"
+            className="flex flex-col gap-[4.8px]"
             style={{
               transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
               transition: `transform ${currentSidebarTransitionTiming}`
@@ -4703,70 +5045,90 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           >
             <button 
               onClick={() => navigate('/media' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'all' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'all' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <AllMediaIcon className="text-gray-300" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide">All Media</span>}
+              <AllMediaIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">All Media</span>}
             </button>
             <button 
               onClick={() => navigate('/media/images' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'images' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'images' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <ImagesIcon className={activeSidebarTab === 'images' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
-              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'images' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Images</span>}
+              <ImagesIcon />
+              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Images</span>}
             </button>
             <button 
               onClick={() => navigate('/media/video' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'video' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'video' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <VideoIcon className={activeSidebarTab === 'video' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
-              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'video' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Video</span>}
+              <VideoIcon />
+              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Video</span>}
             </button>
             <button 
               onClick={() => navigate('/media/characters' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'characters' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'characters' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <CharactersIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Characters</span>}
+              <CharactersIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Characters</span>}
             </button>
             <button 
               onClick={() => navigate('/media/music' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'music' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'music' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <MusicIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Music</span>}
+              <MusicIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Music</span>}
             </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <ScenesIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Scenes</span>}
+            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
+              <ScenesIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Scenes</span>}
             </button>
             <button 
               onClick={() => navigate('/media/uploads' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 ${activeSidebarTab === 'uploads' ? 'bg-[#373737]' : 'hover:bg-[#171717]'} rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'uploads' ? /* `!` because the row's base colour is an arbitrary value; without it the two
+                 * classes tie on specificity and Tailwind's output order decides, which put the
+                 * dimmed colour on the selected row. */
+                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <UploadsIcon className={activeSidebarTab === 'uploads' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'} />
-              {!isSidebarCollapsed && <span className={`text-[13px] font-semibold tracking-wide ${activeSidebarTab === 'uploads' ? 'text-white' : 'text-gray-200 group-hover:text-white transition-colors'}`}>Uploads</span>}
+              <UploadsIcon />
+              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Uploads</span>}
             </button>
 
-            <div className={`h-[1px] bg-white/20 ${isSidebarCollapsed ? 'mx-3' : 'mx-4'} my-2`} />
+            {/* Flow runs this rule the full width of a row when expanded, and pulls it in to a
+              * 32px stub — 8px either side of the 48px column — when collapsed. */}
+            <div className={`h-[1px] bg-white/20 ${isSidebarCollapsed ? 'mx-2' : 'mx-0'} my-2`} />
 
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <ToolsIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Tools</span>}
+            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
+              <ToolsIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Tools</span>}
             </button>
           </nav>
 
-          <nav className="flex flex-col gap-1 mb-2">
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}>
-              <TrashIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Trash</span>}
+          <nav className="flex flex-col gap-[4.8px] mb-2">
+            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
+              <TrashIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Trash</span>}
             </button>
             <button
               onClick={handleToggleLeftSidebar}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4'} px-3.5 py-3.5 hover:bg-[#171717] rounded-2xl text-white transition-colors group`}
+              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}
             >
-              <CollapseIcon className="text-gray-200 group-hover:text-white transition-colors" />
-              {!isSidebarCollapsed && <span className="text-[13px] font-semibold tracking-wide text-gray-200 group-hover:text-white transition-colors">Collapse</span>}
+              <CollapseIcon />
+              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Collapse</span>}
             </button>
           </nav>
         </aside>
@@ -4860,6 +5222,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       onSetAsCover={onTileSetAsCover}
                       onAddToPrompt={onTileAddToPrompt}
                       onAnimate={onTileAnimate}
+                      onToggleFavorite={onTileToggleFavorite}
                     />
                   );
                 })}
@@ -4937,19 +5300,41 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }
           }}
         />
+        {/*
+          * Geometry, colour and type here are measured off Google Flow's composer, not
+          * chosen — see tools/ui-research/captures/flow/composer/. Flow's edge is an inset
+          * shadow rather than a real border, which is why the drag-over emphasis is also an
+          * inset shadow: a real border would change the box size and shift the contents.
+          */}
         <div 
-          className={`relative rounded-[22px] flex flex-col prompt-container-box ${
+          className={`relative rounded-[24px] flex flex-col prompt-container-box ${
             (draggingItemId && isFramesMode)
               ? 'bg-transparent border-none shadow-none p-0'
-              : 'bg-[#141517]/90 backdrop-blur-[80px] pt-3 pb-2 px-3 shadow-2xl border'
+              : 'backdrop-blur-[80px]'
           } ${
             (draggingItemId && !isFramesMode) ? 'transition-all duration-300' : ''
           }`}
+          onFocus={() => setIsComposerFocused(true)}
+          onBlur={() => setIsComposerFocused(false)}
           style={{
             transform: (isDragOverPrompt && !isFramesMode) ? 'scale(1.015)' : 'scale(1)',
             transition: (draggingItemId && !isFramesMode) ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-            borderWidth: (isDragOverPrompt && !isFramesMode) ? '1.5px' : ((draggingItemId && isFramesMode) ? '0px' : '1px'),
-            borderColor: (isDragOverPrompt && !isFramesMode) ? 'rgba(255, 255, 255, 0.9)' : ((draggingItemId && isFramesMode) ? 'transparent' : 'rgba(255, 255, 255, 0.05)')
+            ...((draggingItemId && isFramesMode) ? {} : {
+              backgroundColor: 'rgba(22, 23, 24, 0.9)',
+              padding: '12px 8px 8px 10px',
+              gap: '4px',
+              minHeight: '90px',
+              maxHeight: '460px',
+              overflow: 'hidden',
+              /* Focus brightens the inset edge from 0.1 to 0.15 and drops a soft shadow under the
+               * shell. Flow applies both with no transition, so they snap in on the click. */
+              boxShadow: (isDragOverPrompt && !isFramesMode)
+                ? 'inset 0 0 0 1.5px rgba(255, 255, 255, 0.9)'
+                : isComposerFocused
+                  ? 'inset 0 0 0 1px rgba(218, 220, 224, 0.15), 0 16px 32px -8px rgba(0, 0, 0, 0.4)'
+                  : 'inset 0 0 0 1px rgba(218, 220, 224, 0.1)',
+            }),
+            fontFamily: "'Google Sans Text', 'Inter', system-ui, -apple-system, sans-serif",
           }}
         >
           {(!draggingItemId || !isFramesMode) && isAgentActive && agentAnimationKey > 0 && (
@@ -5102,7 +5487,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           />
 
           {/* Attachments Area */}
-          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[350ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
+          {/* `hidden` when empty, not merely zero-height: the shell is a flex column with a
+            * 4px gap, and a collapsed-but-present child still earns its gap — which made the
+            * resting box 98px instead of Flow's 94px. */}
+          <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[350ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0 hidden'}`}>
             <div className="overflow-hidden">
               {showFramesPlaceholders ? (
                 <div className="flex items-center gap-2 px-2 pt-2 pb-2.5">
@@ -5208,7 +5596,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   )}
                 </div>
               ) : (
-                <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2.5 px-2 pt-2">
+                <div
+                  /* 50px thumbs at radius 12 with 4px gaps, wrapping rather than scrolling
+                   * sideways — measured off Flow's composer. */
+                  className="flex flex-wrap gap-[4px] overflow-y-auto no-scrollbar"
+                  style={{ padding: '0 16px 4px 8px' }}
+                >
                   {attachments.filter(Boolean).map((att) => (
                     <div 
                       key={att.id} 
@@ -5217,23 +5610,24 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         handleAttachmentMouseEnter(e, att.url);
                       }}
                       onMouseLeave={handleAttachmentMouseLeave}
-                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                      className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
-                      <div className="relative">
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
+                      <div className="relative w-[50px] h-[50px]">
+                        <div className="w-[50px] h-[50px] rounded-[12px] overflow-hidden bg-[#1c1c1e]">
                           {att.kind === 'video' ? (
-                            <video src={att.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
+                            <video src={att.url} className="w-full h-full object-cover" muted loop playsInline />
                           ) : (
-                            <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                            <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
                           )}
                         </div>
                         <button 
                           onClick={() => removeAttachment(att.id)}
-                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
+                          style={{ backgroundColor: 'rgba(27, 27, 27, 0.5)' }}
+                          className={`absolute inset-0 w-[50px] h-[50px] flex items-center justify-center rounded-[12px] text-white transition-opacity duration-200 z-[60] ${
                             hoveredAttachmentUrl === att.url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
                           }`}
                         >
-                          <X size={12} />
+                          <X size={16} strokeWidth={2} />
                         </button>
                       </div>
                     </div>
@@ -5318,6 +5712,89 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               75% { opacity: 0.80; }
               100% { opacity: 0; }
             }
+            /* The Agent pill's border light: a conic gradient rotated once every 3.5s,
+               running continuously while Agent is active. Three layers at different insets,
+               blurs and cone widths; the third inverts the gradient.
+
+               The ::before is 300% of its layer at -100%/-100% so the gradient's centre sits
+               on the layer's centre and the rotating square never uncovers a corner. */
+            @keyframes cone-spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+            .cone-layer {
+              position: absolute;
+              border-radius: 15px;
+              overflow: hidden;
+              pointer-events: none;
+              z-index: 0;
+              transition: opacity 100ms ease-in-out;
+            }
+            .cone-layer::before {
+              content: '';
+              position: absolute;
+              top: -100%;
+              left: -100%;
+              width: 300%;
+              height: 300%;
+              animation: cone-spin 3.5s linear infinite;
+              background: conic-gradient(
+                from 0deg,
+                transparent calc(180deg - var(--cone-size)),
+                var(--cone-color) 180deg,
+                transparent calc(180deg + var(--cone-size)),
+                transparent 360deg
+              );
+            }
+            .cone-layer--inverted::before {
+              background: conic-gradient(
+                from 0deg,
+                var(--cone-color) calc(180deg - var(--cone-size)),
+                transparent 180deg,
+                var(--cone-color) calc(180deg + var(--cone-size)),
+                var(--cone-color) 360deg
+              );
+            }
+            /*
+             * One custom property drives the whole pill. --pill-bg sets the inner fill, and
+             * --cone-color derives from it, so the fill, the ring and the glow cannot disagree
+             * on colour in any state — which is what stops a boundary appearing between the
+             * white centre and the ring when the pill retints.
+             */
+            .agent-pill {
+              --cone-color: var(--pill-bg);
+              transition: background-color 100ms ease-in-out;
+            }
+            .agent-pill > span {
+              background-color: var(--pill-bg);
+              transition: background-color 100ms ease-in-out, color 100ms ease-in-out,
+                box-shadow 100ms ease-in-out;
+            }
+            /* Idle: the button carries the fill and the inner stays clear, so the 2px ring and
+               the centre are one flat tone. */
+            .agent-pill--idle {
+              --pill-bg: rgba(218, 220, 224, 0.05);
+              background-color: var(--pill-bg);
+            }
+            .agent-pill--idle > span { background-color: transparent; color: rgba(218, 220, 224, 0.75); }
+            .agent-pill--idle:hover { --pill-bg: rgba(218, 220, 224, 0.1); }
+            /*
+             * Active: the button is transparent and the inner is the light shape. The inner's
+             * box-shadow — same colour, 1px blur, 1px spread — fills the 2px ring underneath
+             * the cone layers, so the ring stays lit through the whole rotation and the cones
+             * read as a hotspot travelling around a lit border. Without it the ring is only
+             * the cones, and goes black wherever the gradient is transparent, which showed up
+             * as a thin rotating streak instead of a glow.
+             */
+            .agent-pill--active { --pill-bg: #f1f3f4; }
+            .agent-pill--active > span { box-shadow: 0 0 1px 1px var(--cone-color); color: rgb(0, 0, 0); }
+            /* Hover retints that single variable and drops the cones out, so fill, ring and
+               glow all move together. */
+            .agent-pill--active:hover {
+              --pill-bg: rgba(218, 220, 224, 0.75);
+              background-color: var(--pill-bg);
+            }
+            .agent-pill--active:hover .cone-layer { opacity: 0; }
             @keyframes btn-snake {
               0% { stroke-dashoffset: 0; }
               100% { stroke-dashoffset: -100; }
@@ -5378,7 +5855,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </div>
           )}
 
-          <div className="relative flex items-start w-full">
+          {/* Flow's text row: 4px above, 12px below, 16px to the right of the caret, and a
+            * 27px floor. Those paddings are what make the resting box 94px rather than 90. */}
+          <div
+            className="relative flex items-start w-full flex-1"
+            style={{ padding: '4px 16px 12px 0', minHeight: '27px' }}
+          >
             {isAgentGenerating ? (
               <div className="w-full flex items-start min-h-[24px]">
                 <TextShimmer className="text-[14px] font-medium pl-1 py-0.5" duration={1.5}>
@@ -5416,62 +5898,100 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 }}
                 rows={1}
                 placeholder="What do you want to create?" 
-                className={`bg-transparent border-none outline-none text-[14px] font-medium text-white placeholder-[#606060] w-full pl-1 py-0.5 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
+                /* 14px/20px at weight 400 in white — Flow's values.
+                 *
+                 * The placeholder is white at 0.333 alpha. Flow's editable is a Slate
+                 * contenteditable, so its hint is a positioned span rather than a
+                 * ::placeholder, and it carries `opacity: 0.333` over the same white the
+                 * typed text uses. Reading ::placeholder off that div returns the div's own
+                 * inherited style — solid white — which is where the earlier white/75 came
+                 * from, and it rendered far brighter than Flow's. */
+                /* No vertical padding: the row above supplies Flow's 4px/12px, and py-0.5
+                 * here stacked on top of it and made the resting box 4px too tall. */
+                /* pl-2, not pl-1: Flow pads its editable 8px, which with the shell's 10px puts the
+                 * first glyph 18px in. At 4px Willow's text started 4px to the left of Flow's. */
+                className={`bg-transparent border-none outline-none text-white placeholder-white/[0.333] w-full pl-2 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
                   isTopFaded && isBottomFaded ? 'both-fade' : 
                   isTopFaded ? 'top-fade' : 
                   isBottomFaded ? 'bottom-fade' : ''
                 }`}
+                /* Size and weight are set inline, not via the utility class: something in the
+                 * cascade was winning over `text-[14px]` and the field measured 16px. */
                 style={{ 
                   scrollbarWidth: 'none', 
                   msOverflowStyle: 'none', 
+                  fontSize: '14px',
+                  lineHeight: '20px',
+                  fontWeight: 400,
                   paddingRight: isAgentActive ? (prompt ? '44px' : '24px') : (prompt ? '20px' : '14px') 
                 }}
               />
             )}
             {isAgentActive ? (
-              <div className="absolute right-[-4px] top-[-4px] flex items-center gap-1">
+              <div
+                /* Flow places these 8px from the shell's top and right edges. This row sits
+                 * inside the text row, which begins 12px down and ends at the shell's 8px
+                 * right padding — hence top -4 and right 0, with a 4px gap between them.
+                 * The clear button is deliberately dimmer than the expand button. */
+                className="absolute right-0 top-[-4px] flex items-center gap-1"
+              >
                 {/* Clear Button (shown if text is entered and not generating) */}
                 {prompt && !isAgentGenerating && (
                   <button 
                     onClick={() => setPrompt('')}
-                    className="text-[#909398] hover:text-white transition-colors p-0.5 rounded-full hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
+                    style={{ color: 'rgba(218, 220, 224, 0.5)' }}
+                    className="w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
                     title="Clear prompt"
                   >
-                    <X size={14} strokeWidth={2.5} />
+                    <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 1' />
                   </button>
                 )}
                 
-                {/* Agent View/Focus Corners Button (always visible in Agent mode) */}
+                {/* Expand. Flow's glyph is `expand_content` — two opposed arrows in corner
+                  * brackets, not the pair of bare corner brackets this used to draw. */}
                 <button 
                   onClick={() => setIsAgentSidebarOpen(true)}
-                  className="text-[#909398] hover:text-white transition-colors p-0.5 rounded-full hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
-                  title="Expand view"
+                  style={{ color: 'rgba(218, 220, 224, 0.75)' }}
+                  className="w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
+                  title="Expand"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="butt" strokeLinejoin="miter" className="w-4 h-4">
-                    {/* Top-Right Corner */}
-                    <path d="M 13,5 L 19,5 L 19,11" />
-                    {/* Bottom-Left Corner */}
-                    <path d="M 11,19 L 5,19 L 5,13" />
-                  </svg>
+                  <MaterialSymbol name="expand_content" family="google-symbols" size={20} weight={400} variationSettings='"FILL" 1' />
                 </button>
               </div>
             ) : (
               prompt && (
-                <button 
+                <button
                   onClick={() => setPrompt('')}
-                  className="absolute right-[-4px] top-[-4px] text-gray-500 hover:text-white transition-colors p-0.5 rounded-full hover:bg-white/5 cursor-pointer"
+                  style={{ color: 'rgba(218, 220, 224, 0.5)' }}
+                  /* With the agent off there is no expand button, and Flow does not shift the clear
+                    * button left to compensate — it puts it in that same top-right corner slot, 32x32
+                    * with both edges 8px inside the shell. `right-0 top-[-4px]` IS that corner: this
+                    * row's padding box starts at the shell's 8px right inset and 12px below its top.
+                    *
+                    * This was an 18px lucide X at right-[-4px], which is the whole bug — a smaller box
+                    * pinned to a different edge, so the glyph's centre sat 13px from the right and 17px
+                    * down where Flow's is 24 and 24. Same button as the agent-on branch above now, which
+                    * is why that one already looked right.
+                    *
+                    * The textarea's 20px paddingRight is deliberately left alone: it wraps text at 44px
+                    * from the shell's right and this button's left edge is at 40px, so there is a 4px
+                    * gap. Flow wraps at 32px against the same 40px edge, so Flow's own first line can
+                    * slide under its X by up to 8px; copying that would be copying a defect. */
+                  className="absolute right-0 top-[-4px] w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
                   title="Clear prompt"
                 >
-                  <X size={14} strokeWidth={2.5} />
+                  <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 1' />
                 </button>
               )
             )}
           </div>
           
-          <div className="flex items-center justify-between mt-2.5">
+          {/* Control row: 34px tall, 5px gaps. The shell's own 4px gap separates it from
+            * the textarea above, so this carries no top margin of its own. */}
+          <div className="flex items-center justify-between h-[34px]">
             
             {/* Left Controls */}
-            <div className="flex items-center gap-2.5 relative">
+            <div className="flex items-center gap-[5px] relative">
               <button
                 ref={assetMenuPlusRef}
                 disabled={isAgentGenerating}
@@ -5479,9 +5999,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   setAssetMenuSource('main');
                   setIsAssetMenuOpen(!isAssetMenuOpen);
                 }}
-                className={`text-[#a0a0a0] transition-colors ml-0 outline-none ${isAgentGenerating ? 'opacity-40 cursor-not-allowed' : 'hover:text-white cursor-pointer'}`}
+                style={{ color: 'rgba(218, 220, 224, 0.75)' }}
+                className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-full p-1.5 transition-colors outline-none ${isAgentGenerating ? 'opacity-40 cursor-not-allowed' : 'hover:text-white hover:bg-white/5 cursor-pointer'}`}
               >
-                <Plus size={22} strokeWidth={1.5} />
+                {/* 21.6px is Flow's own size for this one — 1.35rem, not a round pixel value. */}
+                <MaterialSymbol name="add_2" family="google-symbols" size={21.6} weight={400} variationSettings='"FILL" 1' />
               </button>
               <button 
                 onClick={() => {
@@ -5492,67 +6014,61 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     setAgentAnimationKey(prev => prev + 1);
                   }
                 }}
-                className={`flex items-center justify-center h-9 transition-colors rounded-full px-4 border relative z-40 ${
-                  isAgentActive 
-                    ? 'bg-white text-black hover:bg-gray-200 border-transparent overflow-visible' 
-                    : 'bg-[#27282b] hover:bg-[#33343a] border-transparent text-[#d0d0d0] overflow-hidden'
+                /* 32px pill holding 2px of padding, with a 28px inner that carries the fill
+                 * and 16px of its own horizontal padding around an 11px/16px weight-500
+                 * label. Active, the button is transparent and the inner is the light shape;
+                 * the 2px gap between them is the ring the cone layers light up. */
+                className={`agent-pill inline-flex items-center justify-center h-8 shrink-0 rounded-[15px] border-0 relative z-40 p-[2px] ${
+                  isAgentActive ? 'agent-pill--active' : 'agent-pill--idle'
                 }`}
               >
-                <span className={`text-[11px] font-semibold tracking-wide relative z-10 ${isAgentActive ? 'text-black' : 'text-[#d0d0d0]'}`}>Agent</span>
+                <span
+                  /* The cone layers live INSIDE this element, not the button. Their insets
+                   * are measured from its box, which is what keeps them 1-2px larger than
+                   * the white fill rather than 2px larger than the whole button — off the
+                   * button they sat too far out and the blur bled into a halo. */
+                  className="relative flex items-center justify-center h-7 gap-[2px] rounded-[15px] px-4 py-1.5 text-[11px] leading-4 font-medium"
+                >
+                  {isAgentActive && (
+                    <>
+                      <span className="cone-layer" style={{ inset: '-2px', filter: 'blur(1.5px)', ['--cone-size' as string]: '90deg' }} />
+                      <span className="cone-layer" style={{ inset: '-1px', filter: 'blur(1px)', ['--cone-size' as string]: '180deg' }} />
+                      <span className="cone-layer cone-layer--inverted" style={{ inset: '-2px', filter: 'blur(0px)', ['--cone-size' as string]: '120deg' }} />
+                    </>
+                  )}
+                  <span className="relative z-[2]">Agent</span>
+                </span>
               </button>
             </div>
 
             {/* Right Controls */}
-            <div className="flex items-center gap-2.5 relative">
+            <div className="flex items-center gap-[5px] relative">
               {isAgentActive ? (
-                <div className="flex items-center gap-1" key="agent-buttons-wrapper">
-                  {/* Document with Sparkle Button */}
+                /* 5px between these two and on to the send button, so the three read as one
+                 * run of controls. Both buttons are 32 wide and 34 tall — they fill the
+                 * control row's height rather than sitting square in it. */
+                <div className="flex items-center gap-[5px]" key="agent-buttons-wrapper">
+                  {/* Agent Instructions. `article_spark` is the only glyph here that Flow
+                    * draws unfilled, so it takes FILL 0 while the rest take FILL 1. */}
                   <button
                     key="agent-docs-btn"
-                    className="flex items-center justify-center w-9 h-9 rounded-full text-[#a0a0a0] transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
-                    title="Agent Documents"
+                    style={{ color: 'rgba(218, 220, 224, 0.75)' }}
+                    className="flex items-center justify-center w-8 h-[34px] shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
+                    title="Agent Instructions"
                   >
-                    <svg viewBox="16 10 76 76" className="w-5 h-5">
-                      <path 
-                        d="M 52,24 L 28,24 A 4,4 0 0,0 24,28 L 24,72 A 4,4 0 0,0 28,76 L 72,76 A 4,4 0 0,0 76,72 L 76,52" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="6" 
-                        strokeLinecap="round"
-                      />
-                      <g fill="currentColor">
-                        <rect x="34" y="34" width="18" height="6" rx="1" />
-                        <rect x="34" y="47" width="30" height="6" rx="1" />
-                        <rect x="34" y="60" width="18" height="6" rx="1" />
-                        <path d="M 72,16 Q 72,32 56,32 Q 72,32 72,48 Q 72,32 88,32 Q 72,32 72,16 Z" />
-                      </g>
-                    </svg>
+                    {/* No variation settings at all, which is what Flow sets here — FILL is 0 by
+                      * default, and leaving the property off keeps the two literally identical. */}
+                    <MaterialSymbol name="article_spark" family="google-symbols" size={18} weight={400} variationSettings="" />
                   </button>
 
-                  {/* Settings Sliders Button */}
+                  {/* Settings */}
                   <button
                     key="agent-settings-btn"
-                    className="flex items-center justify-center w-9 h-9 rounded-full text-[#a0a0a0] transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
-                    title="Agent Settings"
+                    style={{ color: 'rgba(218, 220, 224, 0.75)' }}
+                    className="flex items-center justify-center w-8 h-[34px] shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
+                    title="Settings"
                   >
-                    <svg viewBox="0 0 100 100" className="w-5 h-5">
-                      <g fill="currentColor">
-                        {/* Top Row */}
-                        <rect x="14" y="22" width="40" height="8" rx="1.5" />
-                        <rect x="62" y="14" width="8" height="24" rx="1.5" />
-                        <rect x="70" y="22" width="16" height="8" rx="1.5" />
-                        
-                        {/* Middle Row */}
-                        <rect x="14" y="46" width="16" height="8" rx="1.5" />
-                        <rect x="30" y="38" width="8" height="24" rx="1.5" />
-                        <rect x="46" y="46" width="40" height="8" rx="1.5" />
-                        
-                        {/* Bottom Row */}
-                        <rect x="14" y="70" width="24" height="8" rx="1.5" />
-                        <rect x="46" y="62" width="8" height="24" rx="1.5" />
-                        <rect x="54" y="70" width="32" height="8" rx="1.5" />
-                      </g>
-                    </svg>
+                    <MaterialSymbol name="tune" family="google-symbols" size={18} weight={400} variationSettings='"FILL" 1' />
                   </button>
                 </div>
               ) : (
@@ -5918,19 +6434,33 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               </div>
               )}
               
+              {/* 32px round. Disabled it is the same 5% fill as the other pills; enabled it
+                * flips to solid white with a rgb(48,48,48) arrow — Flow's two states. */}
               <button
                 onClick={isAgentGenerating ? undefined : handleGenerate}
                 disabled={!isAgentGenerating && !prompt.trim()}
-                className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border border-transparent ${
+                className={`flex items-center justify-center w-8 h-8 shrink-0 rounded-full p-1.5 transition-all border-0 ${
                   (!isAgentGenerating && !prompt.trim())
-                    ? 'bg-[#27282b]/90 cursor-not-allowed'
+                    ? 'cursor-not-allowed'
                     : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
                 }`}
+                style={(!isAgentGenerating && !prompt.trim())
+                  ? { backgroundColor: 'rgba(218, 220, 224, 0.05)' }
+                  : undefined}
               >
                 {isAgentGenerating ? (
                   <div className="w-[9px] h-[9px] bg-black rounded-[1px]" />
                 ) : (
-                  <ArrowRight size={16} strokeWidth={2.5} className={!prompt.trim() ? "text-white" : "text-black"} />
+                  <MaterialSymbol
+                    name="arrow_forward"
+                    family="google-symbols"
+                    size={20}
+                    weight={400}
+                    variationSettings='"FILL" 1'
+                    /* Disabled is 0.25, not 0.75 — the arrow is nearly gone against the 5%
+                     * fill until there is something to send. */
+                    style={{ color: !prompt.trim() ? 'rgba(218, 220, 224, 0.25)' : 'rgb(48, 48, 48)' }}
+                  />
                 )}
               </button>
             </div>

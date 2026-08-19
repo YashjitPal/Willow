@@ -18,7 +18,6 @@ import {
 import {
   Badge,
   Collapsible,
-  DiffBar,
   DiffStat,
   IconButton,
   ShimmerText,
@@ -103,20 +102,15 @@ function EditCardView({ call }: { call: EditCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       followStatus
       icon={<verb.icon size={13} strokeWidth={1.9} />}
       title={verb.done}
       runningTitle={verb.running}
       subject={<PathLabel path={call.movePath ?? call.path} />}
-      meta={
-        <span className="flex items-center gap-2">
-          <DiffBar added={call.added} removed={call.removed} />
-          <DiffStat added={call.added} removed={call.removed} />
-        </span>
-      }
+      // The counts, not the bar. A green/red proportion bar beside every edit
+      // reads as a chart of nothing — the numbers already say it, in less room.
+      meta={<DiffStat added={call.added} removed={call.removed} />}
       actions={
         <Tooltip content={copied ? 'Copied' : 'Copy patch'}>
           <IconButton size="xs" label="Copy patch" onClick={() => copy(patchText)}>
@@ -131,7 +125,6 @@ function EditCardView({ call }: { call: EditCall }) {
             path={call.path}
             revealed={call.status === 'running' ? call.revealed : undefined}
             showAllContext={call.kind === 'create'}
-            className="border-t border-[hsl(var(--cb-line-subtle))]"
           />
         )
       }
@@ -150,8 +143,6 @@ function ReadCardView({ call }: { call: ReadCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       icon={<BookOpen size={13} strokeWidth={1.9} />}
       title="Read"
@@ -166,7 +157,7 @@ function ReadCardView({ call }: { call: ReadCall }) {
         call.preview.length === 0 ? undefined : (
           <div
             className={cn(
-              'cb-scroll max-h-[300px] overflow-auto border-t border-[hsl(var(--cb-line-subtle))]',
+              'cb-scroll max-h-[300px] overflow-auto',
               'bg-[hsl(var(--cb-sunken))] py-1.5',
             )}
           >
@@ -193,8 +184,6 @@ function ListCardView({ call }: { call: ListCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       icon={<FolderTree size={13} strokeWidth={1.9} />}
       title="Listed"
@@ -205,7 +194,7 @@ function ListCardView({ call }: { call: ListCall }) {
         <ul
           className={cn(
             'cb-scroll max-h-[260px] divide-y divide-[hsl(var(--cb-line-subtle))] overflow-auto',
-            'border-t border-[hsl(var(--cb-line-subtle))] bg-[hsl(var(--cb-sunken))]',
+            'bg-[hsl(var(--cb-sunken))]',
           )}
         >
           {call.entries.map((entry) => (
@@ -227,8 +216,6 @@ function SearchCardView({ call }: { call: SearchCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       icon={<Search size={13} strokeWidth={1.9} />}
       title="Searched"
@@ -246,7 +233,7 @@ function SearchCardView({ call }: { call: SearchCall }) {
           <ul
             className={cn(
               'cb-scroll max-h-[280px] divide-y divide-[hsl(var(--cb-line-subtle))] overflow-auto',
-              'border-t border-[hsl(var(--cb-line-subtle))] bg-[hsl(var(--cb-sunken))]',
+              'bg-[hsl(var(--cb-sunken))]',
             )}
           >
             {call.hits.map((hit, index) => (
@@ -291,8 +278,6 @@ function PlanCardView({ call }: { call: PlanCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       defaultOpen
       icon={<ListChecks size={13} strokeWidth={1.9} />}
@@ -304,7 +289,7 @@ function PlanCardView({ call }: { call: PlanCall }) {
         </span>
       }
       body={
-        <ol className="space-y-1.5 border-t border-[hsl(var(--cb-line-subtle))] bg-[hsl(var(--cb-sunken))] px-3 py-2.5">
+        <ol className="space-y-1 py-0.5">
           {call.steps.map((step, index) => (
             <li key={index} className="flex items-start gap-2 text-xs leading-relaxed">
               <span className="mt-[3px] shrink-0">
@@ -353,8 +338,6 @@ function DependencyCardView({ call }: { call: DependencyCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       followStatus
       icon={<Package size={13} strokeWidth={1.9} />}
@@ -370,7 +353,6 @@ function DependencyCardView({ call }: { call: DependencyCall }) {
           chunks={call.output}
           running={call.status === 'running'}
           maxHeight={200}
-          className="border-t border-[hsl(var(--cb-line-subtle))]"
         />
       }
     />
@@ -396,8 +378,6 @@ function CommandCardView({ call }: { call: CommandCall }) {
   return (
     <ToolCard
       status={call.status}
-      startedAt={call.startedAt}
-      endedAt={call.endedAt}
       error={call.error}
       followStatus
       icon={<SquareTerminal size={13} strokeWidth={1.9} />}
@@ -419,7 +399,7 @@ function CommandCardView({ call }: { call: CommandCall }) {
         </Tooltip>
       }
       body={
-        <div className="border-t border-[hsl(var(--cb-line-subtle))]">
+        <div>
           <div
             className={cn(
               'flex items-start gap-2 border-b border-[hsl(var(--cb-line-subtle))]',

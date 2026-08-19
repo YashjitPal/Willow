@@ -34,9 +34,44 @@ import {
   type ModelCatalogSnapshot,
 } from './model-catalog-storage';
 
+const settledFeatureFirstPaints = new Set<string>();
+const FEATURE_FIRST_PAINT_SETTLE_MS = 350;
+
+const FeatureFirstPaintGate: React.FC<{
+  feature: 'agents' | 'media';
+  children: React.ReactNode;
+}> = ({ feature, children }) => {
+  const [isReady, setIsReady] = useState(() => settledFeatureFirstPaints.has(feature));
+
+  React.useLayoutEffect(() => {
+    if (settledFeatureFirstPaints.has(feature)) return;
+
+    const settleTimer = window.setTimeout(() => {
+      settledFeatureFirstPaints.add(feature);
+      setIsReady(true);
+    }, FEATURE_FIRST_PAINT_SETTLE_MS);
+
+    return () => {
+      window.clearTimeout(settleTimer);
+    };
+  }, [feature]);
+
+  return (
+    <div
+      className="h-full w-full"
+      data-feature-first-paint={feature}
+      aria-hidden={!isReady}
+      style={{ visibility: isReady ? 'visible' : 'hidden' }}
+    >
+      {children}
+    </div>
+  );
+};
+
 // Lazy-load WorkbenchView to prevent WebContainer boot on login page
 const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
+const DesignView = React.lazy(() => import('@willow/design/DesignView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
 const AllNotebooksPage = React.lazy(() =>
@@ -125,9 +160,6 @@ const PersonalIntelligenceTab = React.lazy(() =>
   import('../settings/tabs/personal-intelligence/PersonalIntelligenceTab').then((m) => ({ default: m.PersonalIntelligenceTab }))
 );
 const ActivityTab = React.lazy(() => import('../settings/tabs/activity/ActivityTab').then((m) => ({ default: m.ActivityTab })));
-const ImportMemoryTab = React.lazy(() => import('../settings/tabs/import-memory/ImportMemoryTab').then((m) => ({ default: m.ImportMemoryTab })));
-const SparkSettingsTab = React.lazy(() => import('../settings/tabs/spark-settings/SparkSettingsTab').then((m) => ({ default: m.SparkSettingsTab })));
-const UsageLimitsTab = React.lazy(() => import('../settings/tabs/usage-limits/UsageLimitsTab').then((m) => ({ default: m.UsageLimitsTab })));
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
 const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
 const ConnectedAppsTab = React.lazy(() =>
@@ -268,12 +300,10 @@ const App: React.FC = () => {
     if (location.pathname === '/search') return 'search';
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
     if (location.pathname === '/activity') return 'activity';
-    if (location.pathname === '/import') return 'import-memory';
-    if (location.pathname === '/spark-settings') return 'spark-settings';
-    if (location.pathname === '/usage') return 'usage-limits';
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
+    if (location.pathname === '/design') return 'design';
     if (location.pathname.startsWith('/gems')) return 'gems';
     const notebookRoute = matchNotebookRoute(location.pathname);
     if (notebookRoute) return notebookRoute.view;
@@ -706,12 +736,10 @@ const App: React.FC = () => {
     else if (view === 'search') navigate('/search');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'activity') navigate('/activity');
-    else if (view === 'import-memory') navigate('/import');
-    else if (view === 'spark-settings') navigate('/spark-settings');
-    else if (view === 'usage-limits') navigate('/usage');
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
+    else if (view === 'design') navigate('/design');
     else if (view === 'gems') navigate('/gems');
     else if (view === 'notebooks') navigate('/notebooks/view');
     else if (view === 'notebook-create') navigate('/notebooks/create');
@@ -724,13 +752,10 @@ const App: React.FC = () => {
       searchParams.get('view') === 'agents' ||
       location.pathname === '/search' ||
       location.pathname === '/personalization-settings' ||
-      location.pathname === '/activity' ||
-      location.pathname === '/import' ||
-      location.pathname === '/spark-settings' ||
-      location.pathname === '/usage' ||
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
       location.pathname === '/connected-apps' ||
+      location.pathname === '/design' ||
       location.pathname === '/gems' ||
       matchNotebookRoute(location.pathname) !== null
     ) {
@@ -796,12 +821,10 @@ const App: React.FC = () => {
         (intent === 'search' && location.pathname === '/search') ||
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
         (intent === 'activity' && location.pathname === '/activity') ||
-        (intent === 'import-memory' && location.pathname === '/import') ||
-        (intent === 'spark-settings' && location.pathname === '/spark-settings') ||
-        (intent === 'usage-limits' && location.pathname === '/usage') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
         (intent === 'memory' && location.pathname === '/memory') ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
+        (intent === 'design' && location.pathname === '/design') ||
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
         (intent === 'home' && location.pathname === '/');
       if (urlMatchesIntent) {
@@ -822,18 +845,6 @@ const App: React.FC = () => {
       if (currentView !== 'activity') {
         commitView('activity');
       }
-    } else if (location.pathname === '/import') {
-      if (currentView !== 'import-memory') {
-        commitView('import-memory');
-      }
-    } else if (location.pathname === '/spark-settings') {
-      if (currentView !== 'spark-settings') {
-        commitView('spark-settings');
-      }
-    } else if (location.pathname === '/usage') {
-      if (currentView !== 'usage-limits') {
-        commitView('usage-limits');
-      }
     } else if (location.pathname === '/saved-info') {
       if (currentView !== 'saved-info') {
         commitView('saved-info');
@@ -845,6 +856,10 @@ const App: React.FC = () => {
     } else if (location.pathname === '/connected-apps') {
       if (currentView !== 'connected-apps') {
         commitView('connected-apps');
+      }
+    } else if (location.pathname === '/design') {
+      if (currentView !== 'design') {
+        commitView('design');
       }
     } else if (location.pathname.startsWith('/gems')) {
       if (currentView !== 'gems') {
@@ -859,12 +874,10 @@ const App: React.FC = () => {
       currentView === 'search' ||
       currentView === 'personal-intelligence' ||
       currentView === 'activity' ||
-      currentView === 'import-memory' ||
-      currentView === 'spark-settings' ||
-      currentView === 'usage-limits' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
+      currentView === 'design' ||
       currentView === 'gems' ||
       currentView === 'notebooks' ||
       currentView === 'notebook-create' ||
@@ -1180,12 +1193,6 @@ const App: React.FC = () => {
             handleViewChange('personal-intelligence');
           } else if (tabId === 'activity') {
             handleViewChange('activity');
-          } else if (tabId === 'memory') {
-            handleViewChange('import-memory');
-          } else if (tabId === 'spark-settings') {
-            handleViewChange('spark-settings');
-          } else if (tabId === 'limits') {
-            handleViewChange('usage-limits');
           } else if (tabId === 'gems') {
             handleViewChange('gems');
           } else {
@@ -1222,12 +1229,22 @@ const App: React.FC = () => {
               <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
             </StudioLoadingFallback>
           }>
-            <div className="h-full w-full">
-              <AgentBuilderContent
-                isSidebarCollapsed={isSidebarCollapsed}
-                onClose={() => handleViewChange('home')}
-              />
-            </div>
+            <FeatureFirstPaintGate feature="agents">
+              <div className="h-full w-full">
+                <AgentBuilderContent
+                  isSidebarCollapsed={isSidebarCollapsed}
+                  onClose={() => handleViewChange('home')}
+                />
+              </div>
+            </FeatureFirstPaintGate>
+          </Suspense>
+        ) : currentView === 'design' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="design-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full bg-[#0f0f0f]" />
+            </StudioLoadingFallback>
+          }>
+            <DesignView />
           </Suspense>
         ) : currentView === 'home' ? (
           studioExperience === 'spark' ? (
@@ -1236,7 +1253,11 @@ const App: React.FC = () => {
                 <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
               </StudioLoadingFallback>
             }>
-              <SparkWorkspace modelConfig={modelConfig} selectedModelId={selectedModelId} />
+              <SparkWorkspace
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+              />
             </Suspense>
           ) : studioMode === 'chat' ? (
             /*
@@ -1273,44 +1294,46 @@ const App: React.FC = () => {
               <StudioLoadingFallback reason="media-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
                 <div className="flex h-full w-full items-center justify-center bg-transparent text-sm text-[#888]">Loading Media...</div>
               </StudioLoadingFallback>
-            }>
-              <div className="flex flex-col min-h-full" key="media">
-                <HeroSection
-                  initialMode="design"
-                  onPromptSubmit={(prompt) => {
-                    if (!user) {
-                       navigate('/login');
-                       return;
-                    }
-                    sessionStorage.setItem('staging-nav', 'true');
-                    navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
-                  }}
-                  onProjectSelect={(projectId, tempName) => {
-                    if (!user) {
-                       navigate('/login');
-                       return;
-                    }
-                    sessionStorage.setItem('staging-nav', 'true');
-                    const query = tempName
-                      ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}`
-                      : `?projectId=${encodeURIComponent(projectId)}`;
-                    navigate(`/media${query}`);
-                  }}
-                  modelConfig={modelConfig}
-                  selectedModelId={selectedModelId}
-                  setSelectedModelId={setSelectedModelId}
-                  onAuthRequired={!user ? () => navigate('/login') : undefined}
-                  isAuthenticated={!!user}
-                  studioMode="media"
-                  isSidebarCollapsed={isSidebarCollapsed}
-                />
-                {/* Only show BottomPanel (projects showcase) when authenticated */}
-                {user && (
-                  <div className="pb-20">
-                    <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
-                  </div>
-                )}
-              </div>
+          }>
+              <FeatureFirstPaintGate feature="media">
+                <div className="flex min-h-full flex-col" key="media">
+                  <HeroSection
+                    initialMode="design"
+                    onPromptSubmit={(prompt) => {
+                      if (!user) {
+                         navigate('/login');
+                         return;
+                      }
+                      sessionStorage.setItem('staging-nav', 'true');
+                      navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                    }}
+                    onProjectSelect={(projectId, tempName) => {
+                      if (!user) {
+                         navigate('/login');
+                         return;
+                      }
+                      sessionStorage.setItem('staging-nav', 'true');
+                      const query = tempName
+                        ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}`
+                        : `?projectId=${encodeURIComponent(projectId)}`;
+                      navigate(`/media${query}`);
+                    }}
+                    modelConfig={modelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    onAuthRequired={!user ? () => navigate('/login') : undefined}
+                    isAuthenticated={!!user}
+                    studioMode="media"
+                    isSidebarCollapsed={isSidebarCollapsed}
+                  />
+                  {/* Only show BottomPanel (projects showcase) when authenticated */}
+                  {user && (
+                    <div className="pb-20">
+                      <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
+                    </div>
+                  )}
+                </div>
+              </FeatureFirstPaintGate>
             </Suspense>
           ) : (
             <Suspense fallback={
@@ -1374,30 +1397,6 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <ActivityTab />
-          </Suspense>
-        ) : currentView === 'import-memory' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="h-full w-full" />
-            </StudioLoadingFallback>
-          }>
-            <ImportMemoryTab />
-          </Suspense>
-        ) : currentView === 'spark-settings' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="h-full w-full" />
-            </StudioLoadingFallback>
-          }>
-            <SparkSettingsTab />
-          </Suspense>
-        ) : currentView === 'usage-limits' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="h-full w-full" />
-            </StudioLoadingFallback>
-          }>
-            <UsageLimitsTab />
           </Suspense>
         ) : currentView === 'saved-info' ? (
           <Suspense fallback={
@@ -1499,12 +1498,10 @@ const App: React.FC = () => {
            <Route path="/search" element={mainAppShell} />
            <Route path="/personalization-settings" element={mainAppShell} />
            <Route path="/activity" element={mainAppShell} />
-           <Route path="/import" element={mainAppShell} />
-           <Route path="/spark-settings" element={mainAppShell} />
-           <Route path="/usage" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/memory" element={mainAppShell} />
            <Route path="/connected-apps" element={mainAppShell} />
+           <Route path="/design" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />
            {/* Gemini's own notebook paths, matched rather than renamed. */}

@@ -81,6 +81,7 @@ import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '@willow/agent-builder/agent-builder-store';
 import { newChatSignal } from '@willow/core/new-chat-signal';
+import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '@willow/design/design-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';
@@ -455,6 +456,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const wroteToDefaultRef = useRef(false);
   const migratedDefaultRef = useRef(false);
   const [namingSessionIds, setNamingSessionIds] = useState<Set<string>>(new Set());
+  // Session ids naming has already been started for. The naming effect depends
+  // on `messages`, which changes on every streamed token, and its own "still
+  // called New Chat" gate stays open until the rename commits — so without this
+  // one session fires a naming request per token.
+  const namingStartedRef = useRef<Set<string>>(new Set());
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [shouldRenderHistory, setShouldRenderHistory] = useState(false);
   const [isClosingHistory, setIsClosingHistory] = useState(false);
@@ -475,19 +481,23 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const assistantMsg = messages[1].content;
       
       const fetchTitle = async () => {
+        let title = '';
         try {
-          const title = await generateChatTitle(userMsg, assistantMsg);
-          if (title) {
-            let uniqueTitle = title;
-            let counter = 1;
-            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-              uniqueTitle = `${title} (${counter})`;
-              counter++;
-            }
-            renameCodeChat(chatScopeId, codeChatTitle || codeChatSessionId, uniqueTitle);
-            setCodeChatTitle(uniqueTitle);
-          }
-        } catch {}
+          title = await generateChatTitle(userMsg, assistantMsg);
+        } catch {
+          title = '';
+        }
+        // Naming used to stop here when the model gave nothing back, so a quota
+        // error left the chat on its session id for the rest of the session.
+        if (!title) title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
+        let uniqueTitle = title;
+        let counter = 1;
+        while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+          uniqueTitle = `${title} (${counter})`;
+          counter++;
+        }
+        renameCodeChat(chatScopeId, codeChatTitle || codeChatSessionId, uniqueTitle);
+        setCodeChatTitle(uniqueTitle);
       };
       void fetchTitle();
     }
@@ -526,18 +536,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const assistantMsg = designMessages[1].content;
       
       const fetchTitle = async () => {
+        let title = '';
         try {
-          const title = await generateChatTitle(userMsg, assistantMsg);
-          if (title) {
-            let uniqueTitle = title;
-            let counter = 1;
-            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-              uniqueTitle = `${title} (${counter})`;
-              counter++;
-            }
-            setDesignChatTitle(uniqueTitle);
-          }
-        } catch {}
+          title = await generateChatTitle(userMsg, assistantMsg);
+        } catch {
+          title = '';
+        }
+        if (!title) title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
+        let uniqueTitle = title;
+        let counter = 1;
+        while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+          uniqueTitle = `${title} (${counter})`;
+          counter++;
+        }
+        setDesignChatTitle(uniqueTitle);
       };
       void fetchTitle();
     }
@@ -844,9 +856,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     });
   }, [messages, activeSnapshotId, currentSessionId, projectName, getFilesSnapshot]);
 
-  // Automated Session Naming with Gemini Flash
+  // Automated session naming.
   useEffect(() => {
-    if (!currentSessionId || !apiKeys.gemini?.[0]) return;
+    if (!currentSessionId || namingStartedRef.current.has(currentSessionId)) return;
+    // Any provider key will do. This gated on a Gemini key specifically, so a
+    // user whose System-defaults naming model is Claude or GPT never had a
+    // session named at all — the provider is resolved from that setting below.
+    const hasNamingKey = !!(
+      apiKeys.gemini?.[0] || apiKeys.openai?.[0] || apiKeys.anthropic?.[0]
+      || apiKeys.moonshot?.[0] || apiKeys.spacexai?.[0] || apiKeys.zhipuai?.[0]
+    );
+    if (!hasNamingKey) return;
 
     const currentSession = sessions.find(s => s.id === currentSessionId);
     if (!currentSession) return;
@@ -857,8 +877,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (!userMessage) return;
 
       const userPrompt = userMessage.content;
+      namingStartedRef.current.add(currentSessionId);
 
       const nameSession = async () => {
+        let summaryTitle = '';
         try {
           setNamingSessionIds(prev => {
             const next = new Set(prev);
@@ -904,8 +926,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           if (!apiKey) throw new Error('No API key for configured chat naming provider');
 
           const promptText = buildSessionTitlePrompt(userPrompt);
-
-          let summaryTitle = '';
 
           if (targetProvider === 'gemini') {
               const response = await fetch(
@@ -964,45 +984,56 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             .replace(/[\n\r]+/g, ' ')
             .trim();
 
-          if (summaryTitle.length > 0 && summaryTitle.length < 40) {
-            setSessions(prev => {
-              const idx = prev.findIndex(s => s.id === currentSessionId);
-              if (idx === -1) return prev;
-
-              // Ensure name is unique among other sessions in the same project list
-              let uniqueTitle = summaryTitle;
-              let counter = 1;
-              while (prev.some((s, sIdx) => sIdx !== idx && s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-                uniqueTitle = `${summaryTitle} (${counter})`;
-                counter++;
-              }
-
-              const updated = {
-                ...prev[idx],
-                name: uniqueTitle,
-                updatedAt: Date.now(),
-              };
-              const next = [...prev];
-              next[idx] = updated;
-              const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-              persistSessions(storageKey, next);
-              return next;
-            });
-          }
+          // A model that replied with a paragraph is as unusable as one that did
+          // not reply, so both take the fallback below rather than only the
+          // empty case being handled.
+          if (summaryTitle.length >= 40) summaryTitle = '';
         } catch (error) {
           console.error('[Sessions] Failed to auto-name session:', error);
-        } finally {
-          setNamingSessionIds(prev => {
-            const next = new Set(prev);
-            next.delete(currentSessionId);
-            return next;
-          });
+          summaryTitle = '';
         }
+
+        // The naming model is the user's own pick from System defaults, so it
+        // fails for reasons this surface cannot fix: quota, a revoked key, a
+        // retired model id. The prompt it was given names the session instead —
+        // which is what guarantees the skeleton resolves to a real label rather
+        // than leaving the session called "New Chat" forever.
+        if (!summaryTitle) summaryTitle = deriveFallbackTitle(userPrompt, FALLBACK_CHAT_TITLE);
+
+        setSessions(prev => {
+          const idx = prev.findIndex(s => s.id === currentSessionId);
+          if (idx === -1) return prev;
+
+          // Ensure name is unique among other sessions in the same project list
+          let uniqueTitle = summaryTitle;
+          let counter = 1;
+          while (prev.some((s, sIdx) => sIdx !== idx && s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+            uniqueTitle = `${summaryTitle} (${counter})`;
+            counter++;
+          }
+
+          const updated = {
+            ...prev[idx],
+            name: uniqueTitle,
+            updatedAt: Date.now(),
+          };
+          const next = [...prev];
+          next[idx] = updated;
+          const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+          persistSessions(storageKey, next);
+          return next;
+        });
+
+        setNamingSessionIds(prev => {
+          const next = new Set(prev);
+          next.delete(currentSessionId);
+          return next;
+        });
       };
 
       void nameSession();
     }
-  }, [messages, currentSessionId, apiKeys.gemini, projectName]);
+  }, [messages, currentSessionId, apiKeys, projectName]);
 
   // Switch to a different chat session
   const handleSwitchSession = useCallback((sessionId: string) => {

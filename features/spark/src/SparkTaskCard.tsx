@@ -36,6 +36,7 @@ export interface SparkTaskCardProps {
   statusTone?: 'blocked' | 'failed' | 'pulse' | 'pulse-complete';
   /** Leading glyph on the description line, used for scheduled tasks. */
   descriptionIcon?: string;
+  isUnread?: boolean;
   isSelected?: boolean;
   isPinned?: boolean;
   /** Only the active row is tabbable, per the listbox roving-tabindex pattern. */
@@ -53,6 +54,7 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
   statusLabel,
   statusTone = 'blocked',
   descriptionIcon,
+  isUnread = false,
   isSelected = false,
   isPinned = false,
   isTabbable = false,
@@ -142,7 +144,7 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
     >
       <div className="spark-goal-card-header">
         <div className="spark-goal-titles">
-          <span className="spark-goal-description">{title}</span>
+          <span className={`spark-goal-description${isUnread ? ' is-unread' : ''}`}>{title}</span>
           <div className="spark-goal-secondary-text">
             {descriptionIcon && (
               <MaterialSymbol

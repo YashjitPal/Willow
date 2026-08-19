@@ -69,7 +69,31 @@ export const ModelsMenu: React.FC<{
    * voice mode, keep their current behaviour by simply not passing it.
    */
   voiceModels?: ModelsMenuVoiceListing[];
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels }) => {
+  /**
+   * Extra rows appended to the thinking-effort submenu.
+   *
+   * Opt-in and empty by default, so every existing caller renders exactly what
+   * it did before. It exists for `features/code-beta`, whose harness adds an
+   * effort — Ultra — that is not one of Willow's numeric levels and must not
+   * appear anywhere else: upstream Codex treats it as a product-level selection
+   * that turns on proactive sub-agent delegation rather than a value any
+   * provider accepts, so it is meaningless on the surfaces that do not run that
+   * harness.
+   *
+   * These rows carry their own selected state and their own callback rather
+   * than going through `onSelect`, because they are not saved-model ids and
+   * writing one into `selectedId` would leave the other tabs unable to resolve
+   * the selection.
+   */
+  extraEfforts?: {
+    id: string;
+    label: string;
+    /** Small trailing tag, e.g. "Sub-agents". */
+    badge?: string;
+    selected: boolean;
+    onSelect: () => void;
+  }[];
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels, extraEfforts }) => {
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 
   const providerLabels = {
@@ -392,7 +416,10 @@ export const ModelsMenu: React.FC<{
           animationPlayState: isPositionReady ? undefined : 'paused',
         }}
       >
-        <div className="max-h-[208px] overflow-y-auto no-scrollbar">
+        <div
+          className="max-h-[208px] overflow-y-auto no-scrollbar"
+          style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+        >
           {groupedModels.length === 0 ? (
             <div className="px-3 py-8 text-center text-[13px] text-white/55">
               No models configured
@@ -470,35 +497,59 @@ export const ModelsMenu: React.FC<{
                     aria-label="Thinking Effort"
                     className={`pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar ${!isEffortPositionReady ? 'invisible' : ''}`}
                   >
-                  {selectedEfforts.map((model) => {
-                    // Compare against the *resolved* effort, not the raw
-                    // selectedId. When only the model has been picked the id
-                    // carries no `::effort-` suffix, so a raw comparison ticks
-                    // nothing even though a default level is in force.
-                    const isSelected = selectedEffort?.id === model.id;
-                    return (
+                    {selectedEfforts.map((model) => {
+                      const isSelected =
+                        !(extraEfforts ?? []).some((extra) => extra.selected) &&
+                        selectedEffort?.id === model.id;
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isSelected}
+                          onClick={() => {
+                            onSelect(model.id);
+                            handleClose();
+                          }}
+                          className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                        >
+                          <span className="flex w-9 shrink-0 items-center justify-center">
+                            {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
+                          </span>
+                          <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
+                            {getThinkingEffortLabel(model)}
+                          </span>
+                        </button>
+                      );
+                    })}
+
+                    {(extraEfforts ?? []).map((extra) => (
                       <button
-                        key={model.id}
+                        key={extra.id}
                         type="button"
                         role="menuitemradio"
-                        aria-checked={isSelected}
+                        aria-checked={extra.selected}
                         onClick={() => {
-                          onSelect(model.id);
+                          extra.onSelect();
                           handleClose();
                         }}
                         className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
                       >
                         <span className="flex w-9 shrink-0 items-center justify-center">
-                          {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
+                          {extra.selected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                         </span>
-                        <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                          {getThinkingEffortLabel(model)}
+                        <span className="flex min-w-0 flex-1 items-center gap-2 pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
+                          <span className="truncate">{extra.label}</span>
+                          {extra.badge && (
+                            <span className="shrink-0 rounded bg-white/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-white/60">
+                              {extra.badge}
+                            </span>
+                          )}
                         </span>
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
               )}
             </div>
           </>

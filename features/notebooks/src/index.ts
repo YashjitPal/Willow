@@ -4,9 +4,11 @@
  * The split is deliberate: `notebooks-backend` is persistence and knows nothing
  * about React, `notebooks-store` is the reactive layer over it, and the three
  * page components plus the sidebar section are the only UI. Nothing outside this
- * folder should reach past `notebooks-store` into the backend — the scope wiring
- * in `LocalFSContext` is the single exception, and it imports only
- * `setNotebookStorageScope`.
+ * folder should reach past `notebooks-store` into the backend — the **storage
+ * layer** is the exception, and it imports `@willow/notebooks/notebooks-backend`
+ * directly rather than going through here: `LocalFSContext` for the scope wiring,
+ * the folder names and the chat-location index, and `notebooks-disk` for the
+ * directory names. See `AGENTS.md` for why that direction is the only one allowed.
  */
 export type {
   Notebook,
@@ -46,6 +48,9 @@ export {
   toggleNotebookPinned,
   updateNotebook,
 } from './notebooks-store';
+
+export { useNotebookDisk } from './useNotebookDisk';
+export type { NotebookDiskActions } from './useNotebookDisk';
 
 export { NotebooksSection } from './NotebooksSection';
 export type { NotebooksSectionProps } from './NotebooksSection';

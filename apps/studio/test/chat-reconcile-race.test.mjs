@@ -1,12 +1,12 @@
 /**
  * Regression test: "new chat vanishes a few seconds after its title arrives".
  *
- * Mechanism. `reconcileChatsWithDisk` enumerates the Chats directory ONCE at the
- * top of the pass, then reaches its external-deletion decision only after every
- * per-chat `await` above it — seconds later on a real workspace. A chat written
- * during that window is present on disk and absent from the snapshot, so the
- * loop read it as an external delete and tombstoned it: sidebar entry removed,
- * `activeChatId` nulled, and the live conversation wiped by ChatView's
+ * Mechanism. `reconcileChatsWithDisk` enumerates the chat directories ONCE at
+ * the top of the pass, then reaches its external-deletion decision only after
+ * every per-chat `await` above it — seconds later on a real workspace. A chat
+ * written during that window is present on disk and absent from the snapshot, so
+ * the loop read it as an external delete and tombstoned it: sidebar entry
+ * removed, `activeChatId` nulled, and the live conversation wiped by ChatView's
  * clear-effect. Renaming a brand-new chat to its AI-generated title is exactly
  * such a write, which is why this reproduced on the first message every time.
  *
@@ -215,7 +215,7 @@ const externalDeleteBlock = () => {
 it('re-checks disk before tombstoning, in the shipped source', () => {
   const block = externalDeleteBlock();
 
-  const recheck = block.indexOf('await chatsDir.getFileHandle(');
+  const recheck = block.indexOf('await dir.getFileHandle(');
   const tombstone = block.indexOf('tombstone: true');
 
   assert.notEqual(recheck, -1,
@@ -223,6 +223,22 @@ it('re-checks disk before tombstoning, in the shipped source', () => {
   assert.notEqual(tombstone, -1, 'could not find the tombstone write');
   assert.ok(recheck < tombstone,
     'the re-check must come BEFORE the tombstone, or it cannot prevent the deletion');
+});
+
+it('re-checks every scanned folder, not just one, in the shipped source', () => {
+  const block = externalDeleteBlock();
+
+  // A chat file lives in the global `Chats/` or in a notebook's, and it moves
+  // between them. Probing only the expected folder would read a chat the user
+  // dragged into a notebook in Explorer as an external delete — the same class
+  // of bug as trusting the stale snapshot, with the same consequence.
+  const sweep = block.indexOf('for (const dir of scannedDirs) {');
+  const tombstone = block.indexOf('tombstone: true');
+
+  assert.notEqual(sweep, -1,
+    'the re-check narrowed to a single directory — a moved chat file will be erased');
+  assert.ok(sweep < tombstone,
+    'the folder sweep must come BEFORE the tombstone, or it cannot prevent the deletion');
 });
 
 it('only accepts NotFoundError as proof of deletion, in the shipped source', () => {

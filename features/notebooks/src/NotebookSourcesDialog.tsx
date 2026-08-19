@@ -1,11 +1,14 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 
 import './notebooks.css';
 import { MAX_INLINE_SOURCE_BYTES } from './notebook-types';
-import type { Notebook, NotebookSource } from './notebook-types';
-import { addNotebookSource, removeNotebookSource } from './notebooks-store';
+import type { Notebook, NotebookSource, NotebookSourceKind } from './notebook-types';
+import { addNotebookSource, removeNotebookSource, setNotebookSourceFsName } from './notebooks-store';
+import { SourceTile } from './SourceTile';
+import { extractSourceText, fetchWebsiteText } from './source-extract';
 
 /**
  * The Sources dialog — Gemini's `project-create-sources-dialog`.
@@ -44,31 +47,21 @@ import { addNotebookSource, removeNotebookSource } from './notebooks-store';
  * Drive-scoped token. The row is present because its absence is more wrong than
  * its being disabled, and it says so when clicked rather than silently failing.
  *
- * **Website text is not fetched.** A browser cannot read a cross-origin page, so
- * the URL is stored and passed as context rather than faked as ingested text.
+ * **Images are stored but not sent.** A file under `MAX_INLINE_SOURCE_BYTES` keeps a
+ * data URL, and grounding only tells the model the image exists. Handing it over as a
+ * real image part is still to do — see the note on `NotebookSource.dataUrl`.
  *
- * **Binaries are not parsed.** `readAsText` on a PDF yields noise that would poison
- * every grounded turn. Images under `MAX_INLINE_SOURCE_BYTES` keep a data URL;
- * everything else is recorded by name and type.
+ * PDFs, DOCX and website text ARE ingested; `source-extract.ts` owns that, and the
+ * row's meta line says which of the two a source got ("Text extracted" against
+ * "Reference only").
  */
 export interface NotebookSourcesDialogProps {
   notebook: Notebook;
   onClose: () => void;
 }
 
-const TEXT_EXTENSIONS = [
-  '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.yaml', '.yml', '.xml', '.html', '.htm',
-  '.js', '.jsx', '.ts', '.tsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.cs',
-  '.sh', '.sql', '.css', '.scss', '.log', '.ini', '.toml', '.env', '.srt', '.vtt',
-];
-
-const isTextFile = (file: File): boolean => {
-  if (file.type.startsWith('text/')) return true;
-  if (/^application\/(json|xml|x-yaml|javascript|typescript)/.test(file.type)) return true;
-  const lower = file.name.toLowerCase();
-  return TEXT_EXTENSIONS.some((ext) => lower.endsWith(ext));
-};
-
+// Text sniffing and the parsers live in `source-extract.ts`; this file only
+// still needs the data-URL reader, for images.
 const read = (file: File, as: 'text' | 'dataUrl'): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -77,24 +70,6 @@ const read = (file: File, as: 'text' | 'dataUrl'): Promise<string> =>
     if (as === 'text') reader.readAsText(file);
     else reader.readAsDataURL(file);
   });
-
-const iconFor = (source: NotebookSource): { name: string; family: 'luminous' | 'google-symbols' } => {
-  if (source.kind === 'website') return { name: 'web', family: 'google-symbols' };
-  if (source.kind === 'text') return { name: 'content_paste', family: 'google-symbols' };
-  const mime = source.mimeType || '';
-  if (mime.startsWith('image/')) return { name: 'image', family: 'luminous' };
-  if (mime.startsWith('video/')) return { name: 'movie', family: 'luminous' };
-  if (mime.startsWith('audio/')) return { name: 'mic', family: 'luminous' };
-  if (mime === 'application/pdf') return { name: 'picture_as_pdf', family: 'google-symbols' };
-  return { name: 'description', family: 'luminous' };
-};
-
-const formatBytes = (bytes?: number): string => {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 /**
  * Gemini's empty-state glyph — its `data-mat-icon-name="files"` icon, path copied
@@ -184,85 +159,242 @@ const SubDialog: React.FC<{
 
 type Sub = 'websites' | 'text' | null;
 
+/**
+ * Exit animation plus its delay — see `.nb-sheet-exit`. The parent owns the
+ * mount, so this component holds it off for exactly as long as the fade runs.
+ * Same 125ms as the three-dot menu, deliberately.
+ */
+const SHEET_EXIT_MS = 125;
+
+/**
+ * A source whose text is still being extracted. Enough of a `NotebookSource` for the tile
+ * to draw its name and pick its icon, and nothing else — it is not stored anywhere.
+ */
+interface PendingSource {
+  id: string;
+  title: string;
+  kind: NotebookSourceKind;
+  url?: string;
+  mimeType?: string;
+}
+
+let pendingCounter = 0;
+/** Local to a dialog instance and never persisted, so a counter is identity enough. */
+const pendingId = (): string => `pending-${(pendingCounter += 1)}`;
+
 export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ notebook, onClose }) => {
   const [sub, setSub] = useState<Sub>(null);
   const [urls, setUrls] = useState('');
   const [textTitle, setTextTitle] = useState('');
   const [textBody, setTextBody] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  /*
+   * Sources being read, as tiles with a spinner where their icon will go — which is
+   * Gemini's own answer to "this is taking a moment", and the reason there is no
+   * "Reading…" line any more. A source only reaches the store once its text is
+   * extracted, so until then it exists nowhere else and this is what stands in for it.
+   *
+   * Local to the dialog, not in the store. Persisting a half-read source would leave one
+   * stuck pending forever if the tab closed mid-extraction, and the store is what the
+   * model grounds on: a source that is still being read has nothing to ground with.
+   */
+  const [pending, setPending] = useState<PendingSource[]>([]);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { saveLocalFSNotebookSource, deleteLocalFSNotebookSource } = useLocalFS();
 
+  /**
+   * Add a source: store it, then mirror it into the notebook's `Sources/` folder.
+   *
+   * The registry write is first and synchronous, so the tile appears without
+   * waiting on the disk — and so a source is never lost when there is no folder
+   * connected, which is the whole reason the registry is authoritative here.
+   *
+   * `blob` is the file the user actually chose, and passing it is what keeps
+   * `lecture.pdf` a real PDF on disk instead of a `.pdf` holding extracted text.
+   * The name the file ends up with comes back from the write (collisions get a
+   * `(1)` suffix) and is recorded on the source, because a name derived a second
+   * time would not match.
+   */
+  const addSource = async (
+    source: Omit<NotebookSource, 'id' | 'createdAt'>,
+    blob?: Blob | null,
+  ): Promise<void> => {
+    const created = addNotebookSource(notebook.id, source);
+    if (!created) return;
+    const fsName = await saveLocalFSNotebookSource(notebook.id, {
+      title: source.title,
+      kind: source.kind,
+      blob: blob ?? null,
+      content: source.content,
+      url: source.url,
+    });
+    if (fsName) setNotebookSourceFsName(notebook.id, created.id, fsName);
+  };
+
+  /** Remove a source, and its file with it. Registry first, for the same reason. */
+  const removeSource = (source: NotebookSource): void => {
+    removeNotebookSource(notebook.id, source.id);
+    if (source.fsName) void deleteLocalFSNotebookSource(notebook.id, source.fsName);
+  };
+
+  const settlePending = (id: string) =>
+    setPending((current) => current.filter((entry) => entry.id !== id));
+
+  /*
+   * Every dismissal goes through here, so the dialog fades out instead of
+   * vanishing. It had an entrance and no exit: `onClose` unmounts the tree in the
+   * same frame, which leaves nothing for an animation to play on.
+   *
+   * Guarded on the timer rather than on `isClosing` so a second click during the
+   * fade cannot queue a second close.
+   */
+  const requestClose = React.useCallback(() => {
+    if (closeTimerRef.current !== undefined) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(onClose, SHEET_EXIT_MS);
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  /*
+   * One pass per file: extract what text it has, store the source, and collect
+   * anything the user needs telling about.
+   *
+   * Every file gets its tile up front, all of them at once, and each drops its spinner as
+   * it lands. Files are still handled one at a time rather than with `Promise.all`,
+   * deliberately: pdf.js parses in a worker but decodes page by page, and several large
+   * PDFs at once compete for the same worker and the same memory. The tiles are what shows
+   * that the queue is moving, one spinner resolving at a time.
+   */
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setError(null);
-    setIsBusy(true);
-    const byNameOnly: string[] = [];
+    const notes: string[] = [];
+    const queue = Array.from(files).map((file) => ({
+      file,
+      entry: { id: pendingId(), title: file.name, kind: 'file' as const, mimeType: file.type },
+    }));
+    setPending((current) => [...current, ...queue.map((item) => item.entry)]);
     try {
-      for (const file of Array.from(files)) {
-        if (isTextFile(file)) {
-          addNotebookSource(notebook.id, {
+      for (const { file, entry } of queue) {
+        try {
+          // Images are kept as data URLs and sent as image parts on the turn, so
+          // they are not a text-extraction case at all.
+          if (file.type.startsWith('image/')) {
+            const inlineable = file.size <= MAX_INLINE_SOURCE_BYTES;
+            await addSource({
+              title: file.name,
+              kind: 'file',
+              mimeType: file.type,
+              size: file.size,
+              dataUrl: inlineable ? await read(file, 'dataUrl') : undefined,
+            }, file);
+            if (!inlineable) notes.push(`${file.name} is too large to attach (over ${Math.round(MAX_INLINE_SOURCE_BYTES / 1_000_000)}MB), so only its name was kept`);
+            continue;
+          }
+
+          const result = await extractSourceText(file);
+          await addSource({
             title: file.name,
             kind: 'file',
-            mimeType: file.type || 'text/plain',
+            mimeType: file.type || (result.via === 'pdf' ? 'application/pdf' : 'application/octet-stream'),
             size: file.size,
-            content: await read(file, 'text'),
-          });
-          continue;
+            pages: result.pages,
+            // Undefined rather than an empty string when nothing was extracted, so
+            // the grounding block reports the source as unreadable instead of
+            // listing it as present and empty.
+            content: result.text || undefined,
+            /*
+             * The original file goes to disk whatever the extraction did. A PDF
+             * that could not be parsed is still the user's PDF, and the folder is
+             * theirs to open — "too large to inline" is a limit on what the model
+             * is fed, not on what is kept.
+             */
+          }, file);
+          if (result.problem) notes.push(`${file.name}: ${result.problem}`);
+        } finally {
+          // Per file, so one that throws cannot leave its tile spinning for ever.
+          settlePending(entry.id);
         }
-        const inlineable = file.type.startsWith('image/') && file.size <= MAX_INLINE_SOURCE_BYTES;
-        addNotebookSource(notebook.id, {
-          title: file.name,
-          kind: 'file',
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-          dataUrl: inlineable ? await read(file, 'dataUrl') : undefined,
-        });
-        if (!inlineable) byNameOnly.push(file.name);
       }
-      if (byNameOnly.length) {
-        setError(
-          `Added ${byNameOnly.join(', ')} by name — Willow cannot read that format's text in the browser yet. Paste the text under “Copied text” if you need it grounded.`,
-        );
-      }
+      if (notes.length) setError(notes.join('\n'));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not read that file.');
     } finally {
-      setIsBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  /** Gemini accepts a space- or newline-separated list in one go. */
-  const addWebsites = () => {
+  /*
+   * Gemini accepts a space- or newline-separated list in one go, and fetches each
+   * page's text at add time rather than at question time — its docs describe the
+   * source as a static copy taken on import. `fetchWebsiteText` does the same
+   * through `/api/fetch-source`; a page that cannot be read is still stored as a
+   * link, which is what every URL used to be.
+   *
+   * The page title replaces the host/path guess when one comes back, because
+   * "en.wikipedia.org/wiki/Photosynthesis" is a worse label than "Photosynthesis".
+   */
+  const addWebsites = async () => {
     const parts = urls.split(/[\s\n]+/).map((u) => u.trim()).filter(Boolean);
     if (!parts.length) return;
-    let added = 0;
+
+    /*
+     * Parse the whole paste BEFORE fetching anything, so the sub-dialog can close on the
+     * spot and the pending tiles are visible while the pages are read. Fetching first
+     * would hold the sub-dialog open over the very tiles that report the progress.
+     */
+    const queue: Array<{ url: string; entry: PendingSource }> = [];
     for (const raw of parts) {
       const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
       try {
-        const parsed = new URL(normalized);
-        addNotebookSource(notebook.id, {
-          title: parsed.hostname + parsed.pathname.replace(/\/$/, ''),
-          kind: 'website',
-          url: normalized,
-        });
-        added += 1;
+        new URL(normalized);
       } catch {
-        /* skip an unparseable entry rather than aborting the whole paste */
+        continue; // skip an unparseable entry rather than aborting the whole paste
+      }
+      queue.push({
+        url: normalized,
+        // Labelled with the URL, which is what the finished tile shows too.
+        entry: { id: pendingId(), title: normalized, kind: 'website', url: normalized },
+      });
+    }
+    if (!queue.length) {
+      setError('None of those looked like URLs.');
+      return;
+    }
+
+    setError(null);
+    setUrls('');
+    setSub(null);
+    setPending((current) => [...current, ...queue.map((item) => item.entry)]);
+
+    const notes: string[] = [];
+    for (const { url, entry } of queue) {
+      try {
+        const parsed = new URL(url);
+        const fetched = await fetchWebsiteText(url);
+        await addSource({
+          title: fetched.title || parsed.hostname + parsed.pathname.replace(/\/$/, ''),
+          kind: 'website',
+          url,
+          content: fetched.text,
+          size: fetched.text?.length,
+        });
+        if (fetched.problem) notes.push(`${parsed.hostname}: ${fetched.problem}`);
+      } finally {
+        settlePending(entry.id);
       }
     }
-    if (added === 0) setError('None of those looked like URLs.');
-    else {
-      setUrls('');
-      setSub(null);
-      setError(null);
-    }
+    setError(notes.length ? notes.join('\n') : null);
   };
 
   const addText = () => {
     if (!textBody.trim()) return;
-    addNotebookSource(notebook.id, {
+    void addSource({
       title: textTitle.trim() || 'Copied text',
       kind: 'text',
       content: textBody,
@@ -320,7 +452,17 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
    * shell is what gets that.
    */
   return createPortal(
-    <div className="nb-sheet-scrim" role="presentation" onClick={onClose}>
+    /*
+     * The exit class goes on the SCRIM, not the sheet: opacity on the scrim
+     * composites its whole subtree, so the tint and the dialog leave together.
+     * On the sheet alone, the scrim would snap away and the dialog would be seen
+     * fading over the bare page.
+     */
+    <div
+      className={`nb-sheet-scrim ${isClosing ? 'nb-sheet-exit' : ''}`}
+      role="presentation"
+      onClick={requestClose}
+    >
       <div
         className="nb-surface nb-sheet"
         role="dialog"
@@ -333,7 +475,7 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
             <h2 className="nb-sheet-title">Sources</h2>
             <p className="nb-sheet-sub">Add files that Willow can reference in your notebook</p>
           </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="nb-sheet-close">
+          <button type="button" aria-label="Close" onClick={requestClose} className="nb-sheet-close">
             <MaterialSymbol name="close" family="luminous" size={24} weight={320} roundness={100} opticalSize={24} />
           </button>
         </div>
@@ -370,7 +512,7 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
               void onFiles(event.dataTransfer.files);
             }}
           >
-            {notebook.sources.length === 0 ? (
+            {notebook.sources.length === 0 && pending.length === 0 ? (
               <div className="nb-src-empty">
                 <span className="nb-src-empty-icon">
                   <FilesGlyph />
@@ -380,49 +522,34 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
                 </p>
               </div>
             ) : (
-              <div className="nb-src-list">
-                {notebook.sources.map((source) => {
-                  const icon = iconFor(source);
-                  return (
-                    <div key={source.id} className="nb-src-row">
-                      <MaterialSymbol
-                        name={icon.name}
-                        family={icon.family}
-                        size={24}
-                        weight={300}
-                        roundness={100}
-                        opticalSize={24}
-                        className="shrink-0 text-white/70"
-                      />
-                      <span className="nb-src-row-text">
-                        <span className="nb-src-row-title">{source.title}</span>
-                        <span className="nb-src-row-meta">
-                          {source.kind === 'website'
-                            ? source.url
-                            : [
-                                source.content ? 'Text extracted' : source.dataUrl ? 'Image' : 'Reference only',
-                                formatBytes(source.size),
-                              ]
-                                .filter(Boolean)
-                                .join(' · ')}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${source.title}`}
-                        onClick={() => removeNotebookSource(notebook.id, source.id)}
-                        className="nb-src-row-remove"
-                      >
-                        <MaterialSymbol name="close" family="luminous" size={18} weight={320} roundness={100} opticalSize={18} />
-                      </button>
-                    </div>
-                  );
-                })}
+              <div className="nb-src-tiles">
+                {notebook.sources.map((source) => (
+                  <SourceTile
+                    key={source.id}
+                    source={source}
+                    onRemove={() => removeSource(source)}
+                  />
+                ))}
+                {/*
+                  * After the stored ones, in the order they will land in — a source is
+                  * appended when it lands, so a tile does not jump position as it settles.
+                  */}
+                {pending.map((entry) => (
+                  <SourceTile
+                    key={entry.id}
+                    source={{ ...entry, createdAt: 0 }}
+                    loading
+                  />
+                ))}
               </div>
             )}
 
-            {isBusy && <p className="nb-sheet-hint">Reading…</p>}
-            {error && <p className="nb-sheet-error">{error}</p>}
+            {/*
+              * `white-space: pre-line` on the error: extraction reports one note
+              * per file, joined with newlines, and a 40-page scan plus a working
+              * PDF in the same drop produces two very different messages.
+              */}
+            {error && <p className="nb-sheet-error" style={{ whiteSpace: 'pre-line' }}>{error}</p>}
           </div>
         </div>
       </div>
@@ -441,7 +568,9 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
           ]}
           confirmLabel="Insert"
           canConfirm={urls.trim().length > 0}
-          onConfirm={addWebsites}
+          // `void`: fetching is async now, and the dialog reports progress itself
+          // rather than making the button await it.
+          onConfirm={() => { void addWebsites(); }}
           onClose={() => setSub(null)}
         >
           <textarea

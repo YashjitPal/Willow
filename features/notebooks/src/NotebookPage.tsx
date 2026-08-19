@@ -7,6 +7,7 @@ import { chatDisplayName, isTempChatId } from '@willow/storage/local-fs/chat-met
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
 import { NotebookSourcesDialog } from './NotebookSourcesDialog';
+import { SourceIcon } from './SourceIcon';
 import { NotebookMenu, MENU_TRIGGER_ATTR, type AnchorRect, rectOf } from './NotebookMenu';
 import { NotebookSnackbar, showNotebookSnack } from './NotebookSnackbar';
 import { requestChatRename, requestChatDelete } from './chat-dialog-requests';
@@ -15,16 +16,14 @@ import { DeleteNotebookDialog } from './DeleteNotebookDialog';
 import { NotebookSettingsDialog } from './NotebookSettingsDialog';
 import { RenameNotebookDialog } from './RenameNotebookDialog';
 import {
-  deleteNotebook,
   hydrateNotebooks,
   notebooksHydratedStore,
   notebooksStore,
-  removeChatFromNotebook,
-  renameNotebook,
   setNotebookEmoji,
   subscribeToNotebookWrites,
   toggleNotebookPinned,
 } from './notebooks-store';
+import { useNotebookDisk } from './useNotebookDisk';
 
 /**
  * The loading state for Past chats — recorded off Gemini, not invented.
@@ -66,6 +65,9 @@ const PastChatsSkeleton: React.FC = () => (
  * leading glyph at all. Once there is at least one it becomes "N Sources" with an
  * icon. It is the same component in Gemini, so it is one element here with the
  * label and icon switched rather than two components.
+ *
+ * The fill differs between the two states as well, `rgb(31,31,31)` against
+ * `rgb(23,23,23)`; `notebooks.css` records both measurements.
  *
  * ── The composer is not rebuilt here ───────────────────────────────────────
  *
@@ -164,6 +166,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
    * two are joined below rather than either duplicating the other.
    */
   const { localChats, getChatTimestamp, selectLocalFSInboxChat } = useLocalFS();
+  const { renameNotebookWithFolder, fileChat, deleteNotebookWithFolder } = useNotebookDisk();
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
   const notebook = notebooks.find((candidate) => candidate.id === notebookId);
@@ -209,10 +212,18 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
 
   const commitTitle = () => {
     setIsEditingTitle(false);
-    if (draftTitle.trim() && draftTitle !== notebook.title) renameNotebook(notebook.id, draftTitle);
+    if (draftTitle.trim() && draftTitle !== notebook.title) renameNotebookWithFolder(notebook.id, draftTitle);
   };
 
   const sourceCount = notebook.sources.length;
+  /*
+   * The last THREE sources, and both halves of that are measured. A Gemini notebook
+   * holding four sources labels its chip "4 Sources" and draws exactly three discs, and
+   * the three it draws are its 2nd, 3rd and 4th — favicon, favicon, `text/plain` against
+   * a source list of file, wikipedia, ai.google.dev, copied text. So the count is capped
+   * at three and it is the tail that survives, in list order.
+   */
+  const chipSources = notebook.sources.slice(-3);
   /*
    * Join the notebook's ids against the chat list.
    *
@@ -250,7 +261,18 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
     });
 
   return (
-    <div className="nb-surface nb-page-host">
+    /*
+     * `gemini-chat-scrollbar` is the app-wide overlay scrollbar — transparent
+     * until the pointer is over it, 12px track, rounded thumb — declared in
+     * `apps/studio/index.html` and used by the chat surface and the sidebar. This
+     * scroller carried no scrollbar styling at all, so it fell back to Chrome's
+     * default, which is the one that looked foreign.
+     *
+     * The host stays `overflow-y: auto`, so a page that fits shows no scrollbar
+     * at all; the class only governs how one looks when there is something to
+     * scroll.
+     */
+    <div className="nb-surface nb-page-host gemini-chat-scrollbar">
       {/*
        * The header three-dot. Gemini pins this in the top bar's `.right-section`
        * rather than in the notebook column, so it stays put as the column scrolls.
@@ -277,7 +299,19 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
           }}
           className="nb-icon-button"
         >
-          <MoreVertGlyph />
+          {/*
+            * 24px at weight 300, matching the chat surface's three-dot rather than
+            * the 28px/260 the past-chat rows use. Same corner of the same app, so
+            * the two triggers are now one look.
+            */}
+          <MaterialSymbol
+            name="more_vert"
+            family="luminous"
+            size={24}
+            weight={300}
+            roundness={100}
+            opticalSize={24}
+          />
         </button>
       </div>
 
@@ -345,16 +379,36 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
         <div className="nb-page-title-row">
           <h1 className="nb-page-title min-w-0 flex-1">{notebook.title}</h1>
 
-          <button type="button" onClick={() => setIsSourcesOpen(true)} className="nb-source-chip">
+          <button
+            type="button"
+            onClick={() => setIsSourcesOpen(true)}
+            className={`nb-source-chip${sourceCount === 0 ? ' nb-no-icons' : ''}`}
+          >
+            {/*
+             * Gemini nests each type icon in a 20px `rgb(31,31,31)` disc — a pill inside
+             * the pill, and visible because the chip itself is the darker `rgb(23,23,23)`.
+             * The image inside it is 15px, centred (measured 1121.1 in a container at
+             * 1118.6, so (20-15)/2).
+             *
+             * Several sources STACK, each newer disc over the one before it. Gemini emits
+             * `z-index: 0` on every disc regardless of count, so DOM order alone decides
+             * and the LAST disc paints on top; `notebooks.css` puts that 0 on the class.
+             * An earlier read of a one-source chip made this look like a descending
+             * z-index, which would have stacked them the other way round.
+             */}
             {sourceCount > 0 && (
-              <MaterialSymbol
-                name="description"
-                family="luminous"
-                size={20}
-                weight={320}
-                roundness={100}
-                opticalSize={20}
-              />
+              /*
+               * The discs need a container of their own, gapless: the chip's own 4px gap
+               * separates the icon GROUP from the label in Gemini, and letting it fall
+               * between the discs instead would cancel the -4px overlap exactly.
+               */
+              <span className="nb-source-chip-icons">
+                {chipSources.map((source) => (
+                  <span key={source.id} className="nb-source-chip-icon">
+                    <SourceIcon source={source} size={15} />
+                  </span>
+                ))}
+              </span>
             )}
             {/* Capital "S" is Gemini's, and differs from the card grid's lowercase. */}
             {sourceCount === 0 ? 'Add sources' : `${sourceCount} ${sourceCount === 1 ? 'Source' : 'Sources'}`}
@@ -446,11 +500,16 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
                          * Unfiles the chat, leaving it in Recents — a notebook is a
                          * grouping, so this must not delete data. Gemini confirms it
                          * with a snackbar, hence the toast rather than silence.
+                         *
+                         * `fileChat(id, null)` and not `removeChatFromNotebook`: the
+                         * chat's file has to come back out of this notebook's `Chats/`
+                         * folder, or the reconciler reads the file's location as the
+                         * truth on the next poll and re-files it.
                          */
                         label: 'Remove from notebook',
                         icon: 'undo',
                         onSelect: () => {
-                          removeChatFromNotebook(notebook.id, chat.id);
+                          void fileChat(chat.id, null);
                           showNotebookSnack(`Deleted from ${notebook.title}`);
                         },
                       },
@@ -473,7 +532,6 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
       {movingChatId && (
         <MoveChatDialog
           chatId={movingChatId}
-          fromNotebook={notebook}
           onClose={() => setMovingChatId(null)}
         />
       )}
@@ -483,7 +541,14 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
           notebook={notebook}
           onClose={() => setIsConfirmingDelete(false)}
           onDeleted={() => {
-            deleteNotebook(notebook.id);
+            /*
+             * Not awaited: the dialog dismisses on the click and the route is handed
+             * back immediately, as it did when this was a single localStorage write.
+             * The unfile-then-remove-folder sequence inside runs on after that, and
+             * every step of it degrades to "an orphan folder on disk", never to a
+             * lost conversation — see `useNotebookDisk`.
+             */
+            void deleteNotebookWithFolder(notebook.id);
             setIsConfirmingDelete(false);
             // The id no longer resolves, so hand the route back to the shell.
             onMissing?.();

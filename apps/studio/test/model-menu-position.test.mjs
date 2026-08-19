@@ -66,5 +66,7 @@ describe('model menu positioning', () => {
     assert.match(source, /new ResizeObserver\(calculatePosition\)/);
     assert.match(source, /addEventListener\('animationend', handleModelMenuAnimationEnd\)/);
     assert.match(source, /isEffortPositionReady/);
+    assert.match(source, /willChange: 'transform'/);
+    assert.match(source, /translateZ\(0\)/);
   });
 });

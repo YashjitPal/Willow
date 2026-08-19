@@ -847,7 +847,7 @@ it('grounds every turn in the current date without hardcoding one', async () => 
   // Gemini's prompt ships a literal "Monday, May 18, 2026" line, which is right
   // for a server that re-renders per request and wrong for a source file: a
   // committed date is stale the next day and the model dates its answers by it.
-  const { chatSystemPromptFor, liveSystemPrompt, currentDateLine, CHAT_SYSTEM_PROMPT } =
+  const { chatSystemPromptFor, currentDateLine, CHAT_SYSTEM_PROMPT } =
     await importTs(chatSrc('chat-model.ts'));
 
   const day = new Date('2026-08-10T12:00:00Z');
@@ -855,9 +855,7 @@ it('grounds every turn in the current date without hardcoding one', async () => 
   // A different date must actually move the line, or it is hardcoded again.
   assert.notEqual(currentDateLine(new Date('2027-01-02T12:00:00Z')), currentDateLine(day));
 
-  for (const built of [chatSystemPromptFor('gemini', { now: day }), liveSystemPrompt({ now: day })]) {
-    assert.match(built, /Current date: Monday, August 10, 2026/);
-  }
+  assert.match(chatSystemPromptFor('gemini', { now: day }), /Current date: Monday, August 10, 2026/);
   // The constant stays date-free so the date can only come from the builder.
   assert.ok(!/Current date:/.test(CHAT_SYSTEM_PROMPT), 'a date leaked into the constant');
 });

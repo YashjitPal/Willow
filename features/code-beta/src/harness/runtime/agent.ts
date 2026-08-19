@@ -30,6 +30,7 @@ import { getHarnessProfile } from '../overlay/profile';
 import { isAllowed, refusalFor } from '../overlay/tool-policy';
 import {
   applyPatch,
+  normalizePath,
   parsePatch,
   renderDiff,
   PatchApplyError,
@@ -41,6 +42,9 @@ import {
   parseCallBody,
 } from './stream-parser';
 import { findLooseCode, looseCodeObservation, stripLooseCode } from './loose-code';
+import { CONTINUE_OBSERVATION, announcedWithoutActing } from './stalled';
+import { beginToolLog, instrumentTransport } from './request-log';
+import { compactForHistory } from './history';
 import { nextId, toolRegistry } from './tools';
 import type {
   AgentKind,
@@ -71,6 +75,23 @@ export interface ModelBinding {
     requested: string;
     effective: string;
     clamped: boolean;
+    /**
+     * Loop budget and working guidance, derived from the *requested* level
+     * rather than the clamped one. This half is model-agnostic — it is Willow's
+     * own loop and prompt — which is what lets Ultra mean something on a model
+     * whose API tops out lower.
+     */
+    harness?: {
+      maxIterations: number;
+      guidance: string;
+      /**
+       * Upstream derives this from effort: `ultra` → proactive, everything
+       * else → on request. It is what Ultra actually *is* — the reasoning
+       * parameter is already at the model's ceiling by then.
+       */
+      delegation?: 'proactive' | 'on-request';
+      maxConcurrentAgents?: number;
+    };
   };
 }
 
@@ -154,11 +175,17 @@ function messageText(message: Message): string {
  * The model cannot list files without spending a round trip, and it needs to
  * know what exists before it can patch anything. Contents are deliberately
  * excluded — a manifest is cheap, and `read_file` is one call away.
+ *
+ * It states facts and nothing else. An earlier version ended the empty case with
+ * "Create /App.tsx to begin", which rode along on *every* first message — so
+ * "hey" arrived carrying a direct instruction to scaffold, and the model
+ * dutifully built a starter app nobody asked for. Context describes the world;
+ * only the user's message says what to do about it.
  */
 function projectContext(files: FileMap): string {
   const paths = Object.keys(files).sort();
   if (paths.length === 0) {
-    return '<project>\nThe project is empty. Create /App.tsx to begin.\n</project>';
+    return '<project>\nThe project has no files yet.\n</project>';
   }
   const listing = paths
     .map((path) => `  ${path} (${files[path]!.split('\n').length} lines)`)
@@ -173,18 +200,53 @@ function projectContext(files: FileMap): string {
  * thorough or quick without ever stating which it is. Naming the level makes
  * that guidance actionable instead of ambient, and it is how the same prompt
  * produces genuinely different behaviour at `low` and at `ultra`.
+ *
+ * It goes in the system prompt, with the rest of the standing guidance. On the
+ * user's message it behaved as an instruction attached to whatever they said,
+ * and turned a greeting into a build order. It also says *how* to do work, not
+ * that there is work: upstream's own guidance about answering conversational
+ * messages conversationally still governs whether any of this applies.
  */
-function effortContext(model: ModelBinding): string {
+function effortSection(model: ModelBinding): string {
   const effort = model.effort;
   if (!effort) return '';
 
-  const line = `<effort>You are running at ${effort.effective} reasoning effort.</effort>`;
+  const lines = [
+    '# Effort',
+    '',
+    'How to approach work that the user has actually asked for. A greeting, a',
+    'question, or a remark is not work; answer it directly.',
+    '',
+    // The *requested* level is stated, not the wire value, because this section
+    // governs how the agent works rather than what the API was told.
+    `<effort>You are working at ${effort.requested} effort.</effort>`,
+  ];
 
-  // A clamp is worth saying out loud: the user asked for more than this model
-  // can deliver, and the agent should not behave as though it got it.
-  return effort.clamped
-    ? `${line}\n<note>${effort.requested} was requested but this model does not support it.</note>`
-    : line;
+  // Proactive delegation is the whole of Ultra. Stating it as a mode, ahead of
+  // the general guidance, is what makes the agent fan out on its own rather
+  // than treating sub-agents as an option it might get around to.
+  if (effort.harness?.delegation === 'proactive') {
+    lines.push(
+      `<delegation>proactive — spawn sub-agents on your own judgement, up to ` +
+        `${effort.harness.maxConcurrentAgents ?? 3} at once, without being asked.</delegation>`,
+    );
+  }
+
+  if (effort.harness?.guidance) {
+    lines.push(`<how-to-work>\n${effort.harness.guidance}\n</how-to-work>`);
+  }
+
+  // Only a genuine loss of reasoning depth is worth flagging. Ultra lowering to
+  // the model's ceiling is its designed behaviour, not a downgrade, and
+  // `clamped` is false in that case.
+  if (effort.clamped) {
+    lines.push(
+      `<note>This model's API caps reasoning at ${effort.effective}, so the ` +
+        `request was sent at that level. Work to the standard above regardless.</note>`,
+    );
+  }
+
+  return lines.join('\n');
 }
 
 /* ------------------------------------------------------------------------ */
@@ -199,8 +261,20 @@ interface PendingCall {
 interface IterationResult {
   /** Everything the model said, envelopes stripped. */
   text: string;
+  /**
+   * Everything the model emitted, envelopes included.
+   *
+   * This, not `text`, is what goes back as the assistant turn. Feeding back the
+   * stripped prose hid the model's own tool calls from it: the transcript then
+   * showed it narrating, followed by an observation with nothing that could
+   * have produced it. Models reconcile that by trying to close an envelope they
+   * cannot see, and the transcript fills with orphan `*** End Call` markers.
+   */
+  raw: string;
   /** Observations to feed back, in order. */
   observations: string[];
+  /** True when anything actually ran or changed a file this iteration. */
+  didWork: boolean;
   /** True when the model emitted at least one call needing a result. */
   wantsMore: boolean;
 }
@@ -221,10 +295,21 @@ async function runIteration(
   throwIfAborted(options.signal);
 
   const pending: PendingCall[] = [];
+  /** Prose only — what the user reads. */
   let text = '';
+  /** Prose *and* envelopes — what the model is shown of its own turn. */
+  let raw = '';
 
-  // The edit card currently being written into, so patch lines can stream in.
-  let liveEdit: { id: string; lines: number } | null = null;
+  /*
+   * One card per file in the envelope, in the order their headers arrived.
+   *
+   * A list rather than a single card: an envelope may touch several files, and
+   * keeping only the latest orphaned every earlier card — it stayed "Creating…"
+   * with a running timer forever, while the surviving card was filled in with a
+   * *different* file's result. A two-file patch showed three cards, one of them
+   * stuck and one mislabelled.
+   */
+  let liveEdits: LiveEdit[] = [];
   const patchObservations: string[] = [];
 
   const parser = new ResponseStreamParser({
@@ -255,21 +340,26 @@ async function runIteration(
           lines: [],
           revealed: 0,
         };
-        liveEdit = { id: sink.emit(call), lines: 0 };
+        liveEdits.push({
+          id: sink.emit(call),
+          path: safeNormalize(call.path),
+          lines: 0,
+        });
         return;
       }
 
-      if (!liveEdit) return;
+      const current = liveEdits.at(-1);
+      if (!current) return;
       if (/^[+\- ]/.test(line)) {
-        liveEdit.lines += 1;
-        sink.patch(liveEdit.id, { revealed: liveEdit.lines } as Partial<ToolCall>);
+        current.lines += 1;
+        sink.patch(current.id, { revealed: current.lines } as Partial<ToolCall>);
       }
     },
 
     onPatchClose: (envelope) => {
-      const observation = applyPatchEnvelope(envelope, options, sink, liveEdit?.id);
+      const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
-      liveEdit = null;
+      liveEdits = [];
       sink.activity(null);
     },
 
@@ -283,7 +373,9 @@ async function runIteration(
     content: entry.content,
   })) as { role: 'user' | 'assistant'; content: string }[];
 
-  const transport = options.transport ?? defaultTransport;
+  // Instrumented here rather than in the turn loop, because the loop is not the
+  // only caller — sub-agents run their own requests through this same path.
+  const transport = instrumentTransport(options.transport ?? defaultTransport);
 
   await transport(
     messages,
@@ -295,7 +387,10 @@ async function runIteration(
       enableCodeExecution: false,
       signal: options.signal,
     },
-    (token: string) => parser.push(token),
+    (token: string) => {
+      raw += token;
+      parser.push(token);
+    },
     () => sink.activity('Responding'),
     systemPrompt,
     undefined,
@@ -329,12 +424,37 @@ async function runIteration(
 
   return {
     text,
+    raw,
     observations,
+    didWork: pending.length > 0 || patchObservations.length > 0,
     wantsMore:
       pending.length > 0 ||
       loose.length > 0 ||
       patchObservations.some((observation) => observation.startsWith('ERROR')),
   };
+}
+
+/** An edit card opened from a header line, waiting for its file's result. */
+interface LiveEdit {
+  id: string;
+  /** Normalised, so it matches the path the applier reports back. */
+  path: string;
+  lines: number;
+}
+
+/**
+ * The header path in the applier's own terms.
+ *
+ * A header can be malformed — that is what the parser is for — so a rejection
+ * here is not fatal: the card simply will not match a change, and the envelope
+ * fails as a whole a moment later.
+ */
+function safeNormalize(raw: string): string {
+  try {
+    return normalizePath(raw);
+  } catch {
+    return raw.trim();
+  }
 }
 
 /**
@@ -348,7 +468,7 @@ function applyPatchEnvelope(
   envelope: string,
   options: TurnOptions,
   sink: CallSink,
-  liveEditId: string | undefined,
+  liveEdits: LiveEdit[],
 ): string {
   try {
     const ops = parsePatch(envelope);
@@ -356,9 +476,16 @@ function applyPatchEnvelope(
     const { files, changes } = applyPatch(before, ops);
     options.writeFiles(files);
 
-    // The first change reuses the card the stream already opened; the rest get
-    // their own, so a multi-file envelope reads as several edits.
-    changes.forEach((change, index) => {
+    // Each change completes the card opened for that same file. Matching on the
+    // path rather than on position keeps a card with its own file even if the
+    // applier reorders or coalesces operations.
+    const unclaimed = [...liveEdits];
+    const claim = (path: string): LiveEdit | undefined => {
+      const index = unclaimed.findIndex((edit) => edit.path === path);
+      return index === -1 ? undefined : unclaimed.splice(index, 1)[0];
+    };
+
+    changes.forEach((change) => {
       const lines = renderDiff(change);
       const patch: Partial<EditCall> = {
         kind: change.kind === 'add' ? 'create' : change.kind === 'delete' ? 'delete' : 'edit',
@@ -372,24 +499,33 @@ function applyPatchEnvelope(
         endedAt: Date.now(),
       };
 
-      if (index === 0 && liveEditId) {
-        sink.patch(liveEditId, patch as Partial<ToolCall>);
+      const opened = claim(change.path);
+      if (opened) {
+        sink.patch(opened.id, patch as Partial<ToolCall>);
       } else {
-        const id = sink.emit({
+        sink.emit({
           id: nextId('call'),
           kind: patch.kind!,
           status: 'success',
           startedAt: Date.now(),
           endedAt: Date.now(),
           path: patch.path!,
+          movePath: change.movePath,
           added: change.added,
           removed: change.removed,
           lines,
           revealed: lines.length,
         } as EditCall);
-        void id;
       }
     });
+
+    // A card whose file produced no change would otherwise spin forever.
+    for (const orphan of unclaimed) {
+      sink.patch(orphan.id, {
+        status: 'success',
+        endedAt: Date.now(),
+      } as Partial<ToolCall>);
+    }
 
     const summary = changes
       .map(
@@ -408,8 +544,11 @@ function applyPatchEnvelope(
           ? `The patch could not be applied to ${error.path}: ${error.message}`
           : `The patch failed: ${(error as Error).message}`;
 
-    if (liveEditId) {
-      sink.patch(liveEditId, {
+    // Every card opened for this envelope fails with it — the envelope is
+    // applied as one unit, so none of the files were written. Failing only the
+    // last one would leave the others spinning.
+    for (const edit of liveEdits) {
+      sink.patch(edit.id, {
         status: 'error',
         endedAt: Date.now(),
         error: message,
@@ -456,12 +595,20 @@ async function runCall(
     patch: sink.patch,
   };
 
+  // Timed, because this is where a turn spends the time that is not a model
+  // request — `computer_use` runs its own model session, which never passes
+  // through the instrumented transport and would otherwise be an unexplained
+  // gap between two rounds.
+  const finish = beginToolLog(name);
+
   try {
     const result: ToolResult = await registry.get(name)!.run(args, context);
     sink.activity(null);
+    finish(result.failed ? new Error(result.observation) : undefined);
     return result.failed ? `ERROR ${name}: ${result.observation}` : result.observation;
   } catch (error) {
     sink.activity(null);
+    finish(error);
     if (error instanceof Cancelled) throw error;
     return `ERROR ${name} threw: ${(error as Error).message}`;
   }
@@ -624,7 +771,7 @@ function makeTaskTool(options: TurnOptions, systemPrompt: string): ToolHandler {
 
           if (!iteration.wantsMore) break;
 
-          conversation.push({ role: 'assistant', content: iteration.text });
+          conversation.push({ role: 'assistant', content: compactForHistory(iteration.raw) });
           conversation.push({
             role: 'user',
             content: iteration.observations.join('\n\n---\n\n'),
@@ -692,8 +839,22 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   const profile = getHarnessProfile();
   const sink = mainSink(options.onEvent);
 
+  /*
+   * The user's message carries the file listing and nothing else.
+   *
+   * How-to-work guidance used to be prepended there too, which meant "heyaa"
+   * reached the model as a manifest, an effort level, and "Plan before acting"
+   * wrapped around one word. That reads as a work order however the greeting is
+   * phrased, and the model duly planned and built an app. Standing guidance
+   * belongs in the system prompt beside upstream's own — which already says to
+   * answer a greeting conversationally — not stapled to whatever was typed.
+   */
+  const systemPrompt = [profile.systemPrompt, effortSection(options.model)]
+    .filter(Boolean)
+    .join('\n\n');
+
   const registry = toolRegistry([
-    makeTaskTool(options, profile.systemPrompt),
+    makeTaskTool(options, systemPrompt),
     ...(options.extraTools ?? []),
   ]);
 
@@ -705,31 +866,63 @@ export async function runTurn(options: TurnOptions): Promise<void> {
 
   conversation.push({
     role: 'user',
-    content: [
-      projectContext(options.files()),
-      effortContext(options.model),
-      options.prompt,
-    ]
+    content: [projectContext(options.files()), options.prompt]
       .filter(Boolean)
       .join('\n\n'),
   });
 
+  // Effort buys tool-call rounds, not just a bigger reasoning parameter. At
+  // `low` a turn that keeps calling tools is usually stuck; at `ultra` it is
+  // usually working. One fixed ceiling cannot serve both.
+  const budget = options.model.effort?.harness?.maxIterations ?? MAX_ITERATIONS;
+
+  /** Whether the "you announced but did not act" nudge has been spent. */
+  let nudged = false;
+
   try {
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
+    for (let iteration = 0; iteration < budget; iteration += 1) {
       const result = await runIteration(
         conversation,
-        profile.systemPrompt,
+        systemPrompt,
         options,
         sink,
         registry,
       );
 
       if (!result.wantsMore) {
+        /*
+         * A response with no tool call is normally the answer. But a model on a
+         * text protocol can describe the envelope instead of emitting one, and
+         * end its message mid-flow — "Let's start by creating the project
+         * plan." — which ends the turn looking successful with nothing written.
+         *
+         * One nudge, and only when nothing ran this iteration. If it still
+         * emits nothing it has nothing to emit, and asking twice would spend
+         * the user's budget on it.
+         */
+        if (!nudged && !result.didWork && announcedWithoutActing(result.text)) {
+          nudged = true;
+          options.onEvent({ type: 'text', chunk: '\n\n' });
+          conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
+          conversation.push({ role: 'user', content: CONTINUE_OBSERVATION });
+          continue;
+        }
+
         options.onEvent({ type: 'turn-end', reason: 'complete' });
         return;
       }
 
-      conversation.push({ role: 'assistant', content: result.text });
+      // The next iteration's prose streams straight onto the end of this one's.
+      // Without a break the two run together mid-sentence — "…before scaffolding
+      // the application.I will now set up…" — because each iteration is a
+      // separate completion but one continuous transcript.
+      if (result.text.trim() !== '') {
+        options.onEvent({ type: 'text', chunk: '\n\n' });
+      }
+
+      // `raw`, not `text`: the model must see the envelopes it emitted, or it
+      // cannot tell what produced the observation that follows.
+      conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
       conversation.push({
         role: 'user',
         content: result.observations.join('\n\n---\n\n'),

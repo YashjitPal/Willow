@@ -46,6 +46,7 @@ export type MediaItem = {
   ratio: string;
   timestamp: number;
   attachments?: ImageAttachment[];
+  favorite?: boolean;
   isSavedToFS?: boolean;
   fsName?: string;
   lyrics?: { time: number; text: string }[];

@@ -157,10 +157,21 @@ const YouTubeResourceCard: React.FC<{
           referrerPolicy="strict-origin-when-cross-origin"
         />
       </div>
-      <div className="min-w-0 flex-1 py-0.5 text-left font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
+      {/*
+        * `smd-rich-resource-text` makes this the query container for the
+        * description below. It is on THIS element rather than on the card or the
+        * group so that the containment it brings with it does not enclose the
+        * iframe above — see the note in streaming-markdown-styles.ts.
+        */}
+      <div className="smd-rich-resource-text min-w-0 flex-1 py-0.5 text-left font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
         <div className="line-clamp-2 text-[17px] font-[540] leading-6 text-[#e3e3e3]">{resolved.title}</div>
         <div className="mt-0.5 truncate text-[14px] leading-5 text-[#c4c7c5]">{resolved.subtitle || 'YouTube'}</div>
-        <div className="mt-5 line-clamp-4 text-[15px] leading-5 text-[#e3e3e3]">
+        {/*
+          * Hidden once there is no room for it. The class is the container
+          * query's only hook, so renaming it silently restores the description
+          * inside the open immersive panel.
+          */}
+        <div className="smd-rich-resource-description mt-5 line-clamp-4 text-[15px] leading-5 text-[#e3e3e3]">
           {resolved.description || `Watch ${resolved.title} on YouTube.`}
         </div>
       </div>
@@ -206,7 +217,25 @@ export const RichResourceGroup: React.FC<{
       className={'smd-rich-resource-group' + (settled ? ' smd-settled' : '')}
       style={style}
     >
-      <div className="mb-4 flex items-start gap-2">
+      {/*
+        * The header reads as one of the cards rather than as floating text: same
+        * `bg-[#1e1f20]` and same `p-4` as YouTubeResourceCard and DocumentResourceCard
+        * below, so the whole group is one stack of surfaces.
+        *
+        * The radius is asymmetric on purpose. The BOTTOM corners are the cards' own
+        * 4px, so the header and the first video read as one continuous block; the TOP
+        * corners are larger, which caps the stack. 18px is a judgement call rather
+        * than a measured value — asked for by eye, so adjust it by eye.
+        *
+        * `mb-[2px]` matches the `gap-[2px]` the cards use between themselves — the
+        * previous `mb-4` set the header 16px off the first video while the videos sat
+        * 2px apart, which read as the header belonging to something else. Any change
+        * to the gap below has to be mirrored here.
+        *
+        * The second line ("Video" / "Preview") is gone; the source name alone carries
+        * it, and with the card background behind it the label was redundant.
+        */}
+      <div className="mb-[2px] flex items-start gap-2 rounded-b-[4px] rounded-t-[18px] bg-[#1e1f20] p-4">
         {isYouTube ? (
           <img
             src="https://www.gstatic.com/images/branding/productlogos/youtube/v9/192px.svg"
@@ -214,12 +243,12 @@ export const RichResourceGroup: React.FC<{
             className="mt-0.5 h-[18px] w-[18px] shrink-0"
           />
         ) : (
-          <MaterialSymbol family="luminous" name="draft" size={18} weight={300} roundness={100} className="mt-0.5 shrink-0 text-[#c4c7c5]" />
+          /* `google-symbols`, not Luminous: the Luminous subset has no `draft`, and a
+           * ligature a face lacks renders as the letters of its own name. `draft` was
+           * added to the Google Symbols subset for this. */
+          <MaterialSymbol family="google-symbols" name="draft" size={18} weight={300} roundness={100} className="mt-0.5 shrink-0 text-[#c4c7c5]" />
         )}
-        <div className="min-w-0">
-          <div className="text-[14px] leading-5 text-[#c4c7c5]">{isYouTube ? 'YouTube' : 'Files'}</div>
-          <div className="text-[17px] leading-6 text-[#c4c7c5]">{isYouTube ? 'Video' : 'Preview'}</div>
-        </div>
+        <div className="min-w-0 text-[14px] leading-5 text-[#c4c7c5]">{isYouTube ? 'YouTube' : 'Files'}</div>
       </div>
       <div className="flex flex-col gap-[2px]">
         {resources.map((resource) => resource.kind === 'youtube' ? (
@@ -271,6 +300,33 @@ export const RichResourcePanel: React.FC<{
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
+  /*
+   * The embed is mounted AFTER the enter animation, not with the panel.
+   *
+   * Measured (captures/canvas/25-self-drive.json vs 26-gemini-perf.json): opening
+   * this panel cost 321ms of ScriptDuration in ONE ~400ms task, with the iframe
+   * count going 1 -> 2 inside that same task. 321ms of blocked main thread is ~20
+   * dropped frames, which is the lag. Only 2 layouts totalling 33ms happened, so
+   * this was never reflow.
+   *
+   * Gemini does MORE total work for the same action — 624ms of task time, 14 layouts,
+   * 102 style recalcs against our 2 and 2 — and still feels smooth, because its 101ms
+   * of script arrives in eight chunks of which the largest is 28ms. It also defers
+   * exactly this: its panel appears at +475ms and its iframe count does not change
+   * until +1254ms, ~780ms later.
+   *
+   * So the fix is to stop doing it all in one commit rather than to make it cheaper.
+   * `onAnimationComplete` is the hook because it is precisely "the panel has finished
+   * arriving"; the timer is a fallback for the cases where that never fires (reduced
+   * motion, an interrupted animation), because a panel that never loads its video
+   * would be far worse than a slow one.
+   */
+  const [embedReady, setEmbedReady] = useState(false);
+  useEffect(() => {
+    const fallback = window.setTimeout(() => setEmbedReady(true), 700);
+    return () => window.clearTimeout(fallback);
+  }, []);
+
   const share = async () => {
     try {
       if (navigator.share) {
@@ -287,10 +343,68 @@ export const RichResourcePanel: React.FC<{
 
   return (
     <motion.aside
-      initial={{ opacity: 0, scale: 0.5 }}
+      /*
+       * The enter is Gemini's `immersivePanelTransitions`, captured off the running
+       * app rather than eyeballed. Its `immersive-panel` carries no `transition` or
+       * `animation` in the cascade — Angular drives it through the Web Animations
+       * API — so the values come from `effect.getKeyframes()` read the instant the
+       * node is inserted (tools/ui-research/scrapers/canvas/17-panel-anim-observer.cjs,
+       * captures/canvas/17-panel-anim.json):
+       *
+       *   transform: scale(0.6) -> scale(1)   500ms cubic-bezier(0.2, 0, 0, 1)
+       *   opacity:   0 -> 1                   200ms linear
+       *
+       * Two things were wrong here, and the second is the one that read as cheap:
+       * the scale started at 0.5 rather than 0.6, and the opacity was stretched over
+       * the whole 500ms instead of finishing in 200. Fading for the full duration is
+       * what made the panel look like it was materialising out of nothing; Gemini is
+       * opaque a fifth of the way in and spends the rest of the time settling its
+       * size. The duration and easing were already right, so per-property timings —
+       * not one shared `transition` — are the fix.
+       *
+       * `origin-center` in the class list below is required by this: the captured
+       * transform-origin is the panel's own centre (470.669px 388.8px on a 941x778
+       * box). Scaling from a corner is a different animation.
+       *
+       * THE EXIT IS A DELIBERATE DEPARTURE, and it is measured too: Gemini has no
+       * leave animation whatsoever. Closing removes the node in 47ms, verified from a
+       * fully settled panel (`opacity: 1, transform: none`) so it is not an artefact
+       * of interrupting the enter. That reads fine there because Gemini snaps its
+       * grid back and slides its chat column in from `translateX(-20%)`, so the space
+       * is refilled in the same frame. Willow instead animates `grid-template-columns`
+       * over 500ms, so vanishing the panel instantly would leave a visibly collapsing
+       * empty gap. Until the chat-column slide is adopted too, the exit is the
+       * measured 200ms opacity alone — no scale-down, which is what made closing look
+       * like the panel was being sucked away.
+       */
+      initial={{ opacity: 0, scale: 0.6 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.5 }}
-      transition={{ duration: 0.5, ease: [0.2, 0, 0, 1] }}
+      onAnimationComplete={() => setEmbedReady(true)}
+      exit={{ opacity: 0, transition: { duration: 0.2, ease: 'linear' } }}
+      transition={{
+        scale: { duration: 0.5, ease: [0.2, 0, 0, 1] },
+        opacity: { duration: 0.2, ease: 'linear' },
+      }}
+      /*
+       * The four desktop margins are Gemini's `immersive-panel` under
+       * `.lm-canvas-theme`, from its authored rule:
+       *
+       *   margin: var(--gem-sys-spacing--xxl) var(--gem-sys-spacing--xxl)
+       *           calc(var(--gem-sys-spacing--l) * 3) var(--gem-sys-spacing--s);
+       *
+       * i.e. `24px 24px 48px 8px`. `ml-2` is why the visible gutter between the
+       * conversation and the panel reads as 32px rather than the grid's 24px gap:
+       * the extra 8px is the panel's own margin.
+       *
+       * THE RIGHT MARGIN IS 32px (`mr-8`), NOT Gemini's 24px, AND IT IS COUPLED TO
+       * ChatView. Gemini can use 24 because its grid is already inset 24px on that
+       * side; Willow's grid has no inset, so this margin absorbs it. Setting `mr-6`
+       * while the grid lacks the inset moves the panel 8px further right — which was
+       * reported as the panel extending rightward. The two only change together, and
+       * the grid half has failed twice (see the note at the grid in ChatView.tsx).
+       *
+       * Margins only — the enter/exit animation is Framer's above and is untouched.
+       */
       className="fixed inset-0 z-50 flex min-h-0 min-w-0 origin-center flex-col overflow-hidden bg-[#1f1f1f] text-[#e3e3e3] will-change-[transform,opacity] transform-gpu min-[960px]:relative min-[960px]:inset-auto min-[960px]:z-auto min-[960px]:mb-12 min-[960px]:ml-2 min-[960px]:mr-8 min-[960px]:mt-6 min-[960px]:rounded-[40px] min-[960px]:border min-[960px]:border-white/[0.12]"
       aria-label={`${panelTitle} preview`}
     >
@@ -326,25 +440,35 @@ export const RichResourcePanel: React.FC<{
         </div>
       </div>
 
+      {/*
+        * The placeholders are the same box as the iframe they stand in for, so the
+        * swap costs no layout and nothing shifts when the embed arrives.
+        */}
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         {resolved.kind === 'youtube' ? (
           <div className="flex h-full w-full items-center justify-center overflow-hidden">
-            <iframe
-              className="block aspect-video max-h-full w-full border-0"
-              src={viewerUrl}
-              title={panelTitle}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
+            {embedReady ? (
+              <iframe
+                className="block aspect-video max-h-full w-full border-0"
+                src={viewerUrl}
+                title={panelTitle}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            ) : (
+              <div aria-hidden="true" className="block aspect-video max-h-full w-full bg-[#131314]" />
+            )}
           </div>
-        ) : (
+        ) : embedReady ? (
           <iframe
             className="h-full w-full border-0 bg-[#131314]"
             src={viewerUrl}
             title={panelTitle}
             referrerPolicy="strict-origin-when-cross-origin"
           />
+        ) : (
+          <div aria-hidden="true" className="h-full w-full bg-[#131314]" />
         )}
       </div>
     </motion.aside>

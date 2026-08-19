@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
 import { updateNotebook } from './notebooks-store';
+
+/** Exit animation plus its 25ms delay — see `.nb-sheet-exit`. */
+const SETTINGS_EXIT_MS = 125;
 
 /**
  * Gemini's `project-instructions-editor` — the Notebook settings sheet, 512x446.
@@ -40,13 +43,33 @@ export const NotebookSettingsDialog: React.FC<{
   const isDirty = useMemory !== (notebook.useMemory ?? false)
     || instructions !== (notebook.instructions ?? '');
 
+  /*
+   * Held open for the length of the exit fade — see `.nb-sheet-exit`. The parent
+   * owns the mount, so a bare `onClose()` removes the tree in the same frame and
+   * the animation never plays. Same shape as the Sources dialog.
+   */
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | undefined>(undefined);
+  const requestClose = React.useCallback(() => {
+    if (closeTimerRef.current !== undefined) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(onClose, SETTINGS_EXIT_MS);
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
   const save = () => {
     updateNotebook(notebook.id, { useMemory, instructions });
-    onClose();
+    requestClose();
   };
 
   return createPortal(
-    <div className="nb-set-scrim" onClick={onClose}>
+    <div
+      className={`nb-set-scrim ${isClosing ? 'nb-sheet-exit' : ''}`}
+      onClick={requestClose}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -101,7 +124,7 @@ export const NotebookSettingsDialog: React.FC<{
           </div>
 
           <div className="nb-set-actions">
-            <button type="button" onClick={onClose} className="nb-set-cancel">Cancel</button>
+            <button type="button" onClick={requestClose} className="nb-set-cancel">Cancel</button>
             <button type="button" disabled={!isDirty} onClick={save} className="nb-set-save">Save</button>
           </div>
         </div>

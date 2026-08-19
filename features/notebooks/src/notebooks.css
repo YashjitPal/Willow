@@ -617,6 +617,23 @@
 
 /* ── Notebook page ─────────────────────────────────────────────────────────── */
 
+/*
+ * `scrollbar-gutter: stable both-edges` is LOAD-BEARING, and it exists to protect
+ * the composer's x.
+ *
+ * The column is centred in this box, so its position depends on how much width
+ * the scrollbar takes. Chrome's default here was an overlay scrollbar — floating
+ * above the content, zero layout width — but styling `::-webkit-scrollbar` (which
+ * `gemini-chat-scrollbar` does, to match the chat surface) opts out of overlay
+ * scrollbars, so the bar starts consuming 12px. That narrows the content box and
+ * slides a centred 660px column 6px left, which undid painstaking work aligning
+ * this composer with the new-chat one.
+ *
+ * Reserving the gutter on BOTH edges keeps the centre on the box's centre whether
+ * the scrollbar is showing or not, so the composer sits at the same x in every
+ * case — with a short page, with a long one, and mid-scroll. Do not "simplify"
+ * this to `stable`: one edge only re-introduces the 6px shift.
+ */
 .nb-page-host {
   display: flex;
   height: 100%;
@@ -624,6 +641,7 @@
   flex-direction: column;
   align-items: center;
   overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 /*
@@ -760,8 +778,19 @@
 }
 
 /*
- * The sources chip. `rgb(31,31,31)` — NOT the card's `rgb(27,27,27)`. They are
- * different surfaces in Gemini's palette and the swap is visible side by side.
+ * The sources chip.
+ *
+ * The fill FOLLOWS THE STATE, and the two dark greys are not interchangeable. With at
+ * least one source the chip is `rgb(23,23,23)` and the type-icon disc inside it is
+ * `rgb(31,31,31)`; both were read off Gemini's live chip twice over — computed style on
+ * `mat-basic-chip`, then by counting pixels in a screenshot (6604 px of `rgb(23,23,23)`
+ * against 117 px of `rgb(31,31,31)` around the icon, on a `rgb(15,15,15)` page). Paint
+ * the chip in the disc's grey and the disc vanishes into it.
+ *
+ * With no sources there is no disc, and the chip measured `rgb(31,31,31)` — see the
+ * `mat-basic-chip` in `tools/ui-research/captures/notebooks/settled-tree.json`, taken on
+ * a notebook with zero sources. Gemini marks that state with its own `lm-no-icons`
+ * class, which is why this reproduces it as a modifier rather than picking one grey.
  */
 .nb-source-chip {
   display: inline-flex;
@@ -770,19 +799,84 @@
   align-items: center;
   gap: 4px;
   border-radius: 9999px;
-  background-color: rgb(31, 31, 31);
+  background-color: rgb(23, 23, 23);
   padding: 0 16px;
   color: rgb(227, 227, 227);
-  /* gds-body-m */
+  /*
+   * gds-body-m, and `wdth` has to be named. Google Sans Flex defaults to 100 on that
+   * axis while Gemini's type scale sets 92, which made "1 Source" 58.68px against its
+   * 56.16px — the chip is right-aligned, so the whole thing sat 2.5px further left.
+   */
   font-size: 15px;
   font-weight: 400;
   line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   cursor: pointer;
   transition: background-color 0.2s ease-out;
 }
 
+/* Gemini's icon-less state, its `lm-no-icons`. */
+.nb-source-chip.nb-no-icons {
+  background-color: rgb(31, 31, 31);
+}
+
+/*
+ * Gemini has no hover fill of its own here — it lays MDC's state layer over the chip,
+ * `rgb(196,199,197)` at the 8% hover opacity, which over each base resolves to these.
+ * Kept as flat colours because the transition above already reads identically.
+ */
 .nb-source-chip:hover {
-  background-color: rgb(40, 40, 40);
+  background-color: rgb(37, 37, 37);
+}
+
+.nb-source-chip.nb-no-icons:hover {
+  background-color: rgb(44, 44, 44);
+}
+
+/*
+ * The disc behind each file-type icon. 20px, with a 15px icon inside it, and every disc
+ * past the first pulled 4px left so a multi-source chip stacks.
+ *
+ * Copied off Gemini's `gem-source-list` rules for its `variant-lm`, which
+ * `document.styleSheets` cannot reach — Angular installs them as constructed sheets, so
+ * they only turn up through the CDP CSS domain (`tools/scratch/stacked-rules.cjs`):
+ *
+ *   .variant-lm .icon-container              background surface-bright (#1f1f1f),
+ *                                            20x20, radius full, margin-inline-start -4px
+ *   .variant-lm .icon-container:first-child  margin-inline-start 0
+ *   .variant-lm .icon-container gem-icon     15x15
+ *
+ * `-4px` is `calc(var(--gem-sys-spacing--xs) * -1)` with `xs` resolved on the live page.
+ * Reading the rules this way is what made the stack reproducible from a notebook that
+ * only ever had one source in it.
+ */
+/* Gemini's `.container`: flex, no padding, and no gap — the overlap depends on that. */
+.nb-source-chip-icons {
+  display: flex;
+  flex: none;
+}
+
+.nb-source-chip-icon {
+  display: flex;
+  height: 20px;
+  width: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(31, 31, 31);
+  /* Overlaps the disc to its left, and this disc's opaque fill is what clips that one. */
+  margin-inline-start: -4px;
+  position: relative;
+  /*
+   * Gemini writes this inline on every disc, whatever the count. Equal z-index means DOM
+   * order decides, so each disc paints over the one to its left — newest on top.
+   */
+  z-index: 0;
+}
+
+.nb-source-chip-icon:first-child {
+  margin-inline-start: 0;
 }
 
 /*
@@ -989,6 +1083,44 @@ button.nb-chat-row {
   }
 }
 
+/*
+ * The Sources dialog's exit, matching the three-dot menu's `nb-menu-exit`
+ * exactly — 100ms linear after a 25ms hold. It had an entrance and no exit, so it
+ * arrived softly and then blinked out.
+ *
+ * The entrance above is untouched, deliberately: this is a separate keyframe
+ * rather than a reverse of `nb-dialog-in`, so the scale-up on the way in cannot
+ * be affected by anything done here.
+ */
+@keyframes nb-sheet-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/*
+ * COMPOUND SELECTORS, and they are not redundant.
+ *
+ * Each scrim sets `animation` in its own rule, and every one of those is a single
+ * class — so a bare `.nb-sheet-exit` only wins against the scrims declared ABOVE
+ * it. `.nb-sheet-scrim` is (so Sources faded out correctly) and `.nb-set-scrim` is
+ * not (so Settings and Rename silently kept playing their entrance and vanished).
+ * Naming both scrims here settles it by specificity rather than by source order,
+ * which no longer breaks if these rules are moved.
+ */
+.nb-sheet-exit,
+.nb-sheet-scrim.nb-sheet-exit,
+.nb-set-scrim.nb-sheet-exit {
+  animation: nb-sheet-exit 100ms linear 25ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-sheet-exit,
+  .nb-sheet-scrim.nb-sheet-exit,
+  .nb-set-scrim.nb-sheet-exit {
+    animation: none;
+  }
+}
+
 .nb-sheet {
   position: relative;
   display: flex;
@@ -1177,68 +1309,283 @@ button.nb-chat-row {
   color: rgb(196, 199, 197);
 }
 
-.nb-src-list {
+/*
+ * Sources are TILES in a grid, not rows.
+ *
+ * Gemini's `.selected-files-container`: `display: grid`, `gap: 8px`,
+ * `padding-bottom: 24px`, and a 641px pane resolving to
+ * `grid-template-columns: 121.8px x5` — which is `repeat(auto-fill, minmax(112px, 1fr))`
+ * exactly, since (641 - 4x8) / 5 = 121.8. `auto-fill` rather than a hard `repeat(5, …)`
+ * so the column count follows the pane instead of assuming its width.
+ *
+ * The 112px tile is narrower than its 121.8px column, which is why Gemini's tiles sit
+ * 129.8px apart with a visible slack to the right of each one. Not a gap to add: it falls
+ * out of a fractional column holding a fixed-width tile.
+ *
+ * Gemini also declares `height: 112px` on this container, i.e. ONE row, with the rest
+ * scrolling. Willow lets it wrap and grow instead — identical for the five sources that
+ * fit a row, and it does not hide the sixth behind a scroll with no affordance. The only
+ * sample measured had four sources, so which of the two Gemini does past five is unknown.
+ */
+.nb-src-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  padding-bottom: 24px;
+}
+
+/*
+ * The tile. Same 112px box, 20px radius and `rgba(255,255,255,0.12)` fill as the composer
+ * attachment card in `platform/ui` — Gemini reuses its `gem-attachment` here, and the
+ * measurement agrees to the pixel.
+ */
+.nb-src-tile {
+  position: relative;
+  height: 112px;
+  width: 112px;
+  overflow: hidden;
+  border-radius: 20px;
+  background-color: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+/* 88x88, so a 12px inset, with the name pinned to the bottom of it. */
+.nb-src-tile-content {
+  position: absolute;
+  inset: 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  justify-content: flex-end;
 }
 
-.nb-src-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-radius: 16px;
-  background-color: rgb(23, 23, 23);
-  padding: 12px 16px;
-}
-
-.nb-src-row-text {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.nb-src-row-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-  line-height: 20px;
-  color: rgb(227, 227, 227);
-}
-
-.nb-src-row-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 17px;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.nb-src-row-remove {
+/* Absolute at the content box's top-left, which is 12px into the tile. */
+.nb-src-tile-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   height: 24px;
   width: 24px;
-  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/*
+ * `gds-body-s`, clamped to three lines. `auto-phrase` is Gemini's own word-break here and
+ * it is what wraps "Electroche... Lecture 1" after the ellipsis rather than mid-word.
+ */
+.nb-src-tile-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(227, 227, 227);
+  white-space: pre-wrap;
+  word-break: auto-phrase;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/*
+ * A white 20px circle with a black 16px Luminous `close`, 12px in from the top-right —
+ * the same inset as the content box, not the tile's corner radius.
+ *
+ * Hidden by `visibility` and snapped in on hover, with no transition: Gemini's declares
+ * `transition: all 0s`, so a fade here would be wrong.
+ */
+.nb-src-tile-remove {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  height: 20px;
+  width: 20px;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  color: rgba(255, 255, 255, 0.6);
-  transition: background-color 0.15s ease-out;
+  background-color: rgb(255, 255, 255);
+  color: rgb(0, 0, 0);
+  visibility: hidden;
 }
 
-.nb-src-row-remove:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: rgb(227, 227, 227);
+.nb-src-tile:hover .nb-src-tile-remove,
+.nb-src-tile:focus-within .nb-src-tile-remove {
+  visibility: visible;
 }
 
-.nb-sheet-hint {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-  color: rgba(255, 255, 255, 0.45);
+/*
+ * ── The "still reading" spinner ──────────────────────────────────────────────────
+ *
+ * Where the icon goes, in place of it, and no text with it. Gemini's rule is
+ * `.gem-attachment-notebook .gem-attachment-loading-spinner { position: absolute; top: 0;
+ * inset-inline-start: 0 }` — the same corner of the content box the type icon occupies —
+ * with `--mat-progress-spinner-active-indicator-color: var(--lumi-sys-color--on-surface)`,
+ * which resolves to `#e6e6e6`.
+ *
+ * Everything below is MDC's indeterminate circular progress, not an impression of it. The
+ * keyframes and the four durations were read out of Gemini's own stylesheets with
+ * `tools/scratch/gemini-spinner-css.cjs`; `SourceTile` carries the geometry and the note on
+ * why the arc is drawn three times.
+ *
+ * The colour-fade layers MDC declares are dropped on purpose: they exist to cross-fade a
+ * four-colour spinner, and this one is a single grey.
+ */
+.nb-src-tile-spinner {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  display: block;
+  overflow: hidden;
+  /*
+   * MDC pins the host to `ltr`, and it has to: the clipper arithmetic below is physical
+   * (`left: -100%`, `left: 47.5%`), so under RTL the two halves swap and the seam moves.
+   * The host's own placement stays logical — that is Gemini's `inset-inline-start` above.
+   */
+  direction: ltr;
+  /* MDC: `line-height: 0` on the host, or the inline SVG adds a descender. */
+  line-height: 0;
+  color: rgb(230, 230, 230);
+}
+
+/*
+ * `font-size: 0` and `letter-spacing: 0` are MDC's own, for a reason worth keeping: the two
+ * clippers are inline-level 50% boxes, so any whitespace text node between them is a word
+ * space that pushes the second one out of the 20px box. JSX drops the newlines between
+ * sibling elements, so there is none today — this keeps that from being load-bearing.
+ */
+.nb-spinner-rotator {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  font-size: 0;
+  letter-spacing: 0;
+  white-space: nowrap;
+  animation: nb-spinner-container-rotate 1568.2352941176ms linear infinite;
+}
+
+.nb-spinner-layer {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  /* `both` matters: the layer must hold its final rotation between iterations. */
+  animation: nb-spinner-layer-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+/* Each clipper shows one half of the circle; the halves counter-rotate. */
+.nb-spinner-clip {
+  display: inline-flex;
+  position: relative;
+  height: 100%;
+  width: 50%;
+  overflow: hidden;
+}
+
+.nb-spinner-clip .nb-spinner-graphic {
+  width: 200%;
+}
+
+.nb-spinner-clip-left .nb-spinner-graphic {
+  animation: nb-spinner-left-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+/*
+ * `left: -100%` is load-bearing, and omitting it is what drew a WAVE instead of an arc.
+ * The graphic is 200% of a 50%-wide clipper — the whole circle — so at `left: 0` the
+ * clipper's window falls on the circle's LEFT half. That is right for the left clipper and
+ * wrong for this one; shifting the graphic a full clipper-width left moves the window onto
+ * the right half. Without it both clippers draw the same half, and since they counter-rotate
+ * the two copies render mirrored, which reads as an S rather than a growing arc.
+ */
+.nb-spinner-clip-right .nb-spinner-graphic {
+  left: -100%;
+  animation: nb-spinner-right-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+/* Covers the 5% seam the two clippers leave down the middle. */
+.nb-spinner-gap {
+  position: absolute;
+  top: 0;
+  left: 47.5%;
+  box-sizing: border-box;
+  height: 100%;
+  width: 5%;
+  overflow: hidden;
+}
+
+.nb-spinner-gap .nb-spinner-graphic {
+  left: -900%;
+  width: 2000%;
+  transform: rotate(180deg);
+}
+
+.nb-spinner-graphic {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  fill: transparent;
+}
+
+/*
+ * No `stroke-linecap`. MDC declares none — grepping the captured stylesheets for `linecap`
+ * finds nothing at all, so the arc keeps SVG's default `butt`. `square` extends each end by
+ * half the stroke, which on a 4px stroke in a 20px box is 2px of arc per end that Gemini
+ * does not draw; it also makes the seam the gap-patch covers visibly thicker.
+ */
+.nb-spinner-graphic circle {
+  stroke: currentColor;
+}
+
+@keyframes nb-spinner-container-rotate {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes nb-spinner-layer-rotate {
+  12.5% { transform: rotate(135deg); }
+  25% { transform: rotate(270deg); }
+  37.5% { transform: rotate(405deg); }
+  50% { transform: rotate(540deg); }
+  62.5% { transform: rotate(675deg); }
+  75% { transform: rotate(810deg); }
+  87.5% { transform: rotate(945deg); }
+  to { transform: rotate(3turn); }
+}
+
+@keyframes nb-spinner-left-spin {
+  0% { transform: rotate(265deg); }
+  50% { transform: rotate(130deg); }
+  to { transform: rotate(265deg); }
+}
+
+@keyframes nb-spinner-right-spin {
+  0% { transform: rotate(-265deg); }
+  50% { transform: rotate(-130deg); }
+  to { transform: rotate(-265deg); }
+}
+
+/*
+ * Stopped outright rather than slowed, and the resting state is a full ring.
+ *
+ * Gemini's stylesheets have no `prefers-reduced-motion` block at all — this is Willow's
+ * addition — but MDC does have an animations-off mode, `_mat-animation-noopable`, and it
+ * kills the animation AND sets `stroke-dasharray: 0` on the circle. That second half is the
+ * part that is easy to miss: freezing the animation alone leaves the arc wherever its
+ * keyframes happened to stop, i.e. a lopsided fragment held forever. Dropping the dash
+ * closes the circle, so a user who has asked for no motion gets a static ring.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nb-spinner-rotator,
+  .nb-spinner-layer,
+  .nb-spinner-clip .nb-spinner-graphic {
+    animation: none;
+  }
+
+  .nb-spinner-graphic circle {
+    stroke-dasharray: 0 !important;
+  }
 }
 
 .nb-sheet-error {
@@ -1378,31 +1725,61 @@ button.nb-chat-row {
  * `.right-section`: 40x40 at y=12, 20px clear of the viewport's right edge. The
  * button itself is identical to the row's — same size, padding, radius and glyph.
  */
+/*
+ * Same corner as the chat surface's three-dot, to the pixel: that one is measured
+ * at 36x36 with `top: 14px; right: 12px`, so this sits at 14/12 too. It was 12/20,
+ * which put it 8px further from the right edge and 2px higher — enough to read as
+ * a different control when you switch between a chat and a notebook.
+ */
 .nb-page-actions {
   position: fixed;
-  top: 12px;
-  right: 20px;
+  top: 14px;
+  right: 12px;
   z-index: 40;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+/*
+ * The notebook header's three-dot, matched to the chat surface's own — asked for
+ * by name, because the two sit in the same corner of the same app and read as
+ * different controls. See `apps/studio/src/shell/ConversationActionsMenu.tsx`
+ * for where these values are measured: 36x36, padding 6, `rgb(230,230,230)`.
+ *
+ * The hover tint is a RIPPLE CHILD, not the button's own background: Gemini's
+ * button stays transparent throughout and a persistent-ripple `::before` goes
+ * from opacity 0 to 0.08. Reproduced the same way here, so the fade matches — the
+ * flat `background-color` this used to carry snapped on with no transition.
+ */
 .nb-icon-button {
+  position: relative;
   display: flex;
-  height: 40px;
-  width: 40px;
+  height: 36px;
+  width: 36px;
   flex: none;
   align-items: center;
   justify-content: center;
-  padding: 8px;
+  padding: 6px;
   border-radius: 9999px;
-  color: rgb(196, 199, 197);
+  background-color: transparent;
+  color: rgb(230, 230, 230);
 }
 
-.nb-icon-button:hover {
-  background-color: rgba(196, 199, 197, 0.08);
+.nb-icon-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: rgb(196, 199, 197);
+  opacity: 0;
+  transition: opacity 150ms ease;
 }
+
+.nb-icon-button:hover::before { opacity: 0.08; }
+
+/* Above the ripple, which is absolutely positioned over the button's box. */
+.nb-icon-button > * { position: relative; }
 
 /* ── The three-dot menu (`gem-menu`) ──────────────────────────────────────── */
 
@@ -1415,6 +1792,38 @@ button.nb-chat-row {
  * static 4px offset), `.container` (radius + shadow) and `gem-menu` (background,
  * radius, padding). Collapsed into one here since all three share the same box.
  */
+/*
+ * Enter/exit, copied value-for-value from `ConversationActionsMenu.css` so the
+ * notebook menu and the chat surface's menu behave identically. Gemini animates
+ * neither; this is Willow's, requested — see NotebookMenu.tsx.
+ */
+@keyframes nb-menu-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes nb-menu-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.nb-menu-enter {
+  animation: nb-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  /* Grows out of the trigger, which the panel is right-aligned to. */
+  transform-origin: top right;
+}
+
+.nb-menu-exit {
+  animation: nb-menu-exit 100ms linear 25ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-menu-enter,
+  .nb-menu-exit {
+    animation: none;
+  }
+}
+
 .nb-menu {
   position: fixed;
   z-index: 1000;
@@ -1497,6 +1906,15 @@ button.nb-chat-row {
  * dialog held `opacity: 1` right up to removal. That asymmetry is deliberate and is
  * what `GeminiDialog` already implements, so these reuse the same shape.
  */
+/*
+ * Shared by Notebook settings and Rename notebook, and by nothing else — which is
+ * why the entrance sits on the scrim itself rather than on a class the two have to
+ * remember to carry.
+ *
+ * Same pair as the Sources dialog: the scrim fades over 160ms and the surface
+ * scales up over 220ms, so all three dialogs in this feature arrive identically.
+ * `.nb-sheet-exit` handles the way out for all of them.
+ */
 .nb-set-scrim {
   position: fixed;
   inset: 0;
@@ -1506,6 +1924,18 @@ button.nb-chat-row {
   justify-content: center;
   padding: 24px;
   background-color: rgba(0, 0, 0, 0.32);
+  animation: nb-fade-in 160ms ease-out both;
+}
+
+.nb-set-scrim > .nb-surface {
+  animation: nb-dialog-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-set-scrim,
+  .nb-set-scrim > .nb-surface {
+    animation: none;
+  }
 }
 
 /* ── Notebook settings, 512x446 ───────────────────────────────────────────── */

@@ -13,6 +13,7 @@ import { testStore } from '@willow/ai/computer-use/test-store';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { PROJECT_NAME_MODEL } from '@models';
 import { PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
+import { deriveFallbackTitle } from '@willow/core/fallback-title';
 
 interface WorkbenchViewProps {
   prompt?: string;
@@ -223,20 +224,22 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
               }
         }
 
-        if (!name) name = 'New Project';
         // Clean up: remove quotes if present, strip filesystem-illegal
         // characters (the name becomes the Code/<name> folder on disk — ':'
         // etc. make every folder operation throw "Name is not allowed" on
         // Windows and the project silently never syncs), limit length.
-        const cleanName = (name.replace(/^["']|["']$/g, '').replace(/[\/:*?"<>|]/g, '').substring(0, 30) || 'New Project').trim() || 'New Project';
+        const cleanName = name.replace(/^["']|["']$/g, '').replace(/[\/:*?"<>|]/g, '').substring(0, 30).trim();
 
+        // An empty name here means the naming model gave nothing back — quota,
+        // a revoked key, a retired model id. The prompt it was given names the
+        // project instead, and only one too long to read as a label falls
+        // through to 'New Project'.
         // Register in willow_projects_list (disambiguates instead of dropping).
-        const registeredName = registerCodeProject(cleanName);
+        const registeredName = registerCodeProject(cleanName || deriveFallbackTitle(prompt, 'New Project'));
 
         setProjectName(registeredName);
       } catch (error) {
-        const fallbackName = 'New Project';
-        const registeredName = registerCodeProject(fallbackName);
+        const registeredName = registerCodeProject(deriveFallbackTitle(prompt, 'New Project'));
         setProjectName(registeredName);
       } finally {
         setIsGeneratingName(false);

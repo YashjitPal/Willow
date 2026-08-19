@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 
 import './notebooks.css';
-import type { Notebook } from './notebook-types';
-import { notebooksStore, moveChatBetweenNotebooks } from './notebooks-store';
+import { hydrateNotebooks, notebooksStore, subscribeToNotebookWrites } from './notebooks-store';
+import { useNotebookDisk } from './useNotebookDisk';
 
 /**
  * "Move Chat" — recorded at **434x465**, and structurally NOT the standard dialog:
@@ -24,41 +24,66 @@ import { notebooksStore, moveChatBetweenNotebooks } from './notebooks-store';
  * This one does NOT reuse `GeminiDialog`: that component hard-codes a title / content
  * / actions triple, and this dialog has a close button in its header, an info band,
  * and no actions at all.
+ *
+ * **It is also "Add to notebook".** A chat that is not in a notebook yet — reached
+ * from the conversation menu or a Recents row's menu — gets the same dialog under a
+ * different title, because it is the same choice. Only the title, the info line, the
+ * empty-state string and whether the owning notebook is excluded from the list
+ * differ. The bands are all fixed heights and both info strings are one line, so the
+ * measured 434x465 holds either way.
+ *
+ * The owning notebook is **derived** from `chatId`, not passed in: it is a function
+ * of the registry, so a prop would only let a caller disagree with it. That also
+ * makes the dialog correct from the shell, where nothing else has read the registry —
+ * hence the hydrate below, which the notebook page's own mount makes redundant but
+ * which the sidebar's does not (its Notebooks section is unmounted while collapsed).
  */
 export const MoveChatDialog: React.FC<{
   chatId: string;
-  fromNotebook: Notebook;
   onClose: () => void;
-}> = ({ chatId, fromNotebook, onClose }) => {
+}> = ({ chatId, onClose }) => {
   const notebooks = useStore(notebooksStore);
+  const { fileChat } = useNotebookDisk();
   const [isMoving, setIsMoving] = useState(false);
 
+  useEffect(() => {
+    hydrateNotebooks();
+    return subscribeToNotebookWrites();
+  }, []);
+
+  // Chats live in at most one notebook, so the first match is the owner.
+  const fromNotebook = notebooks.find((notebook) => notebook.chatIds.includes(chatId)) ?? null;
+
+  const title = fromNotebook ? 'Move Chat' : 'Add to notebook';
+
   // Moving a chat into the notebook it already lives in is a no-op, so it isn't offered.
-  const targets = notebooks.filter((candidate) => candidate.id !== fromNotebook.id);
+  const targets = fromNotebook ? notebooks.filter((candidate) => candidate.id !== fromNotebook.id) : notebooks;
 
   return (
     <div className="nb-move-scrim" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Move Chat"
+        aria-label={title}
         className="nb-surface nb-move"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="nb-move-header">
-          <h1 className="nb-move-title">Move Chat</h1>
+          <h1 className="nb-move-title">{title}</h1>
           <button type="button" aria-label="Close" onClick={onClose} className="nb-move-close">
             {/* Measured: a 24px `close` from google-symbols, not the Luminous family. */}
             <MaterialSymbol name="close" family="google-symbols" size={24} />
           </button>
         </div>
 
-        <div className="nb-move-info">Select a notebook to move this chat into</div>
+        <div className="nb-move-info">
+          {fromNotebook ? 'Select a notebook to move this chat into' : 'Select a notebook to add this chat to'}
+        </div>
 
         <div className="nb-move-list">
           <div className="nb-move-list-inner">
             {targets.length === 0 ? (
-              <div className="nb-move-empty">No other notebooks yet</div>
+              <div className="nb-move-empty">{fromNotebook ? 'No other notebooks yet' : 'No notebooks yet'}</div>
             ) : (
               targets.map((target) => (
                 <button
@@ -68,7 +93,15 @@ export const MoveChatDialog: React.FC<{
                   onClick={() => {
                     // Guard against a double-click landing two moves.
                     setIsMoving(true);
-                    moveChatBetweenNotebooks(fromNotebook.id, target.id, chatId);
+                    /*
+                     * `fileChat` covers both modes: it unfiles from whichever notebook
+                     * currently owns the chat before filing it here, so this one call
+                     * is correct whether the chat was in a notebook or not. The disk
+                     * half is not awaited — the dialog closes on the click, as Gemini's
+                     * does, and a move that fails leaves the record dirty for the
+                     * reconciler to finish.
+                     */
+                    void fileChat(chatId, target.id);
                     onClose();
                   }}
                   className="nb-move-row"

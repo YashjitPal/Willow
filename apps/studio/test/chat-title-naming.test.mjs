@@ -73,8 +73,9 @@ test('the naming model is asked with the prompt alone', () => {
 test('the prompt-only fallback still applies when the naming model fails', () => {
   // generateChatTitleWith returns '' rather than throwing, so this branch — not
   // the catch — is what actually names the chat when there is no API key.
+  // See naming-fallback.test.mjs for the shared helper this now delegates to.
   assert.match(titleEffect, /if \(!title\) \{/);
-  assert.match(titleEffect, /words\.slice\(0, 5\)\.join\(' '\)/);
+  assert.match(titleEffect, /title = deriveFallbackTitle\(userMsg, FALLBACK_CHAT_TITLE\)/);
 });
 
 test('an attachment-only first message still yields a name', () => {

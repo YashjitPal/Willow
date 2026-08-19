@@ -49,8 +49,41 @@ it('renders a window over Recents rather than every chat', () => {
     'the Recents list no longer slices to a window');
   // The window must be measured against the pinned partition, or a user with
   // many pins sees a first page made entirely of pins and no actual recents.
-  assert.match(source, /effectiveRecentsLimit = recentsLimit \+ pinnedChatSet\.size/,
+  // Counted over the notebook-filtered list, not `pinnedChatSet.size`: a pinned
+  // chat that is now in a notebook is not hoisted, so it must not buy a slot.
+  assert.match(source, /effectiveRecentsLimit = recentsLimit \+ visiblePinnedCount/,
     'the window ignores pinned chats, which are all hoisted ahead of the recents');
+  assert.match(source, /visiblePinnedCount = useMemo\(\s*\(\) => sortedChats\.reduce/,
+    'the hoisted-pin count is not derived from the list Recents actually renders');
+});
+
+it('hides chats a notebook owns from Recents, display-only', () => {
+  const source = SIDEBAR();
+
+  // A filed chat belongs to its notebook's Past chats and its file lives under
+  // Notebooks/<name>/Chats/, so listing it in Recents too shows one conversation
+  // in two places.
+  assert.match(source, /for \(const chat of localChats\) \{\s*\n\s*if \(notebookChatIds\.has\(chat\)\) continue;/,
+    'Recents no longer filters out notebook-owned chats');
+
+  // The header is a promise that there is a section. Gating it on the unfiltered
+  // count puts "Recents" back over an empty list once every chat is filed.
+  assert.match(source, /isChatListHydrated && isLocalFolderConnected && sortedChats\.length > 0 &&/,
+    'the Recents header is gated on the unfiltered chat count');
+
+  // Display-only, both directions:
+  //   NotebookPage validates its own rows against the same unfiltered localChats,
+  //   so dropping these ids any further down would empty every notebook's list.
+  //   The rename dup-check needs the unfiltered list for a harder reason — a chat
+  //   id is its filename, but the sync-record map is keyed by id alone.
+  assert.match(source, /if \(localChats\.includes\(trimmed\)\) \{/,
+    'the rename dup-check must stay on the unfiltered list, or ids can collide across folders');
+
+  // The sidebar reads the registry itself: the Notebooks section is unmounted
+  // while the rail is collapsed, and mounting in the same commit would let a
+  // filed chat paint in Recents for a frame.
+  assert.match(source, /const notebooks = useStore\(notebooksStore\);/);
+  assert.match(source, /hydrateNotebooks\(\);\s*\n\s*return subscribeToNotebookWrites\(\);/);
 });
 
 it('never windows away a row that owns live interaction state', () => {

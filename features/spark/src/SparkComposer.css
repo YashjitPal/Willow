@@ -1,0 +1,29 @@
+/*
+ * Chat's `InputBar` centres itself in a `max-w-[660px]` block, which is already Spark's
+ * column width — so the host only has to provide the width and let the composer sit in it.
+ * Everything about the box itself (the 32px corners, the #1e1f21 fill, the control
+ * clusters) belongs to `Composer.tsx` and is not restated here.
+ */
+.spark-composer-host {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+}
+
+/*
+ * The attachment error sits below the box without displacing it, so a failed upload does
+ * not shove the Recent list down a line. Same 13px/17px body size as the rest of Spark.
+ */
+.spark-composer-host__error {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  margin: 0;
+  color: #f2b8b5;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  text-align: center;
+}

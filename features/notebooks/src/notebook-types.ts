@@ -49,6 +49,19 @@ export interface NotebookSource {
    * step, not something this field currently achieves.
    */
   dataUrl?: string;
+  /** Page count for a PDF, shown in the row's meta line. */
+  pages?: number;
+  /**
+   * The file's name inside the notebook's `Sources/` folder on disk, once it has
+   * been written there. Same role as `MediaItem.fsName`: the registry entry is the
+   * pointer, the folder holds the bytes.
+   *
+   * Absent means "not on disk" — either no folder is connected, or this source
+   * predates the mirror and the backfill has not reached it yet. Never derive it
+   * from `title`: two sources can share a title, so the writer resolves collisions
+   * with a `(1)` suffix and reports back the name it actually used.
+   */
+  fsName?: string;
   createdAt: number;
 }
 
@@ -68,6 +81,24 @@ export interface Notebook {
   /** Chat ids belonging to this notebook, newest first. */
   chatIds: string[];
   sources: NotebookSource[];
+  /**
+   * The notebook's folder name inside `Notebooks/` on disk, once one has been
+   * created for it. Assigned on the first successful write and then **frozen** —
+   * it is not re-derived from `title`.
+   *
+   * That is the whole point of storing it. Titles collide (`createNotebook`
+   * deliberately mints two "Untitled notebook"s), so folder names carry a `(2)`
+   * suffix to break the tie — and a name derived fresh each time would move on
+   * its own: rename the first "Physics" to "Chem" and the second notebook's
+   * derived name changes from `Physics (2)` to `Physics` without that notebook
+   * being touched at all. Its chats are still in the old folder, and a reconciler
+   * looking in the new one reads every one of them as externally deleted.
+   *
+   * Absent means "no folder yet" — no folder connected, or a notebook that
+   * predates the mirror. Identity lives in the folder's `.willow.json`, never in
+   * this name.
+   */
+  fsFolder?: string;
   /** Pinned notebooks sort above the rest and show a filled pin. */
   pinned: boolean;
   /**

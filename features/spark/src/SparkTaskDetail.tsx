@@ -14,7 +14,10 @@ import {
   validateSparkAttachmentFiles,
 } from './attachment-storage';
 import { PlusDropdownMenu } from '@willow/chat/composer/PlusDropdownMenu';
+import { useAuth } from '@willow/auth/AuthContext';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { SparkComposer } from './SparkComposer';
 import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
@@ -50,7 +53,6 @@ export interface SparkTaskDetailProps {
     tools?: string[],
   ) => boolean;
   onRespondToApproval?: (taskId: string, allowed: boolean) => void;
-  onScheduleEnabledChange?: (scheduleId: string, enabled: boolean) => void;
   onResponseReactionChange: (
     taskId: string,
     turnId: string | null,
@@ -59,6 +61,10 @@ export interface SparkTaskDetailProps {
   onRetryTask: (taskId: string) => void;
   onRetryTurn: (taskId: string, turnId: string) => void;
   computerUse?: React.ReactNode;
+  /** Forwarded to the composer so its model pill and task execution agree. */
+  modelConfig?: any;
+  selectedModelId?: string;
+  setSelectedModelId?: (id: string) => void;
 }
 
 const SparkSentMessage: React.FC<{
@@ -775,12 +781,16 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   onEditMessage,
   onSubmitFollowUp,
   onRespondToApproval,
-  onScheduleEnabledChange,
   onResponseReactionChange,
   onRetryTask,
   onRetryTurn,
   computerUse,
+  modelConfig,
+  selectedModelId,
+  setSelectedModelId,
 }) => {
+  const { userProfile } = useAuth();
+  const taskDetailGlowAccent = getWorkspaceTheme(userProfile?.workspaceColor || 'blue').glowAccent;
   const currentTask = task;
   const followUpBlocked = isTaskActive(currentTask)
     || needsApproval(currentTask)
@@ -817,6 +827,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         ? false
         : null
   ));
+  const statusPanelRef = useRef<HTMLElement>(null);
   const statusPopoverRef = useRef<HTMLDivElement>(null);
   const statusButtonRef = useRef<HTMLButtonElement>(null);
   const taskFilterMenuRef = useRef<HTMLDivElement>(null);
@@ -842,10 +853,12 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const deleteDialogRef = useRef<HTMLDivElement>(null);
   const deleteCancelButtonRef = useRef<HTMLButtonElement>(null);
   const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const statusPanelId = useId();
   const statusPopoverId = useId();
   const taskFilterMenuId = useId();
   const listTaskMenuId = useId();
   const taskMenuId = useId();
+  const statusPanelHeadingId = useId();
   const statusPopoverHeadingId = useId();
   const approvalTitleId = useId();
   /* The remote-browser pane is open by default whenever there is one, matching Gemini,
@@ -972,7 +985,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   }, [currentTask.approvalDecision, currentTask.status]);
 
   useEffect(() => {
-    if (!statusOpen && !taskMenuOpen && !taskFilterOpen && !listTaskMenuTaskId) return;
+    const isStatusPopoverOpen = !libraryCollapsed && statusOpen;
+    if (!isStatusPopoverOpen && !taskMenuOpen && !taskFilterOpen && !listTaskMenuTaskId) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -1016,17 +1030,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [statusOpen, taskMenuOpen, taskFilterOpen, listTaskMenuTaskId]);
+  }, [libraryCollapsed, statusOpen, taskMenuOpen, taskFilterOpen, listTaskMenuTaskId]);
 
   useEffect(() => {
-    if (!statusOpen) return;
+    if (libraryCollapsed || !statusOpen) return;
     const frame = window.requestAnimationFrame(() => {
-      const popover = statusPopoverRef.current;
-      const firstControl = popover?.querySelector<HTMLButtonElement>('button:not([disabled])');
-      (firstControl ?? popover)?.focus();
+      statusPopoverRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [statusOpen]);
+  }, [libraryCollapsed, statusOpen]);
 
   useEffect(() => {
     if (!listTaskMenuTaskId) return;
@@ -1143,19 +1155,20 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     followUpDictation.toggleDictation();
   };
 
-  const submitNewTask = async () => {
-    const prompt = newTaskDraft.trim();
+  /* Takes its inputs as arguments, like `submitFollowUp` — the draft lives in the
+   * composer's own state now. The scope and task guards below are unchanged. */
+  const submitNewTask = async (rawPrompt: string, files: File[], tools: string[]) => {
+    const prompt = rawPrompt.trim();
     if (!prompt || newTaskSubmitInFlightRef.current) return;
     newTaskSubmitInFlightRef.current = true;
     setIsNewTaskSubmitting(true);
-    newTaskDictation.stopDictation();
-    setNewTaskPlusOpen(false);
     setNewTaskAttachmentError('');
     const submissionScope = getActiveSparkStorageScope();
     const submissionTaskId = currentTask.id;
     let attachments: SparkTaskAttachment[] = [];
     try {
-      attachments = await createSparkTaskAttachments(newTaskFiles, submissionScope);
+      validateSparkAttachmentFiles(files);
+      attachments = await createSparkTaskAttachments(files, submissionScope);
       const accountChanged = getActiveSparkStorageScope() !== submissionScope;
       const taskChanged = !taskDetailActiveRef.current
         || currentTaskIdRef.current !== submissionTaskId;
@@ -1169,14 +1182,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         }
         return;
       }
-      setNewTaskDraft('');
-      onCreateTask(
-        prompt,
-        attachments,
-        newTaskTool ? [newTaskTool] : [],
-      );
-      setNewTaskFiles([]);
-      setNewTaskTool(null);
+      onCreateTask(prompt, attachments, tools);
+      // The composer clears its own draft, attachments and tool chip on submit.
     } catch (error) {
       if (attachments.length) {
         await deleteSparkAttachmentPayloads(
@@ -1195,19 +1202,21 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     }
   };
 
-  const submitFollowUp = async () => {
-    const prompt = followUpDraft.trim();
+  /* Takes its inputs as arguments because the draft now lives in the composer's own state —
+   * see `SparkComposer`. Everything below is unchanged: the scope and task guards, the
+   * `accepted` check, and the payload cleanup on every failure path. */
+  const submitFollowUp = async (rawPrompt: string, files: File[], tools: string[]) => {
+    const prompt = rawPrompt.trim();
     if (!prompt || followUpBlocked || followUpSubmitInFlightRef.current) return;
     followUpSubmitInFlightRef.current = true;
     setIsFollowUpSubmitting(true);
-    followUpDictation.stopDictation();
-    setFollowUpPlusOpen(false);
     setFollowUpAttachmentError('');
     const submissionScope = getActiveSparkStorageScope();
     const submissionTaskId = currentTask.id;
     let attachments: SparkTaskAttachment[] = [];
     try {
-      attachments = await createSparkTaskAttachments(followUpFiles, submissionScope);
+      validateSparkAttachmentFiles(files);
+      attachments = await createSparkTaskAttachments(files, submissionScope);
       const accountChanged = getActiveSparkStorageScope() !== submissionScope;
       const taskChanged = !taskDetailActiveRef.current
         || currentTaskIdRef.current !== submissionTaskId;
@@ -1225,7 +1234,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         submissionTaskId,
         prompt,
         attachments,
-        followUpTool ? [followUpTool] : [],
+        tools,
       );
       if (!accepted) {
         await deleteSparkAttachmentPayloads(
@@ -1237,9 +1246,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         }
         return;
       }
-      setFollowUpDraft('');
-      setFollowUpFiles([]);
-      setFollowUpTool(null);
+      // The composer clears its own draft, attachments and tool chip on submit.
     } catch (error) {
       if (attachments.length) {
         await deleteSparkAttachmentPayloads(
@@ -1276,13 +1283,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
 
   const scheduledHeading = schedule?.title || currentTask.scheduledLabel || 'Scheduled run';
   const scheduledTime = currentTask.scheduledTime || currentTask.time || 'Today';
-  const scheduleTiming = schedule
-    ? `${schedule.frequency}${schedule.frequency === 'Weekly' && schedule.weekdays.length
-      ? ` on ${schedule.weekdays.join(', ')}`
-      : ''} around ${schedule.time}`
-    : currentTask.scheduledTime
-      ? `Ran ${currentTask.scheduledTime}`
-      : currentTask.time;
   const approval = currentTask.approval;
   const approvalTitle = approval?.title || 'Let Gemini interact with websites for you?';
   const approvalDescription = approval?.description
@@ -1304,7 +1304,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const taskCapabilities = Array.from(new Set(currentTask.tools ?? []))
     .map((tool) => TASK_CAPABILITY_LABELS[tool])
     .filter((capability): capability is { icon: string; label: string } => Boolean(capability));
-  if (schedule || currentTask.scheduledLabel) taskCapabilities.push({ icon: 'schedule', label: 'Schedules' });
   if (computerUse || currentTask.approval?.kind === 'browser') {
     taskCapabilities.push(TASK_CAPABILITY_LABELS.computer);
   }
@@ -1333,132 +1332,36 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     }
   }), [recentTasks, taskFilter]);
 
+  const isLibraryCollapsed = libraryCollapsed;
+  const isProgressPanelOpen = isLibraryCollapsed;
+  const isStatusPopoverOpen = !isLibraryCollapsed && statusOpen;
+
   return (
-    <div className={`spark-task-detail${libraryCollapsed ? ' is-library-collapsed' : ''}${computerUse ? ' has-computer-use' : ''}`}>
+    <div
+      className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${computerUse ? ' has-computer-use' : ''}`}
+      style={{ '--spark-task-detail-accent': taskDetailGlowAccent } as React.CSSProperties}
+    >
       <aside
         className="spark-task-detail__library"
         aria-label="Spark tasks"
-        aria-hidden={libraryCollapsed || undefined}
-        inert={libraryCollapsed || undefined}
+        aria-hidden={isLibraryCollapsed || undefined}
+        inert={isLibraryCollapsed || undefined}
       >
         <div className="spark-task-detail__library-inner">
-          <form
-            className={`spark-task-detail__new-composer${isNewTaskSubmitting ? ' is-submitting' : ''}${newTaskDictation.error || newTaskAttachmentError ? ' has-error' : ''}`}
-            aria-busy={isNewTaskSubmitting}
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitNewTask();
-            }}
-          >
-            <button
-              ref={newTaskPlusButtonRef}
-              type="button"
-              className="spark-task-detail__icon-button"
-              aria-label="Add files and context"
-              title="Add files and context"
-              aria-haspopup="menu"
-              aria-expanded={newTaskPlusOpen}
+          <div className="spark-task-detail__new-composer">
+            <SparkComposer
+              onSubmitFiles={submitNewTask}
               disabled={isNewTaskSubmitting}
-              onClick={() => {
-                setStatusOpen(false);
-                setTaskMenuOpen(false);
-                setTaskFilterOpen(false);
-                setListTaskMenuTaskId(null);
-                setNewTaskPlusOpen((open) => !open);
-              }}
-            >
-              <MaterialSymbol {...SYMBOL_PROPS} name="plus" size={24} opticalSize={24} />
-            </button>
-            <PlusDropdownMenu
-              isOpen={newTaskPlusOpen}
-              onClose={() => setNewTaskPlusOpen(false)}
-              onFileSelect={() => newTaskFileInputRef.current?.click()}
-              buttonRef={newTaskPlusButtonRef}
-              onToolSelect={setNewTaskTool}
-              geminiStyle
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
             />
-            <input
-              ref={newTaskFileInputRef}
-              type="file"
-              multiple
-              hidden
-              disabled={isNewTaskSubmitting}
-              onChange={(event) => {
-                const incoming = Array.from(event.target.files ?? []);
-                const merged = mergeSelectedFiles(newTaskFiles, incoming);
-                try {
-                  validateSparkAttachmentFiles(merged);
-                  setNewTaskFiles(merged);
-                  setNewTaskAttachmentError('');
-                } catch (error) {
-                  setNewTaskAttachmentError(error instanceof Error
-                    ? error.message
-                    : 'These files could not be attached.');
-                }
-                event.target.value = '';
-              }}
-            />
-            {!newTaskDictation.isDictating && (
-              <SparkComposerContextChip
-                files={newTaskFiles}
-                tool={newTaskTool}
-                disabled={isNewTaskSubmitting}
-                onRemoveFile={(index) => {
-                  setNewTaskFiles((files) => files.filter((_, fileIndex) => fileIndex !== index));
-                  setNewTaskAttachmentError('');
-                }}
-                onClearTool={() => setNewTaskTool(null)}
-              />
-            )}
-            <AutoSizeTextarea
-              value={newTaskDraft}
-              placeholder={newTaskDictation.isDictating ? "Listening..." : "Describe a task"}
-              ariaLabel="Describe a new task"
-              ariaDescribedBy={newTaskDictation.error || newTaskAttachmentError ? newTaskErrorId : undefined}
-              hiddenForDictation={newTaskDictation.isDictating}
-              disabled={isNewTaskSubmitting}
-              onChange={setNewTaskDraft}
-              onSubmit={submitNewTask}
-            />
-            {newTaskDraft.trim() && !newTaskDictation.isDictating ? (
-              <button
-                type="submit"
-                className={`spark-task-detail__send-button${isNewTaskSubmitting ? ' is-submitting' : ''}`}
-                aria-label="Create task"
-                title={isNewTaskSubmitting ? 'Preparing files' : 'Create task'}
-                disabled={isNewTaskSubmitting}
-              >
-                <MaterialSymbol
-                  {...SYMBOL_PROPS}
-                  name={isNewTaskSubmitting ? 'progress_activity' : 'arrow_upward'}
-                  size={20}
-                  opticalSize={20}
-                />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={`spark-task-detail__icon-button ${newTaskDictation.isDictating ? 'is-dictating' : ''} spark-mic-button`}
-                aria-label={newTaskDictation.isDictating ? "Stop listening" : "Use voice input"}
-                title={newTaskDictation.isDictating ? "Stop voice dictation" : "Use voice input"}
-                onClick={() => {
-                  if (newTaskDictation.isDictating) {
-                    newTaskDictation.stopDictation();
-                  } else {
-                    toggleNewTaskDictation();
-                  }
-                }}
-              >
-                {newTaskDictation.isDictating && <SparkMicPulseOverlay />}
-                <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
-              </button>
-            )}
-            {(newTaskDictation.error || newTaskAttachmentError) && (
+            {newTaskAttachmentError && (
               <p id={newTaskErrorId} className="spark-task-detail__composer-error" role="alert">
-                {newTaskDictation.error || newTaskAttachmentError}
+                {newTaskAttachmentError}
               </p>
             )}
-          </form>
+          </div>
 
           <section className="spark-task-detail__recent" aria-label="Spark task list">
             <button
@@ -1517,7 +1420,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   <div
                     key={recentTask.id}
                     role="listitem"
-                    className={`spark-task-detail__task-row${selected ? ' is-selected' : ''}${menuOpen ? ' is-menu-open' : ''}`}
+                    className={`spark-task-detail__task-row${selected ? ' is-selected' : ''}${recentTask.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
                   >
                     <button
                       type="button"
@@ -1625,24 +1528,28 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         </div>
       </aside>
 
-      <div className="spark-task-detail__library-divider">
-        <button
-          type="button"
-          aria-label={libraryCollapsed ? 'Show task list' : 'Hide task list'}
-          aria-expanded={!libraryCollapsed}
-          title={libraryCollapsed ? 'Show task list' : 'Hide task list'}
-          onClick={() => setLibraryCollapsed((collapsed) => !collapsed)}
-        >
-          <MaterialSymbol
-            {...SYMBOL_PROPS}
-            name={libraryCollapsed ? 'left_panel_open' : 'left_panel_close'}
-            size={19}
-            opticalSize={19}
-          />
-        </button>
-      </div>
-
       <main className="spark-task-detail__workspace">
+        <div className="spark-task-detail__library-divider">
+          <button
+            type="button"
+            aria-label={isLibraryCollapsed ? 'Show task list' : 'Hide task list'}
+            aria-expanded={!isLibraryCollapsed}
+            title=""
+            onClick={() => {
+              setStatusOpen(false);
+              setLibraryCollapsed((collapsed) => !collapsed);
+            }}
+          >
+            <MaterialSymbol
+              family="google-symbols"
+              name={isLibraryCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left'}
+              size={16}
+              weight={400}
+              opticalSize={20}
+            />
+          </button>
+        </div>
+
         <section ref={panelRef} className="spark-task-detail__panel" aria-label={`Task: ${displayTitle}`}>
           <header className="spark-task-detail__header">
             <button
@@ -1681,33 +1588,35 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   />
                 </button>
               )}
-              <button
-                ref={statusButtonRef}
-                type="button"
-                className={`spark-task-detail__status-pill${statusOpen ? ' is-open' : ''}`}
-                aria-label={getStatusLabel(currentTask)}
-                aria-haspopup="dialog"
-                aria-expanded={statusOpen}
-                aria-controls={statusOpen ? statusPopoverId : undefined}
-                onClick={() => {
-                  setTaskMenuOpen(false);
-                  setTaskFilterOpen(false);
-                  setListTaskMenuTaskId(null);
-                  setNewTaskPlusOpen(false);
-                  setFollowUpPlusOpen(false);
-                  setStatusOpen((open) => !open);
-                }}
-              >
-                <MaterialSymbol
-                  {...SYMBOL_PROPS}
-                  name={getStatusSymbol(currentTask)}
-                  size={16}
-                  opticalSize={16}
-                  className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}`}
-                />
-                <span>{getStatusLabel(currentTask)}</span>
-                <MaterialSymbol {...SYMBOL_PROPS} name="expand_more" size={18} opticalSize={18} />
-              </button>
+              <span className={`spark-task-detail__status-pill-wrapper${isProgressPanelOpen ? ' is-hidden' : ''}`}>
+                <button
+                  ref={statusButtonRef}
+                  type="button"
+                  className={`spark-task-detail__status-pill${isStatusPopoverOpen ? ' is-open' : ''}`}
+                  aria-label={getStatusLabel(currentTask)}
+                  aria-haspopup="dialog"
+                  aria-expanded={isStatusPopoverOpen}
+                  aria-controls={isStatusPopoverOpen ? statusPopoverId : undefined}
+                  onClick={() => {
+                    setTaskMenuOpen(false);
+                    setTaskFilterOpen(false);
+                    setListTaskMenuTaskId(null);
+                    setNewTaskPlusOpen(false);
+                    setFollowUpPlusOpen(false);
+                    setStatusOpen((open) => !open);
+                  }}
+                >
+                  <MaterialSymbol
+                    {...SYMBOL_PROPS}
+                    name={getStatusSymbol(currentTask)}
+                    size={16}
+                    opticalSize={16}
+                    className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}`}
+                  />
+                  <span>{getStatusLabel(currentTask)}</span>
+                  <MaterialSymbol {...SYMBOL_PROPS} name="expand_more" size={18} opticalSize={18} />
+                </button>
+              </span>
               <button
                 ref={taskMenuButtonRef}
                 type="button"
@@ -1731,7 +1640,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             </div>
           </header>
 
-          {statusOpen && (
+          {isStatusPopoverOpen && (
             <div
               ref={statusPopoverRef}
               id={statusPopoverId}
@@ -1753,33 +1662,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <span>{currentTask.progressLabel || getStatusLabel(currentTask)}</span>
               </div>
 
-              <section className="spark-task-detail__popover-group">
-                <h2>Schedules</h2>
-                {(schedule || currentTask.scheduledLabel) ? (
-                  <div className="spark-task-detail__popover-schedule">
-                    <span className="spark-task-detail__popover-schedule-copy">
-                      <strong>{scheduledHeading}</strong>
-                      <span>{scheduleTiming}</span>
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={schedule?.enabled ?? true}
-                      aria-label={`${schedule?.enabled === false ? 'Enable' : 'Disable'} schedule`}
-                      className={`spark-task-detail__popover-toggle${schedule?.enabled === false ? ' is-off' : ''}`}
-                      disabled={!schedule || !onScheduleEnabledChange}
-                      onClick={() => {
-                        if (schedule) onScheduleEnabledChange?.(schedule.id, !schedule.enabled);
-                      }}
-                    >
-                      <span />
-                    </button>
-                  </div>
-                ) : (
-                  <p className="spark-task-detail__popover-empty">No schedule</p>
-                )}
-              </section>
-
               <section className="spark-task-detail__popover-group spark-task-detail__popover-files">
                 <h2>Files</h2>
                 {taskAttachments.length ? (
@@ -1796,14 +1678,12 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="spark-task-detail__popover-empty">No files added</p>
-                )}
+                ) : null}
               </section>
 
               <section className="spark-task-detail__popover-group spark-task-detail__popover-capabilities">
                 <h2>Skills and apps</h2>
-                {uniqueTaskCapabilities.length ? uniqueTaskCapabilities.map((capability) => (
+                {uniqueTaskCapabilities.map((capability) => (
                   <div key={capability.label} className="spark-task-detail__popover-capability">
                     <MaterialSymbol
                       family="luminous"
@@ -1816,9 +1696,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     />
                     <span>{capability.label}</span>
                   </div>
-                )) : (
-                  <p className="spark-task-detail__popover-empty">No skills or apps used</p>
-                )}
+                ))}
               </section>
             </div>
           )}
@@ -2090,128 +1968,23 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
           </div>
 
           <div ref={followUpZoneRef} className="spark-task-detail__followup-zone">
-            <form
-              className={`spark-task-detail__followup-composer${isFollowUpSubmitting ? ' is-submitting' : ''}${followUpDictation.error || followUpAttachmentError ? ' has-error' : ''}`}
-              aria-busy={isFollowUpSubmitting}
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitFollowUp();
-              }}
-            >
-              <button
-                ref={followUpPlusButtonRef}
-                type="button"
-                className="spark-task-detail__icon-button"
-                aria-label="Add files and context"
-                title="Add files and context"
-                aria-haspopup="menu"
-                aria-expanded={followUpPlusOpen}
+            <div className="spark-task-detail__followup-composer">
+              <SparkComposer
+                onSubmitFiles={submitFollowUp}
+                // Gemini will not take a follow-up while the task is still working, so the
+                // whole box locks rather than the send button alone.
                 disabled={isFollowUpSubmitting || followUpBlocked}
-                onClick={() => {
-                  setStatusOpen(false);
-                  setTaskMenuOpen(false);
-                  setTaskFilterOpen(false);
-                  setListTaskMenuTaskId(null);
-                  setFollowUpPlusOpen((open) => !open);
-                }}
-              >
-                <MaterialSymbol {...SYMBOL_PROPS} name="plus" size={24} opticalSize={24} />
-              </button>
-              <PlusDropdownMenu
-                isOpen={followUpPlusOpen}
-                onClose={() => setFollowUpPlusOpen(false)}
-                onFileSelect={() => followUpFileInputRef.current?.click()}
-                buttonRef={followUpPlusButtonRef}
-                onToolSelect={setFollowUpTool}
-                geminiStyle
+                placeholder={followUpPlaceholder}
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
               />
-              <input
-                ref={followUpFileInputRef}
-                type="file"
-                multiple
-                hidden
-                disabled={isFollowUpSubmitting || followUpBlocked}
-                onChange={(event) => {
-                  const incoming = Array.from(event.target.files ?? []);
-                  const merged = mergeSelectedFiles(followUpFiles, incoming);
-                  try {
-                    validateSparkAttachmentFiles(merged);
-                    setFollowUpFiles(merged);
-                    setFollowUpAttachmentError('');
-                  } catch (error) {
-                    setFollowUpAttachmentError(error instanceof Error
-                      ? error.message
-                      : 'These files could not be attached.');
-                  }
-                  event.target.value = '';
-                }}
-              />
-              {!followUpDictation.isDictating && (
-                <SparkComposerContextChip
-                  files={followUpFiles}
-                  tool={followUpTool}
-                  disabled={isFollowUpSubmitting || followUpBlocked}
-                  onRemoveFile={(index) => {
-                    setFollowUpFiles((files) => files.filter((_, fileIndex) => fileIndex !== index));
-                    setFollowUpAttachmentError('');
-                  }}
-                  onClearTool={() => setFollowUpTool(null)}
-                />
-              )}
-              <AutoSizeTextarea
-                value={followUpDraft}
-                placeholder={followUpDictation.isDictating ? "Listening..." : followUpPlaceholder}
-                ariaLabel="Add a follow-up to this task"
-                ariaDescribedBy={followUpDictation.error || followUpAttachmentError ? followUpErrorId : undefined}
-                hiddenForDictation={followUpDictation.isDictating}
-                disabled={isFollowUpSubmitting || followUpBlocked}
-                onChange={setFollowUpDraft}
-                onSubmit={submitFollowUp}
-              />
-              {followUpDraft.trim() && !followUpDictation.isDictating ? (
-                <button
-                  type="submit"
-                  className={`spark-task-detail__send-button${isFollowUpSubmitting ? ' is-submitting' : ''}`}
-                  aria-label="Send follow-up"
-                  title={isFollowUpSubmitting
-                    ? 'Preparing files'
-                    : followUpBlocked
-                      ? 'Resolve the current task before adding a follow-up'
-                      : 'Send'}
-                  disabled={isFollowUpSubmitting || followUpBlocked}
-                >
-                  <MaterialSymbol
-                    {...SYMBOL_PROPS}
-                    name={isFollowUpSubmitting ? 'progress_activity' : 'arrow_upward'}
-                    size={20}
-                    opticalSize={20}
-                  />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className={`spark-task-detail__icon-button ${followUpDictation.isDictating ? 'is-dictating' : ''} spark-mic-button`}
-                  aria-label={followUpDictation.isDictating ? "Stop listening" : "Use voice input"}
-                  title={followUpDictation.isDictating ? "Stop voice dictation" : followUpBlocked ? followUpPlaceholder : 'Use voice input'}
-                  disabled={isFollowUpSubmitting || followUpBlocked}
-                  onClick={() => {
-                    if (followUpDictation.isDictating) {
-                      followUpDictation.stopDictation();
-                    } else {
-                      toggleFollowUpDictation();
-                    }
-                  }}
-                >
-                  {followUpDictation.isDictating && <SparkMicPulseOverlay />}
-                  <MaterialSymbol {...SYMBOL_PROPS} name="mic" size={24} opticalSize={24} />
-                </button>
-              )}
-              {(followUpDictation.error || followUpAttachmentError) && (
+              {followUpAttachmentError && (
                 <p id={followUpErrorId} className="spark-task-detail__composer-error" role="alert">
-                  {followUpDictation.error || followUpAttachmentError}
+                  {followUpAttachmentError}
                 </p>
               )}
-            </form>
+            </div>
             <p className="spark-task-detail__disclaimer">Gemini is AI and can make mistakes.</p>
           </div>
 
@@ -2294,13 +2067,89 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
           )}
         </section>
 
+        <aside
+          ref={statusPanelRef}
+          id={statusPanelId}
+          className={`spark-task-detail__progress-panel${isProgressPanelOpen ? ' is-open' : ''}`}
+          aria-hidden={!isProgressPanelOpen}
+          aria-labelledby={statusPanelHeadingId}
+          inert={!isProgressPanelOpen || undefined}
+          tabIndex={-1}
+        >
+          <div className="spark-task-detail__progress-panel-scroll">
+            <section className="spark-task-detail__progress-panel-section">
+              <div className="spark-task-detail__progress-panel-header is-static">
+                <span className="spark-task-detail__progress-panel-title-wrapper">
+                  <span id={statusPanelHeadingId} className="spark-task-detail__progress-panel-title">Progress</span>
+                </span>
+              </div>
+              <div className="spark-task-detail__progress-panel-content">
+                <p className="spark-task-detail__progress-panel-summary">
+                  {currentTask.progressLabel || 'No plan available yet.'}
+                </p>
+              </div>
+            </section>
+
+            <section className="spark-task-detail__progress-panel-section">
+              <div className="spark-task-detail__progress-panel-header is-empty">
+                <span className="spark-task-detail__progress-panel-title-wrapper">
+                  <span className="spark-task-detail__progress-panel-title">Files</span>
+                </span>
+              </div>
+              {taskAttachments.length > 0 && (
+                <div className="spark-task-detail__progress-panel-content">
+                  <div className="spark-task-detail__progress-panel-file-list">
+                    {taskAttachments.map((attachment) => (
+                      <div key={attachment.id} className="spark-task-detail__progress-panel-file">
+                        <MaterialSymbol
+                          {...SYMBOL_PROPS}
+                          name={getAttachmentSymbol(attachment)}
+                          size={20}
+                          opticalSize={20}
+                        />
+                        <span>{attachment.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="spark-task-detail__progress-panel-section">
+              <div className="spark-task-detail__progress-panel-header is-empty">
+                <span className="spark-task-detail__progress-panel-title-wrapper">
+                  <span className="spark-task-detail__progress-panel-title">Skills &amp; apps</span>
+                </span>
+              </div>
+              {uniqueTaskCapabilities.length > 0 && (
+                <div className="spark-task-detail__progress-panel-content">
+                  {uniqueTaskCapabilities.map((capability) => (
+                    <div key={capability.label} className="spark-task-detail__progress-panel-capability">
+                      <MaterialSymbol
+                        family="luminous"
+                        name={capability.icon}
+                        size={24}
+                        weight={320}
+                        roundness={100}
+                        opticalSize={24}
+                        className="spark-task-detail__capability-icon"
+                      />
+                      <span>{capability.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </aside>
+
         {/*
           * Gemini's `remy-side-panel`: a second rounded card beside the chat pane
           * rather than a block inside the thread. Measured in the split view at
           * 567.1×809.6 against a 285.1px chat pane, both #1f1f1f at 28px corners with
           * an 8px gutter between them.
           */}
-        {computerUse && isSidePanelOpen && (
+        {computerUse && isSidePanelOpen && !isProgressPanelOpen && (
           <section className="spark-task-detail__side-panel" aria-label="Remote browser">
             {computerUse}
           </section>

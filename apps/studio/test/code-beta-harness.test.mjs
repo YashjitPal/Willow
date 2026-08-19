@@ -120,6 +120,32 @@ it('states the browser sandbox constraints the runtime actually enforces', () =>
   assert.match(prompt, /package\.json/);
 });
 
+it('rules out languages the preview cannot run', () => {
+  // The preview bundles a React app and nothing else, so a file in another
+  // language is something the user has no way to execute.
+  const { prompt } = compose();
+  assert.match(prompt, /Write the app in this stack only/);
+  assert.match(prompt, /Python/);
+  assert.match(prompt, /no server/i);
+});
+
+it('adds only the two constraints the environment imposes', () => {
+  // The overlay exists to describe *this* runtime — no shell, and only what the
+  // preview can run. Opinions about how a UI should look are not constraints,
+  // and every one of them is a way for Code Beta to drift from upstream Codex
+  // for reasons the environment does not justify.
+  const { prompt } = compose();
+  for (const opinion of [
+    /Build the whole screen/,
+    /Make it look deliberate/,
+    /restrained palette/,
+    /Cover the states/,
+    /Keep it accessible/,
+  ]) {
+    assert.doesNotMatch(prompt, opinion, 'design guidance does not belong in the overlay');
+  }
+});
+
 it('refuses every spelling of a shell tool with actionable guidance', () => {
   // `run_command` is deliberately NOT in this list: it is a real, allow-listed
   // tool that refuses anything outside its own small set, with a message
@@ -202,6 +228,51 @@ it('reports every applied operation for the harness panel', () => {
   assert.ok(applied.some((entry) => entry.startsWith('replace (preamble)')));
   assert.ok(applied.some((entry) => entry.includes('Shell commands')));
   assert.ok(applied.some((entry) => entry.startsWith('append')));
+});
+
+it('raises hasUserCode when it writes, or the preview never appears', () => {
+  // The harness cannot go through `setFile` — it has to replace the whole map
+  // so deletions are expressible — so it has to reproduce `setFile`'s side
+  // effects itself. Missing `hasUserCode` is invisible in the transcript and
+  // total in the UI: no bundle, no iframe, the empty state still showing, and
+  // the workspace never leaving chat mode.
+  //
+  // Checked as source rather than by calling it, because importing the bridge
+  // drags in the computer-use client and the `@models` alias, neither of which
+  // resolves outside Vite.
+  const bridge = read(featureRoot, 'src', 'harness-bridge.ts');
+  const body = bridge.slice(bridge.indexOf('export function writeWorkbenchFiles'));
+
+  assert.match(body, /workbench\.hasUserCode\.set\(true\)/, 'the preview is gated on this');
+  assert.match(body, /workbench\.activeSnapshotId\.set\(null\)/);
+
+  // And the store it is handed must really expose them.
+  const store = read(featureRoot, 'src', 'runtime', 'sandpack', 'sandpack-store.ts');
+  assert.match(store, /hasUserCode = atom<boolean>/);
+  assert.match(store, /activeSnapshotId = atom<string \| null>/);
+});
+
+it('asks the provider for no tools of its own', () => {
+  /*
+   * The harness's tools are a text protocol the provider never sees, and it
+   * runs them itself. Leaving provider-native tools on meant the model would
+   * reach for one — search, on Gemini — and the provider loop would want a
+   * second round to feed the result back.
+   *
+   * That round was fatal, because the iteration cap was pinned at 1 to stop
+   * provider-side looping. A turn that had just finished planning died with
+   * "AI tool loop exceeded the 1-iteration safety limit." The cap was the wrong
+   * instrument: the harness enforces its own budget, and reports exhausting it
+   * as a sentence rather than throwing.
+   */
+  const binding = read(featureRoot, 'src', 'model-binding.ts');
+  assert.match(binding, /toolPolicy: 'disabled'/);
+  assert.match(binding, /enableSearch: false/);
+  assert.doesNotMatch(binding, /maxToolIterations: 1\b/, 'a cap of 1 makes any second round fatal');
+
+  // `disabled` has to still mean that upstream.
+  const chat = read(repoRoot, 'platform', 'ai', 'src', 'chat.ts');
+  assert.match(chat, /toolPolicy !== 'disabled'/);
 });
 
 /* ---------------------------------------------------------------------- */

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { emitChatActionIntent, isChatPinned } from './chat-actions';
 import './ConversationActionsMenu.css';
@@ -122,11 +121,10 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
    * Seven rows, in the measured order, with the measured glyph names. Gemini's
    * icon names live in `data-mat-icon-name`, never in the MAT-ICON's text.
    *
-   * Four are stubs, because Willow has nothing behind them: Share and Add to
-   * notebook match what the Recents row menu already does, and Download PDF /
-   * Export to Docs say so plainly rather than claiming to have run. They are
-   * still rendered — the pane's 268px height is 16 + 7 x 36, so dropping a row
-   * would change a measured value.
+   * Three are stubs, because Willow has nothing behind them: Share matches what
+   * the Recents row menu already does, and Download PDF / Export to Docs say so
+   * plainly rather than claiming to have run. They are still rendered — the pane's
+   * 268px height is 16 + 7 x 36, so dropping a row would change a measured value.
    */
   const rows: ConversationActionRow[] = [
     {
@@ -169,7 +167,7 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
       label: 'Add to notebook',
       icon: 'notebook',
       family: 'luminous',
-      onSelect: () => alert(`Added "${chatDisplayName(chatId)}" to Notebook.`),
+      onSelect: () => emitChatActionIntent({ action: 'notebook', chatId }),
     },
     {
       id: 'delete',

@@ -87,6 +87,50 @@ function conditionalCrossOriginHeaders(): Plugin {
   };
 }
 
+/*
+ * Mounts `api/fetch-source.js` at `/api/fetch-source` for the dev server.
+ *
+ * The SAME handler that Vercel serves in production, imported at runtime rather
+ * than reimplemented, so the two environments cannot drift — the alternative was
+ * a second HTML-to-text path that only ever ran locally.
+ *
+ * `SOURCE_FETCH_ENABLED` is set here because the handler is closed by default:
+ * deployed, it is an open scraping relay and an SSRF surface, so it must be opted
+ * into. On a dev machine the "deployment" is the user's own laptop and fetching
+ * public pages is the whole feature, so the opt-in is implicit.
+ *
+ * The handler expects Vercel's `res.status()/setHeader()/end()` shape, which
+ * Node's bare `ServerResponse` does not have; `status` is the only piece missing
+ * and it is adapted below.
+ */
+function sourceFetchEndpoint(): Plugin {
+  return {
+    name: 'source-fetch-endpoint',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/fetch-source')) return next();
+        process.env.SOURCE_FETCH_ENABLED ??= '1';
+        try {
+          const entry = pathToFileURL(path.resolve(ROOT, 'api', 'fetch-source.js')).href;
+          const { default: handler } = await import(entry);
+          const shim = Object.assign(res, {
+            status(code: number) {
+              res.statusCode = code;
+              return shim;
+            },
+          });
+          await handler(req, shim);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: (error as Error)?.message || 'fetch-source failed' }));
+        }
+      });
+    },
+  };
+}
+
 function webSearchMiddleware(): Plugin {
   return {
     name: 'web-search-middleware',
@@ -153,6 +197,74 @@ function webSearchMiddleware(): Plugin {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ query, results }));
       });
+    },
+  };
+}
+
+/*
+ * Writes Code Beta's model-request log to disk during dev.
+ *
+ * The log is gathered in the browser, where a turn's timings actually happen,
+ * but that is also where it is hardest to look at — a long turn is dozens of
+ * console groups, and a reload loses them. Appending to a file means a session
+ * can simply be read afterwards, by the user or by anyone helping them.
+ *
+ * Append-only JSONL: each request is one self-describing line, so a crashed or
+ * cancelled session still leaves a readable file rather than truncated JSON.
+ *
+ * Dev only. There is no production equivalent and there should not be — this
+ * writes to the developer's own working tree.
+ */
+function codeBetaRequestLog(): Plugin {
+  const dir = path.resolve(ROOT, '.code-beta');
+  const file = path.resolve(dir, 'requests.jsonl');
+
+  return {
+    name: 'code-beta-request-log',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/__code-beta/log')) return next();
+
+        const { mkdir, appendFile, writeFile } = await import('fs/promises');
+
+        if (req.method === 'DELETE') {
+          await mkdir(dir, { recursive: true });
+          await writeFile(file, '');
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+
+        if (req.method !== 'POST') return next();
+
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+          // A runaway client must not be able to fill the disk.
+          if (body.length > 1_000_000) req.destroy();
+        });
+
+        req.on('end', async () => {
+          try {
+            const entries = JSON.parse(body);
+            const lines = (Array.isArray(entries) ? entries : [entries])
+              .map((entry) => JSON.stringify(entry))
+              .join('\n');
+            await mkdir(dir, { recursive: true });
+            await appendFile(file, lines + '\n');
+            res.writeHead(204);
+            res.end();
+          } catch (error) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (error as Error).message }));
+          }
+        });
+      });
+
+      server.config.logger.info(
+        `  \x1b[32m➜\x1b[0m  Code Beta request log: \x1b[36m.code-beta/requests.jsonl\x1b[0m`,
+      );
     },
   };
 }
@@ -250,7 +362,19 @@ export default defineConfig(() => {
         allow: [ROOT],
       },
     },
-    plugins: [react(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), webSearchMiddleware()],
+    /*
+     * `sourceFetchEndpoint` MUST precede `agentBuilderBackend`.
+     *
+     * The backend middleware claims the whole `/api/` prefix — not `/api/v1/`, see
+     * its `vite-middleware.ts` — so every `/api/*` request reaches its router, and
+     * anything it does not recognise comes back 404. Registered after it,
+     * `/api/fetch-source` was answered by the Agents API instead of by its own
+     * handler, and website sources reported the endpoint as unavailable.
+     *
+     * Plugin order is middleware order here, so going first means this one gets
+     * first refusal on its own path and calls `next()` for everything else.
+     */
+    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), webSearchMiddleware(), codeBetaRequestLog()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.

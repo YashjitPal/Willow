@@ -26,6 +26,7 @@ import type {
   ToolResult,
 } from './harness/runtime/protocol';
 import { resolveBinding, type ProviderKeys } from './model-binding';
+import { clearRequestLog, dumpRequestLog, requestLog } from './harness/runtime/request-log';
 import type { CodexEffort } from './harness/overlay/effort';
 import {
   applyHarnessEvent,
@@ -45,6 +46,15 @@ export interface WorkbenchFiles {
     set: (next: Record<string, { type: 'file'; content: string }>) => void;
   };
   setCurrentEditingFile: (path: string | null) => void;
+  /**
+   * The flag the whole preview pipeline is gated on.
+   *
+   * `setFile` raises it, but the harness cannot use `setFile` — see
+   * `writeWorkbenchFiles` — so it has to raise it itself.
+   */
+  hasUserCode: { set: (value: boolean) => void };
+  /** Cleared on any write, because the live files no longer match a snapshot. */
+  activeSnapshotId: { set: (value: string | null) => void };
 }
 
 export function readWorkbenchFiles(workbench: WorkbenchFiles): Record<string, string> {
@@ -63,6 +73,12 @@ export function readWorkbenchFiles(workbench: WorkbenchFiles): Record<string, st
  * Assigning the map once also means the preview rebuilds once per patch rather
  * than once per file, which is what stops a multi-file edit flashing two or
  * three broken intermediate states.
+ *
+ * The cost of not going through `setFile` is that its two side effects have to
+ * be reproduced here. Missing `hasUserCode` is not a cosmetic slip: every stage
+ * of the preview pipeline is gated on it, so files were written, the transcript
+ * showed them created, and nothing rendered — no bundle, no iframe, the empty
+ * state still up, and the workspace never morphing out of chat mode.
  */
 export function writeWorkbenchFiles(
   workbench: WorkbenchFiles,
@@ -73,6 +89,8 @@ export function writeWorkbenchFiles(
     mapped[path] = { type: 'file', content };
   }
   workbench.files.set(mapped);
+  workbench.hasUserCode.set(true);
+  workbench.activeSnapshotId.set(null);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -402,7 +420,54 @@ export interface CodexTurnOptions {
  * state is opened, then pipes every harness event into the activity store while
  * handing prose back to the caller.
  */
+/*
+ * The request log, reachable from the console.
+ *
+ * Attached on first use rather than at import, so it exists only once Code Beta
+ * has actually run something. `willowCodeBeta.requests()` prints the table;
+ * `willowCodeBeta.dump()` gives JSON to paste into a report.
+ */
+function exposeRequestLog(): void {
+  if (typeof window === 'undefined') return;
+  const globals = window as unknown as Record<string, unknown>;
+  if (globals.willowCodeBeta) return;
+
+  globals.willowCodeBeta = {
+    requests: () => {
+      const entries = requestLog.get();
+      // Model requests and tool runs share the timeline but not the columns,
+      // so each row shows what it has.
+      // eslint-disable-next-line no-console
+      console.table(
+        entries.map((entry) =>
+          entry.kind === 'request'
+            ? {
+                what: `${entry.provider}/${entry.model}`,
+                status: entry.status,
+                firstToken: entry.firstTokenMs,
+                total: entry.totalMs,
+                promptChars: entry.promptChars,
+                replyChars: entry.responseChars,
+                error: entry.error?.message,
+              }
+            : {
+                what: `tool: ${entry.name}`,
+                status: entry.status,
+                total: entry.totalMs,
+                error: entry.error?.message,
+              },
+        ),
+      );
+      return entries;
+    },
+    dump: dumpRequestLog,
+    clear: clearRequestLog,
+  };
+}
+
 export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
+  exposeRequestLog();
+
   let binding: ModelBinding;
   try {
     binding = resolveBinding(
@@ -432,6 +497,9 @@ export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
       if (event.type === 'text') {
         transcript += event.chunk;
         options.onText(event.chunk);
+        // Also recorded on the turn, which is the only place the prose keeps
+        // its position relative to the tool calls it describes.
+        applyHarnessEvent(options.turnId, event);
         return;
       }
       if (event.type === 'turn-end') {

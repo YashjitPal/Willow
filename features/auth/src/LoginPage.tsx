@@ -15,6 +15,7 @@ import {
   sendPasswordResetEmail 
 } from "firebase/auth";
 import { auth } from "@willow/auth/firebase";
+import "./LoginPage.css";
 
 // Google Icon SVG
 const GoogleIcon = () => (
@@ -405,9 +406,9 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-[#0d0d0d]">
+    <div className="willow-login min-h-screen grid lg:grid-cols-2 bg-[#0d0d0d]">
       {/* Left Content Section - Animated Characters */}
-      <div className="relative hidden lg:flex flex-col justify-between bg-gradient-to-br from-violet-600/90 via-violet-700 to-violet-800/80 p-12 text-white">
+      <div className="willow-login__visual relative hidden lg:flex flex-col justify-between bg-gradient-to-br from-violet-600/90 via-violet-700 to-violet-800/80 p-12 text-white">
         <div className="relative z-20">
           <div className="flex items-center gap-2 text-lg font-semibold">
             <div className="size-8 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center">
@@ -417,7 +418,7 @@ export function LoginPage() {
           </div>
         </div>
 
-        <div className="relative z-20 flex items-end justify-center h-[500px]">
+        <div className="willow-login__character-stage relative z-20 flex items-end justify-center h-[500px]">
           {/* Cartoon Characters */}
           <div className="relative" style={{ width: '550px', height: '400px' }}>
             {/* Purple tall rectangle character */}
@@ -571,10 +572,10 @@ export function LoginPage() {
       </div>
 
       {/* Right Login Section */}
-      <div className="flex items-center justify-center p-8 bg-[#0d0d0d]">
-        <div className="w-full max-w-[420px]">
+      <div className="willow-login__form-pane flex items-center justify-center p-8 bg-[#0d0d0d]">
+        <div className="willow-login__form-card w-full max-w-[420px]">
           {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center justify-center gap-2 text-lg font-semibold mb-12 text-white">
+          <div className="willow-login__mobile-logo lg:hidden flex items-center justify-center gap-2 text-lg font-semibold mb-12 text-white">
             <div className="size-8 rounded-lg bg-violet-600/20 flex items-center justify-center">
               <Sparkles className="size-4 text-violet-500" />
             </div>
@@ -582,7 +583,7 @@ export function LoginPage() {
           </div>
 
           {/* Header */}
-          <div className="text-center mb-10">
+          <div className="willow-login__header text-center mb-10">
             <h1 className="text-3xl font-bold tracking-tight mb-2 text-white">
               {isSignUp ? "Create an account" : "Welcome back!"}
             </h1>
@@ -592,7 +593,7 @@ export function LoginPage() {
           </div>
 
           {/* Login Form */}
-          <form onSubmit={handleEmailPasswordSubmit} className="space-y-5">
+          <form onSubmit={handleEmailPasswordSubmit} className="willow-login__form space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium text-white/80">Email</Label>
               <Input
@@ -678,7 +679,7 @@ export function LoginPage() {
 
             <Button 
               type="submit" 
-              className="w-full h-12 text-base font-medium bg-violet-600 hover:bg-violet-700 text-white" 
+              className="willow-login__primary-button w-full h-12 text-base font-medium bg-violet-600 hover:bg-violet-700 text-white" 
               size="lg" 
               disabled={isLoading}
             >
@@ -694,7 +695,7 @@ export function LoginPage() {
           </form>
 
           {/* Divider */}
-          <div className="relative my-6">
+          <div className="willow-login__divider relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-white/10"></div>
             </div>
@@ -706,7 +707,7 @@ export function LoginPage() {
           {/* Google Login */}
           <Button 
             variant="outline" 
-            className="w-full h-12 bg-[#1a1a1a] border-white/10 text-white hover:bg-[#252525]"
+            className="willow-login__google-button w-full h-12 bg-[#1a1a1a] border-white/10 text-white hover:bg-[#252525]"
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isLoading}
@@ -725,7 +726,7 @@ export function LoginPage() {
           </Button>
 
           {/* Sign Up / Sign In Toggle */}
-          <div className="text-center text-sm text-white/60 mt-8">
+          <div className="willow-login__toggle text-center text-sm text-white/60 mt-8">
             {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
             <button 
               onClick={() => {

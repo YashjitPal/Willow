@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   LogIn,
   Terminal,
+  Palette,
   FlaskConical,
   Github,
 } from 'lucide-react';
@@ -46,10 +47,12 @@ import type { StudioExperience } from '@willow/core/types';
 import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
 import { NotebooksSection } from '@willow/notebooks/NotebooksSection';
 import { $chatDialogRequest, consumeChatDialogRequest } from '@willow/notebooks/chat-dialog-requests';
+import { MoveChatDialog } from '@willow/notebooks/MoveChatDialog';
+import { hydrateNotebooks, notebooksStore, subscribeToNotebookWrites } from '@willow/notebooks/notebooks-store';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiDialog, GeminiDialogPill, GeminiOutlinedField } from '@willow/ui/GeminiDialog';
-import { onChatActionIntent, pinnedChatsStorageKey } from '../chat-actions';
+import { emitChatActionIntent, onChatActionIntent, pinnedChatsStorageKey } from '../chat-actions';
 
 // Recents renders a window over the chat list rather than the whole thing, and
 // grows it as you scroll. The full id list is already in memory (localStorage),
@@ -596,7 +599,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'import-memory' | 'spark-settings' | 'usage-limits' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'code-beta';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'code-beta';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -954,6 +957,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // (renameLocalFSChat sanitizes too, as the last line of defense).
     const trimmed = editValue.replace(/[\/:*?"<>|]/g, '').trim();
     if (trimmed && trimmed !== editingChatId) {
+      // `localChats`, never the notebook-filtered list Recents renders: the chat id
+      // is the filename but the sync-record map is keyed by id alone, so two chats
+      // may not share an id even sitting in two different folders.
       if (localChats.includes(trimmed)) {
         alert("A chat with this name already exists.");
         setEditingChatId(null);
@@ -1046,6 +1052,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   /*
+   * The chat the notebook picker is open for, or null.
+   *
+   * Raised through the intent bus by both surfaces that offer "Add to notebook" —
+   * the top-right conversation menu and a Recents row's own menu — so the dialog is
+   * mounted exactly once, here, rather than once per surface.
+   */
+  const [notebookPickerChatId, setNotebookPickerChatId] = useState<string | null>(null);
+
+  /*
    * Chat actions raised from outside the sidebar — currently the top-right
    * conversation-actions menu, which reproduces Gemini's Pin / Rename / Delete
    * rows for the open conversation.
@@ -1064,6 +1079,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (action === 'pin') togglePinChat(chatId);
         else if (action === 'rename') openRenameDialog(chatId);
         else if (action === 'delete') handleDeleteChat(chatId);
+        else if (action === 'notebook') setNotebookPickerChatId(chatId);
       }),
     // `togglePinChat` closes over `pinnedChats`, so a stale subscription would
     // toggle against an out-of-date list and drop concurrent pins.
@@ -1085,14 +1101,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [recentsExpanded, setRecentsExpanded] = useState(true);
 
   // ── Recents windowing ──────────────────────────────────────────────────────
+
+  /*
+   * Chats that a notebook owns, which Recents does not list.
+   *
+   * A chat filed into a notebook belongs to that notebook's "Past chats" and its
+   * file lives in `Notebooks/<name>/Chats/`, so leaving it in Recents as well would
+   * show one conversation in two places with no hint that they are the same thing.
+   *
+   * **Display-only, and it has to stay that way.** `NotebookPage` validates its own
+   * rows against the unfiltered `localChats` from the same context, so dropping
+   * these ids any further down — out of the chat index, say — would empty every
+   * notebook's list instead of just this one. The rename dup-check above stays
+   * unfiltered for a harder reason: a chat id is its filename, but the sync-record
+   * map is keyed by id alone, so ids must stay unique across every folder.
+   *
+   * Hydrated here rather than relying on the Notebooks section, which is unmounted
+   * while the rail is collapsed — and which, mounting in the same commit, would let
+   * a filed chat paint in Recents for a frame before its effect ran.
+   */
+  const notebooks = useStore(notebooksStore);
+  useEffect(() => {
+    hydrateNotebooks();
+    return subscribeToNotebookWrites();
+  }, []);
+  const notebookChatIds = useMemo(() => {
+    const owned = new Set<string>();
+    for (const notebook of notebooks) for (const chatId of notebook.chatIds) owned.add(chatId);
+    return owned;
+  }, [notebooks]);
+
   // The context owns the deterministic newest-first order. Pinning is a stable
   // partition only; the sidebar must not independently reinterpret mtimes.
   const sortedChats = useMemo(() => {
     const pinned: string[] = [];
     const rest: string[] = [];
-    for (const chat of localChats) (pinnedChatSet.has(chat) ? pinned : rest).push(chat);
+    for (const chat of localChats) {
+      if (notebookChatIds.has(chat)) continue;
+      (pinnedChatSet.has(chat) ? pinned : rest).push(chat);
+    }
     return [...pinned, ...rest];
-  }, [localChats, pinnedChatSet]);
+  }, [localChats, pinnedChatSet, notebookChatIds]);
 
   const [recentsLimit, setRecentsLimit] = useState(RECENTS_INITIAL_COUNT);
   const [isGrowingRecents, setIsGrowingRecents] = useState(false);
@@ -1108,8 +1157,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [chatScopeId]);
 
   // Pins are all hoisted to the front, so a user with 40 pins would otherwise see
-  // a first window made entirely of pins and no actual recents.
-  const effectiveRecentsLimit = recentsLimit + pinnedChatSet.size;
+  // a first window made entirely of pins and no actual recents. Counted over the
+  // filtered list: a pinned chat that is now in a notebook is not hoisted here, so
+  // it must not buy a slot either. Its pin is untouched and comes back with it.
+  const visiblePinnedCount = useMemo(
+    () => sortedChats.reduce((count, chat) => (pinnedChatSet.has(chat) ? count + 1 : count), 0),
+    [sortedChats, pinnedChatSet],
+  );
+  const effectiveRecentsLimit = recentsLimit + visiblePinnedCount;
   const hasMoreRecents = effectiveRecentsLimit < sortedChats.length;
 
   const windowedChats = useMemo(() => {
@@ -1330,16 +1385,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
            * expanded, where that is what was measured.
            */
           data-tooltip-position={isCollapsed ? 'right' : 'below'}
-          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-200 active:scale-95"
+          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95"
         >
-          <div className={`transition-all duration-200 flex items-center justify-center
+          <div className={`transition-[opacity,transform] duration-200 flex items-center justify-center
             ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : 'opacity-100 scale-100'}`}>
             {/* 22x22, matching `.sparkle-image`. logo.png is 683x683, so squaring it
                 does not distort. */}
             <img
               src={logo}
               alt="Logo"
-              className="h-[22px] w-[22px] object-contain shrink-0 transition-all duration-300"
+              className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300"
               style={{ filter: getLogoFilter(userProfile?.workspaceColor) }}
             />
           </div>
@@ -1712,10 +1767,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <SidebarItem 
               flushRight
               icon={MediaIcon} 
-              /* `MediaIcon`'s body spans x 19..121 inside a viewBox centred on
-               * 82, so it draws ~12 units — about 2px at this size — left of
-               * centre. The sparkle at the top right balances the bounding box
-               * but not the eye. */
               iconClassName="ml-[2px]"
               label="Media" 
               isCollapsed={isCollapsed} 
@@ -1728,14 +1779,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <SidebarItem
               flushRight
               icon={AgentIcon}
-              /* Geometrically this one IS centred — the artwork is drawn around
-               * (60,60) and rotated about that same point. The nudge is purely
-               * optical, matching Media so the two read as a pair. */
-              iconClassName="ml-[2px]"
               label="Agents"
               isCollapsed={isCollapsed}
               active={currentView === 'agents'}
               onClick={() => onViewChange('agents')}
+            />
+            <SidebarItem
+              flushRight
+              icon={Palette}
+              label="Design"
+              isCollapsed={isCollapsed}
+              active={currentView === 'design'}
+              onClick={() => onViewChange('design')}
             />
             {/*
               * Labs only. `experiments['code-beta']` defaults to false, so this
@@ -1747,7 +1802,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <SidebarItem
                 flushRight
                 icon={FlaskConical}
-                iconClassName="ml-[2px]"
                 label="Code Beta"
                 isCollapsed={isCollapsed}
                 active={currentView === 'code-beta'}
@@ -1847,16 +1901,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 * folder permission, a per-file disk reconcile, and a projects
                 * scan. See the field's note in `LocalFSContext.tsx`.
                 *
-                * `localChats.length > 0` covers the HEADER too, deliberately.
+                * `sortedChats.length > 0` covers the HEADER too, deliberately.
                 * This used to read `(!isLocalFolderAuthorized || localChats.length > 0)`,
                 * which rendered a bare "Recents" heading with nothing beneath it
                 * during the window where the folder is connected but permission
                 * has not been re-granted — the body below is gated on the same
-                * `length > 0`, so that branch could only ever produce a label
-                * over empty space. A section heading is a promise that there is
-                * a section; it now appears only once there is one.
+                * count, so that branch could only ever produce a label over empty
+                * space. A section heading is a promise that there is a section; it
+                * now appears only once there is one.
+                *
+                * The **filtered** count, not `localChats.length`: a workspace whose
+                * every chat is filed into a notebook has chats but no recents, and
+                * the unfiltered count would put the heading back over nothing.
                 */}
-              {isChatListHydrated && isLocalFolderConnected && localChats.length > 0 && (
+              {isChatListHydrated && isLocalFolderConnected && sortedChats.length > 0 && (
                 <>
                   <SectionHeader
                     title="Recents"
@@ -1887,7 +1945,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                   >
                     <div className="min-h-0 overflow-hidden space-y-0">
-                    {!isCollapsed && recentsExpanded && localChats.length > 0 ? (
+                    {!isCollapsed && recentsExpanded && sortedChats.length > 0 ? (
                       <>
                         {windowedChats.map((chat) => {
                           const isTemp = isTempChatId(chat);
@@ -2235,8 +2293,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                const chatToFile = menuActiveChat;
                 triggerCloseMenu();
-                alert(`Added "${menuActiveChat}" to Notebook.`);
+                // Through the bus, like the conversation menu's twin, so the picker
+                // is mounted once below rather than once per surface.
+                emitChatActionIntent({ action: 'notebook', chatId: chatToFile });
               }}
               className={GEMINI_MENU_ITEM_CLASS}
             >
@@ -2339,6 +2400,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             device, plus any content you created in it.
           </p>
         </GeminiDialog>
+      )}
+
+      {/*
+       * The notebook picker, for "Add to notebook" from either menu.
+       *
+       * It derives the chat's current notebook itself, so a chat that is already in
+       * one opens the "Move Chat" variant off the same row — and the sidebar does not
+       * have to have read the notebook registry, which while collapsed it has not.
+       */}
+      {notebookPickerChatId && (
+        <MoveChatDialog chatId={notebookPickerChatId} onClose={() => setNotebookPickerChatId(null)} />
       )}
     </aside>
   );

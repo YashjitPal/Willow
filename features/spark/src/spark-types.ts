@@ -74,6 +74,8 @@ export interface SparkTask {
   progressLabel?: string;
   scheduledLabel?: string;
   scheduledTime?: string;
+  /** True while a completed task has not yet been opened by the user. */
+  hasUnreadCompletion?: boolean;
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;

@@ -84,6 +84,7 @@ import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '@willow/agent-builder/agent-builder-store';
 import { newChatSignal } from '@willow/core/new-chat-signal';
+import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '@willow/design/design-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';
@@ -93,7 +94,13 @@ import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/co
 // cards replace the transcript's indicator rows. Both are additions of the
 // fork; see features/code-beta/AGENTS.md.
 import { runCodexTurn, type WorkbenchFiles } from '../harness-bridge';
-import { nextTurnId, turnCalls } from '../code-beta-store';
+import {
+  effectiveEffort,
+  nextTurnId,
+  setUltraEngaged,
+  turnCalls,
+  ultraEngaged,
+} from '../code-beta-store';
 import type { Message } from '../harness/runtime/protocol';
 import { LiveTurnActivity, SettledTurnActivity } from '../ui/TurnActivity';
 import {
@@ -101,14 +108,7 @@ import {
   matchSlashCommands,
   type SlashCommand,
 } from '../slash-commands';
-import {
-  CODEX_EFFORTS,
-  EFFORT_HINT,
-  EFFORT_LABEL,
-  resolveEffort,
-  supportedEfforts,
-  type CodexEffort,
-} from '../harness/overlay/effort';
+import { EFFORT_LABEL } from '../harness/overlay/effort';
 import '../code-beta.css';
 
 
@@ -521,6 +521,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const wroteToDefaultRef = useRef(false);
   const migratedDefaultRef = useRef(false);
   const [namingSessionIds, setNamingSessionIds] = useState<Set<string>>(new Set());
+  // Session ids naming has already been started for. The naming effect depends
+  // on `messages`, which changes on every streamed token, and its own "still
+  // called New Chat" gate stays open until the rename commits — so without this
+  // one session fires a naming request per token.
+  const namingStartedRef = useRef<Set<string>>(new Set());
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [shouldRenderHistory, setShouldRenderHistory] = useState(false);
   const [isClosingHistory, setIsClosingHistory] = useState(false);
@@ -541,19 +546,23 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const assistantMsg = messages[1].content;
       
       const fetchTitle = async () => {
+        let title = '';
         try {
-          const title = await generateChatTitle(userMsg, assistantMsg);
-          if (title) {
-            let uniqueTitle = title;
-            let counter = 1;
-            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-              uniqueTitle = `${title} (${counter})`;
-              counter++;
-            }
-            renameCodeChat(chatScopeId, codeChatTitle || codeChatSessionId, uniqueTitle);
-            setCodeChatTitle(uniqueTitle);
-          }
-        } catch {}
+          title = await generateChatTitle(userMsg, assistantMsg);
+        } catch {
+          title = '';
+        }
+        // Naming used to stop here when the model gave nothing back, so a quota
+        // error left the chat on its session id for the rest of the session.
+        if (!title) title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
+        let uniqueTitle = title;
+        let counter = 1;
+        while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+          uniqueTitle = `${title} (${counter})`;
+          counter++;
+        }
+        renameCodeChat(chatScopeId, codeChatTitle || codeChatSessionId, uniqueTitle);
+        setCodeChatTitle(uniqueTitle);
       };
       void fetchTitle();
     }
@@ -592,18 +601,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const assistantMsg = designMessages[1].content;
       
       const fetchTitle = async () => {
+        let title = '';
         try {
-          const title = await generateChatTitle(userMsg, assistantMsg);
-          if (title) {
-            let uniqueTitle = title;
-            let counter = 1;
-            while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-              uniqueTitle = `${title} (${counter})`;
-              counter++;
-            }
-            setDesignChatTitle(uniqueTitle);
-          }
-        } catch {}
+          title = await generateChatTitle(userMsg, assistantMsg);
+        } catch {
+          title = '';
+        }
+        if (!title) title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
+        let uniqueTitle = title;
+        let counter = 1;
+        while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+          uniqueTitle = `${title} (${counter})`;
+          counter++;
+        }
+        setDesignChatTitle(uniqueTitle);
       };
       void fetchTitle();
     }
@@ -910,9 +921,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     });
   }, [messages, activeSnapshotId, currentSessionId, projectName, getFilesSnapshot]);
 
-  // Automated Session Naming with Gemini Flash
+  // Automated session naming.
   useEffect(() => {
-    if (!currentSessionId || !apiKeys.gemini?.[0]) return;
+    if (!currentSessionId || namingStartedRef.current.has(currentSessionId)) return;
+    // Any provider key will do. This gated on a Gemini key specifically, so a
+    // user whose System-defaults naming model is Claude or GPT never had a
+    // session named at all — the provider is resolved from that setting below.
+    const hasNamingKey = !!(
+      apiKeys.gemini?.[0] || apiKeys.openai?.[0] || apiKeys.anthropic?.[0]
+      || apiKeys.moonshot?.[0] || apiKeys.spacexai?.[0] || apiKeys.zhipuai?.[0]
+    );
+    if (!hasNamingKey) return;
 
     const currentSession = sessions.find(s => s.id === currentSessionId);
     if (!currentSession) return;
@@ -923,8 +942,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (!userMessage) return;
 
       const userPrompt = userMessage.content;
+      namingStartedRef.current.add(currentSessionId);
 
       const nameSession = async () => {
+        let summaryTitle = '';
         try {
           setNamingSessionIds(prev => {
             const next = new Set(prev);
@@ -970,8 +991,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           if (!apiKey) throw new Error('No API key for configured chat naming provider');
 
           const promptText = buildSessionTitlePrompt(userPrompt);
-
-          let summaryTitle = '';
 
           if (targetProvider === 'gemini') {
               const response = await fetch(
@@ -1030,45 +1049,56 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             .replace(/[\n\r]+/g, ' ')
             .trim();
 
-          if (summaryTitle.length > 0 && summaryTitle.length < 40) {
-            setSessions(prev => {
-              const idx = prev.findIndex(s => s.id === currentSessionId);
-              if (idx === -1) return prev;
-
-              // Ensure name is unique among other sessions in the same project list
-              let uniqueTitle = summaryTitle;
-              let counter = 1;
-              while (prev.some((s, sIdx) => sIdx !== idx && s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
-                uniqueTitle = `${summaryTitle} (${counter})`;
-                counter++;
-              }
-
-              const updated = {
-                ...prev[idx],
-                name: uniqueTitle,
-                updatedAt: Date.now(),
-              };
-              const next = [...prev];
-              next[idx] = updated;
-              const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
-              persistSessions(storageKey, next);
-              return next;
-            });
-          }
+          // A model that replied with a paragraph is as unusable as one that did
+          // not reply, so both take the fallback below rather than only the
+          // empty case being handled.
+          if (summaryTitle.length >= 40) summaryTitle = '';
         } catch (error) {
           console.error('[Sessions] Failed to auto-name session:', error);
-        } finally {
-          setNamingSessionIds(prev => {
-            const next = new Set(prev);
-            next.delete(currentSessionId);
-            return next;
-          });
+          summaryTitle = '';
         }
+
+        // The naming model is the user's own pick from System defaults, so it
+        // fails for reasons this surface cannot fix: quota, a revoked key, a
+        // retired model id. The prompt it was given names the session instead —
+        // which is what guarantees the skeleton resolves to a real label rather
+        // than leaving the session called "New Chat" forever.
+        if (!summaryTitle) summaryTitle = deriveFallbackTitle(userPrompt, FALLBACK_CHAT_TITLE);
+
+        setSessions(prev => {
+          const idx = prev.findIndex(s => s.id === currentSessionId);
+          if (idx === -1) return prev;
+
+          // Ensure name is unique among other sessions in the same project list
+          let uniqueTitle = summaryTitle;
+          let counter = 1;
+          while (prev.some((s, sIdx) => sIdx !== idx && s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+            uniqueTitle = `${summaryTitle} (${counter})`;
+            counter++;
+          }
+
+          const updated = {
+            ...prev[idx],
+            name: uniqueTitle,
+            updatedAt: Date.now(),
+          };
+          const next = [...prev];
+          next[idx] = updated;
+          const storageKey = projectName ? `willow_chat_sessions_${projectName}` : 'willow_chat_sessions_default';
+          persistSessions(storageKey, next);
+          return next;
+        });
+
+        setNamingSessionIds(prev => {
+          const next = new Set(prev);
+          next.delete(currentSessionId);
+          return next;
+        });
       };
 
       void nameSession();
     }
-  }, [messages, currentSessionId, apiKeys.gemini, projectName]);
+  }, [messages, currentSessionId, apiKeys, projectName]);
 
   // Switch to a different chat session
   const handleSwitchSession = useCallback((sessionId: string) => {
@@ -2446,47 +2476,39 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
 
-  const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
-  // No-thinking selections add nothing to the pill — see use-composer-models.
-  const activeEffortDisplayLabel = activeModel && !isNonThinkingEffort(activeModel)
-    ? getThinkingEffortLabel(activeModel)
-    : '';
-  const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
-    .filter(Boolean)
-    .join(' ');
-
   /*
    * Code Beta: reasoning effort on Codex's own ladder.
    *
    * Effort is part of the harness — upstream carries it as
-   * `model_reasoning_effort` — and its ladder goes two rungs past Willow's,
-   * ending at Ultra. This is a Code-Beta-only control rather than an addition
-   * to the shared `ModelsMenu`, because changing that would push Ultra onto the
-   * Code tab too, where nothing would honour it.
+   * `model_reasoning_effort` — and its ladder ends one rung past Willow's, at
+   * Ultra. The numeric levels are still chosen through the shared model menu;
+   * the menu's `extraEfforts` prop adds the Ultra row.
    *
-   * The selection is clamped per model, so the pill can say when a level was
-   * asked for and could not be delivered.
+   * Only the Ultra flag is stored — the numeric levels already live on the
+   * selected model — and it is stored rather than held locally because the
+   * landing composer offers the same choice.
    */
-  const [codexEffort, setCodexEffort] = useState<CodexEffort>('high');
-  const [isEffortMenuOpen, setIsEffortMenuOpen] = useState(false);
-  const effortMenuRef = useRef<HTMLDivElement>(null);
+  const isUltra = useStore(ultraEngaged);
+  const codexEffort = effectiveEffort(isUltra, activeModel?.thinkingLevel);
 
   const effortModel = {
     providerId: activeModel?.providerId ?? activeModel?.provider,
     modelId: activeModel?.modelId,
     name: activeModel?.name,
   };
-  const availableEfforts = supportedEfforts(effortModel);
-  const resolvedEffort = resolveEffort(codexEffort, effortModel);
 
-  useEffect(() => {
-    if (!isEffortMenuOpen) return;
-    const onDown = (event: MouseEvent) => {
-      if (!effortMenuRef.current?.contains(event.target as Node)) setIsEffortMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [isEffortMenuOpen]);
+  const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
+  // No-thinking selections add nothing to the pill — see use-composer-models.
+  // Ultra is not a level on `activeModel`, so it is named here instead; without
+  // this the pill would keep showing whichever level Ultra was chosen over.
+  const activeEffortDisplayLabel = codexEffort === 'ultra'
+    ? EFFORT_LABEL.ultra
+    : activeModel && !isNonThinkingEffort(activeModel)
+      ? getThinkingEffortLabel(activeModel)
+      : '';
+  const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
+    .filter(Boolean)
+    .join(' ');
 
   useEffect(() => {
     if (isModelsMenuOpen) {
@@ -3287,15 +3309,28 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     ) : null}
 
                     {/*
-                      * Code Beta: the harness's work for this turn, collapsed.
-                      * It sits above the prose because that is the order it
-                      * happened in — the agent worked, then answered.
+                      * Code Beta: the turn's timeline. The narration and the
+                      * cards it refers to collapse together, leaving the
+                      * closing paragraph — which is the answer — on its own.
+                      *
+                      * `fallback` is the whole stored message, used when the
+                      * turn is no longer in the session store (after a reload,
+                      * where only the message text survives) and for every
+                      * message that did not come from the harness.
                       */}
-                    <SettledTurnActivity turnId={msg.codexTurnId} />
-
-                    <div className="text-gray-300 text-[15px] leading-[1.65]">
-                      {renderFormattedContent(msg.content, msg.isGenerating)}
-                    </div>
+                    <SettledTurnActivity
+                      turnId={msg.codexTurnId}
+                      renderText={(text, streaming) => (
+                        <div className="text-gray-300 text-[15px] leading-[1.65]">
+                          {renderFormattedContent(text, streaming)}
+                        </div>
+                      )}
+                      fallback={
+                        <div className="text-gray-300 text-[15px] leading-[1.65]">
+                          {renderFormattedContent(msg.content, msg.isGenerating)}
+                        </div>
+                      }
+                    />
 
                     {/* Design Indicator - clickable design card for design mode messages */}
                     {msg.designNodeId && !msg.isGenerating && (
@@ -3451,17 +3486,23 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 </div>
 
                 {/*
-                  * Code Beta: the live harness view — "Working for 12s" plus
-                  * every tool call as it happens. It renders above the prose
-                  * and disappears when the turn settles, at which point
-                  * `SettledTurnActivity` takes over on the finished message.
+                  * Code Beta: the live timeline — the narration and every tool
+                  * call, in the order they happened. It renders the prose
+                  * itself, so the separate streaming block below is suppressed
+                  * for harness turns to avoid showing the text twice.
                   */}
                 <LiveTurnActivity
                   turnId={activeCodexTurn}
                   onStop={() => generationAbortControllerRef.current?.abort()}
+                  renderText={(text, streaming) => (
+                    <div className="text-gray-300 text-[15px] leading-[1.65]">
+                      {renderFormattedContent(text, streaming)}
+                    </div>
+                  )}
                 />
 
-                {(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
+                {!activeCodexTurn
+                  && (activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
                     {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true)}
                   </div>
@@ -3751,7 +3792,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  * draft is a bare `/word`, so it cannot appear mid-sentence.
                  */}
                {slashMatches.length > 0 && (
-                 <div className="cb-root absolute bottom-full left-0 right-0 z-50 mb-2 bg-transparent">
+                 <div className="cb-root absolute bottom-full left-0 right-0 z-50 mb-2">
                    <div
                      className="overflow-hidden rounded-xl border border-[hsl(var(--cb-line))] bg-[hsl(var(--cb-overlay))] p-1"
                      style={{ boxShadow: '0 18px 44px -12px rgba(0,0,0,0.7)' }}
@@ -3924,86 +3965,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   
                   <div className="flex items-center gap-2">
                       {/*
-                        * Code Beta: the effort pill. Codex's ladder, up to Ultra.
+                        * Code Beta: effort is chosen in the model menu's
+                        * thinking-effort list, where it already lives on every other
+                        * surface, and shows on the model pill like any other level.
+                        * See the `extraEfforts` prop below for the Ultra row.
                         */}
-                      <div className="cb-root relative flex shrink-0 items-center bg-transparent" ref={effortMenuRef}>
-                        {isEffortMenuOpen && (
-                          <div
-                            className="absolute bottom-full left-0 z-50 mb-2 w-[248px] overflow-hidden rounded-xl border border-[hsl(var(--cb-line))] bg-[hsl(var(--cb-overlay))] p-1"
-                            style={{ boxShadow: '0 18px 44px -12px rgba(0,0,0,0.7)' }}
-                          >
-                            <p className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-[hsl(var(--cb-ink-ghost))]">
-                              Reasoning effort
-                            </p>
-                            {CODEX_EFFORTS.map((effort) => {
-                              const usable = availableEfforts.includes(effort);
-                              return (
-                                <button
-                                  key={effort}
-                                  type="button"
-                                  disabled={!usable}
-                                  onClick={() => {
-                                    setCodexEffort(effort);
-                                    setIsEffortMenuOpen(false);
-                                  }}
-                                  className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100 ${
-                                    usable
-                                      ? 'hover:bg-[hsl(var(--cb-ink)/0.06)]'
-                                      : 'cursor-not-allowed opacity-35'
-                                  }`}
-                                >
-                                  <span className="min-w-0 flex-1">
-                                    <span className="flex items-center gap-1.5">
-                                      <span className="text-[12.5px] font-medium text-[hsl(var(--cb-ink))]">
-                                        {EFFORT_LABEL[effort]}
-                                      </span>
-                                      {effort === 'ultra' && (
-                                        <span className="rounded bg-[hsl(var(--cb-accent-soft))] px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-[hsl(var(--cb-accent))]">
-                                          Top
-                                        </span>
-                                      )}
-                                      {!usable && (
-                                        <span className="text-[10px] text-[hsl(var(--cb-ink-ghost))]">
-                                          unsupported
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="mt-0.5 block text-[11px] leading-[1.4] text-[hsl(var(--cb-ink-faint))]">
-                                      {EFFORT_HINT[effort]}
-                                    </span>
-                                  </span>
-                                  {codexEffort === effort && (
-                                    <Check size={12} className="mt-0.5 shrink-0 text-[hsl(var(--cb-accent))]" />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setIsEffortMenuOpen((open) => !open)}
-                          aria-expanded={isEffortMenuOpen}
-                          aria-label={`Reasoning effort, currently ${EFFORT_LABEL[resolvedEffort.effective]}`}
-                          title={
-                            resolvedEffort.clamped
-                              ? `${EFFORT_LABEL[codexEffort]} is not supported by this model — running at ${EFFORT_LABEL[resolvedEffort.effective]}`
-                              : EFFORT_HINT[resolvedEffort.effective]
-                          }
-                          className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${
-                            isEffortMenuOpen
-                              ? 'bg-[hsl(var(--cb-ink)/0.1)] text-[hsl(var(--cb-ink))]'
-                              : 'text-[hsl(var(--cb-ink-muted))] hover:bg-[hsl(var(--cb-ink)/0.06)] hover:text-[hsl(var(--cb-ink))]'
-                          }`}
-                        >
-                          <Gauge size={14} />
-                          {!isCompact && <span>{EFFORT_LABEL[resolvedEffort.effective]}</span>}
-                          {resolvedEffort.clamped && (
-                            <span className="size-1.5 rounded-full bg-[hsl(var(--cb-warning))]" aria-hidden />
-                          )}
-                        </button>
-                      </div>
-
                       <div className="relative flex items-center shrink-0" ref={modelsMenuRef}>
                         <button
                           ref={modelsMenuRef as any}
@@ -4035,7 +4001,32 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
+                            /*
+                              * Code Beta only: Ultra, appended to the thinking-effort
+                              * list for every model.
+                              *
+                              * It is not one of Willow's numeric levels — upstream
+                              * lowers it to the model's own ceiling on the wire and
+                              * uses it to turn on proactive sub-agent delegation — so
+                              * it is held in this component's state rather than
+                              * written into `selectedModelId`. Writing a non-model id
+                              * there would leave the Code tab unable to resolve the
+                              * selection.
+                              */
+                            extraEfforts={[
+                              {
+                                id: 'codex-ultra',
+                                label: EFFORT_LABEL.ultra,
+                                badge: 'Sub-agents',
+                                selected: isUltra,
+                                onSelect: () => setUltraEngaged(true),
+                              },
+                            ]}
                             onSelect={(id) => {
+                              // Picking a level clears Ultra: the two are one radio
+                              // group, so leaving it on would keep delegating after
+                              // the user asked for something else.
+                              setUltraEngaged(false);
                               setSelectedModelId(id);
                               const sel = ALL_MODELS.find(m => m.id === id);
                               if (sel) {

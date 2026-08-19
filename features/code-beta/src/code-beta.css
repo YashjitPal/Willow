@@ -52,10 +52,22 @@
 
   --cb-shadow: 240 60% 2%;
 
-  color: hsl(var(--cb-ink));
-  background-color: hsl(var(--cb-canvas));
   font-feature-settings: 'cv05' 1, 'cv08' 1, 'ss01' 1;
 }
+
+/*
+ * `.cb-root` declares tokens. It does not paint.
+ *
+ * It used to set `background-color: var(--cb-canvas)` and a text colour, which
+ * made it unusable as an inline wrapper: anything nested inside it — the
+ * assistant's own answer, for instance — picked up a near-black block behind
+ * the text of the surrounding transcript. Every call site was already passing
+ * `bg-transparent` to undo it, which is the tell that the paint belonged to a
+ * component and not to the token layer.
+ *
+ * A surface that genuinely wants the canvas asks for it:
+ * `bg-[hsl(var(--cb-canvas))]`.
+ */
 
 .cb-root ::selection {
   background-color: hsl(var(--cb-accent) / 0.28);
@@ -247,6 +259,33 @@
 
 .cb-sheen {
   animation: cb-sheen 1.5s cubic-bezier(0.76, 0, 0.24, 1) infinite;
+}
+
+/* ---------------------------------------------------------------------- */
+/* The turn timeline                                                       */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Narration and tool cards share one column, in the order they happened.
+ *
+ * Spacing only. Type size, weight and family are inherited from the transcript
+ * so a harness turn and an ordinary message read identically — the timeline
+ * changes the order things appear in, never how the text looks.
+ *
+ * Prose sits closer to the card it introduces than to the next run of prose,
+ * which is what makes "I'll create the entry point" read as belonging to the
+ * card underneath it rather than floating between two.
+ */
+.cb-timeline > * + * {
+  margin-top: 0.5rem;
+}
+
+.cb-timeline > .cb-prose + * {
+  margin-top: 0.375rem;
+}
+
+.cb-timeline > * + .cb-prose {
+  margin-top: 0.75rem;
 }
 
 /* ---------------------------------------------------------------------- */

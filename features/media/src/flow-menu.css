@@ -1,0 +1,220 @@
+/*
+ * Flow's menu surface, transcribed from its own stylesheet rather than designed.
+ *
+ * One definition serves every menu in Media, because it serves every menu in Flow: the header's
+ * three-dot and View Settings popovers and the menu a gallery tile opens are all the same
+ * styled-component (`sc-d5e0baee-0` for the surface, `-7` for a row, `-8` for a separator), so
+ * they share a fill, a radius, a shadow and both animations.
+ *
+ * Every value was read out of the live app while a menu was mounted — styled-components only
+ * injects a component's rules on first render, and the closed-state keyframes exist solely while
+ * the menu is unmounting, so a dump taken with the menu shut returns nothing at all. See
+ * `tools/ui-research/scrapers/flow/56-menus.cjs` (header), `67-tile-menu-css.cjs` (authored rules
+ * behind the tile menu) and `68-menu-hover.cjs` (hover and press, which no rule dump can settle —
+ * two rules fire at once and only the rendered result says what wins).
+ *
+ * Flow's two surface variants differ only in padding, gap and min-width: the item list keeps the
+ * 8px/4px base, and the settings panel overrides both to 12px.
+ */
+
+@keyframes flow-menu-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flow-menu-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(4px); }
+}
+
+.flow-menu {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 4px;
+  border-radius: 18px;
+  min-width: 192px;
+  color: rgb(255, 255, 255);
+  background: rgba(22, 23, 24, 0.9);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  box-shadow:
+    rgba(218, 220, 224, 0.05) 0 0 0 1px inset,
+    rgba(0, 0, 0, 0.6) 0 16px 32px -8px;
+  font-family: 'Google Sans Text', Inter, system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* The enter is twice as slow as the exit — 200ms opening against 100ms closing — and they use
+   different curves, so this is not one animation played backwards. */
+.flow-menu[data-state='open']   { animation: flow-menu-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+.flow-menu[data-state='closed'] { animation: flow-menu-out 100ms ease-in forwards; }
+
+/* The settings panel's variant. */
+.flow-menu--panel { padding: 12px; gap: 12px; }
+
+/* A tile's menu is placed at a point and carries its own width, so the column minimum that keeps
+   the header's menus aligned under their triggers would only stretch it. */
+.flow-menu--fit { min-width: 0; }
+
+/* ---- rows ---- */
+
+.flow-menu-item {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  /* A fixed height, not a minimum: 8px of padding either side of a 20px line comes to 36px, and
+     Flow holds the row at 34 and lets the line centre itself over the difference. */
+  height: 34px;
+  padding: 8px 18px 8px 8px;
+  gap: 8px;
+  border: none;
+  border-radius: 12px;
+  background-color: transparent;
+  color: rgb(255, 255, 255);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease-in-out,
+    filter 100ms ease-in-out,
+    box-shadow 100ms ease-in-out;
+}
+
+/*
+ * Hover and press are painted twice over, and that is not a mistake in the transcription: Flow's
+ * row carries both a button variant and a menu-item variant, and each brings its own rule. The
+ * row itself takes a grey wash while a child overlay takes a brighter white one, on different
+ * durations — 100ms against 250ms — so the tint arrives in two stages. Dropping either layer
+ * makes the highlight visibly weaker than Flow's.
+ */
+.flow-menu-item:hover  { background-color: rgba(218, 220, 224, 0.05); }
+.flow-menu-item:active {
+  background-color: rgba(218, 220, 224, 0.25);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  filter: blur(1.5px);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+}
+
+.flow-menu-item__overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: 250ms ease-in-out;
+}
+.flow-menu-item:hover .flow-menu-item__overlay  { background: rgba(255, 255, 255, 0.15); }
+.flow-menu-item:active .flow-menu-item__overlay { background: rgba(255, 255, 255, 0.25); }
+
+.flow-menu-item__label { position: relative; }
+
+.flow-menu-item:disabled {
+  color: rgba(218, 220, 224, 0.5);
+  cursor: not-allowed;
+}
+.flow-menu-item:disabled:hover { background-color: transparent; }
+.flow-menu-item:disabled:hover .flow-menu-item__overlay { background: transparent; }
+
+/* The tile menu sets its rows in body type; the header's stay at the 11px base. */
+.flow-menu-item--body { font-size: 14px; line-height: 20px; }
+
+/* Destructive rows tint the glyph as well as the label, so this rides on `color`. */
+.flow-menu-item--danger { color: rgb(254, 110, 110); }
+
+.flow-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ---- settings panel ---- */
+
+.flow-menu-heading {
+  padding-left: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.flow-menu-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.flow-menu-row__left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 0%;
+}
+
+.flow-menu-row__label { flex: 1 1 0%; text-align: left; }
+
+/* ---- segmented control ---- */
+
+.flow-tabs {
+  color: rgb(255, 255, 255);
+  background-color: rgba(218, 220, 224, 0.05);
+  border-radius: 12px;
+}
+
+.flow-tabs--compact { width: min-content; }
+
+.flow-tabs__list {
+  display: flex;
+  justify-content: space-around;
+  height: 34px;
+}
+
+.flow-tab {
+  flex: 1 1 0%;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: row;
+  gap: 4px;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-radius: 12px;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flow-tab[data-state='active'] {
+  backdrop-filter: blur(80px);
+  background-color: rgba(218, 220, 224, 0.25);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.flow-tab:hover:not([data-state='active']) { background-color: rgba(218, 220, 224, 0.05); }
+.flow-tab:active:not([data-state='active']) { background-color: rgba(218, 220, 224, 0.05); }

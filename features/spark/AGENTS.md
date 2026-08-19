@@ -12,7 +12,8 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 | `src/SparkTaskCard.tsx` · `.css` | Gemini's `.goal-card` row + its `⋮` action menu. Shared row for every task list. |
 | `src/SparkTaskDialogs.tsx` · `.css` | Rename / Delete confirmations, with Gemini's copy. |
 | `src/SparkTaskDetail.tsx` | Task detail/edit view (2196 lines). |
-| `src/spark-composer-chips.tsx` | Shared composer pieces: chip rows, tool labels, icon defaults, file-merge helper (128 lines). |
+| `src/SparkComposer.tsx` · `.css` | The prompt box: a thin wrapper over Chat's `InputBar`. See below. |
+| `src/spark-composer-chips.tsx` | Chip rows and tool labels for the task-detail composers, plus the file-merge helper. |
 | `src/SparkAllTasks.tsx` | Full task list. |
 | `src/SparkScheduleEditor.tsx` | Cron/time picker widget. |
 | `src/SparkSkillEditor.tsx` | User-defined skill editor (LLM prompt templates). |
@@ -30,6 +31,88 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 Spark is nearly stateless-to-the-user: the store (`spark-store.ts`) is the action
 hub, and the UI components dispatch through it. The backend agent (in
 `@willow/ai/computer-use/session.ts`) is the runner; Spark is the scheduler.
+
+## The prompt box is Chat's, not a second copy of it
+
+`SparkComposer` wraps `InputBar` from `@willow/chat/composer/Composer`. Spark used to
+hand-build its own composer around Chat's `PlusDropdownMenu`, which meant the file input,
+the dictation button, the send-button entrance and the attachment chips existed twice and
+drifted: Spark's could attach a file but never showed a thumbnail, and never gained the
+image paste or GitHub import that Chat's grew.
+
+Three of Chat's existing props make it fit without a fork:
+
+- **`chatVariant`** is already the Gemini-styled box — 660px wide, 32px corners, #1e1f21 —
+  which is what Spark's own copy had been measured to independently.
+- **`liveAvailable={false}`**, with no live handlers passed, *is* the behaviour Spark wants
+  from the send slot. `showSubmitControl` mounts the button only when there is something to
+  send, so an empty box shows nothing and the arrow animates in on the first character —
+  which is Gemini Spark's rule too. It also makes the voice session unreachable from here.
+- **`hideModelPicker`** drops the model pill, which Gemini's Spark composer has no
+  equivalent for. Tasks still run on the model `selectedModelId` names.
+
+Four props were added to `InputBar` for this, all optional and all defaulting to today's
+behaviour: `placeholder`, `hideModelPicker`, `composerRef`, and a fourth `tool` argument on
+`onSubmit`. Chat ignores the last one; Spark stores it on the task.
+
+**Attachments are the one real seam.** Chat hands back `ComposerAttachment`s holding a live
+`File`; Spark persists its own `SparkTaskAttachment` records into IndexedDB before the task
+exists. `SparkComposer` bridges the two and keeps the ownership rule Spark already had: if
+the task cannot be created, the payloads it wrote are deleted again. Read the files out
+synchronously — `InputBar.onSubmit` is sync and clears its own state on return (it revokes
+the object URLs, not the `File` handles).
+
+**`composerRef` exists because the draft is `InputBar`'s local state.** Spark's Suggested
+cards fill the box from outside, and there was no other way in.
+
+### Which composers were converted
+
+All four: `SparkHome`, `SparkAllTasks`, and both boxes in the task detail view — the
+sidebar's compact new-task box and the thread's follow-up box.
+
+**The model pill stays visible** — a deliberate divergence from Gemini, which shows no model
+control on its Spark composer. `selectedModelId` is the model Spark actually resolves the
+task against, so the pill is the shortest path to running one on something else, and it
+writes to the same app-level state Chat's picker does. `setSelectedModelId` therefore has to
+reach every composer: `App` → `SparkWorkspace` → the page → `SparkComposer`.
+
+Two things the conversion needed beyond the props above:
+
+- **`disabled` on `InputBar`**, covering the textarea, the plus menu, the mic, the send slot
+  and the fullscreen toggle, with the guard repeated in the submit path so Enter cannot
+  bypass it. The follow-up box locks entirely while its task is running
+  (`followUpBlocked = isTaskActive(task)`). This is deliberately *not* `isGenerating`, which
+  keeps the box live and turns send into stop.
+- **`onSubmitFiles`**, an alternative to `onSubmitTask` that hands over the raw files. The
+  follow-up path is keyed to a specific task and aborts if the user navigates away
+  mid-upload, and it reads a boolean back from the store to decide whether the turn was
+  accepted. Rather than grow `SparkComposer` a callback per race, that site keeps its own
+  pipeline intact.
+
+**Blanket focus rules reach into the composer too.** `SparkTaskDetail.css` carried
+`.spark-task-detail :is(button, textarea, input):focus-visible { outline: 2px solid #a8c7fa }`,
+written for Spark's own controls. Once the composer became Chat's `InputBar` that rule
+painted a rectangle around the textarea on every focus — while the same composer in Chat
+showed nothing, which is the exact inconsistency sharing the component is meant to remove. It
+now carries `:not(.spark-composer-host *)`. Note the ring is *invisible* rather than absent
+on the home and task-list composers: Tailwind's `outline-none` computes to
+`outline: 2px solid transparent`, so **outline width alone tells you nothing — check the
+colour.**
+
+**Two more leftovers bit during the task-detail swap, and both would bite again.** The old
+`.spark-task-detail__{new,followup}-composer textarea { height: 24px; max-height: 144px }`
+rules were descendant selectors, so they kept applying to Chat's textarea and stretched the
+box from 64px to 164px — the placeholder ended up floating near the top of a tall empty
+panel. And the wrapper's `box-shadow` had to move onto the composer itself: Chat's own
+`0 2px 8px -2px rgba(0,0,0,.16)` is right against a page background but vanishes against
+this panel's #1f1f1f, and a shadow left on the square wrapper traces corners the composer
+does not have. **When you retire a composer, delete its descendant rules in the same pass** —
+the wrapper class survives as a positioning hook, so those selectors keep matching.
+
+`110-composer-parity.cjs` pins both sides of the boundary: Spark's boxes carry the plus menu
+and mic with no live control and mount send only on typing; Chat's keeps its model pill and
+its "Ask Willow" placeholder. `116-followup-composer.cjs` covers the follow-up box's
+placement, elevation and that its lock is consistent across every control.
 
 ## Gemini Spark is codenamed "remy"
 
@@ -54,7 +137,7 @@ node tools/ui-research/scrapers/spark/verify-all.cjs
 ```
 
 Runs every fidelity check and prints one pass/fail. Needs `npm run dev` on :3000 and
-Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). The thirteen checks:
+Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). The fourteen checks:
 
 | Script | Checks |
 | --- | --- |
@@ -71,6 +154,11 @@ Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). The thirtee
 | `90-task-row-diff.cjs` | the task row's surface, corners, spacing and painted title weight |
 | `94-verify-badges.cjs` | the home page's "What's new" chip and Beta label |
 | `95-schedule-row.cjs` | the schedule list's container/row split and its "9:00 am" labels |
+| `106-verify-row-tint.cjs` | that the glow's stacking context is the page root, so the row fill darkens it |
+| `110-composer-parity.cjs` | Spark's composers have no live control; Chat's keeps its pill and placeholder |
+| `116-followup-composer.cjs` | the follow-up composer's placement, elevation and disabled lock |
+| `117-detail-composers.cjs` | both task-detail composers render as one 65.6px pill, not stretched |
+| `118-focus-ring.cjs` | no composer paints a focus rectangle Chat's own composer would not |
 
 Diff tools, for when something looks off but you cannot say what. The general one is
 `H.probe()` + `H.compare()` in `lib.cjs`: name the same logical element on each side and
@@ -96,6 +184,34 @@ Two harness notes worth knowing before you write another one:
   while the host Chrome window is unfocused, so the computed style comes back as the
   *start* colour — which will quietly satisfy any check written as "did it change?".
   `addStyleTag` with `transition-duration: 0s !important` first, then assert the value.
+- **For geometry, use `animation: none`, not `animation-duration: 0s`.** Same root cause,
+  worse symptom: a frozen entrance animation holds its element at the from-state
+  indefinitely, so retrying and "wait until two samples agree" both confirm the wrong
+  number. Gemini's task-list heading sat at `opacity: 0, translateY(52px)` and reported
+  y=108, overlapping its own composer at y=135, stable across every sample. Zeroing the
+  duration keeps the `both` fill applied; `animation: none` drops it and returns the element
+  to its settled layout position.
+- **Do not automate pixel sampling.** An unfocused window stops compositing, and
+  `captureScreenshot` then serves a stale surface — not an error, a plausible wrong colour.
+  Nothing detects it from inside: retries, warm-up captures and requiring consecutive reads
+  to agree all pass on stale data, because a stale surface is stable. Assert the cascade
+  instead and keep the pixel script for hand-running. `H.decodePng` and `H.primePaint` are
+  still there for that.
+- **Never `await` a `requestAnimationFrame` inside the page.** rAF does not fire while the
+  window is unfocused, so the promise never settles and the call blocks until the protocol
+  timeout. This is the same root cause as the frozen transitions and animations above, and
+  it is easy to reintroduce while trying to fix one of them.
+- **`connect()` sets a 90s `protocolTimeout` deliberately.** It was `0` — meaning never —
+  and one killed run left an orphaned tab whose renderer was wedged, so the next check sat
+  on a single CDP call for 28 minutes rather than failing. If a script hangs, check for
+  stray `localhost:3000` tabs first: `findOrOpen` takes the first URL match, and Willow
+  serves every app from one origin, so a left-open `/media` tab is enough to make the
+  harness drive the wrong surface.
+- **`gotoWillowSpark` waits for the destination page root, not for the click.** Entering
+  Spark from Chat renders the sidebar rail a beat before the route is interactive, so a
+  click can be dispatched at a button with no handler yet and report success while nothing
+  happened. It also cannot key on `[class*="spark-"]`, which matches the rail's own
+  `group/spark-item`. `113-nav-selftest.cjs` drives all five routes from a cold Chat start.
 - **Seed fixtures through the store, not the editor.** Both editors span two panels and
   re-render their fields, and typing into them left one harness hung for seven minutes.
   `H.seedWillowSkill()` drives the UI because a skill needs only a name; `95-schedule-row.cjs`
@@ -462,6 +578,42 @@ parent and grew to its content instead — scroll container and mask both inert.
 ancestor from `.spark-all-tasks` down needs `display: flex`, `flex-direction: column`
 and `min-height: 0`. `tools/ui-research/scrapers/spark/53-height-chain.cjs` walks that
 chain and prints where the constraint is lost.
+
+### The row tint depends on the glow being *behind* the rows
+
+The Recent rows and the task-list rows are filled `rgba(15,15,15,.5)` — 50% of the page
+colour over itself. That is a no-op against a plain #0f0f0f page: it changes **not one
+pixel**. The rounded darker rectangle only appears because the fill darkens the composer
+glow behind it. Two separate bugs had defeated that, and neither was visible in any
+computed style — both surfaces reported exactly the right `background-color`:
+
+- **`.spark-composer-anchor` created a stacking context** (`z-index: 1; isolation: isolate`).
+  Gemini's `.input-glow-anchor` is `z-index: auto; isolation: auto` and creates none, which
+  is what lets its `z-index: -1` glow resolve against the page and paint *under* the rows.
+  Willow's lifted the glow into a context that outranked them, so it painted *over* instead.
+- **`.spark-all-tasks` was not a stacking context at all.** A negative z-index paints above
+  its stacking context's background but below everything static in it — so with no context
+  here, the glow resolved against `main.z-10` and was painted *underneath* this element's own
+  opaque #0f0f0f fill. It rendered nothing whatsoever. `container-type: inline-size` does not
+  create a stacking context (Chrome reports `contain: none`), which is why `.spark-home`
+  carries an explicit `isolation: isolate` and this now does too.
+
+Both faults are the same invariant: **walking up from the glow, the first stacking context
+must be the page root that owns the opaque background.** One step lower and the glow is
+buried under that background; one step higher and it covers the content. **Any of
+`z-index`, `isolation`, `opacity < 1`, `transform` or `filter` on the composer anchor
+reintroduces the first fault, and removing `isolation` from either page root reintroduces
+the second.** `106-verify-row-tint.cjs` walks that chain and pins it.
+
+**It used to sample rendered pixels, and that had to be abandoned.** Screenshotting a row,
+removing only its fill and screenshotting again is the more direct test — it is how both
+faults were originally found — but it cannot be automated here. An unfocused Chrome window
+stops producing frames, so `captureScreenshot` returns a stale surface whose contents are a
+plausible colour rather than an error; two captures then agree and the check reports a
+confident zero. Retrying, discarding a warm-up capture, and requiring two consecutive reads
+to agree were all tried, and none works: **a stale surface is stable, so agreement proves
+nothing.** `97-tint-isolate.cjs` still does the pixel measurement — run it by hand with the
+window focused.
 
 ### The task-list rhythm, measured top to bottom
 

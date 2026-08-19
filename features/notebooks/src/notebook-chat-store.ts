@@ -25,6 +25,7 @@
 import { atom } from 'nanostores';
 
 import type { Notebook, NotebookSource } from './notebook-types';
+import { selectChunks, type EmbeddingModel } from './source-retrieval';
 
 export interface NotebookHandoff {
   notebookId: string;
@@ -57,18 +58,49 @@ export const $chatNotebookId = atom<string | null>(null);
  * the request until the model's context is exhausted — a failure that would show
  * up as an unrelated-looking API error much later.
  */
-const MAX_CHARS_PER_SOURCE = 12_000;
-
-export const buildGrounding = (sources: readonly NotebookSource[]): string => {
+export const buildGrounding = async (
+  sources: readonly NotebookSource[],
+  options: { query?: string; model?: EmbeddingModel | null } = {},
+): Promise<string> => {
   if (sources.length === 0) return '';
+
+  /*
+   * Retrieval, not the first N characters of everything.
+   *
+   * `selectChunks` sends the whole corpus when it fits and ranks passages when it
+   * does not — which is what Google describes for Gemini Notebook, and what the
+   * old fixed 12,000-character head-slice per source could not do: ask about the
+   * end of a long document and it only ever saw the beginning.
+   */
+  const selection = await selectChunks({
+    query: options.query ?? '',
+    sources,
+    model: options.model ?? null,
+  });
+
+  const withText = new Set(selection.chunks.map((chunk) => chunk.sourceId));
   const blocks = sources.map((source, index) => {
     const head = `[${index + 1}] ${source.title}${source.url ? ` (${source.url})` : ''}`;
-    if (source.content) {
-      const body =
-        source.content.length > MAX_CHARS_PER_SOURCE
-          ? `${source.content.slice(0, MAX_CHARS_PER_SOURCE)}\n…[truncated]`
-          : source.content;
+    if (source.content && withText.has(source.id)) {
+      /*
+       * Passages are labelled with their character offset, so the model can say
+       * where in a source something came from and two passages from one document
+       * are visibly not contiguous — without it a model narrates across a gap as
+       * though the text ran on.
+       */
+      const body = selection.chunks
+        .filter((chunk) => chunk.sourceId === source.id)
+        .map((chunk) => `(from character ${chunk.offset})\n${chunk.text}`)
+        .join('\n\n…\n\n');
       return `${head}\n${body}`;
+    }
+    /*
+     * Has text, but nothing scored well enough to fit the budget. Named anyway,
+     * because a source the model is not told about is a source the user thinks it
+     * read — and it must not claim to have consulted a passage it never saw.
+     */
+    if (source.content) {
+      return `${head}\n(in this notebook, but no passage of it matched this question closely enough to include)`;
     }
     /*
      * No inlined text. Say *why* rather than listing a bare name: a model told
@@ -113,12 +145,15 @@ export const startNotebookChat = (notebook: Notebook, prompt: string): void => {
  * only ever grounded the first turn. The system prompt is rebuilt every turn and
  * is never rendered.
  */
-export const getActiveNotebookGrounding = (notebooks: readonly Notebook[]): string => {
+export const getActiveNotebookGrounding = async (
+  notebooks: readonly Notebook[],
+  options: { query?: string; model?: EmbeddingModel | null } = {},
+): Promise<string> => {
   const notebookId = $chatNotebookId.get();
   if (!notebookId) return '';
   const notebook = notebooks.find((candidate) => candidate.id === notebookId);
   if (!notebook) return '';
-  return buildNotebookSystemPrompt(notebook);
+  return buildNotebookSystemPrompt(notebook, options);
 };
 
 /**
@@ -132,7 +167,10 @@ export const getActiveNotebookGrounding = (notebooks: readonly Notebook[]): stri
  * Either half can be empty — a notebook with instructions but no sources is a normal
  * state, and so is the reverse — so the two are joined rather than nested.
  */
-export const buildNotebookSystemPrompt = (notebook: Notebook): string => {
+export const buildNotebookSystemPrompt = async (
+  notebook: Notebook,
+  options: { query?: string; model?: EmbeddingModel | null } = {},
+): Promise<string> => {
   const parts: string[] = [];
   const instructions = (notebook.instructions ?? '').trim();
   if (instructions) {
@@ -143,7 +181,7 @@ export const buildNotebookSystemPrompt = (notebook: Notebook): string => {
       instructions,
     ].join('\n'));
   }
-  const grounding = buildGrounding(notebook.sources);
+  const grounding = await buildGrounding(notebook.sources, options);
   if (grounding) parts.push(grounding);
   return parts.join('\n\n');
 };
