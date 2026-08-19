@@ -1494,7 +1494,7 @@
 .spark-task-detail__processing-tool::after {
   position: absolute;
   top: 24px;
-  left: 12px;
+  left: 11px;
   width: 1px;
   height: 16px;
   background: rgb(122, 122, 122);
