@@ -247,6 +247,12 @@ it('falls back to the shimmer only for a provider that cannot section', () => {
 it('renders tool states as animated summary headings without replacing the dots', () => {
   const view = codeOnly(VIEW());
 
+  assert.match(view, /bodyText\.trim\(\)\.length === 0/);
+  assert.doesNotMatch(
+    view,
+    /hasActiveToolStatus/,
+    'tool status must disappear with the thinking row once answer text begins',
+  );
   assert.match(view, /thinkingPhase === 'searching' \? 'Searching the web'/);
   assert.match(view, /thinkingPhase === 'executing' \? 'Running code'/);
   assert.match(view, /const summaryHeading = statusHeading\s*\?\? thoughtHeading;/);

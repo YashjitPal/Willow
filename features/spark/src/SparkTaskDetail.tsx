@@ -501,9 +501,14 @@ const SparkProcessingState: React.FC<{
         aria-hidden={!isExpanded}
       >
         <div className="spark-task-detail__processing-details">
-          {activity.map((entry) => entry.kind === 'narration' ? (
-            <div key={entry.id} className="spark-task-detail__processing-step">
-              <span className="spark-task-detail__processing-node"><SparkActivityClock /></span>
+          {activity.map((entry, index) => entry.kind === 'narration' ? (
+            <div
+              key={entry.id}
+              className={`spark-task-detail__processing-step${index > 0 && activity[index - 1]?.kind === 'narration' ? ' is-continuation' : ''}`}
+            >
+              <span className="spark-task-detail__processing-node">
+                {index === 0 || activity[index - 1]?.kind !== 'narration' ? <SparkActivityClock /> : null}
+              </span>
               <span>{entry.text}</span>
             </div>
           ) : (
@@ -605,6 +610,16 @@ const SparkActivityClock: React.FC = () => (
 
 const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
   const meta = getToolCapabilityLabel(tool);
+  if (tool === 'web_search') {
+    return (
+      <img
+        src="https://www.gstatic.com/images/branding/productlogos/googleg/v6/192px.svg"
+        alt=""
+        aria-hidden="true"
+        className="spark-task-detail__google-search-icon"
+      />
+    );
+  }
   if (tool === 'create') {
     return (
       <span className="spark-task-detail__create-file-icon" aria-hidden="true">

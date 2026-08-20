@@ -79,10 +79,10 @@ export const DENIED_TOOLS: DeniedTool[] = [
       'modify, and `*** Delete File:` to remove.',
   },
   {
-    aliases: ['view_image', 'browser', 'web_search', 'fetch', 'curl'],
+    aliases: ['view_image', 'browser', 'fetch', 'curl'],
     refusal:
-      'This environment has no network access and no browser tool. Work from ' +
-      'the project files and what the user told you.',
+      'This environment has no browser or arbitrary network tool. Use the native ' +
+      'Google Search capability when web research is needed.',
   },
 ];
 

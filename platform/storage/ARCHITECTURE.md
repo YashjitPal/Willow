@@ -280,14 +280,21 @@ both are cited here as escapes so this file stays greppable.)
     │       ├── Videos/
     │       ├── Scenes/               // reserved (created, not yet written)
     │       └── Music/                // reserved
-    └── Gems/                         // registered via registerSyncedFolder
-        └── <gemId>.json              // gemId = sanitized gem name
+    ├── Skills/                        // shared by Chat and Spark
+    │   └── <skillId>.json
+    ├── Spark/                         // registered via registerSyncedFolder
+    │   ├── Tasks/
+    │   │   └── <taskId>.json
+    │   └── Schedules/
+    │       └── <scheduleId>.json
+    └── Gems/                          // registered via registerSyncedFolder
+        └── <gemId>.json               // gemId = sanitized gem name
 ```
 
 `Chats/`, `Code/`, `Media/` and `Notebooks/` are hand-wired (they predate the
 registry, or cannot be expressed by it — see [§13](#13-how-to-extend-safely-recipes)).
-`Gems/` is the first folder driven by `registerSyncedFolder`, and is the pattern
-new folders should follow.
+`Gems/`, `Skills/`, `Spark/Tasks/` and `Spark/Schedules/` are driven by
+`registerSyncedFolder`; nested registered paths are created segment by segment.
 
 `kind` is decided by which parent the folder is under (`Code/` → code,
 `Media/` → media). A folder present in **both** is treated as `code`.

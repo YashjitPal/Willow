@@ -53,6 +53,8 @@ import type {
   Message,
   SubAgent,
   ToolCall,
+  WebSearchCall,
+  CodeExecutionCall,
   ToolContext,
   ToolHandler,
   ToolResult,
@@ -317,6 +319,9 @@ async function runIteration(
   let raw = '';
   let workLogOffset = 0;
   let callTextOffset = 0;
+  let providerSummaryBuffer = '';
+  let providerSummaryEmittedSinceAction = false;
+  const emittedProviderSummaries = new Set<string>();
   const fallbackWorkTitle = (): string => {
     const prompt = options.prompt.replace(/\s+/g, ' ').trim();
     if (!prompt) return 'Working through your request';
@@ -339,6 +344,36 @@ async function runIteration(
     if (normalized.startsWith('mcp:')) return 'I\'m using the connected tool to continue the task.';
     return 'I\'m continuing the task with the next step now.';
   };
+  const emitProviderSummary = (summary: string) => {
+    const normalized = summary
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\*\*|\*\*$/g, '')
+      .slice(0, 600);
+    if (!normalized || emittedProviderSummaries.has(normalized)) return;
+    emittedProviderSummaries.add(normalized);
+    providerSummaryEmittedSinceAction = true;
+    sink.workLog(normalized);
+  };
+  const flushProviderSummaries = (flushRemainder = true) => {
+    const sections = providerSummaryBuffer.split(/\n{2,}/);
+    providerSummaryBuffer = flushRemainder ? '' : (sections.pop() ?? '');
+    sections.forEach(emitProviderSummary);
+    if (flushRemainder && providerSummaryBuffer.trim()) {
+      emitProviderSummary(providerSummaryBuffer);
+      providerSummaryBuffer = '';
+    }
+  };
+  const receiveProviderSummary = (chunk: string) => {
+    providerSummaryBuffer += chunk;
+    flushProviderSummaries(false);
+  };
+  const nativeSearchFallback = (query: unknown): string => {
+    const normalized = typeof query === 'string' ? query.replace(/\s+/g, ' ').trim() : '';
+    if (!normalized) return 'I\'m searching the web for the information this task needs.';
+    const subject = normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+    return `I'm searching the web for “${subject}”.`;
+  };
 
   /*
    * One card per file in the envelope, in the order their headers arrived.
@@ -357,6 +392,7 @@ async function runIteration(
       text += chunk;
     },
     onWorkTitle: (title) => sink.workTitle(title),
+    onWorkLog: (update) => sink.workLog(update),
 
     onPatchOpen: () => {
       sink.workTitle(fallbackWorkTitle());
@@ -374,6 +410,13 @@ async function runIteration(
       if (header) {
         const kind =
           header[1] === 'Add' ? 'create' : header[1] === 'Delete' ? 'delete' : 'edit';
+        sink.workLog(
+          kind === 'create'
+            ? `I'm creating ${header[2]!.trim()} now.`
+            : kind === 'delete'
+              ? `I'm removing ${header[2]!.trim()} now.`
+              : `I'm updating ${header[2]!.trim()} now.`,
+        );
         const call: EditCall = {
           id: nextId('call'),
           kind,
@@ -405,6 +448,11 @@ async function runIteration(
       const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
       liveEdits = [];
+      sink.workLog(
+        observation.startsWith('Patch applied:')
+          ? 'The requested file change was applied successfully.'
+          : 'The file change could not be applied, so I\'m correcting it now.',
+      );
       sink.activity(null);
     },
 
@@ -428,11 +476,38 @@ async function runIteration(
     messages,
     {
       ...options.model.options,
-      // The harness owns tool use entirely. Provider-side search or code
-      // execution would produce results this loop has no way to render.
-      enableSearch: false,
-      enableCodeExecution: false,
+      // Native server-side tools are surfaced through the same sink as
+      // patch/file calls, so Spark can render them in its work timeline.
+      enableSearch: options.model.options.enableSearch,
+      enableCodeExecution: options.model.options.enableCodeExecution,
       toolDeclarations: options.toolDeclarations,
+      onToolCallStart: (name, args) => {
+        nativeToolUsed = true;
+        flushProviderSummaries();
+        const normalized = name.trim().toLowerCase();
+        if (normalized === 'web_search' || normalized === 'google_search') {
+          if (!providerSummaryEmittedSinceAction) sink.workLog(nativeSearchFallback(args?.query));
+          providerSummaryEmittedSinceAction = false;
+          sink.emit({
+            id: nextId('call'),
+            kind: 'web_search',
+            status: 'success',
+            startedAt: Date.now(),
+            query: typeof args?.query === 'string' ? args.query : undefined,
+          } as WebSearchCall);
+        } else if (normalized === 'code_execution') {
+          if (!providerSummaryEmittedSinceAction) sink.workLog('I\'m running a calculation to verify the result.');
+          providerSummaryEmittedSinceAction = false;
+          sink.emit({
+            id: nextId('call'),
+            kind: 'code_execution',
+            status: 'success',
+            startedAt: Date.now(),
+            language: typeof args?.language === 'string' ? args.language : undefined,
+            code: typeof args?.code === 'string' ? args.code : undefined,
+          } as CodeExecutionCall);
+        }
+      },
       signal: options.signal,
     },
     (token: string) => {
@@ -441,7 +516,10 @@ async function runIteration(
     },
     () => sink.activity('Responding'),
     systemPrompt,
-    (phase) => sink.activity(phase === 'thinking' ? 'Thinking it through...' : phase === 'responding' ? null : 'Working on it...'),
+    (phase) => {
+      if (phase === 'responding') flushProviderSummaries();
+      sink.activity(phase === 'thinking' ? 'Thinking it through...' : phase === 'responding' ? null : 'Working on it...');
+    },
     async (name, args) => {
       nativeToolUsed = true;
       sink.workTitle(fallbackWorkTitle());
@@ -462,9 +540,10 @@ async function runIteration(
         ? { status: 'error', error: observation }
         : { status: 'success', result: observation };
     },
-    (thought: string) => sink.onThought(thought),
+    receiveProviderSummary,
   );
 
+  flushProviderSummaries();
   parser.end();
   throwIfAborted(options.signal);
 

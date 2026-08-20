@@ -3,6 +3,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { formatSparkRelativeTime, type SparkTask, type SparkTaskAttachment } from './spark-types';
 import { SparkComposer } from './SparkComposer';
 import { useSparkNow } from './useSparkNow';
+import { useSparkTaskWindow } from './use-spark-task-window';
 import './SparkAllTasks.css';
 
 type TaskFilter = 'Recent' | 'Scheduled' | 'Needs input' | 'In progress' | 'Completed';
@@ -91,6 +92,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   const deleteCancelButtonRef = useRef<HTMLButtonElement>(null);
   const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const taskOpenButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const taskListRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
   const filterMenuId = useId();
   const taskMenuId = useId();
@@ -119,6 +121,13 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
       ...(task.tools ?? []).map((tool) => SPARK_TOOL_LABELS[tool] ?? tool),
     ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearchQuery));
   }), [filter, normalizedSearchQuery, tasks]);
+  const windowedTasks = useSparkTaskWindow({
+    items: visibleTasks,
+    scrollRef: taskListRef,
+    forcedIds: [openTaskMenuId ?? '', renameTaskId ?? '', deleteTaskId ?? ''],
+    estimatedRowHeight: 64,
+    chunkSize: 24,
+  });
 
   useEffect(() => {
     if (!filterOpen) return;
@@ -436,8 +445,8 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
             {`${visibleTasks.length} ${visibleTasks.length === 1 ? 'task' : 'tasks'} shown`}
           </span>
 
-          <div className="spark-all-tasks__list" role="list" aria-label="Task list">
-            {visibleTasks.map((task) => {
+          <div ref={taskListRef} className="spark-all-tasks__list" role="list" aria-label="Task list">
+            {windowedTasks.map((task) => {
               const menuOpen = openTaskMenuId === task.id;
               return (
                 <article

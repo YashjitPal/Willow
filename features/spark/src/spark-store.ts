@@ -149,18 +149,99 @@ export const isSparkStateHydratedForScope = (scopeId = 'guest'): boolean =>
 const getSparkStorageKey = (scopeId: string) =>
   `willow:spark:v${SPARK_STORAGE_VERSION}:${encodeURIComponent(scopeId || 'guest')}`;
 
+const getSparkTaskStorageKey = (scopeId: string, taskId: string) =>
+  `willow:spark:task:v1:${encodeURIComponent(scopeId || 'guest')}:${encodeURIComponent(taskId)}`;
+
+const createSparkTaskSummary = (task: SparkTask): SparkTask => ({
+  id: task.id,
+  title: task.title,
+  description: task.description,
+  time: task.time,
+  status: task.status,
+  prompt: '',
+  response: '',
+  turns: [],
+  attachments: [],
+  tools: task.tools ? [...task.tools] : [],
+  usedTools: task.usedTools ? [...task.usedTools] : undefined,
+  approval: task.approval,
+  approvalDecision: task.approvalDecision,
+  progressLabel: task.progressLabel,
+  scheduledLabel: task.scheduledLabel,
+  scheduledTime: task.scheduledTime,
+  hasUnreadCompletion: task.hasUnreadCompletion,
+  isPinned: task.isPinned,
+  reaction: task.reaction,
+  createdAt: task.createdAt,
+  updatedAt: task.updatedAt,
+  bodyLoaded: false,
+});
+
+const mergeSparkTaskSummary = (summary: SparkTask, body: SparkTask): SparkTask => ({
+  ...body,
+  title: summary.title,
+  description: summary.description,
+  time: summary.time,
+  status: summary.status,
+  tools: summary.tools,
+  usedTools: summary.usedTools,
+  approval: summary.approval,
+  approvalDecision: summary.approvalDecision,
+  progressLabel: summary.progressLabel,
+  scheduledLabel: summary.scheduledLabel,
+  scheduledTime: summary.scheduledTime,
+  hasUnreadCompletion: summary.hasUnreadCompletion,
+  isPinned: summary.isPinned,
+  reaction: summary.reaction,
+  updatedAt: summary.updatedAt,
+  bodyLoaded: true,
+});
+
+const persistSparkTaskRecord = (task: SparkTask): void => {
+  if (task.bodyLoaded === false) return;
+  try {
+    const { bodyLoaded: _bodyLoaded, ...record } = task;
+    const persistable = {
+      ...record,
+      attachments: task.attachments?.map(({ data: _data, ...attachment }) => attachment),
+      turns: task.turns.map((turn) => ({
+        ...turn,
+        attachments: turn.attachments?.map(({ data: _data, ...attachment }) => attachment),
+      })),
+    };
+    globalThis.localStorage?.setItem(
+      getSparkTaskStorageKey(activeSparkStorageScope, task.id),
+      JSON.stringify(persistable),
+    );
+  } catch {
+    // The lightweight index still remains usable if a full record cannot fit.
+  }
+};
+
+export type SparkSyncedCollection = 'tasks' | 'schedules' | 'skills';
+
+/** Apply a disk-authoritative collection without exposing the store internals. */
+export const applySparkSyncedCollection = (
+  collection: SparkSyncedCollection,
+  records: SparkTask[] | SparkSchedule[] | SparkSkill[],
+): void => {
+  const current = sparkState.get();
+  if (collection === 'tasks') {
+    (records as SparkTask[]).forEach(persistSparkTaskRecord);
+    records = (records as SparkTask[]).map(createSparkTaskSummary);
+  }
+  const next = {
+    ...current,
+    [collection]: records,
+  } as SparkState;
+  publishSparkState(next);
+};
+
 const omitAttachmentPayload = ({ data: _data, ...attachment }: SparkTaskAttachment) => attachment;
 
 const createPersistableSparkState = (state: SparkState): SparkState => ({
   ...state,
-  tasks: state.tasks.map((task) => ({
-    ...task,
-    attachments: task.attachments?.map(omitAttachmentPayload),
-    turns: task.turns.map((turn) => ({
-      ...turn,
-      attachments: turn.attachments?.map(omitAttachmentPayload),
-    })),
-  })),
+  tasks: state.tasks.map(createSparkTaskSummary),
 });
 
 const SPARK_SYNC_CHANNEL = 'willow-spark-state';
@@ -569,6 +650,13 @@ const publishSparkState = (state: SparkState): void => {
     return before.filter((item) => !remaining.has(item.id)).map((item) => item.id);
   };
   const durable = readPersistedSparkSnapshot();
+  const nextById = new Map(state.tasks.map((task) => [task.id, task]));
+  state.tasks.forEach((task) => persistSparkTaskRecord(task));
+  previous.tasks.forEach((task) => {
+    if (!nextById.has(task.id)) {
+      try { globalThis.localStorage?.removeItem(getSparkTaskStorageKey(activeSparkStorageScope, task.id)); } catch {}
+    }
+  });
   const baseSync = durable
     ? mergeSparkSnapshots(
         { state: previous, sync: activeSparkSyncMetadata },
@@ -717,7 +805,8 @@ const TASK_STATUSES = new Set<SparkTaskStatus>([
 const normalizeTask = (value: unknown): SparkTask | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.prompt !== 'string') return null;
   const now = new Date().toISOString();
-  const wasInterrupted = value.status === 'running' || value.status === 'queued';
+  const bodyLoaded = value.bodyLoaded !== false;
+  const wasInterrupted = bodyLoaded && (value.status === 'running' || value.status === 'queued');
   const turns = Array.isArray(value.turns)
     ? value.turns.map(normalizeTurn).filter((item): item is SparkTaskTurn => Boolean(item))
     : [];
@@ -773,6 +862,7 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     isPinned: Boolean(value.isPinned),
     createdAt: asString(value.createdAt, now),
     updatedAt: wasInterrupted ? now : asString(value.updatedAt, now),
+    bodyLoaded,
   };
 };
 
@@ -816,6 +906,33 @@ const normalizeSkill = (value: unknown): SparkSkill | null => {
   };
 };
 
+export const parseSparkTask = (contents: string, id: string): SparkTask | null => {
+  try {
+    const value = JSON.parse(contents) as unknown;
+    return normalizeTask({ ...(isRecord(value) ? value : {}), id });
+  } catch {
+    return null;
+  }
+};
+
+export const parseSparkSchedule = (contents: string, id: string): SparkSchedule | null => {
+  try {
+    const value = JSON.parse(contents) as unknown;
+    return normalizeSchedule({ ...(isRecord(value) ? value : {}), id });
+  } catch {
+    return null;
+  }
+};
+
+export const parseSparkSkill = (contents: string, id: string): SparkSkill | null => {
+  try {
+    const value = JSON.parse(contents) as unknown;
+    return normalizeSkill({ ...(isRecord(value) ? value : {}), id });
+  } catch {
+    return null;
+  }
+};
+
 const normalizeCustomApp = (value: unknown): SparkCustomApp | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.url !== 'string') return null;
   const now = new Date().toISOString();
@@ -849,9 +966,13 @@ function readPersistedSparkSnapshot(): SparkSnapshot | null {
           : defaultValue,
       ]),
     ) as Record<SparkConnectedAppId, boolean>;
+    const persistedTasks = saved.tasks
+      .map(normalizeTask)
+      .filter((item): item is SparkTask => Boolean(item))
+      .map(createSparkTaskSummary);
     const state: SparkState = {
       location: isSparkLocation(saved.location) ? saved.location : fallback.location,
-      tasks: saved.tasks,
+      tasks: persistedTasks,
       schedules: saved.schedules,
       skills: saved.skills,
       connections,
@@ -892,9 +1013,11 @@ export const hydrateSparkState = (scopeId = 'guest'): void => {
     }
 
     const saved = JSON.parse(raw) as Partial<PersistedSparkState>;
-    const hydratedTasks = Array.isArray(saved.tasks)
+    const hydratedTaskRecords = Array.isArray(saved.tasks)
       ? saved.tasks.map(normalizeTask).filter((item): item is SparkTask => Boolean(item))
       : fallback.tasks;
+    hydratedTaskRecords.forEach(persistSparkTaskRecord);
+    const hydratedTasks = hydratedTaskRecords.map(createSparkTaskSummary);
     const hydratedSchedules = Array.isArray(saved.schedules)
       ? saved.schedules.map(normalizeSchedule).filter((item): item is SparkSchedule => Boolean(item))
       : fallback.schedules;
@@ -1070,6 +1193,7 @@ export const createSparkTask = (
     isPinned: options.isPinned ?? false,
     createdAt: now,
     updatedAt: now,
+    bodyLoaded: true,
   };
 
   const current = sparkState.get();
@@ -1174,6 +1298,42 @@ export const updateSparkTaskThinkingTransient = (
     tasks: current.tasks.map((task) => (task.id === taskId ? updated : task)),
   });
   return updated;
+};
+
+export const loadSparkTaskBody = async (taskId: string): Promise<SparkTask | null> => {
+  const current = sparkState.get().tasks.find((task) => task.id === taskId);
+  if (!current) return null;
+  if (current.bodyLoaded !== false) return current;
+  try {
+    const raw = globalThis.localStorage?.getItem(getSparkTaskStorageKey(activeSparkStorageScope, taskId));
+    if (!raw) return current;
+    const loaded = normalizeTask({ ...JSON.parse(raw), id: taskId });
+    if (!loaded) return current;
+    const hydrated = mergeSparkTaskSummary(current, loaded);
+    persistSparkTaskRecord(hydrated);
+    const next = { ...sparkState.get(), tasks: sparkState.get().tasks.map((task) => task.id === taskId ? hydrated : task) };
+    sparkState.set(next);
+    return hydrated;
+  } catch {
+    return current;
+  }
+};
+
+export const loadSparkTaskRecordsForSync = async (
+  summaries: readonly SparkTask[],
+  scopeId = activeSparkStorageScope,
+): Promise<SparkTask[]> => {
+  const records: SparkTask[] = [];
+  for (const summary of summaries) {
+    try {
+      const raw = globalThis.localStorage?.getItem(getSparkTaskStorageKey(scopeId, summary.id));
+      const loaded = raw ? normalizeTask({ ...JSON.parse(raw), id: summary.id }) : null;
+      records.push(loaded ? mergeSparkTaskSummary(summary, loaded) : summary);
+    } catch {
+      records.push(summary);
+    }
+  }
+  return records;
 };
 
 export const updateSparkTaskActivityTransient = (

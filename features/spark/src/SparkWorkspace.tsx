@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
+import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import {
   isAbortError,
@@ -34,6 +35,7 @@ import {
   hydrateSparkState,
   isSparkStateHydratedForScope,
   isSparkScheduleRunClaimCurrent,
+  loadSparkTaskBody,
   renameSparkTask,
   replaceSparkLocation,
   restoreSparkLocation,
@@ -191,6 +193,9 @@ const appendSparkNarration = (entries: SparkActivityEntry[], text: string): Spar
 const normalizeRuntimeToolName = (name: string): string => {
   const normalized = name.trim().toLowerCase();
   if (!normalized) return '';
+  if (normalized === 'search' || normalized === 'search_files') return 'search';
+  if (normalized === 'web_search' || normalized === 'google_search' || normalized === 'grounding') return 'web_search';
+  if (normalized === 'code_execution') return 'code_execution';
   if (normalized === 'computer' || normalized.includes('browser')) return 'computer';
   if (normalized.includes('gmail') || normalized.includes('email')) return 'app:gmail';
   if (normalized.includes('calendar')) return 'app:google-calendar';
@@ -202,7 +207,6 @@ const normalizeRuntimeToolName = (name: string): string => {
   if (normalized.includes('contact')) return 'app:contacts';
   if (normalized.includes('opentable')) return 'app:opentable';
   if (normalized.includes('task')) return 'app:google-tasks';
-  if (normalized.includes('search') || normalized.includes('grounding')) return 'web_search';
   if (normalized.includes('code') || normalized.includes('execute')) return 'code_execution';
   if (normalized.startsWith('app:')) return normalized;
   if (normalized.includes('image')) return 'images';
@@ -249,6 +253,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   setSelectedModelId,
 }) => {
   const { user } = useAuth();
+  const { chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
   const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
   const schedulerBusyRef = useRef(false);
@@ -278,7 +283,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   ), [apiKeys]);
 
   useEffect(() => {
-    const scopeId = user?.uid ?? 'guest';
+    const scopeId = chatScopeId || user?.uid || 'guest';
     if (!isSparkStateHydratedForScope(scopeId)) hydrateSparkState(scopeId);
     try {
       const hydratedLocation = sparkState.get().location;
@@ -290,7 +295,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     } catch {
       // History state is optional in embedded previews.
     }
-  }, [user?.uid]);
+  }, [chatScopeId, user?.uid]);
+
+  useEffect(() => {
+    if (location.page !== 'task' || !task || task.bodyLoaded !== false) return;
+    void loadSparkTaskBody(task.id);
+  }, [location.page, task?.id, task?.bodyLoaded]);
 
   useEffect(() => {
     const restoreFromHistory = (event: PopStateEvent) => {
@@ -371,9 +381,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         execution.model,
         thinkingLevel,
       ),
-      enableSearch: selectedTools.has('web')
-        || selectedTools.has('research')
-        || BROWSER_REQUEST_PATTERN.test(prompt),
+      // Spark is a general-purpose agent. Google Search is available to the
+      // model by default and remains model-selected: offering the tool does
+      // not force a search on every task.
+      enableSearch: true,
       enableCodeExecution: selectedTools.has('canvas') || selectedTools.has('github'),
     };
   }, [resolveExecutionModel]);
@@ -923,9 +934,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (!deleteTarget) return;
     const scopeId = getActiveSparkStorageScope();
     sparkRunControllers.get(`${scopeId}:${taskId}`)?.abort();
-    if (deleteSparkTask(taskId)) {
-      void deleteSparkAttachmentPayloads(getTaskAttachmentIds(deleteTarget), scopeId).catch(() => undefined);
-    }
+    void loadSparkTaskBody(taskId).then((loadedTarget) => {
+      const target = loadedTarget ?? deleteTarget;
+      if (deleteSparkTask(taskId)) {
+        void deleteSparkAttachmentPayloads(getTaskAttachmentIds(target), scopeId).catch(() => undefined);
+      }
+    });
   }, []);
 
   const changeScheduleEnabled = useCallback((scheduleId: string, enabled: boolean) => {
@@ -1161,6 +1175,14 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   }, [executeTask, user?.uid]);
 
   if (backgroundOnly) return null;
+
+  if (location.page === 'task' && task && task.bodyLoaded === false) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#9aa0a6]" aria-live="polite">
+        Loading task...
+      </div>
+    );
+  }
 
   if (location.page === 'task' && task) {
     return (

@@ -84,7 +84,7 @@ Your capabilities:
 - Communicate with the user by streaming thinking & responses, and by making & updating plans.
 - Emit function calls to read project files and to apply patches. You do **not** have a shell, a terminal, or any way to run commands.
 
-You are running against a browser sandbox, not a machine. There is no operating system, no package manager, no network access, and no test runner. The only durable effect you can have is the contents of the project's files.
+You are running against a browser sandbox, not a machine. There is no operating system, no package manager, and no test runner. The only durable effect you can have is the contents of the project's files. The model provider may separately execute its native Google Search or code-execution capability when the task requires current web information or computation; those are provider operations, not local shell access.
 `;
 
 /**

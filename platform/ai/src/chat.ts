@@ -638,6 +638,316 @@ export const runStreamCall = async (modelInstance: any, history: any[], signal?:
   return await modelInstance.generateContentStream({ contents: history }, signal ? { signal } : undefined);
 };
 
+class GeminiInteractionsUnsupportedError extends Error {
+  constructor() {
+    super('Gemini Interactions API is unavailable for this request.');
+    this.name = 'GeminiInteractionsUnsupportedError';
+  }
+}
+
+const geminiInteractionInput = (history: any[]): any[] | null => {
+  const turns: any[] = [];
+  for (const entry of history) {
+    const parts = Array.isArray(entry?.parts) ? entry.parts : [];
+    if (parts.some((part: any) => typeof part?.text !== 'string')) return null;
+    const content = parts
+      .map((part: any) => ({ type: 'text', text: part.text }))
+      .filter((part: any) => part.text.length > 0);
+    if (!content.length) continue;
+    turns.push({
+      type: entry?.role === 'model' ? 'model_output' : 'user_input',
+      content,
+    });
+  }
+  return turns;
+};
+
+const interactionJsonSchema = (value: any): any => {
+  if (Array.isArray(value)) return value.map(interactionJsonSchema);
+  if (!value || typeof value !== 'object') return value;
+  const result: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    result[key] = key === 'type' && typeof entry === 'string'
+      ? entry.toLowerCase()
+      : interactionJsonSchema(entry);
+  }
+  return result;
+};
+
+const interactionFunctionTools = (
+  blocks: { functionDeclarations: any[] }[] | undefined,
+): any[] => (blocks ?? []).flatMap((block) =>
+  (block?.functionDeclarations ?? []).flatMap((declaration: any) =>
+    typeof declaration?.name === 'string'
+      ? [{
+          type: 'function',
+          name: declaration.name,
+          ...(typeof declaration.description === 'string' ? { description: declaration.description } : {}),
+          ...(declaration.parameters ? { parameters: interactionJsonSchema(declaration.parameters) } : {}),
+        }]
+      : []),
+);
+
+const streamGeminiInteractions = async ({
+  apiKey,
+  model,
+  systemInstruction,
+  history,
+  enableSearch,
+  enableCodeExecution,
+  functionTools,
+  thinkingLevel,
+  includeThoughts,
+  signal,
+  onToken,
+  onPhase,
+  onThought,
+  onCitations,
+  onCodeExecutions,
+  onToolCallStart,
+  onFunctionCall,
+}: {
+  apiKey: string;
+  model: string;
+  systemInstruction?: string;
+  history: any[];
+  enableSearch: boolean;
+  enableCodeExecution: boolean;
+  functionTools: any[];
+  thinkingLevel: string;
+  includeThoughts: boolean;
+  signal?: AbortSignal;
+  onToken: (text: string) => void;
+  onPhase?: (phase: StreamPhase) => void;
+  onThought?: (text: string) => void;
+  onCitations?: (citations: MessageCitations) => void;
+  onCodeExecutions?: (executions: CodeExecution[]) => void;
+  onToolCallStart?: (name: string, args?: any) => void;
+  onFunctionCall?: (name: string, args: any) => Promise<any>;
+}): Promise<void> => {
+  const input = geminiInteractionInput(history);
+  if (!input) throw new GeminiInteractionsUnsupportedError();
+
+  const tools = [
+    ...(enableSearch ? [{ type: 'google_search' }] : []),
+    ...(enableCodeExecution ? [{ type: 'code_execution' }] : []),
+    ...functionTools,
+  ];
+  let answerStarted = false;
+  const codeExecutions: CodeExecution[] = [];
+  const sources: MessageCitations['sources'] = [];
+  const emitCode = () => onCodeExecutions?.(codeExecutions.map((entry) => ({ ...entry })));
+  let interactionId = '';
+  let interactionStatus = '';
+  let functionCalls = new Map<number, { id: string; name: string; arguments: string }>();
+  let lastThoughtStepKey: string | null = null;
+  // Interactions streams may repeat a step delta while a server-side tool is
+  // being assembled. Keep the UI event one-per-search-step; a real second
+  // search still gets through when Gemini gives it a different step id/index.
+  const reportedInteractionSearches = new Set<string>();
+  const interactionSearchKey = (event: any, step: any): string | null => {
+    const identity = step?.id ?? event.step_id ?? event.stepId ?? event.step_index ?? event.index;
+    if (identity !== undefined && identity !== null && String(identity) !== '') {
+      return `step:${String(identity)}`;
+    }
+    return null;
+  };
+
+  const handleEvent = (name: string, raw: string): boolean => {
+    if (!raw || raw === '[DONE]') return false;
+    let event: any;
+    try { event = JSON.parse(raw); } catch { return false; }
+    // `event_type` is the current discriminator. A few Gemini deployments
+    // still expose the transitional `type` field, so accept it as well.
+    const type = event.event_type || event.type || name;
+    if (type === 'error') throw new Error(event.error?.message || 'Gemini Interactions request failed.');
+    if (event.interaction?.id) interactionId = event.interaction.id;
+    if (event.interaction?.status) interactionStatus = event.interaction.status;
+
+    const step = event.step || event.content;
+    const isStepStart = type === 'step.start' || type === 'content.start';
+    if (isStepStart) {
+      if (step?.type === 'google_search_call') {
+        onPhase?.('searching');
+        return true;
+      } else if (step?.type === 'code_execution_call') {
+        onPhase?.('executing');
+        onToolCallStart?.('code_execution');
+        return true;
+      } else if (step?.type === 'thought') {
+        onPhase?.('thinking');
+      } else if (step?.type === 'function_call') {
+        onPhase?.('executing');
+        functionCalls.set(Number(event.index) || 0, {
+          id: typeof step.id === 'string' ? step.id : '',
+          name: typeof step.name === 'string' ? step.name : '',
+          arguments: '',
+        });
+      }
+    }
+
+    const delta = event.delta;
+    const isStepDelta = type === 'step.delta' || type === 'content.delta';
+    if (isStepDelta && delta) {
+      if (delta.type === 'google_search_call') {
+        onPhase?.('searching');
+        const queries = Array.isArray(delta.arguments?.queries) ? delta.arguments.queries : [];
+        const key = interactionSearchKey(event, step);
+        if (key === null || !reportedInteractionSearches.has(key)) {
+          if (key !== null) reportedInteractionSearches.add(key);
+          onToolCallStart?.('web_search', typeof queries[0] === 'string' && queries[0]
+            ? { query: queries[0] }
+            : undefined);
+        }
+        return true;
+      } else if (delta.type === 'code_execution_call') {
+        onPhase?.('executing');
+        const code = delta.arguments?.code;
+        if (typeof code === 'string' && code.length) {
+          codeExecutions.push({
+            language: typeof delta.arguments?.language === 'string' ? delta.arguments.language : 'python',
+            code,
+            position: 0,
+          });
+          emitCode();
+        }
+        return true;
+      } else if (delta.type === 'code_execution_result') {
+        const open = [...codeExecutions].reverse().find((entry) => entry.output === undefined);
+        if (open) {
+          open.output = typeof delta.result === 'string' ? delta.result : '';
+          emitCode();
+        }
+      } else if (delta.type === 'thought_summary') {
+        const text = typeof delta.text === 'string'
+          ? delta.text
+          : delta.content?.text;
+        if (typeof text === 'string' && text.length) {
+          const thoughtStepKey = interactionSearchKey(event, step);
+          const startsNewSummary = thoughtStepKey !== null
+            && lastThoughtStepKey !== null
+            && thoughtStepKey !== lastThoughtStepKey;
+          onThought?.(`${startsNewSummary ? '\n\n' : ''}${text}`);
+          if (thoughtStepKey !== null) lastThoughtStepKey = thoughtStepKey;
+        }
+      } else if (delta.type === 'text' && typeof delta.text === 'string' && delta.text.length) {
+        if (!answerStarted) {
+          answerStarted = true;
+          onPhase?.('responding');
+        }
+        onToken(delta.text);
+      } else if (delta.type === 'google_search_result' && Array.isArray(delta.result)) {
+        for (const result of delta.result) {
+          if (typeof result?.url !== 'string' || !result.url) continue;
+          sources.push({
+            uri: result.url,
+            title: typeof result.title === 'string' ? result.title : result.url,
+            domain: (() => { try { return new URL(result.url).hostname; } catch { return ''; } })(),
+            ...(typeof result.rendered_content === 'string' && result.rendered_content
+              ? { snippet: result.rendered_content }
+              : {}),
+          });
+        }
+      } else if (delta.type === 'arguments_delta') {
+        const index = Number(event.index) || 0;
+        const call = functionCalls.get(index);
+        if (call && typeof delta.arguments === 'string') call.arguments += delta.arguments;
+      }
+    }
+    return false;
+  };
+
+  let nextInput: any = input;
+  let previousInteractionId: string | undefined;
+  for (let iteration = 0; iteration < 32; iteration += 1) {
+    reportedInteractionSearches.clear();
+    lastThoughtStepKey = null;
+    interactionStatus = '';
+    interactionId = '';
+    functionCalls = new Map();
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        input: nextInput,
+        stream: true,
+        ...(previousInteractionId ? { previous_interaction_id: previousInteractionId } : {}),
+        ...(!previousInteractionId && systemInstruction ? { system_instruction: systemInstruction } : {}),
+        ...(tools.length ? { tools } : {}),
+        generation_config: {
+          thinking_level: thinkingLevel,
+          thinking_summaries: includeThoughts ? 'auto' : 'none',
+        },
+      }),
+      signal,
+    });
+    if (response.status === 400 || response.status === 401 || response.status === 403
+      || response.status === 404 || response.status === 405 || response.status === 501) {
+      throw new GeminiInteractionsUnsupportedError();
+    }
+    if (!response.ok || !response.body) {
+      throw new Error(`Gemini Interactions request failed with status ${response.status}.`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let eventName = '';
+    let eventData = '';
+    while (true) {
+      throwIfAborted(signal);
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        else if (line.startsWith('data:')) eventData += `${line.slice(5).trim()}\n`;
+        else if (!line.trim() && eventData) {
+          const toolStarted = handleEvent(eventName, eventData.trim());
+          eventName = '';
+          eventData = '';
+          // A search/code step can be followed by another step in the same
+          // buffered SSE chunk. Yield once so React paints the live tool label
+          // before a later thought or model-output event changes the phase.
+          if (toolStarted) await waitWithAbort(0, signal);
+        }
+      }
+      if (done) break;
+    }
+    if (eventData) {
+      const toolStarted = handleEvent(eventName, eventData.trim());
+      if (toolStarted) await waitWithAbort(0, signal);
+    }
+
+    const calls = [...functionCalls.values()].filter((call) => call.name);
+    if (interactionStatus !== 'requires_action' || !calls.length || !interactionId || !onFunctionCall) break;
+    nextInput = await Promise.all(calls.map(async (call) => {
+      let args: any = {};
+      try { args = JSON.parse(call.arguments || '{}'); } catch { args = {}; }
+      onToolCallStart?.(call.name, args);
+      const result = await onFunctionCall(call.name, args);
+      return {
+        type: 'function_result',
+        name: call.name,
+        call_id: call.id,
+        result: {
+          content: [{
+            type: 'text',
+            text: typeof result === 'string' ? result : JSON.stringify(result),
+          }],
+        },
+      };
+    }));
+    previousInteractionId = interactionId;
+  }
+  if (sources.length) onCitations?.({ sources, citations: [] });
+};
+
 // ============ MAIN STREAM CHAT FUNCTION ============
 // Wrapped by `streamChat` below, which normalises aborts across providers.
 const streamChatImpl: any = async (
@@ -1087,6 +1397,10 @@ Adhere to the following rules and guidelines:
     let keepRunning = true;
     let toolIterations = 0;
     let hasEmittedAnyThought = false;
+    // Grounding metadata can be repeated across streamed responses. Report each
+    // native Google Search query once, while still retaining every metadata
+    // object below for the final citation pass.
+    const reportedSearchQueries = new Set<string>();
 
     // Grounding metadata -> inline source chips. Collected per tool-loop
     // iteration: a support's `groundingChunkIndices` only mean anything within
@@ -1106,6 +1420,48 @@ Adhere to the following rules and guidelines:
       answerText += text;
       onToken(text);
     };
+
+    // The Interactions stream is the only Gemini API surface that exposes
+    // native server-side tools as typed live steps (`google_search_call`,
+    // `code_execution_call`, and their result steps). Use it for ordinary
+    // text-only Chat turns; specialized turns keep the legacy path because
+    // they need its attachment and custom-tool history handling.
+    const interactionsEligible = isOfficialEndpoint('gemini', options.baseUrl)
+      && toolsAllowed
+      && !options.enableMediaTools
+      && (searchEnabled || codeExecEnabled)
+      && !!geminiInteractionInput(historyContents);
+    if (interactionsEligible) {
+      try {
+        await streamGeminiInteractions({
+          apiKey,
+          model,
+          systemInstruction: combinedSystemPrompt,
+          history: historyContents,
+          enableSearch: searchEnabled,
+          enableCodeExecution: codeExecEnabled,
+          functionTools: [
+            ...interactionFunctionTools(options.personalTools),
+            ...interactionFunctionTools(options.toolDeclarations),
+          ],
+          thinkingLevel: geminiThinkingLevel,
+          includeThoughts: options.includeThoughts === true,
+          signal,
+          onToken,
+          onPhase,
+          onThought,
+          onCitations,
+          onCodeExecutions,
+          onToolCallStart: options.onToolCallStart,
+          onFunctionCall: onToolCall,
+        });
+        return;
+      } catch (error) {
+        if (!(error instanceof GeminiInteractionsUnsupportedError)) throw error;
+        // Older accounts/models may not expose Interactions yet. Fall through
+        // to the existing GenerateContent stream rather than failing Chat.
+      }
+    }
 
     while (keepRunning) {
       throwIfAborted(signal);
@@ -1139,10 +1495,25 @@ Adhere to the following rules and guidelines:
         const cand: any = (chunk as any).candidates?.[0];
 
         if (cand?.groundingMetadata) {
-          groundingSeen.push(cand.groundingMetadata);
-          if (!hasEmittedText && cand.groundingMetadata.webSearchQueries?.length) {
+          const groundingMetadata = cand.groundingMetadata;
+          groundingSeen.push(groundingMetadata);
+          const searchQueries = Array.isArray(groundingMetadata.webSearchQueries)
+            ? groundingMetadata.webSearchQueries.filter(
+                (query: unknown): query is string =>
+                  typeof query === 'string'
+                  && query.length > 0
+                  && !reportedSearchQueries.has(query),
+              )
+            : [];
+          const hasWebGrounding = Array.isArray(groundingMetadata.groundingChunks)
+            && groundingMetadata.groundingChunks.some((groundingChunk: any) => !!groundingChunk?.web);
+          const hasSearchGrounding = searchQueries.length > 0
+            || hasWebGrounding
+            || !!groundingMetadata.searchEntryPoint;
+          if (!hasEmittedText && hasSearchGrounding) {
+            searchQueries.forEach((query: string) => reportedSearchQueries.add(query));
             options.onToolCallStart?.('web_search', {
-              query: cand.groundingMetadata.webSearchQueries[0],
+              ...(searchQueries[0] ? { query: searchQueries[0] } : {}),
             });
             setPhase('searching');
           }
@@ -1162,6 +1533,21 @@ Adhere to the following rules and guidelines:
               hasEmittedText = true;
               onPhase?.('responding');
             }
+            continue;
+          }
+
+          // Some newer server-side invocation payloads expose the native search
+          // call as a raw part before grounding metadata is attached.
+          const nativeSearchCall = part?.googleSearchCall;
+          if (!hasEmittedText && nativeSearchCall) {
+            const queries = Array.isArray(nativeSearchCall.queries)
+              ? nativeSearchCall.queries.filter((query: unknown): query is string => typeof query === 'string' && query.length > 0)
+              : Array.isArray(nativeSearchCall.arguments?.queries)
+                ? nativeSearchCall.arguments.queries.filter((query: unknown): query is string => typeof query === 'string' && query.length > 0)
+                : [];
+            queries.forEach((query: string) => reportedSearchQueries.add(query));
+            options.onToolCallStart?.('web_search', queries[0] ? { query: queries[0] } : undefined);
+            setPhase('searching');
             continue;
           }
 
@@ -1186,8 +1572,13 @@ Adhere to the following rules and guidelines:
             continue;
           }
           if (part?.codeExecutionResult) {
-            if (!hasEmittedText) setPhase('thinking');
             // Search backwards: with parallel blocks the open one is the last.
+            // Keep the executing phase through the result. The legacy Gemini
+            // stream can deliver executableCode and codeExecutionResult before
+            // React gets a paint; switching back to thinking here makes the
+            // "Running code" row disappear and repeats the previous thought
+            // heading. The next thought/text delta, or turn settlement, owns
+            // the transition away from the tool state.
             const open = [...codeExecutions].reverse().find((e) => e.output === undefined);
             if (open) {
               const raw = part.codeExecutionResult.output;
