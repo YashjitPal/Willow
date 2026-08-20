@@ -46,6 +46,8 @@ export const CALL_BEGIN = '*** Call:';
 export const CALL_END = '*** End Call';
 /** Spark-only metadata emitted once before the first work step. */
 export const WORK_TITLE_BEGIN = '*** Work Title:';
+/** Spark-only metadata emitted for concise, user-safe progress updates. */
+export const WORK_LOG_BEGIN = '*** Work Log:';
 
 /* ------------------------------------------------------------------------ */
 /* Session entities                                                          */
@@ -114,6 +116,19 @@ export interface SearchCall extends CallBase {
   scope: string;
   hits: SearchHit[];
   fileCount: number;
+}
+
+/** A provider-native web search, distinct from private workspace search. */
+export interface WebSearchCall extends CallBase {
+  kind: 'web_search';
+  query?: string;
+}
+
+/** A provider-native code-execution step. */
+export interface CodeExecutionCall extends CallBase {
+  kind: 'code_execution';
+  language?: string;
+  code?: string;
 }
 
 export interface PlanStep {
@@ -226,6 +241,8 @@ export type ToolCall =
   | ReadCall
   | ListCall
   | SearchCall
+  | WebSearchCall
+  | CodeExecutionCall
   | PlanCall
   | DependencyCall
   | CommandCall

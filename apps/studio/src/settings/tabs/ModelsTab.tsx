@@ -2039,7 +2039,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       >
                         <span className="flex flex-col">
                           <span className="font-medium">{CHROME_NATIVE_TRANSCRIPTION_NAME}</span>
-                          <span className="text-[11px] text-zinc-500">No API key · local Chrome speech pack</span>
+                          <span className="text-[11px] text-zinc-500">No API key · on-device when available</span>
                         </span>
                         {modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL && (
                           <Check size={14} className="text-white" />

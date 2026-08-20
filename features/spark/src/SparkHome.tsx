@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import type { ComposerHandle } from '@willow/chat/composer/Composer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
@@ -12,6 +12,7 @@ import { SparkComposer } from './SparkComposer';
 import { SparkTaskCard } from './SparkTaskCard';
 import { SparkTaskDeleteDialog, SparkTaskRenameDialog } from './SparkTaskDialogs';
 import { useSparkNow } from './useSparkNow';
+import { useSparkTaskWindow } from './use-spark-task-window';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import './SparkHome.css';
@@ -99,6 +100,13 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const renameTask = tasks.find((task) => task.id === renameTaskId) ?? null;
   const deleteTask = tasks.find((task) => task.id === deleteTaskId) ?? null;
+  const recentTasks = useMemo(() => [...tasks], [tasks]);
+  const windowedTasks = useSparkTaskWindow({
+    items: recentTasks,
+    forcedIds: [renameTaskId ?? '', deleteTaskId ?? ''],
+    estimatedRowHeight: 72,
+    chunkSize: 12,
+  });
 
   const selectSuggestedTask = (task: SuggestedTask) => {
     composerRef.current?.setPrompt(task.description);
@@ -151,7 +159,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
             </div>
 
             <div className="spark-goal-list" role="listbox" aria-label="Task list">
-              {tasks.map((task, index) => (
+              {windowedTasks.map((task, index) => (
                 <SparkTaskCard
                   key={task.id}
                   title={task.title}

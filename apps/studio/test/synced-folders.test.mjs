@@ -124,11 +124,13 @@ it('rejects a same-folder claim that differs only in case', () => {
   );
 });
 
-it('rejects a folder name that is not a single path segment', () => {
-  for (const folder of ['a/b', 'a\\b', '', '   ']) {
+it('accepts safe nested folder paths and rejects invalid paths', () => {
+  registry.registerSyncedFolder('nested', descriptor({ folder: 'Spark/Tasks' }));
+  assert.equal(registry.getSyncedFolders()[0].folder, 'Spark/Tasks');
+  for (const folder of ['a//b', '/a', 'a/', 'a\\b', '', '   ']) {
     assert.throws(
       () => registry.registerSyncedFolder('bad', descriptor({ folder })),
-      /single path segment/,
+      /non-empty path/,
       `"${folder}" must be rejected`,
     );
   }

@@ -20,4 +20,5 @@
 
 import '@willow/design/register';
 import '@willow/gems/register';
+import '@willow/spark/register';
 import './register-model-catalog';

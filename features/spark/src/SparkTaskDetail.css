@@ -1469,11 +1469,13 @@
 }
 
 .spark-task-detail__processing-details {
+  --spark-processing-row-gap: 16px;
+
   display: flex;
   min-height: 0;
   overflow: hidden;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spark-processing-row-gap);
   padding: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
@@ -1490,14 +1492,26 @@
   animation: spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+/* Connector between one row's node and the next one's.
+ *
+ * Drawn as a border rather than a filled box on purpose: the rows sit at a
+ * fractional device-pixel offset (the conversation column is centred by an auto
+ * margin inside a resizable pane, then nudged by a fractional transform), and a
+ * background box is rasterized from its snapped edges, so a 2px fill lands on 2
+ * or 3 device pixels depending on where the row happens to fall. Border widths
+ * are snapped to whole device pixels before paint, so this stays at one weight
+ * in both pane states and while the pane animates between them.
+ *
+ * Spans from the bottom of the 24px node to the top of the next row's node, so
+ * rows whose label wraps to a second line don't break the line. */
 .spark-task-detail__processing-step::after,
 .spark-task-detail__processing-tool::after {
   position: absolute;
   top: 24px;
+  bottom: calc(-1 * var(--spark-processing-row-gap));
   left: 11px;
-  width: 1px;
-  height: 16px;
-  background: rgb(122, 122, 122);
+  width: 0;
+  border-left: 2px solid rgb(122, 122, 122);
   content: '';
 }
 
@@ -1519,13 +1533,32 @@
   color: rgba(196, 199, 197, 0.78);
 }
 
+.spark-task-detail__google-search-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
 .spark-task-detail__processing-node {
+  position: relative;
   display: inline-flex;
   width: 24px;
   height: 24px;
   flex: 0 0 24px;
   align-items: center;
   justify-content: center;
+}
+
+/* Consecutive narration belongs to one Gemini-style timeline branch. Only the
+ * first row carries the clock; this segment keeps the connector continuous
+ * through the empty node slot on the following rows. */
+.spark-task-detail__processing-step.is-continuation .spark-task-detail__processing-node::before {
+  position: absolute;
+  inset: 0 auto 0 11px;
+  width: 0;
+  border-left: 2px solid rgb(122, 122, 122);
+  content: '';
 }
 
 .spark-task-detail__processing-tool {

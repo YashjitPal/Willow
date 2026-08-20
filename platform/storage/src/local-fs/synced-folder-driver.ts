@@ -31,7 +31,29 @@ export const syncedFolderKeys = (folder: string, scopeId: string) => {
     ids: `willow_synced_ids:${suffix}`,
     timestamps: `willow_synced_timestamps:${suffix}`,
     sync: `willow_synced_state:${suffix}`,
+    hashes: `willow_synced_hashes:${suffix}`,
   };
+};
+
+const isValidHash = (value: unknown): value is string =>
+  typeof value === 'string' && /^[0-9a-f]+$/.test(value);
+
+const readHashMap = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const hashes: Record<string, string> = {};
+  for (const [id, hash] of Object.entries(value as Record<string, unknown>)) {
+    if (isValidHash(hash)) hashes[id] = hash;
+  }
+  return hashes;
+};
+
+const contentHash = (contents: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < contents.length; index += 1) {
+    hash ^= contents.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
 };
 
 /**
@@ -91,7 +113,10 @@ export const syncRegisteredFolder = async (
 
   let dir: FileSystemDirectoryHandle;
   try {
-    dir = await workspaceDir.getDirectoryHandle(descriptor.folder, { create: true });
+    dir = workspaceDir;
+    for (const segment of descriptor.folder.split('/')) {
+      dir = await dir.getDirectoryHandle(segment, { create: true });
+    }
   } catch {
     return notOk;
   }
@@ -100,13 +125,57 @@ export const syncRegisteredFolder = async (
   const records = validateSyncRecords(readJSON(keys.sync, {}));
   const ids = validateChatList(readJSON(keys.ids, [] as string[]));
   const timestamps = validateTimestampMap(readJSON(keys.timestamps, {}));
+  const hashes = readHashMap(readJSON(keys.hashes, {}));
 
   // Seed the cache from whatever the feature currently holds, so its own state
   // is what the engine diffs against disk.
   const localItems = await descriptor.readLocal(ctx).catch((): SyncedItem[] => []);
   const cache = new Map<string, string>(localItems.map((item) => [item.id, item.contents] as const));
+  const localIds = new Set(localItems.map((item) => item.id));
+  // A hydrated feature omitting an item is an intentional local deletion. Turn
+  // that into the same durable tombstone the shared engine uses for disk-side
+  // deletions, so the file is removed rather than resurrected on the next pass.
+  for (const id of Object.keys(hashes)) {
+    if (!localIds.has(id) && ids.includes(id) && records[id] && !records[id].tombstone) {
+      records[id] = {
+        ...records[id],
+        revision: records[id].revision + 1,
+        dirty: false,
+        tombstone: true,
+        updatedAt: Date.now(),
+      };
+    }
+  }
   for (const item of localItems) {
-    if (!ids.includes(item.id) && !records[item.id]?.tombstone) ids.push(item.id);
+    if (!ids.includes(item.id) && !records[item.id]?.tombstone) {
+      ids.push(item.id);
+      // A browser-only record has never been seen on disk. Mark it dirty so
+      // the first connected-folder reconcile exports it instead of treating
+      // its absence from a brand-new folder as an external deletion.
+      if (!records[item.id]) {
+        records[item.id] = {
+          revision: 1,
+          diskRevision: 0,
+          diskMtime: 0,
+          dirty: true,
+          tombstone: false,
+          updatedAt: Date.now(),
+          notebookId: '',
+          locationDirty: false,
+        };
+      }
+    } else if (records[item.id] && !records[item.id].tombstone) {
+      const hash = contentHash(item.contents);
+      if (hashes[item.id] && hashes[item.id] !== hash) {
+        records[item.id] = {
+          ...records[item.id],
+          revision: records[item.id].revision + 1,
+          dirty: true,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+    hashes[item.id] = contentHash(item.contents);
   }
 
   const fileName = (id: string) => `${id}${descriptor.extension}`;
@@ -155,7 +224,9 @@ export const syncRegisteredFolder = async (
   const result = await reconcileFolder(ports);
   if (!result.ok) return notOk;
 
-  persistFolderMetadata(keys, ids, timestamps, records);
+  for (const item of result.items) hashes[item.id] = contentHash(item.contents);
+  for (const id of result.deleted) delete hashes[id];
+  persistFolderMetadata(keys, ids, timestamps, records, hashes);
 
   // Invariant 7: only touch feature state when something actually changed.
   if (result.changed) await descriptor.applyRemote(result.items, ctx).catch(() => {});
@@ -168,11 +239,13 @@ const persistFolderMetadata = (
   ids: string[],
   timestamps: Record<string, number>,
   records: Record<string, FolderSyncRecord>,
+  hashes: Record<string, string>,
 ): void => {
   try {
     localStorage.setItem(keys.ids, JSON.stringify(ids));
     localStorage.setItem(keys.timestamps, JSON.stringify(timestamps));
     localStorage.setItem(keys.sync, JSON.stringify(records));
+    localStorage.setItem(keys.hashes, JSON.stringify(hashes));
   } catch {
     // Quota or private-mode failure must not break the sync pass.
   }

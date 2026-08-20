@@ -95,6 +95,102 @@ it('executes a provider-native read through the Spark registry', async () => {
   assert.equal(events.at(-1).reason, 'complete');
 });
 
+it('surfaces native Google Search and code execution as Spark timeline tools', async () => {
+  const events = [];
+  let receivedOptions;
+  const nativeTransport = async (_messages, options, onToken) => {
+    receivedOptions = options;
+    options.onToolCallStart?.('web_search', { query: 'latest Willow news' });
+    options.onToolCallStart?.('code_execution', { language: 'python', code: 'print(1)' });
+    onToken('I finished the researched calculation.');
+  };
+  await runTurn({
+    prompt: 'Research the latest information and calculate the result.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: {
+      label: 'Test',
+      options: {
+        provider: 'gemini',
+        model: 'test',
+        apiKey: 'k',
+        enableSearch: true,
+        enableCodeExecution: true,
+      },
+    },
+    profile: PROFILE,
+    transport: nativeTransport,
+    onEvent: (event) => events.push(event),
+  });
+  assert.equal(receivedOptions.enableSearch, true);
+  assert.equal(receivedOptions.enableCodeExecution, true);
+  assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'web_search'));
+  assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'code_execution'));
+  assert.ok(events.some((event) => event.type === 'work-log' && /searching the web/i.test(event.text)));
+  assert.ok(events.some((event) => event.type === 'work-log' && /running a calculation/i.test(event.text)));
+});
+
+it('deduplicates a repeated Interactions search delta without hiding a second search', async () => {
+  const chat = await importTs(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'));
+  const priorFetch = globalThis.fetch;
+  const events = [];
+  const sse = [
+    'event: step.start\n',
+    'data: {"event_type":"step.start","index":4,"step":{"id":"search-4","type":"google_search_call"}}\n\n',
+    'event: step.delta\n',
+    'data: {"event_type":"step.delta","index":4,"step":{"id":"search-4","type":"google_search_call"},"delta":{"type":"google_search_call","arguments":{"queries":["same query"]}}}\n\n',
+    'event: step.delta\n',
+    'data: {"event_type":"step.delta","index":5,"step":{"id":"search-5","type":"google_search_call"},"delta":{"type":"google_search_call","arguments":{"queries":["same query"]}}}\n\n',
+    'event: step.delta\n',
+    'data: {"event_type":"step.delta","index":4,"step":{"id":"search-4","type":"google_search_call"},"delta":{"type":"google_search_call","arguments":{"queries":["same query"]}}}\n\n',
+    'event: interaction.complete\n',
+    'data: {"event_type":"interaction.complete","interaction":{"id":"i-1","status":"completed"}}\n\n',
+  ].join('');
+  globalThis.fetch = async () => new Response(sse, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+  try {
+    await chat.streamChat(
+      [{ role: 'user', content: 'search' }],
+      {
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        apiKey: 'test-key',
+        enableSearch: true,
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        onToolCallStart: (name, args) => events.push({ name, args }),
+      },
+      () => {},
+      () => {},
+    );
+  } finally {
+    globalThis.fetch = priorFetch;
+  }
+  assert.equal(events.filter((event) => event.name === 'web_search').length, 2);
+});
+
+it('accepts concise Work Log metadata between ordinary streamed phases', async () => {
+  const events = [];
+  const scripted = transport(['*** Work Title: Research task\n*** Work Log: I\'m comparing the latest sources.\n*** Work Log: I\'m narrowing the answer to the relevant finding.\nThe answer is ready.']);
+  await runTurn({
+    prompt: 'Research and summarize the answer.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    transport: scripted,
+    onEvent: (event) => events.push(event),
+  });
+  assert.deepEqual(
+    events.filter((event) => event.type === 'work-log').map((event) => event.text),
+    ["I'm comparing the latest sources.", "I'm narrowing the answer to the relevant finding."],
+  );
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'The answer is ready.');
+});
+
 it('emits visible work narration before tool rows and never exposes provider thoughts', async () => {
   const events = [];
   let turn = 0;
@@ -122,7 +218,10 @@ it('emits visible work narration before tool rows and never exposes provider tho
   assert.ok(callIndex > workIndex);
   assert.match(events[workIndex].text, /update the workspace/i);
   assert.equal(events.some((event) => event.type === 'thought'), false);
-  assert.equal(events.filter((event) => event.type === 'work-log').length, 1);
+  const progress = events.filter((event) => event.type === 'work-log').map((event) => event.text);
+  assert.equal(progress.length, 3);
+  assert.match(progress[1], /creating \/workspace\/note\.txt/i);
+  assert.match(progress[2], /applied successfully/i);
   assert.equal(events.filter((event) => event.type === 'text').some((event) => /update the workspace/i.test(event.chunk)), false);
   assert.equal(events.filter((event) => event.type === 'text').some((event) => /created the workspace note/i.test(event.chunk)), true);
 });

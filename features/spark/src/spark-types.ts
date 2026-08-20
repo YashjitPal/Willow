@@ -98,6 +98,8 @@ export interface SparkTask {
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
+  /** False when this is only the lightweight task-list record. */
+  bodyLoaded?: boolean;
 }
 
 export type SparkScheduleFrequency = 'Daily' | 'Weekly';

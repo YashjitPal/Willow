@@ -116,7 +116,7 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     const { streamChat } = await import('@willow/ai/chat');
     return streamChat(
       messages,
-      { ...modelOptions, enableSearch: false, enableCodeExecution: false },
+      { ...modelOptions },
       onToken,
       onStart,
       systemPrompt,

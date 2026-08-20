@@ -24,6 +24,27 @@ describe('Gemini and Grok tool isolation', () => {
   it('keeps Gemini server-side built-in tools compatible with function calling', () => {
     assert.match(geminiBranch, /include_server_side_tool_invocations:\s*true/);
     assert.match(geminiBranch, /if \(part\?\.functionCall\) \{/);
+    assert.match(geminiBranch, /const reportedSearchQueries = new Set<string>\(\)/);
+    assert.match(geminiBranch, /setPhase\('searching'\)/);
+    assert.match(geminiBranch, /if \(part\?\.executableCode\) \{/);
+    assert.match(geminiBranch, /setPhase\('executing'\)/);
+    assert.doesNotMatch(
+      geminiBranch,
+      /if \(!hasEmittedText\) setPhase\('thinking'\);\s*\/\/ Search backwards/,
+      'a code result must not immediately erase the Running code phase before a paint',
+    );
+    assert.match(
+      geminiBranch,
+      /if \(!hasEmittedText && hasSearchGrounding\)/,
+      'native search activity belongs to the pre-answer status row only',
+    );
+    assert.match(geminiBranch, /const hasWebGrounding = Array\.isArray\(groundingMetadata\.groundingChunks\)/);
+    assert.match(geminiBranch, /const nativeSearchCall = part\?\.googleSearchCall/);
+    assert.match(geminiBranch, /const interactionsEligible = isOfficialEndpoint\('gemini', options\.baseUrl\)/);
+    assert.match(geminiBranch, /google_search_call/);
+    assert.doesNotMatch(geminiBranch, /!\(options\.personalTools\?\.some/);
+    assert.match(geminiBranch, /interactionFunctionTools\(options\.personalTools\)/);
+    assert.match(geminiBranch, /interactionFunctionTools\(options\.toolDeclarations\)/);
     assert.doesNotMatch(geminiBranch, /functionCall\.name\.toLowerCase\(\)\.includes\('search'\)/);
   });
 

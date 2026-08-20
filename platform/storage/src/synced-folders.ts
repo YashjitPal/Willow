@@ -40,9 +40,9 @@ export interface SyncedFolderContext {
 
 export interface SyncedFolderDescriptor {
   /**
-   * Folder name directly under the workspace root, e.g. `Gems`. One descriptor
-   * owns one folder; two descriptors claiming the same folder is a programming
-   * error and the registry throws on it.
+   * Folder path under the workspace root, e.g. `Gems` or `Spark/Tasks`.
+   * One descriptor owns one path; two descriptors claiming the same path is a
+   * programming error and the registry throws on it.
    */
   folder: string;
   /**
@@ -76,8 +76,8 @@ const descriptors = new Map<string, SyncedFolderDescriptor>();
  */
 export function registerSyncedFolder(id: string, descriptor: SyncedFolderDescriptor): void {
   const folder = descriptor.folder.trim();
-  if (!folder || folder.includes('/') || folder.includes('\\')) {
-    throw new Error(`registerSyncedFolder("${id}"): folder must be a single path segment, got "${descriptor.folder}"`);
+  if (!folder || folder.split('/').some((segment) => !segment.trim() || segment === '.' || segment === '..') || folder.includes('\\')) {
+    throw new Error(`registerSyncedFolder("${id}"): folder must be a non-empty path, got "${descriptor.folder}"`);
   }
   if (!descriptor.extension.startsWith('.')) {
     throw new Error(`registerSyncedFolder("${id}"): extension must start with a dot, got "${descriptor.extension}"`);
