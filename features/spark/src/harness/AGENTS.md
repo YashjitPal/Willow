@@ -177,3 +177,9 @@ notice of the change in the file itself — and `codex:check` will fail until
 Read [`overlay/AGENTS.md`](overlay/AGENTS.md) next if you are changing behaviour,
 or [`upstream/AGENTS.md`](upstream/AGENTS.md) if you are about to touch a
 vendored file.
+
+Read [`runtime/AGENTS.md`](runtime/AGENTS.md) before changing the Spark turn loop,
+stream parser, Patch lifecycle, native Search/Code Execution events, or visible
+work timeline. The runtime guide is the source of truth for the separation
+between literal Patch envelopes, Spark Work Logs, provider tool rows, and private
+thought summaries.

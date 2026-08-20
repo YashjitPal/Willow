@@ -1877,7 +1877,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             </div>
           )}
 
-          <div ref={conversationRef} className="spark-task-detail__conversation-scroll">
+          <div
+            ref={conversationRef}
+            className="spark-task-detail__conversation-scroll gemini-chat-scrollbar"
+          >
             <div className="spark-task-detail__conversation">
               {!!currentTask.prompt && (!needsApproval(currentTask) || !currentTask.scheduledLabel) && (
                 <div className="spark-task-detail__user-row">

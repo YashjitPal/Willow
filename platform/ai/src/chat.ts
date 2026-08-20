@@ -740,12 +740,11 @@ const streamGeminiInteractions = async ({
   let interactionId = '';
   let interactionStatus = '';
   let functionCalls = new Map<number, { id: string; name: string; arguments: string }>();
-  let lastThoughtStepKey: string | null = null;
   // Interactions streams may repeat a step delta while a server-side tool is
   // being assembled. Keep the UI event one-per-search-step; a real second
   // search still gets through when Gemini gives it a different step id/index.
   const reportedInteractionSearches = new Set<string>();
-  const interactionSearchKey = (event: any, step: any): string | null => {
+  const interactionStepKey = (event: any, step: any): string | null => {
     const identity = step?.id ?? event.step_id ?? event.stepId ?? event.step_index ?? event.index;
     if (identity !== undefined && identity !== null && String(identity) !== '') {
       return `step:${String(identity)}`;
@@ -792,7 +791,7 @@ const streamGeminiInteractions = async ({
       if (delta.type === 'google_search_call') {
         onPhase?.('searching');
         const queries = Array.isArray(delta.arguments?.queries) ? delta.arguments.queries : [];
-        const key = interactionSearchKey(event, step);
+        const key = interactionStepKey(event, step);
         if (key === null || !reportedInteractionSearches.has(key)) {
           if (key !== null) reportedInteractionSearches.add(key);
           onToolCallStart?.('web_search', typeof queries[0] === 'string' && queries[0]
@@ -822,14 +821,7 @@ const streamGeminiInteractions = async ({
         const text = typeof delta.text === 'string'
           ? delta.text
           : delta.content?.text;
-        if (typeof text === 'string' && text.length) {
-          const thoughtStepKey = interactionSearchKey(event, step);
-          const startsNewSummary = thoughtStepKey !== null
-            && lastThoughtStepKey !== null
-            && thoughtStepKey !== lastThoughtStepKey;
-          onThought?.(`${startsNewSummary ? '\n\n' : ''}${text}`);
-          if (thoughtStepKey !== null) lastThoughtStepKey = thoughtStepKey;
-        }
+        if (typeof text === 'string' && text.length) onThought?.(text);
       } else if (delta.type === 'text' && typeof delta.text === 'string' && delta.text.length) {
         if (!answerStarted) {
           answerStarted = true;
@@ -861,7 +853,6 @@ const streamGeminiInteractions = async ({
   let previousInteractionId: string | undefined;
   for (let iteration = 0; iteration < 32; iteration += 1) {
     reportedInteractionSearches.clear();
-    lastThoughtStepKey = null;
     interactionStatus = '';
     interactionId = '';
     functionCalls = new Map();
