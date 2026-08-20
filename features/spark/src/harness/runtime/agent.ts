@@ -319,9 +319,6 @@ async function runIteration(
   let raw = '';
   let workLogOffset = 0;
   let callTextOffset = 0;
-  let providerSummaryBuffer = '';
-  let providerSummaryEmittedSinceAction = false;
-  const emittedProviderSummaries = new Set<string>();
   const fallbackWorkTitle = (): string => {
     const prompt = options.prompt.replace(/\s+/g, ' ').trim();
     if (!prompt) return 'Working through your request';
@@ -344,37 +341,6 @@ async function runIteration(
     if (normalized.startsWith('mcp:')) return 'I\'m using the connected tool to continue the task.';
     return 'I\'m continuing the task with the next step now.';
   };
-  const emitProviderSummary = (summary: string) => {
-    const normalized = summary
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/^\*\*|\*\*$/g, '')
-      .slice(0, 600);
-    if (!normalized || emittedProviderSummaries.has(normalized)) return;
-    emittedProviderSummaries.add(normalized);
-    providerSummaryEmittedSinceAction = true;
-    sink.workLog(normalized);
-  };
-  const flushProviderSummaries = (flushRemainder = true) => {
-    const sections = providerSummaryBuffer.split(/\n{2,}/);
-    providerSummaryBuffer = flushRemainder ? '' : (sections.pop() ?? '');
-    sections.forEach(emitProviderSummary);
-    if (flushRemainder && providerSummaryBuffer.trim()) {
-      emitProviderSummary(providerSummaryBuffer);
-      providerSummaryBuffer = '';
-    }
-  };
-  const receiveProviderSummary = (chunk: string) => {
-    providerSummaryBuffer += chunk;
-    flushProviderSummaries(false);
-  };
-  const nativeSearchFallback = (query: unknown): string => {
-    const normalized = typeof query === 'string' ? query.replace(/\s+/g, ' ').trim() : '';
-    if (!normalized) return 'I\'m searching the web for the information this task needs.';
-    const subject = normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
-    return `I'm searching the web for “${subject}”.`;
-  };
-
   /*
    * One card per file in the envelope, in the order their headers arrived.
    *
@@ -483,11 +449,9 @@ async function runIteration(
       toolDeclarations: options.toolDeclarations,
       onToolCallStart: (name, args) => {
         nativeToolUsed = true;
-        flushProviderSummaries();
+        sink.workTitle(fallbackWorkTitle());
         const normalized = name.trim().toLowerCase();
         if (normalized === 'web_search' || normalized === 'google_search') {
-          if (!providerSummaryEmittedSinceAction) sink.workLog(nativeSearchFallback(args?.query));
-          providerSummaryEmittedSinceAction = false;
           sink.emit({
             id: nextId('call'),
             kind: 'web_search',
@@ -496,8 +460,6 @@ async function runIteration(
             query: typeof args?.query === 'string' ? args.query : undefined,
           } as WebSearchCall);
         } else if (normalized === 'code_execution') {
-          if (!providerSummaryEmittedSinceAction) sink.workLog('I\'m running a calculation to verify the result.');
-          providerSummaryEmittedSinceAction = false;
           sink.emit({
             id: nextId('call'),
             kind: 'code_execution',
@@ -516,10 +478,7 @@ async function runIteration(
     },
     () => sink.activity('Responding'),
     systemPrompt,
-    (phase) => {
-      if (phase === 'responding') flushProviderSummaries();
-      sink.activity(phase === 'thinking' ? 'Thinking it through...' : phase === 'responding' ? null : 'Working on it...');
-    },
+    (phase) => sink.activity(phase === 'thinking' ? 'Thinking it through...' : phase === 'responding' ? null : 'Working on it...'),
     async (name, args) => {
       nativeToolUsed = true;
       sink.workTitle(fallbackWorkTitle());
@@ -540,10 +499,9 @@ async function runIteration(
         ? { status: 'error', error: observation }
         : { status: 'success', result: observation };
     },
-    receiveProviderSummary,
+    (thought: string) => sink.onThought(thought),
   );
 
-  flushProviderSummaries();
   parser.end();
   throwIfAborted(options.signal);
 

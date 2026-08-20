@@ -136,26 +136,22 @@
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
-.spark-task-detail__recent-list::-webkit-scrollbar,
-.spark-task-detail__conversation-scroll::-webkit-scrollbar {
+.spark-task-detail__recent-list::-webkit-scrollbar {
   width: 12px;
 }
 
-.spark-task-detail__recent-list::-webkit-scrollbar-track,
-.spark-task-detail__conversation-scroll::-webkit-scrollbar-track {
+.spark-task-detail__recent-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.spark-task-detail__recent-list::-webkit-scrollbar-thumb,
-.spark-task-detail__conversation-scroll::-webkit-scrollbar-thumb {
+.spark-task-detail__recent-list::-webkit-scrollbar-thumb {
   border: 4px solid transparent;
   border-radius: 9999px;
   background: transparent;
   background-clip: padding-box;
 }
 
-.spark-task-detail__recent-list:hover::-webkit-scrollbar-thumb,
-.spark-task-detail__conversation-scroll:hover::-webkit-scrollbar-thumb {
+.spark-task-detail__recent-list:hover::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.22);
 }
 
@@ -1304,13 +1300,6 @@
   overflow-y: auto;
   padding: 35px 24px var(--spark-followup-inset, 145px);
   scroll-padding-bottom: var(--spark-followup-inset, 145px);
-  scrollbar-color: transparent transparent;
-  scrollbar-width: thin;
-  direction: rtl;
-}
-
-.spark-task-detail__conversation-scroll:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
 .spark-task-detail__conversation {

@@ -35,6 +35,29 @@ into nanostores. Feasible, but not trivial.
 **`platform/ai` must never import from `features/` or `apps/`.** It can import
 sibling platform packages (`@willow/core`, `@models`) and that is all.
 
+## Gemini Streaming Boundaries
+
+`src/chat.ts` exposes several distinct callback channels. Keep them distinct when
+adding or repairing provider integrations:
+
+- `onToolCallStart` means a real provider tool invocation, such as native Google
+  Search or native Code Execution. Consumers may render a tool row from it.
+- `onPhase` is lifecycle state (`thinking`, `searching`, `executing`, or
+  `responding`), not user-facing narration.
+- `onThought` carries provider reasoning/thought-summary material. It must remain
+  private in Spark and must not be converted into Spark `Work Log` entries.
+- `onToken` carries answer text, not Patch metadata.
+
+Spark's literal `*** Begin Patch` / `*** End Patch` protocol belongs to
+`features/spark/src/harness/runtime`; this adapter must not inject Patch markers or
+hardcoded “searching”/“running code” prose. If a provider emits no narration, the
+truthful tool callback is still sufficient.
+
+When changing native tool streaming, preserve step-identity deduplication: a
+repeated delta for one provider step must not create duplicate UI rows, while a
+second step must remain visible even if its query is identical. Update the focused
+Gemini/Spark tests when changing this behavior.
+
 <!-- related-packages -->
 
 ## Related packages

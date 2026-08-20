@@ -127,8 +127,7 @@ it('surfaces native Google Search and code execution as Spark timeline tools', a
   assert.equal(receivedOptions.enableCodeExecution, true);
   assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'web_search'));
   assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'code_execution'));
-  assert.ok(events.some((event) => event.type === 'work-log' && /searching the web/i.test(event.text)));
-  assert.ok(events.some((event) => event.type === 'work-log' && /running a calculation/i.test(event.text)));
+  assert.equal(events.some((event) => event.type === 'work-log'), false);
 });
 
 it('deduplicates a repeated Interactions search delta without hiding a second search', async () => {
