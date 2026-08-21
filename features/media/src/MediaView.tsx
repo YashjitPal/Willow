@@ -287,7 +287,7 @@ export const MediaView: React.FC = () => {
       const group = searchGroupRef.current;
       if (!group) return;
       const geometry = isSearchOpen ? searchGeometryRef.current : null;
-      group.style.width = `${geometry ? geometry.width : SEARCH_GROUP_WIDTH}px`;
+      group.style.width = geometry ? `${geometry.width}px` : `min(${SEARCH_GROUP_WIDTH}px, 100%)`;
       group.style.transform = `translateX(${geometry ? geometry.dx : 0}px)`;
     };
     if (!isSearchOpen) {
@@ -304,7 +304,9 @@ export const MediaView: React.FC = () => {
       const chipBox = accountButtonRef.current?.getBoundingClientRect();
       const left = headerBox.left + HEADER_INSET_LEFT;
       const right = (chipBox ? chipBox.left : headerBox.right - HEADER_INSET_RIGHT) - HEADER_GROUP_GAP;
-      searchGeometryRef.current = { dx: left - slotBox.left, width: Math.max(SEARCH_GROUP_WIDTH, right - left) };
+      // The resting group must fit its responsive slot; otherwise closing can overshoot its right edge.
+      const closedWidth = Math.min(SEARCH_GROUP_WIDTH, slotBox.width);
+      searchGeometryRef.current = { dx: left - slotBox.left, width: Math.max(closedWidth, right - left) };
       apply();
     };
     measure();
@@ -2400,13 +2402,13 @@ export const MediaView: React.FC = () => {
     };
     const handleResize = () => setIsModelMenuOpen(false);
     if (isModelMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClickOutside, { capture: true });
       window.addEventListener('scroll', handleScroll, true);
       window.addEventListener('wheel', handleScroll, { capture: true, passive: true });
       window.addEventListener('resize', handleResize);
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside, { capture: true });
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('wheel', handleScroll, true);
       window.removeEventListener('resize', handleResize);
@@ -4764,7 +4766,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
           opacity: isHeaderVisible ? 1 : 0,
           transition: isHeaderVisible
-            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.78s cubic-bezier(0.16, 1, 0.3, 1)'
+            // Let the search reach full contrast before the slower backdrop blur finishes revealing.
+            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease-out'
             : 'transform 0.68s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.68s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
@@ -4876,7 +4879,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               className="absolute left-0 top-0 z-10 flex h-10 items-center"
               style={{
                 gap: `${SEARCH_GROUP_GAP}px`,
-                width: isSearchOpen && searchGeometryRef.current ? searchGeometryRef.current.width : SEARCH_GROUP_WIDTH,
+                width: isSearchOpen && searchGeometryRef.current
+                  ? searchGeometryRef.current.width
+                  : `min(${SEARCH_GROUP_WIDTH}px, 100%)`,
                 transform: `translateX(${isSearchOpen && searchGeometryRef.current ? searchGeometryRef.current.dx : 0}px)`,
                 transition: SEARCH_TRANSITION,
               }}

@@ -1,18 +1,24 @@
 import type { AiOptions, ChatMessage, StreamPhase } from '@willow/ai/chat';
-import { runTurn, type ModelBinding } from './runtime/agent';
+import { runTurn, type ModelBinding, type Transport } from './runtime/agent';
 import type { HarnessEvent, Message, ToolHandler } from './runtime/protocol';
 import { createSparkHarnessProfile, type SparkProfileContext } from './overlay/spark-profile';
 import { createSparkCapabilityTools, type SparkCapabilityContext } from './spark-tools';
 import { createOpfsWorkspace, emptySparkWorkspace, type SparkWorkspace } from './workspace/workspace';
+import { goalToolDeclarations, SparkGoalRuntime, type SparkThreadGoal } from './runtime/goal';
 
 export interface SparkHarnessOptions {
   prompt: string;
   history?: ChatMessage[];
   model: Omit<AiOptions, 'signal'> & { label: string; effort?: ModelBinding['effort'] };
   scope: string;
+  threadId?: string;
   capabilities: SparkProfileContext & SparkCapabilityContext;
   signal?: AbortSignal;
   workspace?: SparkWorkspace;
+  goal?: SparkThreadGoal | null;
+  onGoalChange?: (goal: SparkThreadGoal | null) => void;
+  /** Injectable provider transport for focused harness tests. */
+  transport?: Transport;
   onEvent: (event: HarnessEvent) => void;
 }
 
@@ -47,7 +53,11 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     options.onEvent(event);
   };
   const capabilityTools = createSparkCapabilityTools(options.capabilities);
-  const transport = async (
+  const goalRuntime = new SparkGoalRuntime(options.threadId ?? options.scope, options.goal, (goal) => {
+    options.onGoalChange?.(goal);
+    emit({ type: 'goal-updated', goal });
+  });
+  const transport: Transport = options.transport ?? (async (
     messages: { role: 'user' | 'assistant'; content: string }[],
     modelOptions: AiOptions,
     onToken: (token: string) => void,
@@ -68,7 +78,7 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
       onToolCall,
       onThought,
     );
-  };
+  });
   const binding: ModelBinding = {
     options: options.model,
     label: options.model.label,
@@ -79,9 +89,10 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
   if (last?.role === 'user' && last.content.trim() === options.prompt.trim()) {
     history.pop();
   }
-  await runTurn({
-    prompt: options.prompt,
-    history: history.map(toMessage),
+  const baseHistory = history.map(toMessage);
+  const run = async (prompt: string, turnHistory: Message[]) => runTurn({
+    prompt,
+    history: turnHistory,
     files: () => ({ ...files }),
     writeFiles: (next) => {
       files = { ...next };
@@ -90,10 +101,33 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     model: binding,
     profile: createSparkHarnessProfile(options.capabilities),
     extraTools: capabilityTools,
+    goalRuntime,
+    collaborationThreadId: options.threadId ?? options.scope,
+    toolDeclarations: [goalToolDeclarations()],
     transport,
     signal: options.signal,
     onEvent: emit,
   });
+
+  const continuationHistory = [...baseHistory];
+  const runAndRecord = async (prompt: string): Promise<void> => {
+    const responseStart = response.length;
+    await run(prompt, continuationHistory);
+    const segment = response.slice(responseStart).trim();
+    continuationHistory.push(toMessage({ role: 'user', content: prompt }));
+    if (segment) continuationHistory.push(toMessage({ role: 'assistant', content: segment }));
+  };
+
+  await runAndRecord(options.prompt);
+
+  // Codex Goal mode automatically starts another turn when the thread becomes
+  // idle while its persisted goal is still active. Keep the browser port
+  // bounded per invocation so a broken provider cannot loop forever; the goal
+  // remains active and the next Spark run can resume it.
+  for (let continuation = 0; continuation < 7 && reason === 'complete' && goalRuntime.isActive(); continuation += 1) {
+    if (options.signal?.aborted) break;
+    await runAndRecord(goalRuntime.continuationPrompt());
+  }
   await pendingWrite;
   return { response: response.trim(), files, reason, error };
 };

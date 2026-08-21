@@ -216,8 +216,8 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
         onClose();
       }
     };
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside, { capture: true });
+    return () => document.removeEventListener('mousedown', handleClickOutside, { capture: true });
   }, [isOpen, onClose, buttonRef]);
 
   useEffect(() => {

@@ -19,8 +19,17 @@ export type ToolId =
   | 'update_plan'
   | 'add_dependency'
   | 'run_command'
-  | 'task'
+  | 'spawn_agent'
+  | 'send_message'
+  | 'followup_task'
+  | 'wait_agent'
+  | 'interrupt_agent'
+  | 'list_agents'
+  | 'get_goal'
+  | 'create_goal'
+  | 'update_goal'
   | 'connected_app'
+  | 'use_skill'
   | `mcp:${string}`;
 
 export interface DeniedTool {
@@ -46,7 +55,16 @@ export const ALLOWED_TOOLS: ToolId[] = [
   'update_plan',
   'add_dependency',
   'run_command',
-  'task',
+  'spawn_agent',
+  'send_message',
+  'followup_task',
+  'wait_agent',
+  'interrupt_agent',
+  'list_agents',
+  'get_goal',
+  'create_goal',
+  'update_goal',
+  'use_skill',
 ];
 
 const NO_SHELL =

@@ -9,9 +9,12 @@ import type {
   SparkTask,
   SparkActivityPhase,
   SparkTaskAttachment,
+  SparkGeneratedFile,
   SparkTaskStatus,
   SparkTaskTurn,
   SparkActivityEntry,
+  SparkPlanStep,
+  SparkSubAgent,
 } from './spark-types';
 
 export type {
@@ -24,9 +27,12 @@ export type {
   SparkTask,
   SparkActivityPhase,
   SparkTaskAttachment,
+  SparkGeneratedFile,
   SparkTaskStatus,
   SparkTaskTurn,
   SparkActivityEntry,
+  SparkPlanStep,
+  SparkSubAgent,
 } from './spark-types';
 
 export interface SparkState {
@@ -54,10 +60,13 @@ export interface AppendSparkTaskTurnInput {
   modelLabel?: string;
   thinkingSteps?: string[];
   activityTitle?: string;
+  plan?: SparkPlanStep[];
   activityLog?: SparkActivityEntry[];
+  subagents?: SparkSubAgent[];
   usedTools?: string[];
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
+  generatedFiles?: SparkGeneratedFile[];
   createdAt?: string;
 }
 
@@ -82,10 +91,14 @@ export const INITIAL_SPARK_CONNECTIONS: Record<SparkConnectedAppId, boolean> = {
 
 const cloneInitialTasks = () => INITIAL_SPARK_TASKS.map((task) => ({
   ...task,
+  goal: task.goal ? { ...task.goal } : undefined,
   attachments: task.attachments?.map((attachment) => ({ ...attachment })),
+  generatedFiles: task.generatedFiles?.map((file) => ({ ...file })),
     thinkingSteps: task.thinkingSteps ? [...task.thinkingSteps] : undefined,
     activityTitle: task.activityTitle,
+    plan: task.plan?.map((step) => ({ ...step })),
     activityLog: task.activityLog ? task.activityLog.map((entry) => ({ ...entry })) : undefined,
+    subagents: task.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: task.activityPhase,
   tools: task.tools ? [...task.tools] : undefined,
   usedTools: task.usedTools ? [...task.usedTools] : undefined,
@@ -93,10 +106,13 @@ const cloneInitialTasks = () => INITIAL_SPARK_TASKS.map((task) => ({
     ...turn,
     thinkingSteps: turn.thinkingSteps ? [...turn.thinkingSteps] : undefined,
     activityTitle: turn.activityTitle,
+    plan: turn.plan?.map((step) => ({ ...step })),
     activityLog: turn.activityLog ? turn.activityLog.map((entry) => ({ ...entry })) : undefined,
+    subagents: turn.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: turn.activityPhase,
     usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
     attachments: turn.attachments?.map((attachment) => ({ ...attachment })),
+    generatedFiles: turn.generatedFiles?.map((file) => ({ ...file })),
   })),
 }));
 
@@ -115,6 +131,27 @@ const createInitialState = (): SparkState => ({
 });
 
 export const sparkState = atom<SparkState>(createInitialState());
+
+const SPARK_ULTRA_KEY = 'willow:spark:ultra';
+const readSparkUltra = (): boolean => {
+  try {
+    return globalThis.localStorage?.getItem(SPARK_ULTRA_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+/** Spark-only product mode shown alongside effort levels, matching Codex. */
+export const sparkUltraEngaged = atom<boolean>(readSparkUltra());
+
+export const setSparkUltraEngaged = (engaged: boolean): void => {
+  sparkUltraEngaged.set(engaged);
+  try {
+    globalThis.localStorage?.setItem(SPARK_ULTRA_KEY, String(engaged));
+  } catch {
+    // Storage can be unavailable in private or embedded contexts.
+  }
+};
 
 export const sparkLocation = computed(sparkState, ({ location }) => location);
 export const sparkTasks = computed(sparkState, ({ tasks }) => tasks);
@@ -204,9 +241,11 @@ const persistSparkTaskRecord = (task: SparkTask): void => {
     const persistable = {
       ...record,
       attachments: task.attachments?.map(({ data: _data, ...attachment }) => attachment),
+      generatedFiles: task.generatedFiles?.map((file) => ({ ...file })),
       turns: task.turns.map((turn) => ({
         ...turn,
         attachments: turn.attachments?.map(({ data: _data, ...attachment }) => attachment),
+        generatedFiles: turn.generatedFiles?.map((file) => ({ ...file })),
       })),
     };
     globalThis.localStorage?.setItem(
@@ -754,8 +793,75 @@ const normalizeActivityLog = (value: unknown): SparkActivityEntry[] => (
     ? value.filter((entry): entry is SparkActivityEntry => {
       if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.kind !== 'string') return false;
       if (entry.kind === 'narration') return typeof entry.text === 'string' && Boolean(entry.text.trim());
-      return entry.kind === 'tool' && typeof entry.tool === 'string' && Boolean(entry.tool.trim());
+      if (entry.kind === 'tool') return typeof entry.tool === 'string' && Boolean(entry.tool.trim());
+      return entry.kind === 'subagents';
     })
+    : []
+);
+
+const normalizePlan = (value: unknown): SparkPlanStep[] => (
+  Array.isArray(value)
+    ? value
+      .filter((step): step is Record<string, unknown> => isRecord(step))
+      .map((step): SparkPlanStep => ({
+        text: asString(step.text ?? step.step).replace(/\s+/g, ' ').trim(),
+        status: step.status === 'in_progress' || step.status === 'completed'
+          ? step.status
+          : 'pending',
+      }))
+      .filter((step) => Boolean(step.text))
+      .slice(0, 12)
+    : []
+);
+
+const SUBAGENT_STATUSES = new Set(['queued', 'running', 'success', 'error', 'cancelled']);
+
+const normalizeSubagents = (value: unknown): SparkSubAgent[] => (
+  Array.isArray(value)
+    ? value.filter(isRecord).map((agent): SparkSubAgent | null => {
+      if (typeof agent.id !== 'string' || typeof agent.name !== 'string') return null;
+      const calls = Array.isArray(agent.calls)
+        ? agent.calls.filter(isRecord).map((call) => {
+          if (typeof call.id !== 'string' || typeof call.kind !== 'string') return null;
+          return {
+            id: call.id,
+            kind: call.kind,
+            status: SUBAGENT_STATUSES.has(call.status as string) ? call.status as SparkSubAgent['status'] : 'success',
+            label: asString(call.label, call.kind),
+          };
+        }).filter((call): call is SparkSubAgent['calls'][number] => Boolean(call))
+        : [];
+      const callIds = new Set(calls.map((call) => call.id));
+      const timeline = Array.isArray(agent.timeline)
+        ? agent.timeline.filter(isRecord).map((entry) => {
+          if (typeof entry.id !== 'string') return null;
+          if (entry.kind === 'narration' && typeof entry.text === 'string') {
+            const text = entry.text.replace(/\s+/g, ' ').trim();
+            return text ? { id: entry.id, kind: 'narration' as const, text } : null;
+          }
+          if (entry.kind === 'tool' && typeof entry.callId === 'string' && callIds.has(entry.callId)) {
+            return { id: entry.id, kind: 'tool' as const, callId: entry.callId };
+          }
+          return null;
+        }).filter((entry): entry is SparkSubAgent['timeline'][number] => Boolean(entry))
+        : calls.map((call) => ({ id: `legacy-${call.id}`, kind: 'tool' as const, callId: call.id }));
+      return {
+        id: agent.id,
+        name: asString(agent.name, 'Subtask'),
+        kind: asString(agent.kind, 'researcher'),
+        objective: asString(agent.objective),
+        status: SUBAGENT_STATUSES.has(agent.status as string) ? agent.status as SparkSubAgent['status'] : 'success',
+        startedAt: typeof agent.startedAt === 'number' ? agent.startedAt : Date.now(),
+        endedAt: typeof agent.endedAt === 'number' ? agent.endedAt : undefined,
+        progress: typeof agent.progress === 'number' ? Math.max(0, Math.min(1, agent.progress)) : 0,
+        calls,
+        timeline,
+        activity: asString(agent.activity) || undefined,
+        result: asString(agent.result) || undefined,
+        model: asString(agent.model),
+        tokensUsed: typeof agent.tokensUsed === 'number' ? agent.tokensUsed : 0,
+      };
+    }).filter((agent): agent is SparkSubAgent => Boolean(agent))
     : []
 );
 
@@ -772,6 +878,17 @@ const normalizeAttachment = (value: unknown): SparkTaskAttachment | null => {
   };
 };
 
+const normalizeGeneratedFile = (value: unknown): SparkGeneratedFile | null => {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return null;
+  return {
+    id: value.id,
+    name: value.name,
+    path: asString(value.path, `/${value.name}`),
+    mimeType: asString(value.mimeType, 'text/plain'),
+    createdAt: asString(value.createdAt, new Date().toISOString()),
+  };
+};
+
 const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.prompt !== 'string') return null;
   return {
@@ -781,12 +898,17 @@ const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
     modelLabel: asString(value.modelLabel) || undefined,
     thinkingSteps: normalizeThinkingSteps(value.thinkingSteps),
     activityTitle: asString(value.activityTitle).replace(/\s+/g, ' ').trim().slice(0, 160) || undefined,
-    activityLog: normalizeActivityLog(value.activityLog),
+    plan: normalizePlan(value.plan),
+  activityLog: normalizeActivityLog(value.activityLog),
+    subagents: normalizeSubagents(value.subagents),
     usedTools: Array.isArray(value.usedTools)
       ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
       : undefined,
     attachments: Array.isArray(value.attachments)
       ? value.attachments.map(normalizeAttachment).filter((item): item is SparkTaskAttachment => Boolean(item))
+      : [],
+    generatedFiles: Array.isArray(value.generatedFiles)
+      ? value.generatedFiles.map(normalizeGeneratedFile).filter((item): item is SparkGeneratedFile => Boolean(item))
       : [],
     reaction: asReaction(value.reaction),
     createdAt: asString(value.createdAt, new Date().toISOString()),
@@ -841,11 +963,30 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     modelLabel: asString(value.modelLabel) || undefined,
     thinkingSteps: normalizeThinkingSteps(value.thinkingSteps),
     activityTitle: asString(value.activityTitle).replace(/\s+/g, ' ').trim().slice(0, 160) || undefined,
+    plan: normalizePlan(value.plan),
     activityLog: normalizeActivityLog(value.activityLog),
+    subagents: normalizeSubagents(value.subagents),
     turns: recoveredTurns,
     attachments: Array.isArray(value.attachments)
       ? value.attachments.map(normalizeAttachment).filter((item): item is SparkTaskAttachment => Boolean(item))
       : [],
+    generatedFiles: Array.isArray(value.generatedFiles)
+      ? value.generatedFiles.map(normalizeGeneratedFile).filter((item): item is SparkGeneratedFile => Boolean(item))
+      : [],
+    goal: isRecord(value.goal) && typeof value.goal.objective === 'string'
+      ? {
+          threadId: asString(value.goal.threadId),
+          objective: value.goal.objective.trim(),
+          status: ['active', 'paused', 'blocked', 'usage_limited', 'budget_limited', 'complete'].includes(asString(value.goal.status))
+            ? asString(value.goal.status) as NonNullable<SparkTask['goal']>['status']
+            : 'active',
+          tokenBudget: typeof value.goal.tokenBudget === 'number' ? value.goal.tokenBudget : undefined,
+          tokensUsed: typeof value.goal.tokensUsed === 'number' ? value.goal.tokensUsed : 0,
+          timeUsedSeconds: typeof value.goal.timeUsedSeconds === 'number' ? value.goal.timeUsedSeconds : 0,
+          createdAt: typeof value.goal.createdAt === 'number' ? value.goal.createdAt : Math.floor(Date.now() / 1000),
+          updatedAt: typeof value.goal.updatedAt === 'number' ? value.goal.updatedAt : Math.floor(Date.now() / 1000),
+        }
+      : undefined,
     tools: Array.isArray(value.tools) ? value.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     usedTools: Array.isArray(value.usedTools)
       ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
@@ -1170,16 +1311,22 @@ export const createSparkTask = (
     modelLabel: options.modelLabel?.trim() || undefined,
     thinkingSteps: options.thinkingSteps ? [...options.thinkingSteps] : [],
     activityTitle: options.activityTitle?.trim() || undefined,
+    plan: options.plan ? options.plan.map((step) => ({ ...step })) : [],
     activityLog: options.activityLog ? options.activityLog.map((entry) => ({ ...entry })) : [],
+    subagents: options.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })) ?? [],
     activityPhase: options.activityPhase ?? (status === 'running' ? 'queued' : undefined),
     turns: options.turns?.map((turn) => ({
       ...turn,
       thinkingSteps: turn.thinkingSteps ? [...turn.thinkingSteps] : undefined,
       activityTitle: turn.activityTitle,
+      plan: turn.plan?.map((step) => ({ ...step })),
       activityLog: turn.activityLog ? turn.activityLog.map((entry) => ({ ...entry })) : undefined,
+      subagents: turn.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
       usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
     })) ?? [],
     attachments: options.attachments?.map((attachment) => ({ ...attachment })) ?? [],
+    generatedFiles: options.generatedFiles?.map((file) => ({ ...file })) ?? [],
+    goal: options.goal ? { ...options.goal } : undefined,
     tools: options.tools ? [...options.tools] : [],
     usedTools: options.usedTools ? [...options.usedTools] : [],
     reaction: options.reaction,
@@ -1242,9 +1389,18 @@ export const updateSparkTask = (taskId: string, update: SparkTaskUpdate): SparkT
     activityTitle: Object.prototype.hasOwnProperty.call(update, 'activityTitle')
       ? update.activityTitle?.trim() || undefined
       : existing.activityTitle,
+    plan: update.plan
+      ? update.plan.map((step) => ({ ...step }))
+      : existing.plan,
     activityLog: update.activityLog
       ? update.activityLog.map((entry) => ({ ...entry }))
       : existing.activityLog,
+    subagents: update.subagents
+      ? update.subagents.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) }))
+      : existing.subagents,
+    goal: Object.prototype.hasOwnProperty.call(update, 'goal')
+      ? update.goal ? { ...update.goal } : undefined
+      : existing.goal,
     usedTools: update.usedTools
       ? [...update.usedTools]
       : existing.usedTools,
@@ -1373,10 +1529,13 @@ export const appendSparkTaskTurn = (
     modelLabel: input.modelLabel?.trim() || undefined,
     thinkingSteps: input.thinkingSteps ? [...input.thinkingSteps] : [],
     activityTitle: input.activityTitle?.trim() || undefined,
+    plan: input.plan ? input.plan.map((step) => ({ ...step })) : [],
     activityLog: input.activityLog ? input.activityLog.map((entry) => ({ ...entry })) : [],
+    subagents: input.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: input.activityPhase,
     usedTools: input.usedTools ? [...input.usedTools] : [],
     attachments: input.attachments?.map((attachment) => ({ ...attachment })),
+    generatedFiles: input.generatedFiles?.map((file) => ({ ...file })),
     reaction: undefined,
     createdAt: now,
   };
@@ -1415,9 +1574,15 @@ export const updateSparkTaskTurn = (
     activityTitle: Object.prototype.hasOwnProperty.call(update, 'activityTitle')
       ? update.activityTitle?.trim() || undefined
       : existingTurn.activityTitle,
+    plan: update.plan
+      ? update.plan.map((step) => ({ ...step }))
+      : existingTurn.plan,
     activityLog: update.activityLog
       ? update.activityLog.map((entry) => ({ ...entry }))
       : existingTurn.activityLog,
+    subagents: update.subagents
+      ? update.subagents.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) }))
+      : existingTurn.subagents,
     activityPhase: Object.prototype.hasOwnProperty.call(update, 'activityPhase')
       ? update.activityPhase
       : existingTurn.activityPhase,
@@ -1427,6 +1592,9 @@ export const updateSparkTaskTurn = (
     attachments: update.attachments
       ? update.attachments.map((attachment) => ({ ...attachment }))
       : existingTurn.attachments,
+    generatedFiles: update.generatedFiles
+      ? update.generatedFiles.map((file) => ({ ...file }))
+      : existingTurn.generatedFiles,
   };
   const now = new Date().toISOString();
   const updatedTask: SparkTask = {

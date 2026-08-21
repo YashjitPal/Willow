@@ -79,10 +79,10 @@ export const FlowMenu: React.FC<{
       onClose();
     };
     document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('mousedown', onDown, { capture: true });
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousedown', onDown, { capture: true });
     };
   }, [open, onClose, anchorRef]);
 

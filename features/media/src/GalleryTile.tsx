@@ -34,6 +34,7 @@ import type { MediaItem, MediaKind } from './types';
  * decides when the tile drops the generating layers and settles.
  */
 const REVEAL_DURATION_MS = 2692.5;
+const ERROR_REVEAL_HOLD_MS = 2500;
 
 /*
  * The tile menu's own box, needed before it renders because the placement has to know whether it
@@ -611,24 +612,41 @@ const TileContent = React.memo(({
   }, [item.status, item.url, item.kind]);
 
   const mediaReady = item.status === 'completed' && !!item.url && isImageReady;
+  const outcomeReady = mediaReady || item.status === 'failed';
 
   /*
-   * A tile that was already complete when it mounted — restored from storage, or
-   * scrolled back into view — starts settled. Without that, every tile in the gallery
-   * would play the reveal on page load.
+   * A tile that was already complete or failed when it mounted — restored from storage,
+   * or scrolled back into view — starts settled. Without that, every terminal tile in
+   * the gallery would play the reveal on page load.
    */
   const [revealPhase, setRevealPhase] = React.useState<'loading' | 'revealing' | 'settled'>(
-    () => (item.status === 'completed' && item.url ? 'settled' : 'loading')
+    () => (
+      (item.status === 'completed' && item.url) || item.status === 'failed'
+        ? 'settled'
+        : 'loading'
+    )
   );
 
-  /* useLayoutEffect, not useEffect: this runs before paint, so the frame on which the
-   * image becomes ready is the same frame the reveal starts on. */
+  /* Successful media reveals as soon as it is decoded. A fresh error deliberately
+   * holds on the generating liquid first, so a fast provider rejection does not flash
+   * abruptly into the failure card. */
   React.useLayoutEffect(() => {
-    if (revealPhase !== 'loading' || !mediaReady) return;
-    setRevealPhase('revealing');
+    if (revealPhase !== 'loading' || !outcomeReady) return;
+
+    if (item.status !== 'failed') {
+      setRevealPhase('revealing');
+      return;
+    }
+
+    const timer = setTimeout(() => setRevealPhase('revealing'), ERROR_REVEAL_HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [revealPhase, outcomeReady, item.status]);
+
+  React.useEffect(() => {
+    if (revealPhase !== 'revealing') return;
     const timer = setTimeout(() => setRevealPhase('settled'), REVEAL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [revealPhase, mediaReady]);
+  }, [revealPhase]);
 
   const isRevealing = revealPhase === 'revealing';
   /*
@@ -642,8 +660,8 @@ const TileContent = React.memo(({
    * the tile's pixels at luminance 12 for ~150ms. Gating both layers on the same phase
    * value means there is no state in which neither is mounted.
    */
-  const showGeneratingOverlay = item.status !== 'failed' && revealPhase !== 'settled';
-  // The image mounts with the reveal, not before, so the glass fades it in from zero.
+  const showGeneratingOverlay = revealPhase !== 'settled';
+  // The finished media mounts with the reveal, not before, so the glass fades it in from zero.
   const showMedia = item.status === 'completed' && !!item.url && revealPhase !== 'loading';
 
   return (
@@ -793,8 +811,12 @@ const TileContent = React.memo(({
       </div>
     )}
  
-    {item.status === 'failed' && (
-      <div className="absolute inset-0 flex flex-col items-start p-4 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[18px] select-text">
+    {item.status === 'failed' && revealPhase !== 'loading' && (
+      <div
+        className={`gallery-tile-glass ${isRevealing ? 'gallery-tile-glass--revealing' : 'gallery-tile-glass--settled'}`}
+      >
+        <div className={`absolute inset-0 ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}>
+          <div className="absolute inset-0 flex flex-col items-start p-4 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[18px] select-text">
         {/* Steep Sharp Warning Triangle */}
         <svg 
           viewBox="0 0 24 24" 
@@ -877,6 +899,8 @@ const TileContent = React.memo(({
             </button>
           </div>
         </div>
+        </div>
+      </div>
       </div>
     )}
  

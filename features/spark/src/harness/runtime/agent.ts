@@ -10,10 +10,12 @@
  *
  * A turn is a bounded loop. Each iteration streams one model response; patches
  * apply the instant their envelope closes, so the preview updates while the
- * model is still writing. Calls that need a result are collected, run after the
- * stream ends, and their observations are fed back as the next user message. The
- * loop stops when a response contains no calls, or when the iteration budget is
- * spent.
+ * model is still writing. Calls that need a result are collected after the
+ * stream ends and execute in order. Spawning is non-blocking, so consecutive
+ * `spawn_agent` calls still fan out immediately. Their observations are fed
+ * back as the next user message.
+ * The loop stops when a response contains no calls, or when the iteration
+ * budget is spent.
  *
  * ## Why patches apply mid-stream but calls do not
  *
@@ -46,12 +48,15 @@ import { CONTINUE_OBSERVATION, announcedWithoutActing } from './stalled';
 import { beginToolLog, instrumentTransport } from './request-log';
 import { compactForHistory } from './history';
 import { nextId, toolRegistry } from './tools';
+import { resolveEffort, type CodexEffort } from '../overlay/effort';
+import type { SparkGoalRuntime } from './goal';
 import type {
   AgentKind,
   EditCall,
   HarnessEvent,
   Message,
   SubAgent,
+  SubAgentTimelineEntry,
   ToolCall,
   WebSearchCall,
   CodeExecutionCall,
@@ -76,6 +81,8 @@ export interface ModelBinding {
   effort?: {
     requested: string;
     effective: string;
+    /** Numeric Willow request level for the effective wire effort. */
+    level: number;
     clamped: boolean;
     /**
      * Loop budget and working guidance, derived from the *requested* level
@@ -135,6 +142,12 @@ export interface TurnOptions {
   extraTools?: ToolHandler[];
   /** Spark supplies its own capability-aware profile; Code Beta-style callers may omit it. */
   profile?: Pick<HarnessProfile, 'systemPrompt'>;
+  /** Shared persisted goal state for this Spark task/thread. */
+  goalRuntime?: SparkGoalRuntime;
+  /** Spark thread key used to preserve native collaboration state across turns. */
+  collaborationThreadId?: string;
+  /** Native Gemini declarations; text-protocol providers use the same handlers. */
+  toolDeclarations?: { functionDeclarations: Record<string, unknown>[] }[];
 }
 
 /**
@@ -268,6 +281,22 @@ interface PendingCall {
   name: string;
   body: string;
   narration: string;
+}
+
+function collaborationSection(model: ModelBinding): string {
+  const cap = Math.max(1, model.effort?.harness?.maxConcurrentAgents ?? 3);
+  const proactive = model.effort?.harness?.delegation === 'proactive';
+  return [
+    '# Multi-agent collaboration',
+    '',
+    'You are `/root`, the primary agent in a team collaborating to fulfil the user\'s goals.',
+    'You can use `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.',
+    'Spawned agents receive separate context and may use the same tools, including spawning their own sub-agents.',
+    `There are ${cap + 1} available concurrency slots, including you.`,
+    proactive
+      ? 'Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality.'
+      : 'Do not spawn sub-agents unless the user explicitly asks for sub-agents, delegation, or parallel agent work.',
+  ].join('\n');
 }
 
 interface IterationResult {
@@ -413,6 +442,10 @@ async function runIteration(
     messages,
     {
       ...options.model.options,
+      toolDeclarations: [
+        ...(options.model.options.toolDeclarations ?? []),
+        ...(options.toolDeclarations ?? []),
+      ],
       // Native server-side tools are surfaced through the same sink as
       // patch/file calls, so Spark can render them in its work timeline.
       enableSearch: options.model.options.enableSearch,
@@ -473,8 +506,9 @@ async function runIteration(
 
   const observations = [...patchObservations];
 
-  for (const call of pending) {
+  for (let index = 0; index < pending.length; index += 1) {
     throwIfAborted(options.signal);
+    const call = pending[index]!;
     const narration = call.narration.trim();
     sink.workTitle(fallbackWorkTitle());
     if (narration) sink.workLog(narration);
@@ -608,6 +642,20 @@ function applyPatchEnvelope(
           revealed: lines.length,
         } as EditCall);
       }
+      if (change.kind === 'add') {
+        const name = (change.path.split('/').filter(Boolean).at(-1) || change.path).trim();
+        const mimeType = name.endsWith('.html') ? 'text/html'
+          : name.endsWith('.css') ? 'text/css'
+            : name.endsWith('.js') || name.endsWith('.ts') ? 'text/javascript'
+              : name.endsWith('.json') ? 'application/json' : 'text/plain';
+        sink.generatedFile({
+          id: `generated-${nextId('file')}`,
+          name,
+          path: change.path,
+          mimeType,
+          createdAt: new Date().toISOString(),
+        });
+      }
     });
 
     // A card whose file produced no change would otherwise spin forever.
@@ -711,7 +759,12 @@ const ACTIVITY: Record<string, string> = {
   search_files: 'Searching',
   update_plan: 'Planning',
   add_dependency: 'Adding a dependency',
-  task: 'Starting sub-agents',
+  spawn_agent: 'Starting sub-agents',
+  send_message: 'Messaging sub-agents',
+  followup_task: 'Starting sub-agent follow-up',
+  wait_agent: 'Waiting for sub-agents',
+  interrupt_agent: 'Interrupting sub-agent',
+  list_agents: 'Checking sub-agents',
 };
 
 /* ------------------------------------------------------------------------ */
@@ -733,6 +786,7 @@ interface CallSink {
   emit: (call: ToolCall) => string;
   patch: (id: string, patch: Partial<ToolCall>) => void;
   activity: (label: string | null) => void;
+  generatedFile: (file: { id: string; name: string; path: string; mimeType: string; createdAt: string }) => void;
 }
 
 function mainSink(onEvent: (event: HarnessEvent) => void): CallSink {
@@ -747,13 +801,14 @@ function mainSink(onEvent: (event: HarnessEvent) => void): CallSink {
     },
     patch: (id, patch) => onEvent({ type: 'call-progress', id, patch }),
     activity: (label) => onEvent({ type: 'activity', label }),
+    generatedFile: (file) => onEvent({ type: 'generated-file', file }),
   };
 }
 
 function agentSink(
   agentId: string,
   onEvent: (event: HarnessEvent) => void,
-  state: { calls: ToolCall[] },
+  state: { calls: ToolCall[]; timeline: SubAgentTimelineEntry[] },
 ): CallSink {
   const flush = (patch: Partial<SubAgent>) =>
     onEvent({ type: 'agent-progress', id: agentId, patch });
@@ -764,19 +819,27 @@ function agentSink(
     onText: () => {},
     onThought: () => {},
     workTitle: () => {},
-    workLog: () => {},
+    workLog: (text) => {
+      const value = text.trim();
+      if (!value) return;
+      const entry: SubAgentTimelineEntry = { id: nextId('agent-log'), kind: 'narration', text: value };
+      state.timeline = [...state.timeline, entry];
+      flush({ timeline: state.timeline });
+    },
     emit: (call) => {
       state.calls = [...state.calls, call];
-      flush({ calls: state.calls });
+      state.timeline = [...state.timeline, { id: nextId('agent-tool'), kind: 'tool', callId: call.id }];
+      flush({ calls: state.calls, timeline: state.timeline });
       return call.id;
     },
     patch: (id, patch) => {
       state.calls = state.calls.map((call) =>
         call.id === id ? ({ ...call, ...patch } as ToolCall) : call,
       );
-      flush({ calls: state.calls });
+      flush({ calls: state.calls, timeline: state.timeline });
     },
     activity: (label) => flush({ activity: label ?? undefined }),
+    generatedFile: () => {},
   };
 }
 
@@ -786,140 +849,433 @@ function agentSink(
 
 const AGENT_KINDS: AgentKind[] = ['explorer', 'implementer', 'reviewer', 'researcher'];
 
-/**
- * The `task` tool.
- *
- * Built per turn rather than declared statically because it closes over the
- * turn's options and event sink. Sub-agents get every tool except `task`
- * itself — unbounded recursion in a browser tab is not a feature.
- */
-function makeTaskTool(options: TurnOptions, systemPrompt: string): ToolHandler {
-  return {
-    id: 'task',
-    async run(args): Promise<ToolResult> {
-      const name = typeof args.name === 'string' ? args.name.trim() : 'Sub-agent';
-      const objective = typeof args.objective === 'string' ? args.objective.trim() : '';
-      const kindRaw = typeof args.kind === 'string' ? args.kind : 'implementer';
-      const kind = (AGENT_KINDS as string[]).includes(kindRaw)
-        ? (kindRaw as AgentKind)
-        : 'implementer';
+type CollaborationAgentStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
 
-      if (!objective) {
-        return {
-          observation: 'task requires an "objective" describing what the sub-agent should do.',
-          failed: true,
-        };
-      }
+interface CollaborationAgentState {
+  agent: SubAgent;
+  taskName: string;
+  path: string;
+  controller: AbortController;
+  inbox: { sender: string; message: string }[];
+  conversation: { role: 'user' | 'assistant'; content: string }[];
+  lastTaskMessage: string;
+  model: ModelBinding;
+  run?: Promise<void>;
+}
 
-      const agent: SubAgent = {
-        id: nextId('agent'),
-        name,
-        kind,
-        objective,
-        status: 'running',
-        startedAt: Date.now(),
-        progress: 0,
-        calls: [],
-        model: options.model.label,
-        tokensUsed: 0,
-      };
+class CollaborationRuntime {
+  private readonly agents = new Map<string, CollaborationAgentState>();
+  private readonly mailboxes = new Map<string, string[]>();
+  private readonly waiters = new Set<() => void>();
 
-      options.onEvent({ type: 'agents-start', agents: [agent] });
+  constructor(
+    private options: TurnOptions,
+    private systemPrompt: string,
+  ) {}
 
-      const state = { calls: [] as ToolCall[] };
-      const sink = agentSink(agent.id, options.onEvent, state);
-      // Sub-agents get the host tools too — a reviewer that cannot look at the
-      // preview is not much of a reviewer — but never `task`, because
-      // unbounded recursion in a browser tab is not a feature.
-      const registry = toolRegistry(options.extraTools ?? []);
+  rebind(options: TurnOptions, systemPrompt: string): void {
+    this.options = options;
+    this.systemPrompt = systemPrompt;
+  }
 
-      const subPrompt =
-        `${systemPrompt}\n\n# You are a sub-agent\n\n` +
-        'You have been delegated one specific piece of a larger task. Do only ' +
-        'that piece. You cannot ask questions and you cannot delegate further. ' +
-        'When finished, write a two-sentence report of what you changed — that ' +
-        'report is all the main agent will see.';
+  tools(
+    callerPath = '/root',
+    forkSource: readonly { role: 'user' | 'assistant'; content: string }[] = [],
+    parentModel: ModelBinding = this.options.model,
+  ): ToolHandler[] {
+    return [
+      this.spawnTool(callerPath, forkSource, parentModel),
+      this.sendMessageTool(callerPath),
+      this.followupTool(callerPath),
+      this.waitTool(callerPath),
+      this.interruptTool(),
+      this.listTool(),
+    ];
+  }
 
-      const conversation: { role: 'user' | 'assistant'; content: string }[] = [
-        {
-          role: 'user',
-          content: `${projectContext(options.files())}\n\nYour objective: ${objective}`,
+  declarations(): { functionDeclarations: Record<string, unknown>[] } {
+    return { functionDeclarations: [
+      {
+        name: 'spawn_agent',
+        description: 'Spawn a named sub-agent and return immediately. Use this for a concrete bounded subtask that can run independently.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            task_name: { type: 'STRING' },
+            message: { type: 'STRING' },
+            agent_type: { type: 'STRING', enum: AGENT_KINDS },
+            model: { type: 'STRING' },
+            reasoning_effort: { type: 'STRING' },
+            fork_turns: { type: 'STRING' },
+          },
+          required: ['task_name', 'message'],
         },
-      ];
+      },
+      {
+        name: 'send_message',
+        description: 'Queue a message for an existing agent without starting a new turn.',
+        parameters: { type: 'OBJECT', properties: { target: { type: 'STRING' }, message: { type: 'STRING' } }, required: ['target', 'message'] },
+      },
+      {
+        name: 'followup_task',
+        description: 'Give an existing non-root agent a follow-up task and start a turn if it is idle.',
+        parameters: { type: 'OBJECT', properties: { target: { type: 'STRING' }, message: { type: 'STRING' } }, required: ['target', 'message'] },
+      },
+      {
+        name: 'wait_agent',
+        description: 'Wait for a mailbox update from any live agent.',
+        parameters: { type: 'OBJECT', properties: { timeout_ms: { type: 'INTEGER' } } },
+      },
+      {
+        name: 'interrupt_agent',
+        description: 'Interrupt an agent active turn without deleting its context.',
+        parameters: { type: 'OBJECT', properties: { target: { type: 'STRING' } }, required: ['target'] },
+      },
+      {
+        name: 'list_agents',
+        description: 'List the live agent tree and statuses.',
+        parameters: { type: 'OBJECT', properties: { path_prefix: { type: 'STRING' } } },
+      },
+    ] };
+  }
 
-      let report = '';
+  cancelAll(): void {
+    for (const state of this.agents.values()) {
+      if (state.agent.status === 'queued' || state.agent.status === 'running') state.controller.abort();
+    }
+  }
 
-      try {
-        for (let step = 0; step < MAX_SUBAGENT_ITERATIONS; step += 1) {
-          options.onEvent({
-            type: 'agent-progress',
-            id: agent.id,
-            patch: { progress: step / MAX_SUBAGENT_ITERATIONS },
-          });
+  private spawnTool(
+    parentPath: string,
+    forkSource: readonly { role: 'user' | 'assistant'; content: string }[],
+    parentModel: ModelBinding,
+  ): ToolHandler {
+    return {
+      id: 'spawn_agent',
+      run: async (args): Promise<ToolResult> => {
+        const rawName = typeof args.task_name === 'string'
+          ? String(args.task_name).trim()
+          : '';
+        const taskName = this.uniqueTaskName(parentPath, rawName || 'agent');
+        const objective = typeof args.message === 'string'
+          ? String(args.message).trim()
+          : '';
+        if (!objective) return { observation: 'spawn_agent requires a task message.', failed: true };
 
-          const iteration = await runIteration(
-            conversation,
-            subPrompt,
-            options,
-            sink,
-            registry,
-          );
-          report = iteration.text.trim() || report;
+        const cap = Math.max(1, this.options.model.effort?.harness?.maxConcurrentAgents ?? 3);
+        const active = [...this.agents.values()].filter((state) => state.agent.status === 'running').length;
+        if (active >= cap) {
+          return { observation: `No collaboration slot is available. Wait for one of the ${active} active sub-agents first.`, failed: true };
+        }
 
-          if (!iteration.wantsMore) break;
+        const kindRaw = String(args.agent_type ?? 'researcher');
+        const kind = (AGENT_KINDS as string[]).includes(kindRaw) ? kindRaw as AgentKind : 'researcher';
+        const path = `${parentPath}/${taskName}`;
+        const childModel = this.resolveChildModel(parentModel, args.model, args.reasoning_effort);
+        const agent: SubAgent = {
+          id: nextId('agent'),
+          name: taskName,
+          kind,
+          objective,
+          status: 'running',
+          startedAt: Date.now(),
+          progress: 0,
+          calls: [],
+          timeline: [],
+          model: childModel.label,
+          tokensUsed: 0,
+        };
+        const controller = new AbortController();
+        const state: CollaborationAgentState = {
+          agent,
+          taskName,
+          path,
+          controller,
+          inbox: [],
+          conversation: this.forkConversation(forkSource, args.fork_turns),
+          lastTaskMessage: objective,
+          model: childModel,
+        };
+        this.agents.set(path, state);
+        this.options.onEvent({ type: 'agents-start', agents: [agent] });
+        state.run = this.runAgent(state, objective);
+        return { observation: JSON.stringify({ agent_id: agent.id, task_name: path, status: 'running' }) };
+      },
+    };
+  }
 
-          conversation.push({ role: 'assistant', content: compactForHistory(iteration.raw) });
+  private sendMessageTool(senderPath: string): ToolHandler {
+    return {
+      id: 'send_message',
+      run: async (args): Promise<ToolResult> => {
+        const state = this.find(String(args.target ?? ''));
+        const message = typeof args.message === 'string' ? args.message.trim() : '';
+        if (!state || !message) return { observation: 'send_message requires a valid target and message.', failed: true };
+        state.inbox.push({ sender: senderPath, message });
+        return { observation: JSON.stringify({ delivered: true, target: state.path }) };
+      },
+    };
+  }
+
+  private followupTool(senderPath: string): ToolHandler {
+    return {
+      id: 'followup_task',
+      run: async (args): Promise<ToolResult> => {
+        const state = this.find(String(args.target ?? ''));
+        const message = typeof args.message === 'string' ? args.message.trim() : '';
+        if (!state || !message) return { observation: 'followup_task requires a valid target and message.', failed: true };
+        if (state.agent.status === 'running') {
+          state.inbox.push({ sender: senderPath, message });
+          return { observation: JSON.stringify({ target: state.path, queued: true, status: 'running' }) };
+        }
+        state.controller = new AbortController();
+        state.lastTaskMessage = message;
+        state.agent = {
+          ...state.agent,
+          status: 'running',
+          endedAt: undefined,
+          activity: undefined,
+          result: undefined,
+          progress: 0,
+          calls: [],
+          timeline: [],
+        };
+        this.options.onEvent({ type: 'agent-progress', id: state.agent.id, patch: state.agent });
+        state.run = this.runAgent(state, message, senderPath);
+        return { observation: JSON.stringify({ target: state.path, status: 'running' }) };
+      },
+    };
+  }
+
+  private waitTool(callerPath: string): ToolHandler {
+    return {
+      id: 'wait_agent',
+      run: async (args): Promise<ToolResult> => {
+        const immediate = this.drainMailbox(callerPath);
+        if (immediate.length) return { observation: JSON.stringify({ updates: immediate }) };
+        if (![...this.agents.values()].some((state) => state.agent.status === 'running')) {
+          return { observation: JSON.stringify({ updates: [], live_agents: false }) };
+        }
+        const timeout = Math.max(0, Math.min(60_000, Number(args.timeout_ms ?? 30_000)));
+        await new Promise<void>((resolve) => {
+          const done = () => { this.waiters.delete(done); resolve(); };
+          this.waiters.add(done);
+          setTimeout(done, timeout);
+        });
+        return { observation: JSON.stringify({
+          updates: this.drainMailbox(callerPath),
+          live_agents: [...this.agents.values()].some((state) => state.agent.status === 'running'),
+        }) };
+      },
+    };
+  }
+
+  private interruptTool(): ToolHandler {
+    return {
+      id: 'interrupt_agent',
+      run: async (args): Promise<ToolResult> => {
+        const state = this.find(String(args.target ?? ''));
+        if (!state) return { observation: 'interrupt_agent target was not found.', failed: true };
+        const previous = state.agent.status;
+        state.controller.abort();
+        return { observation: JSON.stringify({ target: state.path, previous_status: previous }) };
+      },
+    };
+  }
+
+  private listTool(): ToolHandler {
+    return {
+      id: 'list_agents',
+      run: async (args): Promise<ToolResult> => {
+        const prefix = typeof args.path_prefix === 'string' ? args.path_prefix.trim() : '';
+        return { observation: JSON.stringify({
+          agents: [...this.agents.values()]
+            .filter((state) => !prefix || state.path.startsWith(prefix))
+            .map((state) => ({
+              task_name: state.path,
+              status: state.agent.status,
+              last_task_message: state.lastTaskMessage,
+            })),
+        }) };
+      },
+    };
+  }
+
+  private async runAgent(state: CollaborationAgentState, objective: string, senderPath = '/root'): Promise<void> {
+    const activityState = {
+      calls: [] as ToolCall[],
+      timeline: [] as SubAgentTimelineEntry[],
+    };
+    const sink = agentSink(state.agent.id, this.options.onEvent, activityState);
+    const registry = toolRegistry([
+      ...this.tools(state.path, state.conversation, state.model),
+      ...(this.options.goalRuntime?.tools() ?? []),
+      ...(this.options.extraTools ?? []),
+    ]);
+    const slots = Math.max(1, this.options.model.effort?.harness?.maxConcurrentAgents ?? 3) + 1;
+    const subPrompt = [
+      this.systemPrompt,
+      '# Multi-agent identity',
+      `You are ${state.path}, an agent in a team collaborating to complete a task.`,
+      'You may use the same collaboration tools as the root agent, including spawning child agents.',
+      'When your turn is done, give a concise final report; it will be delivered to your parent.',
+      `There are ${slots} available concurrency slots including the root agent.`,
+    ].join('\n\n');
+    const conversation = state.conversation;
+    conversation.push({
+      role: 'user',
+      content: `${projectContext(this.options.files())}\n\nTask name: ${state.path}\n\nMessage from ${senderPath}:\n${objective}`,
+    });
+    let report = '';
+    try {
+      for (let step = 0; step < MAX_SUBAGENT_ITERATIONS; step += 1) {
+        if (state.controller.signal.aborted || this.options.signal?.aborted) throw new Cancelled();
+        this.options.onEvent({ type: 'agent-progress', id: state.agent.id, patch: { progress: step / MAX_SUBAGENT_ITERATIONS } });
+        if (state.inbox.length) {
           conversation.push({
             role: 'user',
-            content: iteration.observations.join('\n\n---\n\n'),
+            content: state.inbox.splice(0)
+              .map(({ sender, message }) => `Message from ${sender}:\n${message}`)
+              .join('\n\n'),
           });
         }
-
-        options.onEvent({
-          type: 'agent-progress',
-          id: agent.id,
-          patch: {
-            status: 'success',
-            endedAt: Date.now(),
-            progress: 1,
-            activity: undefined,
-            result: report.slice(0, 400),
-            tokensUsed: state.calls.length * 1200,
+        const iteration = await runIteration(
+          conversation,
+          subPrompt,
+          {
+            ...this.options,
+            model: state.model,
+            signal: state.controller.signal,
+            toolDeclarations: [
+              ...(this.options.toolDeclarations ?? []),
+              this.declarations(),
+            ],
           },
-        });
-
-        return {
-          observation:
-            `Sub-agent "${name}" finished.\n\n${report.slice(0, 1200)}\n\n` +
-            `It made ${state.calls.length} tool call(s). The project files now ` +
-            'reflect its work; read anything you need before building on it.',
-        };
-      } catch (error) {
-        if (error instanceof Cancelled) {
-          options.onEvent({
-            type: 'agent-progress',
-            id: agent.id,
-            patch: { status: 'cancelled', endedAt: Date.now(), activity: undefined },
-          });
-          throw error;
-        }
-
-        const message = (error as Error).message;
-        options.onEvent({
-          type: 'agent-progress',
-          id: agent.id,
-          patch: {
-            status: 'error',
-            endedAt: Date.now(),
-            activity: undefined,
-            result: message,
-          },
-        });
-        return { observation: `Sub-agent "${name}" failed: ${message}`, failed: true };
+          sink,
+          registry,
+        );
+        report = iteration.text.trim() || report;
+        conversation.push({ role: 'assistant', content: compactForHistory(iteration.raw) });
+        if (!iteration.wantsMore) break;
+        conversation.push({ role: 'user', content: iteration.observations.join('\n\n---\n\n') });
       }
-    },
-  };
+      state.agent = {
+        ...state.agent,
+        calls: activityState.calls,
+        timeline: activityState.timeline,
+      };
+      this.complete(state, 'success', report.slice(0, 1200));
+    } catch (error) {
+      state.agent = {
+        ...state.agent,
+        calls: activityState.calls,
+        timeline: activityState.timeline,
+      };
+      if (error instanceof Cancelled || state.controller.signal.aborted) {
+        this.complete(state, 'cancelled', 'The agent turn was interrupted.');
+      } else {
+        this.complete(state, 'error', (error as Error).message);
+      }
+    }
+  }
+
+  private complete(state: CollaborationAgentState, status: CollaborationAgentStatus, result: string): void {
+    state.agent = {
+      ...state.agent,
+      status,
+      endedAt: Date.now(),
+      progress: 1,
+      activity: undefined,
+      result,
+    };
+    this.options.onEvent({ type: 'agent-progress', id: state.agent.id, patch: state.agent });
+    const parentPath = state.path.slice(0, state.path.lastIndexOf('/')) || '/root';
+    const mailbox = this.mailboxes.get(parentPath) ?? [];
+    mailbox.push(JSON.stringify({
+      message_type: status === 'success' ? 'FINAL_ANSWER' : 'MESSAGE',
+      task_name: state.path,
+      sender: state.path,
+      payload: result,
+    }));
+    this.mailboxes.set(parentPath, mailbox);
+    for (const wake of this.waiters) wake();
+    this.waiters.clear();
+  }
+
+  private drainMailbox(path: string): string[] {
+    const messages = this.mailboxes.get(path) ?? [];
+    this.mailboxes.set(path, []);
+    return messages;
+  }
+
+  private find(target: string): CollaborationAgentState | undefined {
+    const clean = target.trim();
+    return this.agents.get(clean) ?? [...this.agents.values()].find((state) => state.taskName === clean || state.agent.id === clean);
+  }
+
+  private uniqueTaskName(parentPath: string, raw: string): string {
+    const base = raw.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'agent';
+    let candidate = base;
+    let suffix = 2;
+    while (this.agents.has(`${parentPath}/${candidate}`)) candidate = `${base}_${suffix++}`;
+    return candidate;
+  }
+
+  private forkConversation(
+    source: readonly { role: 'user' | 'assistant'; content: string }[],
+    rawMode: unknown,
+  ): { role: 'user' | 'assistant'; content: string }[] {
+    const mode = typeof rawMode === 'string' && rawMode.trim() ? rawMode.trim().toLowerCase() : 'all';
+    if (mode === 'none') return [];
+    if (mode === 'all') return source.map((message) => ({ ...message }));
+    const turns = Number(mode);
+    if (!Number.isInteger(turns) || turns <= 0) return source.map((message) => ({ ...message }));
+    return source.slice(-turns * 2).map((message) => ({ ...message }));
+  }
+
+  private resolveChildModel(parent: ModelBinding, rawModel: unknown, rawEffort: unknown): ModelBinding {
+    const requestedModel = typeof rawModel === 'string' ? rawModel.trim() : '';
+    const requestedEffort = typeof rawEffort === 'string' ? rawEffort.trim().toLowerCase() : '';
+    const validEfforts = new Set<CodexEffort>(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    const modelId = requestedModel || String(parent.options.model ?? '');
+    const effort = validEfforts.has(requestedEffort as CodexEffort)
+      ? resolveEffort(requestedEffort as CodexEffort, {
+          providerId: parent.options.provider,
+          modelId,
+          name: requestedModel || parent.label,
+        })
+      : parent.effort;
+    return {
+      ...parent,
+      label: requestedModel || parent.label,
+      options: {
+        ...parent.options,
+        model: modelId || parent.options.model,
+        thinkingLevel: effort?.level ?? parent.options.thinkingLevel,
+        reasoningEffort: effort?.effective ?? parent.options.reasoningEffort,
+      },
+      effort,
+    };
+  }
 }
+
+const collaborationRuntimes = new Map<string, CollaborationRuntime>();
+
+const collaborationRuntimeFor = (
+  threadId: string | undefined,
+  options: TurnOptions,
+  systemPrompt: string,
+): CollaborationRuntime => {
+  if (!threadId) return new CollaborationRuntime(options, systemPrompt);
+  const existing = collaborationRuntimes.get(threadId);
+  if (existing) {
+    existing.rebind(options, systemPrompt);
+    return existing;
+  }
+  const runtime = new CollaborationRuntime(options, systemPrompt);
+  collaborationRuntimes.set(threadId, runtime);
+  return runtime;
+};
 
 /* ------------------------------------------------------------------------ */
 /* Public entry point                                                        */
@@ -956,14 +1312,14 @@ export async function runTurn(options: TurnOptions): Promise<void> {
    * belongs in the system prompt beside upstream's own — which already says to
    * answer a greeting conversationally — not stapled to whatever was typed.
    */
-  const systemPrompt = [profile.systemPrompt, effortSection(options.model)]
+  const systemPrompt = [
+    profile.systemPrompt,
+    collaborationSection(options.model),
+    effortSection(options.model),
+    options.goalRuntime?.contextSection(),
+  ]
     .filter(Boolean)
     .join('\n\n');
-
-  const registry = toolRegistry([
-    makeTaskTool(options, systemPrompt),
-    ...(options.extraTools ?? []),
-  ]);
 
   const conversation: { role: 'user' | 'assistant'; content: string }[] = [];
   for (const message of options.history) {
@@ -978,6 +1334,21 @@ export async function runTurn(options: TurnOptions): Promise<void> {
     content: [intent, context, options.prompt].filter(Boolean).join('\n\n'),
   });
 
+  const collaboration = collaborationRuntimeFor(options.collaborationThreadId, options, systemPrompt);
+  const goalTools = options.goalRuntime?.tools() ?? [];
+  const runtimeOptions: TurnOptions = {
+    ...options,
+    toolDeclarations: [
+      ...(options.toolDeclarations ?? []),
+      collaboration.declarations(),
+    ],
+  };
+  const registry = toolRegistry([
+    ...collaboration.tools('/root', conversation),
+    ...goalTools,
+    ...(options.extraTools ?? []),
+  ]);
+
   // Effort buys tool-call rounds, not just a bigger reasoning parameter. At
   // `low` a turn that keeps calling tools is usually stuck; at `ultra` it is
   // usually working. One fixed ceiling cannot serve both.
@@ -990,11 +1361,12 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   let mutationNudged = false;
 
   try {
+    options.goalRuntime?.beginTurn();
     for (let iteration = 0; iteration < budget; iteration += 1) {
       const result = await runIteration(
         conversation,
         systemPrompt,
-        options,
+        runtimeOptions,
         sink,
         registry,
       );
@@ -1039,6 +1411,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
           continue;
         }
 
+        options.goalRuntime?.finishTurn();
         options.onEvent({ type: 'turn-end', reason: 'complete' });
         return;
       }
@@ -1067,8 +1440,11 @@ export async function runTurn(options: TurnOptions): Promise<void> {
         '\n\nI stopped after reaching the tool-call limit for one turn. ' +
         'The work so far is applied — send another message to continue.',
     });
+    options.goalRuntime?.finishTurn();
     options.onEvent({ type: 'turn-end', reason: 'complete' });
   } catch (error) {
+    collaboration.cancelAll();
+    options.goalRuntime?.finishTurn();
     if (error instanceof Cancelled || options.signal?.aborted) {
       options.onEvent({ type: 'turn-end', reason: 'cancelled' });
       return;

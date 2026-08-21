@@ -178,7 +178,11 @@ export const InputBar: React.FC<{
   /** Lets the host write into the box. The draft is local state, so a surface that
    *  fills the composer from outside — Spark's Suggested cards — needs a way in. */
   composerRef?: React.MutableRefObject<ComposerHandle | null>;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef }) => {
+  /** Harness-only effort rows. Omitted by normal Chat and every non-agent surface. */
+  extraEfforts?: React.ComponentProps<typeof ModelsMenu>['extraEfforts'];
+  /** Product modes such as Ultra replace the numeric effort segment in the pill. */
+  effortDisplayOverride?: string;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const [isThemesOpen, setIsThemesOpen] = useState(false);
@@ -331,7 +335,8 @@ export const InputBar: React.FC<{
     : activeModelDisplayLabel;
   // No effort segment while live: a live model has no thinking levels.
   const pillEffortLabel = showVoiceModels ? '' : activeEffortDisplayLabel;
-  const pillModelAndEffortLabel = [pillModelLabel, pillEffortLabel].filter(Boolean).join(' ');
+  const displayedPillEffortLabel = effortDisplayOverride ?? pillEffortLabel;
+  const pillModelAndEffortLabel = [pillModelLabel, displayedPillEffortLabel].filter(Boolean).join(' ');
 
   /**
    * While a live session is up the mic button mutes that session instead of
@@ -903,8 +908,8 @@ export const InputBar: React.FC<{
                   >
                     <span className="-mr-1 flex min-w-0 items-center">
                       <span className="text-[#e6e6e6]">{pillModelLabel}</span>
-                      {pillEffortLabel && (
-                        <span className="ml-1 text-white/55">{pillEffortLabel}</span>
+                      {displayedPillEffortLabel && (
+                        <span className="ml-1 text-white/55">{displayedPillEffortLabel}</span>
                       )}
                     </span>
                     <MaterialSymbol
@@ -927,6 +932,7 @@ export const InputBar: React.FC<{
                       onAuthRequired={onAuthRequired}
                       geminiStyle
                       voiceModels={showVoiceModels ? voiceModels : undefined}
+                      extraEfforts={showVoiceModels ? undefined : extraEfforts}
                     />
                   )}
                 </div>

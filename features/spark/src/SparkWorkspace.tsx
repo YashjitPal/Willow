@@ -26,6 +26,7 @@ import {
   goToAllSparkTasks,
   goToSparkApps,
   getActiveSparkStorageScope,
+  sparkUltraEngaged,
   goToSparkHome,
   goToSparkScheduleEditor,
   goToSparkSchedules,
@@ -64,9 +65,13 @@ import type {
   SparkTask,
   SparkTaskTurn,
   SparkActivityEntry,
+  SparkGeneratedFile,
+  SparkPlanStep,
+  SparkSubAgent,
 } from './spark-types';
 import { runSparkHarnessTurn } from './harness/spark-harness';
-import type { HarnessEvent } from './harness/runtime/protocol';
+import { levelToEffort, resolveEffort } from './harness/overlay/effort';
+import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
 import { SparkHome } from './SparkHome';
 import {
@@ -191,7 +196,10 @@ const appendSparkNarration = (entries: SparkActivityEntry[], text: string): Spar
 };
 
 const normalizeRuntimeToolName = (name: string): string => {
-  const normalized = name.trim().toLowerCase();
+  const raw = name.trim();
+  if (raw.toLowerCase().startsWith('skill:')) return `skill:${raw.slice(6).trim()}`;
+  if (raw.toLowerCase().startsWith('mcp:')) return `mcp:${raw.slice(4).trim()}`;
+  const normalized = raw.toLowerCase();
   if (!normalized) return '';
   if (normalized === 'search' || normalized === 'search_files') return 'search';
   if (normalized === 'web_search' || normalized === 'google_search' || normalized === 'grounding') return 'web_search';
@@ -214,6 +222,79 @@ const normalizeRuntimeToolName = (name: string): string => {
   if (normalized.includes('image')) return 'images';
   if (normalized.includes('research')) return 'research';
   return normalized;
+};
+
+const subagentStatus = (status: SubAgent['status']): SparkSubAgent['status'] => status;
+
+const subagentCallLabel = (call: ToolCall): string => {
+  if ('path' in call && typeof call.path === 'string') return call.path;
+  if ('query' in call && typeof call.query === 'string') return call.query;
+  if ('objective' in call && typeof call.objective === 'string') return call.objective;
+  if ('action' in call && typeof call.action === 'string') return call.action;
+  if ('command' in call && typeof call.command === 'string') return call.command;
+  return call.kind.replaceAll('_', ' ');
+};
+
+const toSparkSubagent = (agent: SubAgent): SparkSubAgent => ({
+  id: agent.id,
+  name: agent.name,
+  kind: agent.kind,
+  objective: agent.objective,
+  status: subagentStatus(agent.status),
+  startedAt: agent.startedAt,
+  endedAt: agent.endedAt,
+  progress: agent.progress,
+  calls: agent.calls.map((call) => ({
+    id: call.id,
+    kind: call.kind,
+    status: subagentStatus(call.status),
+    label: subagentCallLabel(call),
+  })),
+  timeline: agent.timeline.map((entry) => ({ ...entry })),
+  activity: agent.activity,
+  result: agent.result,
+  model: agent.model,
+  tokensUsed: agent.tokensUsed,
+});
+
+const patchSparkSubagents = (
+  current: readonly SparkSubAgent[],
+  incoming: readonly SubAgent[],
+): SparkSubAgent[] => {
+  const next = new Map(current.map((agent) => [agent.id, agent]));
+  incoming.forEach((agent) => next.set(agent.id, toSparkSubagent(agent)));
+  return [...next.values()];
+};
+
+const updateSparkSubagent = (
+  current: readonly SparkSubAgent[],
+  id: string,
+  patch: Partial<SubAgent>,
+): SparkSubAgent[] => {
+  const existing = current.find((agent) => agent.id === id);
+  if (!existing) return current.slice();
+  const updated: SparkSubAgent = {
+    ...existing,
+    ...patch,
+    status: patch.status ? subagentStatus(patch.status) : existing.status,
+    calls: patch.calls
+      ? patch.calls.map((call) => ({
+        id: call.id,
+        kind: call.kind,
+        status: subagentStatus(call.status),
+        label: subagentCallLabel(call),
+      }))
+      : existing.calls,
+    timeline: patch.timeline ? patch.timeline.map((entry) => ({ ...entry })) : existing.timeline,
+  };
+  return current.map((agent) => agent.id === id ? updated : agent);
+};
+
+const cancelRunningSubagents = (current: readonly SparkSubAgent[]): SparkSubAgent[] => {
+  const endedAt = Date.now();
+  return current.map((agent) => agent.status === 'running' || agent.status === 'queued'
+    ? { ...agent, status: 'cancelled', endedAt, activity: undefined }
+    : agent);
 };
 
 const getTaskAttachmentIds = (task: SparkTask): string[] => [
@@ -254,6 +335,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   selectedModelId = '',
   setSelectedModelId,
 }) => {
+  const isUltra = useStore(sparkUltraEngaged);
   const { user } = useAuth();
   const { chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
@@ -342,30 +424,43 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       ...(modelConfig?.spacexai?.savedModels ?? []).map((model: any) => ({ ...model, provider: 'spacexai' })),
       ...(modelConfig?.zhipuai?.savedModels ?? []).map((model: any) => ({ ...model, provider: 'zhipuai' })),
     ];
-    const selected = availableModels.find((model) => model.id === selectedModelId) ?? availableModels[0];
+    const selectedBaseId = selectedModelId.split('::effort-')[0];
+    const selected = availableModels.find((model) => model.id === selectedModelId || model.id === selectedBaseId) ?? availableModels[0];
     const provider = selected?.provider ?? 'gemini';
     const model = selected?.modelId ?? modelConfig?.[provider]?.model ?? 'gemini-3.6-flash';
     const apiKey = (apiKeys as unknown as Record<string, string[] | undefined> | undefined)?.[provider]
       ?.find((key) => key.trim())
       ?.trim();
 
+    const selectedThinkingLevel = selectedModelId.includes('::effort-')
+      ? Number(selectedModelId.split('::effort-')[1])
+      : Number(selected?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0);
+    const requestedEffort = isUltra ? 'ultra' : levelToEffort(selectedThinkingLevel);
+    const effort = resolveEffort(requestedEffort, {
+      providerId: provider,
+      modelId: model,
+      name: selected?.name,
+      reasoningEfforts: selected?.reasoningEfforts,
+    });
     return {
       provider,
       model,
       apiKey,
-      thinkingLevel: Number(selected?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0),
+      thinkingLevel: effort.level,
+      reasoningEffort: effort.effective,
+      effort,
       modelLabel: getExecutionModelLabel(
         selected,
         provider,
         model,
-        Number(selected?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0),
+        effort.level,
       ),
       baseUrl: selected?.baseUrl || modelConfig?.[provider]?.baseUrl,
       apiFormat: selected?.apiFormat,
       toolPolicy: selected?.toolPolicy,
       profileId: selected?.profileId,
     };
-  }, [apiKeys, modelConfig, selectedModelId]);
+  }, [apiKeys, isUltra, modelConfig, selectedModelId]);
 
   const getExecutionSettings = useCallback((prompt: string, tools: readonly string[]) => {
     const execution = resolveExecutionModel();
@@ -429,7 +524,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       thinkingSteps: [],
       activityTitle: undefined,
       activityLog: [],
+      subagents: [],
       usedTools: [],
+      generatedFiles: [],
       reaction: undefined,
       tools,
     });
@@ -437,8 +534,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     let response = '';
     let thinkingSteps: string[] = [];
     let activityTitle: string | undefined;
+    let plan: SparkPlanStep[] = [];
     let activityLog: SparkActivityEntry[] = [];
+    let subagents: SparkSubAgent[] = [];
     let usedTools: string[] = [];
+    let generatedFiles: SparkGeneratedFile[] = [];
+    let subagentMarkerAdded = false;
     let activityPhase: SparkActivityPhase | undefined = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
@@ -472,6 +573,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityPhase = 'working';
       if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
     };
+    const publishPlan = (steps: SparkPlanStep[]) => {
+      plan = steps.map((step) => ({ ...step }));
+      if (isCurrentRun()) updateSparkTask(taskId, { plan, activityPhase: 'planning', progressLabel: 'Planning…' });
+    };
 
     try {
       const resolvedAttachments = await resolveSparkTaskAttachments(attachments, executionScope);
@@ -482,11 +587,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         prompt,
         history: [...history, { role: 'user', content: prompt, attachments: resolvedAttachments }],
         scope: executionScope,
+        threadId: taskId,
+        goal: sparkState.get().tasks.find((candidate) => candidate.id === taskId)?.goal ?? null,
+        onGoalChange: (goal) => {
+          if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
+        },
         model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
           thinkingLevel: execution.thinkingLevel,
+          reasoningEffort: execution.reasoningEffort,
           includeThoughts: execution.thinkingLevel > 0,
           enableSearch: execution.enableSearch,
           enableCodeExecution: execution.enableCodeExecution,
@@ -495,6 +606,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           toolPolicy: execution.toolPolicy,
           profileId: execution.profileId,
           label: execution.modelLabel,
+          effort: execution.effort,
         },
         capabilities: {
           skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
@@ -527,7 +639,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
             const activityLabel = event.label?.toLowerCase() ?? '';
-            if (activityLabel && !activityLabel.includes('thinking')) {
+            if (activityLabel.includes('planning')) {
+              activityPhase = 'planning';
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Planning…' });
+            } else if (activityLabel && !activityLabel.includes('thinking')) {
               activityPhase = 'working';
               updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it…' });
             } else if (activityLabel.includes('thinking') && activityPhase === 'queued') {
@@ -536,6 +651,28 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             }
           } else if (event.type === 'call-start') {
             publishUsedTool(event.call.kind);
+            if (event.call.kind === 'plan') publishPlan(event.call.steps);
+          } else if (event.type === 'call-progress') {
+            if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
+              publishPlan(event.patch.steps as SparkPlanStep[]);
+            }
+          } else if (event.type === 'generated-file') {
+            generatedFiles = [
+              ...generatedFiles.filter((file) => file.path !== event.file.path),
+              event.file,
+            ];
+            updateSparkTask(taskId, { generatedFiles });
+          } else if (event.type === 'agents-start') {
+            if (!subagentMarkerAdded) {
+              activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'subagents' }];
+              subagentMarkerAdded = true;
+              updateSparkTaskActivityTransient(taskId, activityLog);
+            }
+            subagents = patchSparkSubagents(subagents, event.agents);
+            updateSparkTask(taskId, { subagents });
+          } else if (event.type === 'agent-progress') {
+            subagents = updateSparkSubagent(subagents, event.id, event.patch);
+            updateSparkTask(taskId, { subagents });
           }
         },
       });
@@ -552,15 +689,21 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         modelLabel: execution.modelLabel,
         thinkingSteps,
         activityTitle,
+        plan,
         activityLog,
+        subagents,
         usedTools,
+        generatedFiles,
         tools,
         approval: undefined,
       });
       updateLinkedScheduleRunStatus(taskId, 'Completed', true);
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
-      if (isAbortError(error) || controller.signal.aborted) return;
+      if (isAbortError(error) || controller.signal.aborted) {
+        if (isCurrentRun()) updateSparkTask(taskId, { subagents: cancelRunningSubagents(subagents) });
+        return;
+      }
       if (!isCurrentRun()) return;
       updateSparkTask(taskId, {
         status: 'failed',
@@ -571,8 +714,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         modelLabel: execution.modelLabel,
         thinkingSteps,
         activityTitle,
+        plan,
         activityLog,
+        subagents,
         usedTools,
+        generatedFiles,
       });
       updateLinkedScheduleRunStatus(taskId, 'Failed', true);
     } finally {
@@ -664,7 +810,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       thinkingSteps: [],
       activityTitle: undefined,
       activityLog: [],
+      subagents: [],
       usedTools: [],
+      generatedFiles: [],
       activityPhase: 'queued',
       reaction: undefined,
     });
@@ -691,8 +839,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     let response = '';
     let thinkingSteps: string[] = [];
     let activityTitle: string | undefined;
+    let plan: SparkPlanStep[] = [];
     let activityLog: SparkActivityEntry[] = [];
+    let subagents: SparkSubAgent[] = [];
     let usedTools: string[] = [];
+    let generatedFiles: SparkGeneratedFile[] = [];
+    let subagentMarkerAdded = false;
     let activityPhase: SparkActivityPhase | undefined = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
@@ -730,6 +882,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
     };
+    const publishPlan = (steps: SparkPlanStep[]) => {
+      plan = steps.map((step) => ({ ...step }));
+      if (isCurrentRun()) {
+        updateSparkTaskTurn(taskId, turnId, { plan, activityPhase: 'planning' });
+        updateSparkTask(taskId, { plan, progressLabel: 'Planning…' });
+      }
+    };
 
     try {
       const history = await buildTurnHistory(activeTask, turnId, executionScope);
@@ -741,11 +900,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         prompt: turn.prompt,
         history: [...history, { role: 'user', content: turn.prompt, attachments: resolvedAttachments }],
         scope: executionScope,
+        threadId: taskId,
+        goal: sparkState.get().tasks.find((candidate) => candidate.id === taskId)?.goal ?? null,
+        onGoalChange: (goal) => {
+          if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
+        },
         model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
           thinkingLevel: execution.thinkingLevel,
+          reasoningEffort: execution.reasoningEffort,
           includeThoughts: execution.thinkingLevel > 0,
           enableSearch: execution.enableSearch,
           enableCodeExecution: execution.enableCodeExecution,
@@ -754,6 +919,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           toolPolicy: execution.toolPolicy,
           profileId: execution.profileId,
           label: execution.modelLabel,
+          effort: execution.effort,
         },
         capabilities: {
           skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
@@ -786,7 +952,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
             const activityLabel = event.label?.toLowerCase() ?? '';
-            if (activityLabel && !activityLabel.includes('thinking')) {
+            if (activityLabel.includes('planning')) {
+              activityPhase = 'planning';
+              updateSparkTaskTurn(taskId, turnId, { activityPhase });
+              updateSparkTask(taskId, { progressLabel: 'Planning…' });
+            } else if (activityLabel && !activityLabel.includes('thinking')) {
               activityPhase = 'working';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
               updateSparkTask(taskId, { progressLabel: 'Working on it…' });
@@ -797,6 +967,28 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             }
           } else if (event.type === 'call-start') {
             publishUsedTool(event.call.kind);
+            if (event.call.kind === 'plan') publishPlan(event.call.steps);
+          } else if (event.type === 'call-progress') {
+            if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
+              publishPlan(event.patch.steps as SparkPlanStep[]);
+            }
+          } else if (event.type === 'generated-file') {
+            generatedFiles = [
+              ...generatedFiles.filter((file) => file.path !== event.file.path),
+              event.file,
+            ];
+            updateSparkTaskTurn(taskId, turnId, { generatedFiles });
+          } else if (event.type === 'agents-start') {
+            if (!subagentMarkerAdded) {
+              activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'subagents' }];
+              subagentMarkerAdded = true;
+              updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
+            }
+            subagents = patchSparkSubagents(subagents, event.agents);
+            updateSparkTaskTurn(taskId, turnId, { subagents });
+          } else if (event.type === 'agent-progress') {
+            subagents = updateSparkSubagent(subagents, event.id, event.patch);
+            updateSparkTaskTurn(taskId, turnId, { subagents });
           }
         },
       });
@@ -809,7 +1001,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         thinkingSteps,
         activityTitle,
         activityLog,
+        subagents,
         usedTools,
+        generatedFiles,
         activityPhase: undefined,
       });
       updateSparkTask(taskId, {
@@ -819,7 +1013,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       });
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
-      if (isAbortError(error) || controller.signal.aborted) return;
+      if (isAbortError(error) || controller.signal.aborted) {
+        if (isCurrentRun()) updateSparkTaskTurn(taskId, turnId, { subagents: cancelRunningSubagents(subagents) });
+        return;
+      }
       if (!isCurrentRun()) return;
       updateSparkTaskTurn(taskId, turnId, {
         response: response.trim() || `Something went wrong: ${error instanceof Error ? error.message : 'Unknown error.'}`,
@@ -827,7 +1024,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         thinkingSteps,
         activityTitle,
         activityLog,
+        subagents,
         usedTools,
+        generatedFiles,
         activityPhase: undefined,
       });
       updateSparkTask(taskId, {
