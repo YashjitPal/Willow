@@ -133,8 +133,6 @@ export interface TurnOptions {
    * Kept out of `tools.ts` so the harness stays independent of Willow.
    */
   extraTools?: ToolHandler[];
-  /** Provider-native declarations for the focused Spark tool bridge. */
-  toolDeclarations?: { functionDeclarations: any[] }[];
   /** Spark supplies its own capability-aware profile; Code Beta-style callers may omit it. */
   profile?: Pick<HarnessProfile, 'systemPrompt'>;
 }
@@ -330,17 +328,6 @@ async function runIteration(
     workLogOffset = text.length;
     if (narration) sink.workLog(narration);
   };
-  const fallbackWorkLog = (name: string): string => {
-    const normalized = name.trim().toLowerCase();
-    if (normalized === 'read_file') return 'I\'m checking the file contents now.';
-    if (normalized === 'list_files') return 'I\'m checking the workspace files now.';
-    if (normalized === 'search_files') return 'I\'m searching the workspace for the relevant information.';
-    if (normalized === 'update_plan') return 'I\'m updating the task plan before continuing.';
-    if (normalized === 'run_command') return 'I\'m running the requested workspace command now.';
-    if (normalized === 'connected_app') return 'I\'m checking the connected app for the requested information.';
-    if (normalized.startsWith('mcp:')) return 'I\'m using the connected tool to continue the task.';
-    return 'I\'m continuing the task with the next step now.';
-  };
   /*
    * One card per file in the envelope, in the order their headers arrived.
    *
@@ -358,13 +345,9 @@ async function runIteration(
       text += chunk;
     },
     onWorkTitle: (title) => sink.workTitle(title),
-    onWorkLog: (update) => sink.workLog(update),
-
     onPatchOpen: () => {
       sink.workTitle(fallbackWorkTitle());
-      const beforePatch = text.slice(workLogOffset).trim();
-      if (beforePatch) flushWorkLog();
-      else sink.workLog('I\'m applying the requested file change now.');
+      flushWorkLog();
       callTextOffset = text.length;
       sink.activity('Editing files');
     },
@@ -376,13 +359,6 @@ async function runIteration(
       if (header) {
         const kind =
           header[1] === 'Add' ? 'create' : header[1] === 'Delete' ? 'delete' : 'edit';
-        sink.workLog(
-          kind === 'create'
-            ? `I'm creating ${header[2]!.trim()} now.`
-            : kind === 'delete'
-              ? `I'm removing ${header[2]!.trim()} now.`
-              : `I'm updating ${header[2]!.trim()} now.`,
-        );
         const call: EditCall = {
           id: nextId('call'),
           kind,
@@ -414,11 +390,6 @@ async function runIteration(
       const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
       liveEdits = [];
-      sink.workLog(
-        observation.startsWith('Patch applied:')
-          ? 'The requested file change was applied successfully.'
-          : 'The file change could not be applied, so I\'m correcting it now.',
-      );
       sink.activity(null);
     },
 
@@ -446,9 +417,9 @@ async function runIteration(
       // patch/file calls, so Spark can render them in its work timeline.
       enableSearch: options.model.options.enableSearch,
       enableCodeExecution: options.model.options.enableCodeExecution,
-      toolDeclarations: options.toolDeclarations,
       onToolCallStart: (name, args) => {
         nativeToolUsed = true;
+        sink.activity('Working on it…');
         sink.workTitle(fallbackWorkTitle());
         const normalized = name.trim().toLowerCase();
         if (normalized === 'web_search' || normalized === 'google_search') {
@@ -476,25 +447,20 @@ async function runIteration(
       raw += token;
       parser.push(token);
     },
-    () => sink.activity('Responding'),
+    () => sink.activity('Thinking it through…'),
     systemPrompt,
-    (phase) => sink.activity(phase === 'thinking' ? 'Thinking it through...' : phase === 'responding' ? null : 'Working on it...'),
+    (phase) => sink.activity(phase === 'thinking' ? 'Thinking it through…' : phase === 'responding' ? null : 'Working on it…'),
     async (name, args) => {
       nativeToolUsed = true;
+      sink.activity('Working on it…');
       sink.workTitle(fallbackWorkTitle());
-      const narration = text.slice(workLogOffset).trim();
-      if (narration) flushWorkLog();
-      else sink.workLog(fallbackWorkLog(name));
-      if (name === 'apply_patch') {
-        const patch = typeof args?.patch === 'string' ? args.patch : '';
-        if (!patch) return { status: 'error', error: 'apply_patch requires a complete patch envelope.' };
-        const observation = applyPatchEnvelope(patch, options, sink, []);
-        nativeMutated = observation.startsWith('Patch applied:');
-        return observation.startsWith('ERROR ')
-          ? { status: 'error', error: observation }
-          : { status: 'success', result: observation };
-      }
-      const observation = await runCall({ name, body: JSON.stringify(args ?? {}), narration: '' }, registry, options, sink);
+      flushWorkLog();
+      const observation = await runCall(
+        { name, body: JSON.stringify(args ?? {}), narration: '' },
+        registry,
+        options,
+        sink,
+      );
       return observation.startsWith('ERROR ')
         ? { status: 'error', error: observation }
         : { status: 'success', result: observation };
@@ -511,7 +477,7 @@ async function runIteration(
     throwIfAborted(options.signal);
     const narration = call.narration.trim();
     sink.workTitle(fallbackWorkTitle());
-    sink.workLog(narration || fallbackWorkLog(call.name));
+    if (narration) sink.workLog(narration);
     observations.push(await runCall(call, registry, options, sink));
   }
 
@@ -530,6 +496,9 @@ async function runIteration(
   }
 
   const didWork = nativeToolUsed || pending.length > 0 || patchObservations.length > 0;
+  const patchNeedsResponse =
+    patchObservations.some((observation) => observation.startsWith('Patch applied:')) &&
+    text.slice(workLogOffset).trim() === '';
   if (pending.length > 0) {
     const trailing = text.slice(callTextOffset).trim();
     if (trailing) sink.onText(trailing);
@@ -551,6 +520,7 @@ async function runIteration(
     wantsMore:
       pending.length > 0 ||
       loose.length > 0 ||
+      patchNeedsResponse ||
       patchObservations.some((observation) => observation.startsWith('ERROR')),
   };
 }

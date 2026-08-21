@@ -255,6 +255,14 @@ In either mode: do not delegate something whose result you need to write the nex
 export interface OverlayInputs {
   /** Upstream's vendored apply_patch tool instructions. */
   applyPatchInstructions: string;
+  /** Optional environment-specific identity replacing the Code Beta identity. */
+  preamble?: string;
+  /** Optional environment-specific shell boundary. */
+  shellSection?: string;
+  /** Optional environment-specific apply_patch/tool protocol section. */
+  patchToolSection?: string;
+  /** Optional browser/runtime constraints appended after the upstream prompt. */
+  runtimeSection?: string;
 }
 
 /**
@@ -264,17 +272,23 @@ export interface OverlayInputs {
  * vendored file: keeping that derivation here means an upstream grammar change
  * reaches the model without anyone editing this file.
  */
-export function buildOverlay({ applyPatchInstructions }: OverlayInputs): OverlayOp[] {
+export function buildOverlay({
+  applyPatchInstructions,
+  preamble = WILLOW_PREAMBLE,
+  shellSection = NO_SHELL_SECTION,
+  patchToolSection = toolProtocolSection(applyPatchInstructions),
+  runtimeSection = BROWSER_RUNTIME_SECTION,
+}: OverlayInputs): OverlayOp[] {
   return [
     {
       kind: 'replace-preamble',
-      body: WILLOW_PREAMBLE,
+      body: preamble,
       required: true,
     },
     {
       kind: 'replace-section',
       selector: ['Shell commands'],
-      body: NO_SHELL_SECTION,
+      body: shellSection,
       required: true,
       because:
         'No shell exists in the browser sandbox. Replaced rather than dropped so the model finds an explicit boundary where it looks for shell guidance.',
@@ -282,7 +296,7 @@ export function buildOverlay({ applyPatchInstructions }: OverlayInputs): Overlay
     {
       kind: 'replace-section',
       selector: ['`apply_patch`'],
-      body: toolProtocolSection(applyPatchInstructions),
+      body: patchToolSection,
       required: true,
       because:
         "Upstream documents apply_patch as a shell invocation. The grammar is kept verbatim; only the invocation is rewritten, and the other tools' envelope is documented in the same place.",
@@ -306,7 +320,7 @@ export function buildOverlay({ applyPatchInstructions }: OverlayInputs): Overlay
       kind: 'append-section',
       title: 'Willow sandbox runtime',
       level: 1,
-      body: BROWSER_RUNTIME_SECTION,
+      body: runtimeSection,
     },
   ];
 }

@@ -743,7 +743,7 @@ const normalizeThinkingSteps = (value: unknown): string[] => (
   Array.isArray(value)
     ? value
       .filter((step): step is string => typeof step === 'string')
-      .map((step) => step.replace(/\s+/g, ' ').trim().slice(0, 600))
+      .map((step) => step.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
       .slice(0, 12)
     : []
@@ -755,7 +755,7 @@ const normalizeActivityLog = (value: unknown): SparkActivityEntry[] => (
       if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.kind !== 'string') return false;
       if (entry.kind === 'narration') return typeof entry.text === 'string' && Boolean(entry.text.trim());
       return entry.kind === 'tool' && typeof entry.tool === 'string' && Boolean(entry.tool.trim());
-    }).slice(-40)
+    })
     : []
 );
 
@@ -1418,7 +1418,9 @@ export const updateSparkTaskTurn = (
     activityLog: update.activityLog
       ? update.activityLog.map((entry) => ({ ...entry }))
       : existingTurn.activityLog,
-    activityPhase: update.activityPhase === undefined ? existingTurn.activityPhase : update.activityPhase,
+    activityPhase: Object.prototype.hasOwnProperty.call(update, 'activityPhase')
+      ? update.activityPhase
+      : existingTurn.activityPhase,
     usedTools: update.usedTools
       ? [...update.usedTools]
       : existingTurn.usedTools,
