@@ -91,6 +91,8 @@ export interface SparkTaskTurn {
   subagents?: SparkSubAgent[];
   /** Capabilities actually invoked while this turn ran. */
   usedTools?: string[];
+  /** Composer tools selected for this individual follow-up turn. */
+  tools?: string[];
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   generatedFiles?: SparkGeneratedFile[];

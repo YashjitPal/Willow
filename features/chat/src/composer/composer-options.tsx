@@ -21,14 +21,17 @@ import {
 } from "lucide-react";
 
 /**
- * The selectable tools, matching Gemini's plus menu exactly.
+ * The selectable tools for normal Chat, matching Gemini's plus menu exactly.
  *
  * Gemini's menu offers Create image / Create video / Create music / Canvas on the root,
  * and Deep research / Guided learning under "More tools". Nothing else is selectable, so
  * Willow's former `thinking`, `web`, `quizzes` and `spotify` entries are gone — none of
- * them exist in Gemini's menu, which is what this is a clone of.
+ * them exist in Gemini's menu, which is what the normal Chat catalog clones.
  */
-export type ToolId = 'images' | 'video' | 'music' | 'canvas' | 'research' | 'learn';
+export type ToolId =
+  | 'images' | 'video' | 'music' | 'canvas' | 'research' | 'learn'
+  | 'plan' | 'goal' | 'computer-use' | 'create-pet' | 'create-skill'
+  | 'sub-agents' | 'personal-intelligence';
 
 export interface ToolMetadata {
   id: ToolId;
@@ -37,7 +40,7 @@ export interface ToolMetadata {
   icon: React.ElementType;
 }
 
-export const TOOLS: Record<ToolId, ToolMetadata> = {
+export const TOOLS: Record<Exclude<ToolId, 'plan' | 'goal' | 'computer-use' | 'create-pet' | 'create-skill' | 'sub-agents' | 'personal-intelligence'>, ToolMetadata> = {
   // chipLabel is what Gemini's own chip shows (read off the live chip, not the menu row):
   // "Create image" -> "Images", "Create video" -> "Videos", "Music" -> "Music",
   // "Canvas" -> "Canvas", "Deep research" -> "Deep research", "Guided learning" -> "Learn".
@@ -47,6 +50,18 @@ export const TOOLS: Record<ToolId, ToolMetadata> = {
   canvas: { id: 'canvas', label: 'Canvas', chipLabel: 'Canvas', icon: SquarePen },
   research: { id: 'research', label: 'Deep research', chipLabel: 'Deep research', icon: Telescope },
   learn: { id: 'learn', label: 'Guided learning', chipLabel: 'Learn', icon: BookOpen },
+};
+
+/** Spark-only composer tools. The catalog controls menu placement and chips; Plan,
+ * Goal and Sub-agents have runtime semantics in the Spark harness today. */
+export const SPARK_TOOLS: Record<Extract<ToolId, 'plan' | 'goal' | 'computer-use' | 'create-pet' | 'create-skill' | 'sub-agents' | 'personal-intelligence'>, ToolMetadata> = {
+  plan: { id: 'plan', label: 'Plan', chipLabel: 'Plan', icon: SquarePen },
+  goal: { id: 'goal', label: 'Goal', chipLabel: 'Goal', icon: Telescope },
+  'computer-use': { id: 'computer-use', label: 'Computer Use', chipLabel: 'Computer Use', icon: Zap },
+  'create-pet': { id: 'create-pet', label: 'Create pet', chipLabel: 'Create pet', icon: Rocket },
+  'create-skill': { id: 'create-skill', label: 'Create skill', chipLabel: 'Create skill', icon: BookOpen },
+  'sub-agents': { id: 'sub-agents', label: 'Sub-agents', chipLabel: 'Sub-agents', icon: MessageSquare },
+  'personal-intelligence': { id: 'personal-intelligence', label: 'Personal Intelligence', chipLabel: 'Personal Intelligence', icon: Zap },
 };
 
 /**
@@ -63,6 +78,13 @@ export const TOOL_SYMBOLS: Record<ToolId, string> = {
   canvas: 'canvas',
   research: 'deep_research',
   learn: 'guided_learning',
+  plan: 'edit_note',
+  goal: 'flag',
+  'computer-use': 'computer',
+  'create-pet': 'pets',
+  'create-skill': 'school',
+  'sub-agents': 'group',
+  'personal-intelligence': 'person',
 };
 
 /**
@@ -80,7 +102,7 @@ export const TOOL_SYMBOLS: Record<ToolId, string> = {
  * its Oxford comma, and Deep research was recorded as "Create detailed reports" when the
  * source says "Get detailed reports".
  */
-export const TOOL_TOOLTIPS: Record<ToolId, string> = {
+export const TOOL_TOOLTIPS: Record<Exclude<ToolId, 'plan' | 'goal' | 'computer-use' | 'create-pet' | 'create-skill' | 'sub-agents' | 'personal-intelligence'>, string> = {
   images: 'Visualize and edit',
   video: 'Bring ideas to life',
   music: 'Make audio tracks',

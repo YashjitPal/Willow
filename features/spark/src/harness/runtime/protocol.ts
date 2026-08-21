@@ -46,6 +46,8 @@ export const CALL_BEGIN = '*** Call:';
 export const CALL_END = '*** End Call';
 /** Spark-only metadata emitted once before the first work step. */
 export const WORK_TITLE_BEGIN = '*** Work Title:';
+/** Spark-only boundary: prose after this marker is the user-facing answer. */
+export const FINAL_RESPONSE_BEGIN = '*** Final Response';
 
 /* ------------------------------------------------------------------------ */
 /* Session entities                                                          */

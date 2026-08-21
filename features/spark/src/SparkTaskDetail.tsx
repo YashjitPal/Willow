@@ -49,6 +49,14 @@ const TASK_FILTERS: readonly SparkTaskFilter[] = [
   'Completed',
 ];
 
+const updateScrollFade = (list: HTMLDivElement) => {
+  list.style.setProperty('--fade-progress', list.scrollTop > 0 ? '1' : '0');
+  list.style.setProperty(
+    '--fade-bottom',
+    list.scrollTop + list.clientHeight < list.scrollHeight ? '1' : '0',
+  );
+};
+
 export interface SparkTaskDetailProps {
   task: SparkTask;
   tasks: SparkTask[];
@@ -541,19 +549,54 @@ const SparkProcessingState: React.FC<{
     ? activity
     : [...activity, { id: 'spark-subagents-fallback', kind: 'subagents' as const }];
   const hasTimelineDetails = timelineActivity.length > 0;
-  const [isExpanded, setIsExpanded] = useState(Boolean(phase && hasTimelineDetails));
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [isTimelineOverflowing, setIsTimelineOverflowing] = useState(false);
+  const [parallelResetVersion, setParallelResetVersion] = useState(0);
   const detailsId = useId();
-  const previousPhaseRef = useRef<SparkActivityPhase | undefined>(undefined);
+  const wasActiveRef = useRef(false);
+  const baselineMeasuredRef = useRef(false);
+  const timelineCapRef = useRef<HTMLDivElement>(null);
   const activityGroups = groupSparkActivity(timelineActivity);
 
   useLayoutEffect(() => {
-    if (!phase) {
+    const active = Boolean(phase && (title || hasTimelineDetails));
+    if (!active) {
+      if (wasActiveRef.current) {
+        setParallelResetVersion((version) => version + 1);
+      }
       setIsExpanded(false);
-    } else if (!previousPhaseRef.current && hasTimelineDetails) {
+    } else if (!wasActiveRef.current) {
       setIsExpanded(true);
     }
-    previousPhaseRef.current = phase;
-  }, [hasTimelineDetails, phase]);
+    wasActiveRef.current = active;
+  }, [hasTimelineDetails, phase, title]);
+
+  useLayoutEffect(() => {
+    const cap = timelineCapRef.current;
+    if (!cap) return;
+    if (phase) {
+      baselineMeasuredRef.current = false;
+      setIsTimelineOverflowing(false);
+      return;
+    }
+    if (baselineMeasuredRef.current) return;
+
+    // Wait until the completion reset has collapsed the parallel group and its
+    // children. The result is intentionally frozen so manual expansion cannot
+    // make the parent timeline gain a Show all button later.
+    // Subagent panels use a 200ms grid-row collapse. Measure after that
+    // transition has settled so an expanded child cannot inflate the baseline.
+    const timer = window.setTimeout(() => {
+      setIsTimelineOverflowing(cap.scrollHeight > 272);
+      baselineMeasuredRef.current = true;
+    }, 240);
+    return () => window.clearTimeout(timer);
+  }, [activityGroups, phase, subagents]);
+
+  useEffect(() => {
+    if (phase) setShowAll(false);
+  }, [phase]);
 
   if (!activity.length && !phase && !title && !subagents.length) return null;
 
@@ -596,7 +639,12 @@ const SparkProcessingState: React.FC<{
             className={`spark-task-detail__processing-details-wrapper${isExpanded ? ' is-expanded' : ''}`}
             aria-hidden={!isExpanded}
           >
-            <div className="spark-task-detail__processing-details">
+            <div className="spark-task-detail__processing-details-inner">
+              <div
+                ref={timelineCapRef}
+                className={`spark-task-detail__processing-details-cap${showAll ? ' is-expanded' : ''}${isTimelineOverflowing ? ' is-overflowing' : ''}`}
+              >
+                <div className="spark-task-detail__processing-details">
               {activityGroups.map((group, index) => group.kind === 'narration' ? (
                 <SparkNarrationGroup
                   key={group.id}
@@ -609,6 +657,7 @@ const SparkProcessingState: React.FC<{
                   key={group.id}
                   agents={subagents}
                   active={Boolean(phase) || subagents.some((agent) => agent.status === 'running' || agent.status === 'queued')}
+                  resetVersion={parallelResetVersion}
                   hasLeadingGap={index > 0}
                   isLast={index === activityGroups.length - 1}
                 />
@@ -621,6 +670,19 @@ const SparkProcessingState: React.FC<{
                   <span>{getToolCapabilityLabel(group.entry.tool).label}</span>
                 </div>
               ))}
+                </div>
+              </div>
+              {!phase && isTimelineOverflowing && !showAll && (
+                <button
+                  type="button"
+                  className="spark-task-detail__processing-show-more"
+                  aria-expanded="false"
+                  aria-controls={detailsId}
+                  onClick={() => setShowAll(true)}
+                >
+                  Show all
+                </button>
+              )}
             </div>
           </div>
         </React.Fragment>
@@ -642,17 +704,26 @@ const SparkProcessingState: React.FC<{
 const SparkSubagentGroup: React.FC<{
   agents: readonly SparkSubAgent[];
   active: boolean;
+  resetVersion: number;
   hasLeadingGap: boolean;
   isLast: boolean;
-}> = ({ agents, active, hasLeadingGap, isLast }) => {
+}> = ({ agents, active, resetVersion, hasLeadingGap, isLast }) => {
   const [expanded, setExpanded] = useState(active);
   const detailsId = useId();
   const wasActiveRef = useRef(active);
+  const previousResetVersionRef = useRef(resetVersion);
   useEffect(() => {
     if (active) setExpanded(true);
     else if (wasActiveRef.current) setExpanded(false);
     wasActiveRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    if (previousResetVersionRef.current !== resetVersion) {
+      setExpanded(false);
+      previousResetVersionRef.current = resetVersion;
+    }
+  }, [resetVersion]);
 
   return (
     <div className={`spark-task-detail__subagent-group${hasLeadingGap ? ' has-leading-gap' : ''}${isLast ? ' is-last-activity' : ''}`}>
@@ -683,7 +754,13 @@ const SparkSubagentGroup: React.FC<{
         aria-hidden={!expanded}
       >
         <div className="spark-task-detail__subagent-content synthetic-group">
-          {agents.map((agent) => <SparkSubagentItem key={agent.id} agent={agent} />)}
+          {agents.map((agent) => (
+            <SparkSubagentItem
+              key={agent.id}
+              agent={agent}
+              resetVersion={resetVersion}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -710,15 +787,18 @@ const groupSparkSubagentTimeline = (
   return groups;
 };
 
-const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
-  const isRunning = agent.status === 'running' || agent.status === 'queued';
-  const [expanded, setExpanded] = useState(isRunning);
+const SparkSubagentItem: React.FC<{
+  agent: SparkSubAgent;
+  resetVersion: number;
+}> = ({ agent, resetVersion }) => {
+  const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  const [showMoreVisible, setShowMoreVisible] = useState(false);
   const detailsId = useId();
   const contentId = useId();
-  const capRef = useRef<HTMLDivElement>(null);
-  const firstTool = agent.calls.find((call) => call.kind !== 'task')?.kind;
+    const capRef = useRef<HTMLDivElement>(null);
+  const previousResetVersionRef = useRef(resetVersion);
   const callsById = new Map(agent.calls.map((call) => [call.id, call]));
   const timeline = agent.timeline.length > 0
     ? agent.timeline
@@ -726,34 +806,47 @@ const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
   const timelineGroups = groupSparkSubagentTimeline(timeline);
 
   useEffect(() => {
-    setExpanded(isRunning);
-  }, [isRunning]);
+    if (previousResetVersionRef.current !== resetVersion) {
+      setExpanded(false);
+      setShowAll(false);
+      previousResetVersionRef.current = resetVersion;
+    }
+  }, [resetVersion]);
 
   useLayoutEffect(() => {
     const cap = capRef.current;
     if (!cap) return;
-    const update = () => setIsOverflowing(cap.scrollHeight > 110);
+    const update = () => {
+      cap.style.setProperty('--subagent-full-height', `${cap.scrollHeight}px`);
+      setIsOverflowing(cap.scrollHeight > 110);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(cap);
     Array.from(cap.children).forEach((child) => observer.observe(child));
     return () => observer.disconnect();
   }, [timeline]);
+
+  useEffect(() => {
+    if (!isOverflowing) {
+      setShowMoreVisible(false);
+      return;
+    }
+    setShowMoreVisible(true);
+  }, [isOverflowing]);
   return (
-    <div className="spark-task-detail__subagent-item">
+    <div className={`spark-task-detail__subagent-item${expanded ? ' is-expanded' : ''}`}>
       <button
         type="button"
         className="spark-task-detail__subagent-header spark-task-detail__subagent-child-header"
         aria-expanded={expanded}
-        aria-controls={detailsId}
-        onClick={() => setExpanded((open) => !open)}
-      >
-        <span className="spark-task-detail__subagent-header-content">
-          <span className="spark-task-detail__subagent-child-icon">
-            {firstTool
-              ? <SparkToolIcon tool={firstTool} />
-              : <span className="spark-task-detail__subagent-bullet" />}
-          </span>
+          aria-controls={detailsId}
+          onClick={() => setExpanded((open) => !open)}
+        >
+          <span className="spark-task-detail__subagent-header-content">
+            <span className="spark-task-detail__subagent-child-icon">
+              <span className="spark-task-detail__subagent-bullet" />
+            </span>
           <span className="spark-task-detail__subagent-title">{agent.name || agent.objective}</span>
           <MaterialSymbol
             family="luminous"
@@ -781,7 +874,7 @@ const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
                 {timelineGroups.map((group) => {
                   if (group.kind === 'narration') {
                     return <div className="spark-task-detail__subagent-line spark-task-detail__subagent-narration" key={group.id}>
-                      <SparkActivityClock />
+                      <span className="spark-task-detail__subagent-line-icon" aria-hidden="true"><SparkActivityClock /></span>
                       <span className="spark-task-detail__subagent-narration-text">
                         {group.entries.map((entry) => <span key={entry.id}>{entry.text}</span>)}
                       </span>
@@ -790,7 +883,7 @@ const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
                   const call = callsById.get(group.entry.callId);
                   if (!call) return null;
                   return <div className="spark-task-detail__subagent-line" key={group.id}>
-                    <SparkToolIcon tool={call.kind} />
+                    <span className="spark-task-detail__subagent-line-icon" aria-hidden="true"><SparkToolIcon tool={call.kind} /></span>
                     <span>{getToolCapabilityLabel(call.kind).label}</span>
                   </div>;
                 })}
@@ -798,7 +891,7 @@ const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
             </div>
             {isOverflowing && <button
               type="button"
-              className="spark-task-detail__subagent-show-more"
+              className={`spark-task-detail__subagent-show-more${showMoreVisible ? ' is-visible' : ''}`}
               aria-expanded={showAll}
               aria-controls={contentId}
               onClick={() => setShowAll((open) => !open)}
@@ -844,46 +937,14 @@ const SparkNarrationGroup: React.FC<{
   isFirst: boolean;
   isLast: boolean;
 }> = ({ entries, isFirst, isLast }) => {
-  const [showAll, setShowAll] = useState(false);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const contentId = useId();
-  const capRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const cap = capRef.current;
-    if (!cap) return;
-    const update = () => {
-      cap.style.setProperty('--spark-expanded-height', `${cap.scrollHeight}px`);
-      setIsOverflowing(cap.scrollHeight > 110);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(cap);
-    Array.from(cap.children).forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
-  }, [entries]);
-
   return (
-    <div className={`spark-task-detail__processing-thought${isFirst ? '' : ' has-leading-gap'}${isLast ? ' is-last-activity' : ''}${isOverflowing ? ' is-overflowing' : ''}`}>
+    <div className={`spark-task-detail__processing-thought${isFirst ? '' : ' has-leading-gap'}${isLast ? ' is-last-activity' : ''}`}>
       <div className="spark-task-detail__processing-thought-header">
         <span className="spark-task-detail__processing-node"><SparkActivityClock /></span>
-        <div ref={capRef} className={`spark-task-detail__processing-thought-cap${showAll ? ' is-expanded' : ''}`}>
-          <div id={contentId} className={`spark-task-detail__processing-thought-content${showAll ? ' is-expanded' : ''}`}>
-            {entries.map((entry) => <div key={entry.id} className="spark-task-detail__processing-thought-item">{entry.text}</div>)}
-          </div>
+        <div className="spark-task-detail__processing-thought-content">
+          {entries.map((entry) => <div key={entry.id} className="spark-task-detail__processing-thought-item">{entry.text}</div>)}
         </div>
       </div>
-      {isOverflowing && (
-        <button
-          type="button"
-          className="spark-task-detail__processing-show-more"
-          aria-expanded={showAll}
-          aria-controls={contentId}
-          onClick={() => setShowAll((open) => !open)}
-        >
-          {showAll ? 'Show less' : 'Show all'}
-        </button>
-      )}
     </div>
   );
 };
@@ -1435,6 +1496,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const panelRef = useRef<HTMLElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followUpZoneRef = useRef<HTMLDivElement>(null);
+  const recentListRef = useRef<HTMLDivElement>(null);
   const renameDialogRef = useRef<HTMLFormElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameReturnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -1943,6 +2005,51 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     }
   }), [recentTasks, taskFilter]);
 
+  useLayoutEffect(() => {
+    const list = recentListRef.current;
+    if (!list) return;
+
+    const updateFade = () => updateScrollFade(list);
+    updateFade();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateFade);
+      return () => window.removeEventListener('resize', updateFade);
+    }
+
+    const observer = new ResizeObserver(updateFade);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [filteredTasks, libraryCollapsed]);
+
+  useLayoutEffect(() => {
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+
+    const updateFade = () => updateScrollFade(conversation);
+    updateFade();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateFade);
+      return () => window.removeEventListener('resize', updateFade);
+    }
+
+    const observer = new ResizeObserver(updateFade);
+    observer.observe(conversation);
+    const content = conversation.firstElementChild;
+    if (content instanceof HTMLElement) observer.observe(content);
+    return () => observer.disconnect();
+  }, [
+    currentTask.id,
+    currentTask.response,
+    currentTask.status,
+    currentTask.activityLog?.length,
+    currentTask.subagents?.length,
+    currentTask.turns?.length,
+    currentTask.generatedFiles?.length,
+    libraryCollapsed,
+  ]);
+
   const isLibraryCollapsed = libraryCollapsed;
   const isProgressPanelOpen = isLibraryCollapsed;
   const isStatusPopoverOpen = !isLibraryCollapsed && statusOpen;
@@ -2023,7 +2130,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 ))}
               </div>
             )}
-            <div className="spark-task-detail__recent-list" role="list" aria-label="Task list">
+            <div
+              ref={recentListRef}
+              className="spark-task-detail__recent-list"
+              role="list"
+              aria-label="Task list"
+              onScroll={(event) => updateScrollFade(event.currentTarget)}
+            >
               {filteredTasks.map((recentTask) => {
                 const selected = recentTask.id === currentTask.id;
                 const menuOpen = listTaskMenuTaskId === recentTask.id;
@@ -2354,6 +2467,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
           <div
             ref={conversationRef}
             className="spark-task-detail__conversation-scroll gemini-chat-scrollbar"
+            onScroll={(event) => updateScrollFade(event.currentTarget)}
           >
             <div className="spark-task-detail__conversation">
               {!!currentTask.prompt && (!needsApproval(currentTask) || !currentTask.scheduledLabel) && (
@@ -2403,6 +2517,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   * behind an overflow menu. */}
                 {hasProcessingState && (
                   <SparkProcessingState
+                    key={`task-processing-${currentTask.id}`}
                     title={currentTask.activityTitle}
                     activity={currentTask.activityLog ?? []}
                     subagents={currentTask.subagents ?? []}
@@ -2526,6 +2641,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     >
                       {((turn.activityLog?.length ?? 0) > 0 || (turn.subagents?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
                         <SparkProcessingState
+                          key={`turn-processing-${turn.id}`}
                           title={turn.activityTitle}
                           activity={turn.activityLog ?? []}
                           subagents={turn.subagents ?? []}

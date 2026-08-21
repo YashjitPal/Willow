@@ -25,6 +25,7 @@ const { runSparkHarnessTurn } = await importTs(
 
 const MODEL = { label: 'Test', options: { provider: 'gemini', model: 'test', apiKey: 'k' } };
 const PROFILE = { systemPrompt: 'You are a general-purpose work agent.' };
+const AGENTIC_PROFILE = createSparkHarnessProfile({ skills: [], connectedApps: [] });
 
 function transport(responses) {
   const conversations = [];
@@ -38,7 +39,7 @@ function transport(responses) {
   return value;
 }
 
-async function run(prompt, responses, startingFiles = {}) {
+async function run(prompt, responses, startingFiles = {}, profile = PROFILE) {
   let files = { ...startingFiles };
   const events = [];
   const scripted = transport(responses);
@@ -48,7 +49,7 @@ async function run(prompt, responses, startingFiles = {}) {
     files: () => ({ ...files }),
     writeFiles: (next) => { files = { ...next }; },
     model: MODEL,
-    profile: PROFILE,
+    profile,
     transport: scripted,
     onEvent: (event) => events.push(event),
   });
@@ -71,6 +72,14 @@ it('builds Spark from the full Codex prompt while preserving its Work Title', as
   assert.match(profile.systemPrompt, /Sharing progress updates/i);
   assert.match(profile.systemPrompt, /Your final message should read naturally/i);
   assert.match(profile.systemPrompt, /\*\*\* Work Title:/);
+  assert.match(profile.systemPrompt, /\*\*\* Final Response/);
+  assert.match(profile.systemPrompt, /as many consecutive, distinct updates/i);
+  assert.match(profile.systemPrompt, /no fixed count/i);
+  assert.match(profile.systemPrompt, /no required placement immediately before or after/i);
+  assert.match(profile.systemPrompt, /distinct\s+update on its own line/i);
+  assert.match(profile.systemPrompt, /verification or outcome updates/i);
+  assert.match(profile.systemPrompt, /timeline updates as plain text/i);
+  assert.match(profile.systemPrompt, /never alter a user's requested file contents/i);
   assert.match(profile.systemPrompt, /spawn_agent/);
   assert.match(profile.systemPrompt, /wait_agent/);
   assert.doesNotMatch(profile.systemPrompt, /Multiple consecutive `task` envelopes are started concurrently/i);
@@ -215,6 +224,71 @@ it('preserves native Goal lifecycle and Ultra mode semantics', async () => {
   assert.equal(ultra.effective, 'high');
   assert.equal(ultra.clamped, false);
   assert.equal(ultra.harness.delegation, 'proactive');
+  assert.equal(typeof current.goalId, 'string');
+});
+
+it('accounts Goal provider usage and transitions at the token budget', async () => {
+  let current = null;
+  const runtime = new SparkGoalRuntime('usage-thread', null, (goal) => { current = goal; });
+  const tools = Object.fromEntries(runtime.tools().map((tool) => [tool.id, tool]));
+  await tools.create_goal.run({ objective: 'Use the budget', token_budget: 10 }, {});
+  runtime.beginTurn();
+  runtime.accountProgress(6);
+  assert.equal(current.tokensUsed, 6);
+  runtime.accountProgress(4);
+  assert.equal(current.tokensUsed, 10);
+  assert.equal(current.status, 'budget_limited');
+  const replacement = await tools.create_goal.run({ objective: 'Replacement' }, {});
+  assert.equal(replacement.failed, true);
+});
+
+it('routes transport-reported usage into the active Spark Goal', async () => {
+  let current = null;
+  const runtime = new SparkGoalRuntime('transport-usage-thread', null, (goal) => { current = goal; });
+  const tools = Object.fromEntries(runtime.tools().map((tool) => [tool.id, tool]));
+  await tools.create_goal.run({ objective: 'Count provider usage' }, {});
+
+  const transportWithUsage = async (...args) => {
+    const onToken = args[2];
+    const onUsage = args[8];
+    onUsage({ inputTokens: 7, outputTokens: 5, totalTokens: 12 });
+    onToken('Usage accounted.');
+  };
+
+  await runTurn({
+    prompt: 'Continue counting usage.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    goalRuntime: runtime,
+    transport: transportWithUsage,
+    onEvent: () => {},
+  });
+
+  assert.equal(current.tokensUsed, 12);
+  assert.equal(current.status, 'active');
+});
+
+it('marks an active Goal blocked on a terminal Spark turn error', async () => {
+  let current = null;
+  const runtime = new SparkGoalRuntime('error-thread', null, (goal) => { current = goal; });
+  const tools = Object.fromEntries(runtime.tools().map((tool) => [tool.id, tool]));
+  await tools.create_goal.run({ objective: 'Survive a failure' }, {});
+  const scripted = async () => { throw new Error('provider failed permanently'); };
+  await runTurn({
+    prompt: 'Continue the goal.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    goalRuntime: runtime,
+    transport: scripted,
+    onEvent: () => {},
+  });
+  assert.equal(current.status, 'blocked');
 });
 
 it('uses each model declared effort roster before provider defaults', () => {
@@ -410,7 +484,7 @@ it('surfaces native Google Search and code execution as Spark timeline tools', a
     receivedOptions = options;
     options.onToolCallStart?.('web_search', { query: 'latest Willow news' });
     options.onToolCallStart?.('code_execution', { language: 'python', code: 'print(1)' });
-    onToken('I finished the researched calculation.');
+    onToken('I found the sources and completed the calculation.\n*** Final Response\nI finished the researched calculation.');
   };
   await runTurn({
     prompt: 'Research the latest information and calculate the result.',
@@ -427,7 +501,7 @@ it('surfaces native Google Search and code execution as Spark timeline tools', a
         enableCodeExecution: true,
       },
     },
-    profile: PROFILE,
+    profile: AGENTIC_PROFILE,
     transport: nativeTransport,
     onEvent: (event) => events.push(event),
   });
@@ -435,7 +509,57 @@ it('surfaces native Google Search and code execution as Spark timeline tools', a
   assert.equal(receivedOptions.enableCodeExecution, true);
   assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'web_search'));
   assert.ok(events.some((event) => event.type === 'call-start' && event.call.kind === 'code_execution'));
-  assert.equal(events.some((event) => event.type === 'work-log'), false);
+  assert.deepEqual(events.filter((event) => event.type === 'work-log').map((event) => event.text), [
+    'I found the sources and completed the calculation.',
+  ]);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'I finished the researched calculation.');
+});
+
+it('treats substantive tool-free questions as optional Spark work batches', async () => {
+  const { events, scripted } = await run('Compare two practical approaches for organizing notes.', [
+    '*** Work Title: Comparing note organization approaches\nI am weighing retrieval speed against maintenance effort.\n*** Final Response\nFolders are simpler; tags are more flexible.',
+  ], {}, AGENTIC_PROFILE);
+
+  assert.match(scripted.conversations[0].at(-1).content, /^<intent>execution<\/intent>/);
+  assert.deepEqual(events.filter((event) => event.type === 'work-log').map((event) => event.text), [
+    'I am weighing retrieval speed against maintenance effort.',
+  ]);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'Folders are simpler; tags are more flexible.');
+});
+
+it('keeps all pre-final prose in the timeline across multiple tool calls', async () => {
+  const { events } = await run('Inspect both notes and summarize them.', [
+    '*** Work Title: Reviewing both notes\nI will inspect the first note.\n*** Call: read_file\n{"path":"/one.txt"}\n*** End Call',
+    'The first note establishes the baseline. I will inspect the second note.\n*** Call: read_file\n{"path":"/two.txt"}\n*** End Call',
+    'The second note adds the missing detail.\n*** Final Response\nTogether, the notes describe one complete process.',
+  ], { '/one.txt': 'baseline\n', '/two.txt': 'detail\n' }, AGENTIC_PROFILE);
+
+  assert.deepEqual(events.filter((event) => event.type === 'work-log').map((event) => event.text), [
+    'I will inspect the first note.',
+    'The first note establishes the baseline. I will inspect the second note.',
+    'The second note adds the missing detail.',
+  ]);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'Together, the notes describe one complete process.');
+});
+
+it('recovers once when a model ignores the final-response marker', async () => {
+  const { events, scripted } = await run('Explain a practical note-taking tradeoff.', [
+    '*** Work Title: Weighing note-taking tradeoffs\nI am comparing structure with retrieval flexibility.',
+    'Folders are easier to maintain, while tags make cross-cutting retrieval faster.',
+  ], {}, AGENTIC_PROFILE);
+
+  assert.equal(scripted.turns, 2);
+  assert.match(scripted.conversations[1].at(-1).content, /Final Response/);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'Folders are easier to maintain, while tags make cross-cutting retrieval faster.');
+});
+
+it('never executes another call after the final-response boundary', async () => {
+  const { events } = await run('Research a practical note-taking approach.', [
+    '*** Work Title: Researching note-taking approaches\nI compared the available approaches.\n*** Final Response\nUse folders for stable categories.\n*** Call: list_files\n{}\n*** End Call',
+  ], {}, AGENTIC_PROFILE);
+
+  assert.equal(events.some((event) => event.type === 'call-start'), false);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join('').trim(), 'Use folders for stable categories.');
 });
 
 it('deduplicates a repeated Interactions search delta without hiding a second search', async () => {

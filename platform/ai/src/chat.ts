@@ -30,6 +30,29 @@ export interface ChatMessage {
 // StreamPhase specifies life cycle phases
 export type StreamPhase = 'thinking' | 'searching' | 'executing' | 'responding';
 
+/** Provider-reported usage for a single model response/request. */
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+const normalizeTokenUsage = (raw: any): TokenUsage | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const pick = (...keys: string[]): number | undefined => {
+    for (const key of keys) {
+      const value = Number(raw[key]);
+      if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+    }
+    return undefined;
+  };
+  const inputTokens = pick('inputTokens', 'input_tokens', 'promptTokenCount', 'prompt_tokens');
+  const outputTokens = pick('outputTokens', 'output_tokens', 'candidatesTokenCount', 'completion_tokens');
+  const totalTokens = pick('totalTokens', 'total_tokens');
+  if (inputTokens === undefined && outputTokens === undefined && totalTokens === undefined) return null;
+  return { inputTokens, outputTokens, totalTokens };
+};
+
 export interface AiOptions {
   provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
   model: string;
@@ -704,6 +727,7 @@ const streamGeminiInteractions = async ({
   onThought,
   onCitations,
   onCodeExecutions,
+  onUsage,
   onToolCallStart,
   onFunctionCall,
 }: {
@@ -722,6 +746,7 @@ const streamGeminiInteractions = async ({
   onThought?: (text: string) => void;
   onCitations?: (citations: MessageCitations) => void;
   onCodeExecutions?: (executions: CodeExecution[]) => void;
+  onUsage?: (usage: TokenUsage) => void;
   onToolCallStart?: (name: string, args?: any) => void;
   onFunctionCall?: (name: string, args: any) => Promise<any>;
 }): Promise<void> => {
@@ -739,6 +764,7 @@ const streamGeminiInteractions = async ({
   const emitCode = () => onCodeExecutions?.(codeExecutions.map((entry) => ({ ...entry })));
   let interactionId = '';
   let interactionStatus = '';
+  let latestUsage: TokenUsage | null = null;
   let functionCalls = new Map<number, { id: string; name: string; arguments: string }>();
   // Interactions streams may repeat a step delta while a server-side tool is
   // being assembled. Keep the UI event one-per-search-step; a real second
@@ -762,6 +788,9 @@ const streamGeminiInteractions = async ({
     if (type === 'error') throw new Error(event.error?.message || 'Gemini Interactions request failed.');
     if (event.interaction?.id) interactionId = event.interaction.id;
     if (event.interaction?.status) interactionStatus = event.interaction.status;
+    latestUsage = normalizeTokenUsage(
+      event.usage_metadata ?? event.usage ?? event.interaction?.usage_metadata ?? event.interaction?.usage,
+    ) ?? latestUsage;
 
     const step = event.step || event.content;
     const isStepStart = type === 'step.start' || type === 'content.start';
@@ -855,6 +884,7 @@ const streamGeminiInteractions = async ({
     reportedInteractionSearches.clear();
     interactionStatus = '';
     interactionId = '';
+    latestUsage = null;
     functionCalls = new Map();
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
       method: 'POST',
@@ -914,6 +944,7 @@ const streamGeminiInteractions = async ({
       const toolStarted = handleEvent(eventName, eventData.trim());
       if (toolStarted) await waitWithAbort(0, signal);
     }
+    if (latestUsage) onUsage?.(latestUsage);
 
     const calls = [...functionCalls.values()].filter((call) => call.name);
     if (interactionStatus !== 'requires_action' || !calls.length || !interactionId || !onFunctionCall) break;
@@ -951,7 +982,8 @@ const streamChatImpl: any = async (
   onToolCall?: (name: string, args: any) => Promise<any>,
   onThought?: (thought: string) => void,
   onCitations?: (citations: MessageCitations) => void,
-  onCodeExecutions?: (executions: CodeExecution[]) => void
+  onCodeExecutions?: (executions: CodeExecution[]) => void,
+  onUsage?: (usage: TokenUsage) => void,
 ) => {
   const { provider, model, apiKey } = options;
   const messagesList: any = messages;
@@ -967,6 +999,10 @@ const streamChatImpl: any = async (
   const usesAnthropicAdapter = configuredFormat === 'anthropic-messages';
   const usesXaiAdapter = configuredFormat === 'xai-chat-completions';
   const toolsAllowed = options.toolPolicy !== 'disabled';
+  const reportUsage = (raw: any): void => {
+    const usage = normalizeTokenUsage(raw);
+    if (usage) onUsage?.(usage);
+  };
 
   if (!apiKey) {
     throw new Error(`API Key for ${provider} is missing.`);
@@ -1445,6 +1481,7 @@ Adhere to the following rules and guidelines:
           onThought,
           onCitations,
           onCodeExecutions,
+          onUsage,
           onToolCallStart: options.onToolCallStart,
           onFunctionCall: onToolCall,
         });
@@ -1609,6 +1646,7 @@ Adhere to the following rules and guidelines:
       // Await the SDK's final response so stream-level errors still propagate,
       // but do not use its aggregated parts: v0.24.1 strips thought metadata.
       const fullResponse: any = await (result as any).response;
+      reportUsage(fullResponse?.usageMetadata ?? fullResponse?.usage ?? fullResponse?.response?.usageMetadata);
       const canonicalParts: any[] = rawResponseParts.length > 0
         ? rawResponseParts
         : fullResponse?.candidates?.[0]?.content?.parts ?? [];
@@ -1878,6 +1916,8 @@ Adhere to the following rules and guidelines:
         throw new Error(`${model} response did not complete: ${message}`);
       }
 
+      reportUsage((response as any).usage);
+
       const content = response.output_text || "";
       if (content) onToken(content);
       openaiAnswerText = content;
@@ -1907,6 +1947,7 @@ Adhere to the following rules and guidelines:
       for await (const chunk of stream as any) {
         throwIfAborted(signal);
         harvestCompatSearchChunk(chunk, openaiHarvest);
+        reportUsage(chunk?.usage);
         const delta = chunk.choices[0]?.delta;
         if (!delta) continue;
 
@@ -2025,6 +2066,7 @@ Adhere to the following rules and guidelines:
     for await (const messageStreamEvent of stream) {
       throwIfAborted(signal);
       const event = messageStreamEvent as any;
+      reportUsage(event.usage ?? event.message?.usage ?? event.delta?.usage);
 
       if (event.type === 'content_block_start') {
         const block = event.content_block;
@@ -2157,6 +2199,7 @@ Adhere to the following rules and guidelines:
     for await (const chunk of stream) {
       throwIfAborted(signal);
       harvestCompatSearchChunk(chunk, compatHarvest);
+      reportUsage(chunk?.usage);
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
 
@@ -2339,6 +2382,7 @@ Adhere to the following rules and guidelines:
       for await (const chunk of stream) {
         throwIfAborted(signal);
         harvestCompatSearchChunk(chunk, compatHarvest);
+        reportUsage(chunk?.usage);
 
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;

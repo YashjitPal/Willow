@@ -161,12 +161,6 @@
   position: relative;
 }
 
-/* Keep the left composer's overlays above the divider and the adjacent task card.
- * Stay below Spark's dialogs, whose backdrop starts at z-index 40. */
-.spark-task-detail__new-composer .spark-composer-host > div {
-  z-index: 39;
-}
-
 /* The follow-up box is Chat's `InputBar` now, so this is only its placement — the surface,
  * corners and elevation all belong to `Composer.tsx`. */
 .spark-task-detail__followup-composer {
@@ -473,6 +467,9 @@
 }
 
 .spark-task-detail__recent-list {
+  --fade-progress: 0;
+  --fade-bottom: 0;
+  --fade-distance: 48px;
   display: flex;
   min-height: 0;
   flex: 1 1 0;
@@ -483,6 +480,22 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  /* Gemini's `.goal-list` fades the top after scrolling beneath Recent and
+   * fades the bottom while more tasks remain below the viewport. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--fade-progress) * var(--fade-distance)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-distance)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--fade-progress) * var(--fade-distance)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-distance)),
+    transparent 100%
+  );
 }
 
 /* Same surface as Gemini's `.goal-card`: half-alpha `--lumi-sys-color--surface` at
@@ -1374,6 +1387,9 @@
 }
 
 .spark-task-detail__conversation-scroll {
+  --fade-progress: 0;
+  --fade-bottom: 0;
+  --fade-distance: 48px;
   min-height: 0;
   flex: 1 1 auto;
   overflow-x: hidden;
@@ -1383,6 +1399,21 @@
   scrollbar-gutter: stable;
   padding: 35px 24px var(--spark-followup-inset, 145px);
   scroll-padding-bottom: var(--spark-followup-inset, 145px);
+  /* Match Gemini's scroll-edge treatment inside the open task panel. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--fade-progress) * var(--fade-distance)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-distance)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--fade-progress) * var(--fade-distance)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-distance)),
+    transparent 100%
+  );
 }
 
 .spark-task-detail__conversation {
@@ -1523,6 +1554,18 @@
   cursor: default;
 }
 
+/* Gemini uses the emphasized body ramp for each child task title. Keep this
+ * selector scoped with the shared header rule so the task-specific weight is
+ * not lost to the button reset's higher specificity. */
+.spark-task-detail .spark-task-detail__subagent-child-header {
+  transform: translateX(-2px);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+}
+
 .spark-task-detail__subagent-header:hover {
   color: #e6e6e6;
 }
@@ -1575,14 +1618,27 @@
   padding-block: 0;
 }
 
+.spark-task-detail__subagent-content.group-child {
+  padding-left: 28px;
+}
+
+/* In Gemini an expanded child branch gets a 12px breathing space before the
+ * next sibling branch. Collapsed siblings remain on the 24px row rhythm. */
+.spark-task-detail__subagent-content.synthetic-group > .spark-task-detail__subagent-item.is-expanded {
+  margin-bottom: 12px;
+}
+
+/* Each delegated task row enters with the same height/fade motion as the
+ * main timeline's narration and tool rows. */
+.spark-task-detail__subagent-item {
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
 .spark-task-detail__subagent-child-header {
   min-height: unset;
   padding-right: 0;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 13px;
-  font-weight: 540;
-  line-height: 17px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
 }
 
 .spark-task-detail__subagent-child-icon {
@@ -1622,6 +1678,7 @@
   max-width: 600px;
   overflow: hidden;
   text-overflow: ellipsis;
+  transform: translateX(-4px);
   white-space: nowrap;
 }
 
@@ -1632,7 +1689,7 @@
 .spark-task-detail__subagent-details {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
   padding: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
@@ -1640,38 +1697,64 @@
 }
 
 .spark-task-detail__subagent-line {
+  position: relative;
   display: flex;
   min-height: 17px;
   min-width: 0;
   align-items: flex-start;
   gap: 8px;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-.spark-task-detail__subagent-line > [class*="material-symbol"],
-.spark-task-detail__subagent-line > .spark-task-detail__processing-clock,
-.spark-task-detail__subagent-line > .spark-task-detail__processing-tool-icon {
+.spark-task-detail__subagent-line-icon {
+  display: inline-flex;
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
   margin-top: 1px;
 }
 
-.spark-task-detail__subagent-narration {
-  position: relative;
+.spark-task-detail__subagent-line-icon > [class*="material-symbol"],
+.spark-task-detail__subagent-line-icon > .spark-task-detail__processing-clock,
+.spark-task-detail__subagent-line-icon > .spark-task-detail__processing-tool-icon,
+.spark-task-detail__subagent-line-icon > .spark-task-detail__google-search-icon,
+.spark-task-detail__subagent-line-icon > .spark-task-detail__app-tool-icon,
+.spark-task-detail__subagent-line-icon > .spark-task-detail__create-file-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
 
-.spark-task-detail__subagent-narration::after {
+.spark-task-detail__subagent-line:not(:last-child)::after,
+.spark-task-detail__subagent-line:last-child::before {
   position: absolute;
-  top: 17px;
-  bottom: 0;
-  left: 8px;
-  width: 1px;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(122, 122, 122, 0.72) 0 1px,
-    transparent 1px 4px
+  top: 18px;
+  left: 7px;
+  width: 2px;
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.55) 0 1px,
+    transparent 1px
   );
+  background-position: 50% center;
+  background-repeat: repeat-y;
+  background-size: 2px 4px;
   content: '';
+  pointer-events: none;
+  opacity: 0;
+  animation: spark-processing-fade-in 300ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.spark-task-detail__subagent-line:not(:last-child)::after {
+  bottom: -14px;
+}
+
+.spark-task-detail__subagent-line:last-child::before {
+  bottom: 0;
 }
 
 .spark-task-detail__subagent-narration-text {
@@ -1685,6 +1768,9 @@
 .spark-task-detail__subagent-narration-text > span {
   display: block;
   min-height: 17px;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .spark-task-detail__subagent-thought {
@@ -1692,13 +1778,15 @@
 }
 
 .spark-task-detail__subagent-thought-cap {
-  max-height: 110px;
+  position: relative;
+  max-height: var(--subagent-collapsed-height, 110px);
   overflow: hidden;
-  transition: max-height 200ms ease-out;
+  transition: max-height 260ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: max-height;
 }
 
 .spark-task-detail__subagent-thought-cap.is-expanded {
-  max-height: 2000px;
+  max-height: var(--subagent-full-height, 110px);
 }
 
 .spark-task-detail__subagent-thought.is-overflowing .spark-task-detail__subagent-thought-cap:not(.is-expanded)::after {
@@ -1712,19 +1800,33 @@
   pointer-events: none;
 }
 
-.spark-task-detail__subagent-show-more {
+.spark-task-detail .spark-task-detail__subagent-show-more {
   display: block;
-  max-height: 16px;
-  margin: 8px 0 0;
+  width: max-content;
+  height: 16px;
+  max-height: 0;
+  margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: rgba(255, 255, 255, 0.55);
-  font: inherit;
   font-size: 13px;
-  line-height: 16px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   cursor: pointer;
-  transition: max-height 200ms ease-out, opacity 300ms ease-out;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: max-height 200ms ease-out, opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.spark-task-detail .spark-task-detail__subagent-show-more.is-visible {
+  max-height: 16px;
+  margin: 8px 0 0;
+  padding: 0 12px 0 0;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .spark-task-detail__subagent-call-label {
@@ -1806,6 +1908,37 @@
   grid-template-rows: 1fr;
   clip-path: inset(0 0 0 0);
   margin-bottom: 8px;
+}
+
+.spark-task-detail__processing-details-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.spark-task-detail__processing-details-cap {
+  position: relative;
+  max-height: none;
+  overflow: visible;
+  transition: max-height 260ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: max-height;
+}
+
+.spark-task-detail__processing-details-cap.is-overflowing:not(.is-expanded) {
+  max-height: 272px;
+  overflow: hidden;
+}
+
+.spark-task-detail__processing-details-cap.is-overflowing:not(.is-expanded)::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 60px;
+  background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  animation: spark-processing-fade-in 150ms cubic-bezier(0.4, 0, 0.2, 1) 150ms forwards;
 }
 
 .spark-task-detail__processing-details {
@@ -1975,11 +2108,6 @@
   display: none;
 }
 
-.spark-task-detail__processing-thought.is-last-activity.is-overflowing::after {
-  display: block;
-  bottom: 0;
-}
-
 .spark-task-detail__processing-thought-header {
   display: flex;
   min-height: 24px;
@@ -1992,7 +2120,7 @@
   position: relative;
   min-width: 0;
   flex: 1;
-  max-height: 110px;
+  max-height: 113px;
   padding-top: 3px;
   overflow: hidden;
   transition: max-height 200ms ease-out;
@@ -2006,6 +2134,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-top: 3px;
 }
 
 .spark-task-detail__processing-thought.is-overflowing .spark-task-detail__processing-thought-cap:not(.is-expanded)::after {
@@ -2028,7 +2157,7 @@
   line-height: 17px;
 }
 
-.spark-task-detail__processing-show-more {
+.spark-task-detail .spark-task-detail__processing-show-more {
   display: block;
   min-height: 25px;
   margin: 4px 0 0 24px;
@@ -2037,7 +2166,6 @@
   border-radius: 9999px;
   background: transparent;
   color: rgba(255, 255, 255, 0.55);
-  font: inherit;
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
@@ -2099,6 +2227,10 @@
   .spark-task-detail__processing-thought,
   .spark-task-detail__processing-show-more,
   .spark-task-detail__subagent-group,
+  .spark-task-detail__subagent-item,
+  .spark-task-detail__subagent-line,
+  .spark-task-detail__subagent-narration-text > span,
+  .spark-task-detail__subagent-show-more,
   .spark-task-detail__agent-working,
   .spark-task-detail__agent-working-animation {
     animation: none;
@@ -2109,8 +2241,12 @@
   }
 
   .spark-task-detail__subagent-content-wrapper,
-  .spark-task-detail__subagent-header > [class*="material-symbol"] {
+  .spark-task-detail__subagent-header > [class*="material-symbol"],
+  .spark-task-detail__subagent-show-more,
+  .spark-task-detail__subagent-line::after,
+  .spark-task-detail__subagent-line::before {
     transition: none;
+    animation: none;
   }
 }
 
