@@ -20,6 +20,7 @@
  */
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, Search, Settings } from "lucide-react";
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
@@ -150,6 +151,7 @@ export const ModelsMenu: React.FC<{
   const [side, setSide] = useState<MenuSide>(preferredSide);
   const [isPositionReady, setIsPositionReady] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [geminiMenuPosition, setGeminiMenuPosition] = useState<React.CSSProperties>({});
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleClose = () => {
@@ -163,6 +165,7 @@ export const ModelsMenu: React.FC<{
     if (!triggerRef.current || !menuRef.current) return;
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const menuHeight = menuRef.current.offsetHeight;
+    const menuWidth = menuRef.current.offsetWidth;
     const viewportHeight = window.innerHeight;
     const spacing = geminiStyle ? 4 : 8;
     const spaceAbove = triggerRect.top;
@@ -176,6 +179,31 @@ export const ModelsMenu: React.FC<{
       spaceBelow,
     });
     setSide((currentSide) => currentSide === nextSide ? currentSide : nextSide);
+
+    if (geminiStyle) {
+      setGeminiMenuPosition({
+        position: 'fixed',
+        right: `${Math.max(0, window.innerWidth - triggerRect.right)}px`,
+        ...(nextSide === 'top'
+          ? { bottom: `${window.innerHeight - triggerRect.top + spacing}px` }
+          : { top: `${triggerRect.bottom + spacing}px` }),
+      });
+    }
+
+    if (geminiStyle) {
+      // The Gemini-style picker is right-aligned with its trigger. Work out the
+      // effort submenu's direction while the main picker is positioned, rather
+      // than waiting for hover to mount the submenu. That keeps the indicator
+      // stable before, during and after hover.
+      const modelMenuLeft = triggerRect.right - menuWidth;
+      const nextEffortSide = chooseSubmenuSide({
+        submenuWidth: 220,
+        spacing: 8,
+        spaceLeft: modelMenuLeft - 16,
+        spaceRight: window.innerWidth - triggerRect.right - 16,
+      });
+      setEffortSide((currentSide) => currentSide === nextEffortSide ? currentSide : nextEffortSide);
+    }
   }, [geminiStyle, preferredSide, triggerRef]);
 
   useLayoutEffect(() => {
@@ -214,16 +242,7 @@ export const ModelsMenu: React.FC<{
     const calculateEffortPosition = () => {
       const effortMenuWrapper = effortMenuWrapperRef.current;
       const effortMenu = effortMenuRef.current;
-      const modelMenu = menuRef.current;
-      if (!effortMenuWrapper || !effortMenu || !modelMenu) return;
-
-      const modelRect = modelMenu.getBoundingClientRect();
-      setEffortSide(chooseSubmenuSide({
-        submenuWidth: effortMenu.offsetWidth,
-        spacing: 8,
-        spaceLeft: modelRect.left - 16,
-        spaceRight: window.innerWidth - modelRect.right - 16,
-      }));
+      if (!effortMenuWrapper || !effortMenu) return;
 
       const previousTransform = effortMenuWrapper.style.transform;
       effortMenuWrapper.style.transform = 'none';
@@ -417,15 +436,16 @@ export const ModelsMenu: React.FC<{
   };
 
   if (geminiStyle) {
-    return (
+    const geminiMenu = (
       <div
         ref={menuRef}
         role="menu"
         aria-label="Choose a model"
-        className={`absolute right-0 w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${!isPositionReady ? 'invisible' : ''} ${side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+        className={`${geminiStyle ? 'fixed' : 'absolute right-0'} w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${!isPositionReady ? 'invisible' : ''} ${geminiStyle ? (side === "top" ? "origin-bottom-right" : "origin-top-right") : (side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right")} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
         style={{
           fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
           animationPlayState: isPositionReady ? undefined : 'paused',
+          ...(geminiStyle ? geminiMenuPosition : {}),
         }}
       >
         <div
@@ -487,20 +507,21 @@ export const ModelsMenu: React.FC<{
                 aria-haspopup="menu"
                 className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
               >
-                {effortSide === 'left' ? (
-                  <MaterialSymbol family="luminous" name="keyboard_arrow_left" size={24} weight={300} roundness={100} className="ml-2 mr-1" />
-                ) : (
-                  <span className="w-9 shrink-0" aria-hidden="true" />
-                )}
+                <span className="w-9 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block leading-[17px]">Thinking Effort</span>
                   <span className="block truncate text-[12px] leading-4 text-white/55">
                     {getThinkingEffortLabel(selectedEffort)}
                   </span>
                 </span>
-                {effortSide === 'right' && (
-                  <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
-                )}
+                <MaterialSymbol
+                  family="google-symbols"
+                  name={effortSide === 'left' ? 'keyboard_arrow_left' : 'keyboard_arrow_right'}
+                  size={24}
+                  weight={400}
+                  roundness={100}
+                  className="mr-2"
+                />
               </button>
 
               {isEffortHovered && (
@@ -574,6 +595,13 @@ export const ModelsMenu: React.FC<{
         )}
       </div>
     );
+
+    // The Gemini-style picker is portalled so only the picker (and its effort
+    // submenu) crosses Spark's split-pane stacking boundary. The composer
+    // shell and its glow remain in their normal pane layer.
+    return typeof document === 'undefined'
+      ? geminiMenu
+      : createPortal(geminiMenu, document.body);
   }
 
   return (

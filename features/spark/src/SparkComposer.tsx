@@ -147,6 +147,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
       <InputBar
         chatVariant
         sparkMode
+        sparkToolsEnabled
         composerRef={composerRef}
         disabled={disabled}
         placeholder={placeholder}

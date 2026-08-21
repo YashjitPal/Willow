@@ -12,13 +12,22 @@
  * throwing.
  */
 
-import { CALL_BEGIN, CALL_END, PATCH_BEGIN, PATCH_END, WORK_TITLE_BEGIN } from './protocol';
+import {
+  CALL_BEGIN,
+  CALL_END,
+  FINAL_RESPONSE_BEGIN,
+  PATCH_BEGIN,
+  PATCH_END,
+  WORK_TITLE_BEGIN,
+} from './protocol';
 
 export interface StreamHandlers {
   /** Prose, already stripped of any tool envelope. */
   onText: (chunk: string) => void;
   /** Spark metadata that labels the overall job, separate from work-log prose. */
   onWorkTitle: (title: string) => void;
+  /** Closes Spark's work timeline; subsequent prose is the final response. */
+  onFinalResponse: () => void;
   onPatchOpen: () => void;
   /** One raw line of the patch body, envelope lines included. */
   onPatchLine: (line: string) => void;
@@ -39,6 +48,8 @@ export class ResponseStreamParser {
   #patchLines: string[] = [];
   #callName = '';
   #callBody: string[] = [];
+  #finalResponse = false;
+  #discardAfterFinalProtocol = false;
 
   constructor(private readonly handlers: StreamHandlers) {}
 
@@ -89,6 +100,8 @@ export class ResponseStreamParser {
     }
 
     this.#mode = 'text';
+    this.#finalResponse = false;
+    this.#discardAfterFinalProtocol = false;
   }
 
   /**
@@ -108,7 +121,7 @@ export class ResponseStreamParser {
    */
   #findOpener(text: string): { index: number; opener: string } | null {
     let found: { index: number; opener: string } | null = null;
-    for (const opener of [WORK_TITLE_BEGIN, PATCH_BEGIN, CALL_BEGIN]) {
+    for (const opener of [WORK_TITLE_BEGIN, FINAL_RESPONSE_BEGIN, PATCH_BEGIN, CALL_BEGIN]) {
       const index = text.indexOf(opener);
       if (index !== -1 && (found === null || index < found.index)) {
         found = { index, opener };
@@ -151,6 +164,23 @@ export class ResponseStreamParser {
   #line(raw: string): void {
     const trimmed = raw.trim();
 
+    if (this.#finalResponse) {
+      if (this.#discardAfterFinalProtocol) return;
+      const found = this.#findOpener(raw);
+      if (found) {
+        const before = raw.slice(0, found.index);
+        if (before.trim() !== '') this.handlers.onText(before);
+        this.#discardAfterFinalProtocol = true;
+        return;
+      }
+      if (trimmed === CALL_END || trimmed === PATCH_END) {
+        this.#discardAfterFinalProtocol = true;
+        return;
+      }
+      this.handlers.onText(`${raw}\n`);
+      return;
+    }
+
     if (this.#mode === 'text') {
       /*
        * A closing marker with nothing open is protocol noise, never prose.
@@ -175,6 +205,13 @@ export class ResponseStreamParser {
         if (found.opener === WORK_TITLE_BEGIN) {
           const title = rest.trim().replace(/\s+/g, ' ').slice(0, 160);
           if (title) this.handlers.onWorkTitle(title);
+          return;
+        }
+
+        if (found.opener === FINAL_RESPONSE_BEGIN) {
+          this.#finalResponse = true;
+          this.handlers.onFinalResponse();
+          if (rest.trim() !== '') this.handlers.onText(rest);
           return;
         }
 

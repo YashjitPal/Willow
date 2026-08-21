@@ -32,6 +32,13 @@ const SPARK_TOOL_LABELS: Record<string, string> = {
   github: 'GitHub',
   quizzes: 'Quizzes',
   spotify: 'Spotify',
+  plan: 'Plan',
+  goal: 'Goal',
+  'computer-use': 'Computer Use',
+  'create-pet': 'Create pet',
+  'create-skill': 'Create skill',
+  'sub-agents': 'Sub-agents',
+  'personal-intelligence': 'Personal Intelligence',
 };
 
 export interface SparkAllTasksProps {

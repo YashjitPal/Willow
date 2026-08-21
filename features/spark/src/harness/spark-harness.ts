@@ -29,6 +29,11 @@ export interface SparkHarnessResult {
   error?: string;
 }
 
+// Browser-safe stand-in for Codex's idle-thread continuation hook. A live app
+// invocation cannot run forever, so retain the active persisted goal after a
+// generous safety bound; reopening/resuming the Spark task continues it.
+const MAX_GOAL_CONTINUATIONS_PER_INVOCATION = 32;
+
 const toMessage = (entry: ChatMessage): Message => ({
   id: entry.id || `history-${entry.createdAt ?? Date.now()}`,
   role: entry.role,
@@ -57,6 +62,9 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     options.onGoalChange?.(goal);
     emit({ type: 'goal-updated', goal });
   });
+  if (options.capabilities.selectedCapabilities?.includes('goal')) {
+    goalRuntime.ensureGoal(options.prompt);
+  }
   const transport: Transport = options.transport ?? (async (
     messages: { role: 'user' | 'assistant'; content: string }[],
     modelOptions: AiOptions,
@@ -66,6 +74,7 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     onPhase: (phase: StreamPhase) => void,
     onToolCall: (name: string, args: Record<string, unknown>) => Promise<unknown>,
     onThought: (thought: string) => void,
+    onUsage: (usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number }) => void,
   ): Promise<unknown> => {
     const { streamChat } = await import('@willow/ai/chat');
     return streamChat(
@@ -77,6 +86,9 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
       onPhase,
       onToolCall,
       onThought,
+      undefined,
+      undefined,
+      onUsage,
     );
   });
   const binding: ModelBinding = {
@@ -124,7 +136,7 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
   // idle while its persisted goal is still active. Keep the browser port
   // bounded per invocation so a broken provider cannot loop forever; the goal
   // remains active and the next Spark run can resume it.
-  for (let continuation = 0; continuation < 7 && reason === 'complete' && goalRuntime.isActive(); continuation += 1) {
+  for (let continuation = 0; continuation < MAX_GOAL_CONTINUATIONS_PER_INVOCATION && reason === 'complete' && goalRuntime.isActive(); continuation += 1) {
     if (options.signal?.aborted) break;
     await runAndRecord(goalRuntime.continuationPrompt());
   }

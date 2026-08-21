@@ -184,8 +184,14 @@ const appendDisplayableThinkingSteps = (steps: string[], thought: string): strin
 const appendSparkNarration = (entries: SparkActivityEntry[], text: string): SparkActivityEntry[] => {
   const next = [...entries];
   text
-    .split(/\n{2,}/)
-    .map((part) => part.replace(/\s+/g, ' ').trim().replace(/^\*\*|\*\*$/g, ''))
+    .split(/\r?\n+/)
+    .map((part) => part
+      .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+      .replace(/\*\*|__|`+/g, '')
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s*(?:[-+*]|\d+[.)])\s+/, '')
+      .replace(/\s+/g, ' ')
+      .trim())
     .filter(Boolean)
     .forEach((part) => {
       const last = next.at(-1);
@@ -441,6 +447,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       modelId: model,
       name: selected?.name,
       reasoningEfforts: selected?.reasoningEfforts,
+      multiAgentVersion: selected?.multiAgentVersion,
+      supportsMultiAgent: selected?.supportsMultiAgent,
     });
     return {
       provider,
@@ -796,7 +804,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     const activeTask = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
     const turn = activeTask?.turns.find((candidate) => candidate.id === turnId);
     if (!activeTask || !turn) return;
-    const tools = activeTask.tools ?? [];
+    const tools = turn.tools ?? [];
     const execution = getExecutionSettings(turn.prompt, tools);
     const { controller, key: runKey } = beginSparkRun(executionScope, taskId);
     const isCurrentRun = () => sparkRunControllers.get(runKey) === controller
@@ -1051,11 +1059,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       || activeTask.status === 'queued'
       || activeTask.status === 'needs-input'
       || (activeTask.approval && activeTask.approvalDecision !== 'allowed')) return false;
-    const turn = appendSparkTaskTurn(taskId, { prompt, response: '', attachments });
+    const turn = appendSparkTaskTurn(taskId, { prompt, response: '', attachments, tools });
     if (!turn) return false;
-    updateSparkTask(taskId, {
-      tools: [...new Set([...(activeTask.tools ?? []), ...tools])],
-    });
     void executeTurn(taskId, turn.id);
     return true;
   }, [executeTurn]);

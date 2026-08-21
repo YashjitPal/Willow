@@ -28,6 +28,7 @@ import { ModelIcon } from './composer-icons';
 import {
   MODES,
   TOOLS,
+  SPARK_TOOLS,
   TOOL_SYMBOLS,
   type Mode,
   type ToolId,
@@ -141,6 +142,8 @@ export const InputBar: React.FC<{
   chatVariant?: boolean;
   /** Uses Spark's upload-only Gemini plus menu without changing normal Chat. */
   sparkMode?: boolean;
+  /** Opts Spark into its agent-mode rows. Removing this restores upload-only Spark. */
+  sparkToolsEnabled?: boolean;
   /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
   showDisclaimer?: boolean;
   /** Workspace swatch color to style the send / live button. */
@@ -182,7 +185,7 @@ export const InputBar: React.FC<{
   extraEfforts?: React.ComponentProps<typeof ModelsMenu>['extraEfforts'];
   /** Product modes such as Ultra replace the numeric effort segment in the pill. */
   effortDisplayOverride?: string;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride }) => {
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const [isThemesOpen, setIsThemesOpen] = useState(false);
@@ -482,7 +485,7 @@ export const InputBar: React.FC<{
    * accessible name; the close glyph is decoration inside it, not a separate control.
    */
   const ToolChip = ({ toolId, onRemove }: { toolId: ToolId, onRemove: () => void }) => {
-    const tool = TOOLS[toolId];
+    const tool = (sparkMode ? SPARK_TOOLS[toolId as keyof typeof SPARK_TOOLS] : TOOLS[toolId as keyof typeof TOOLS]) ?? TOOLS[toolId as keyof typeof TOOLS];
     const Icon = tool.icon;
     const glyph = TOOL_SYMBOLS[toolId];
 
@@ -497,10 +500,10 @@ export const InputBar: React.FC<{
           {chatVariant && glyph
             ? <MaterialSymbol
                 name={glyph}
-                family="luminous"
+                family={sparkMode ? 'google-symbols' : 'luminous'}
                 size={16}
                 weight={330}
-                variationSettings={CHIP_GLYPH_AXES}
+                variationSettings={sparkMode ? '"wght" 330' : CHIP_GLYPH_AXES}
                 className="text-[#e6e6e6]"
               />
             : <Icon size={16} className="text-[#e6e6e6]" strokeWidth={2.2} />}
@@ -872,6 +875,7 @@ export const InputBar: React.FC<{
                   onTogglePersonalIntelligence={setProfileEnabled}
                   geminiStyle={chatVariant}
                   sparkMode={sparkMode}
+                  sparkToolsEnabled={sparkToolsEnabled}
                 />
               </div>
               {/* No entrance/exit animation: measured against Gemini, both directions are
@@ -1166,6 +1170,7 @@ export const InputBar: React.FC<{
                 personalIntelligence={personalIntelligence}
                 onTogglePersonalIntelligence={setProfileEnabled}
                 sparkMode={sparkMode}
+                sparkToolsEnabled={sparkToolsEnabled}
               />
               {selectedTool && (
                 <div className="ml-2">

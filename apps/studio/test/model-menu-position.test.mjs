@@ -87,8 +87,21 @@ describe('model menu positioning', () => {
     assert.match(source, /addEventListener\('animationend', handleModelMenuAnimationEnd\)/);
     assert.match(source, /isEffortPositionReady/);
     assert.match(source, /chooseSubmenuSide/);
-    assert.match(source, /keyboard_arrow_left/);
+    assert.match(source, /name=\{effortSide === 'left' \? 'keyboard_arrow_left' : 'keyboard_arrow_right'\}/);
+    assert.match(source, /family="google-symbols"/);
+    assert.doesNotMatch(source, /effortSide === 'left' \? 'rotate-180' : ''/);
+    assert.match(source, /const modelMenuLeft = triggerRect\.right - menuWidth/);
+    assert.match(source, /createPortal\(geminiMenu, document\.body\)/);
     assert.match(source, /willChange: 'transform'/);
     assert.match(source, /translateZ\(0\)/);
+
+    const sparkDetailCss = fs.readFileSync(
+      path.join(root, 'features/spark/src/SparkTaskDetail.css'),
+      'utf8',
+    );
+    const libraryRule = sparkDetailCss.match(/\.spark-task-detail__library\s*\{([^}]*)\}/)?.[1] ?? '';
+    const composerRule = sparkDetailCss.match(/\.spark-task-detail__new-composer\s*\{([^}]*)\}/)?.[1] ?? '';
+    assert.doesNotMatch(libraryRule, /z-index/);
+    assert.doesNotMatch(composerRule, /z-index/);
   });
 });

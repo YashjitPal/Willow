@@ -254,8 +254,10 @@ export const PlusDropdownMenu: React.FC<{
   onToolSelect: (toolId: string) => void;
   selectedTool?: ToolId | null;
   geminiStyle?: boolean;
-  /** Spark uses Gemini's upload-only plus menu; normal Chat keeps the full tool set. */
+  /** Spark uses Gemini's upload menu plus its opt-in agent-mode catalog; normal Chat keeps the full tool set. */
   sparkMode?: boolean;
+  /** Adds Spark's optional agent-mode catalog. Leave false to retain upload-only Spark. */
+  sparkToolsEnabled?: boolean;
   /**
    * Gemini's full upload set. Every row renders whether or not Willow can serve it yet,
    * because the menu is a clone of Gemini's and a missing row is a visible difference.
@@ -283,6 +285,7 @@ export const PlusDropdownMenu: React.FC<{
   personalIntelligence = false,
   onTogglePersonalIntelligence,
   sparkMode = false,
+  sparkToolsEnabled = false,
 }) => {
   const [openSub, setOpenSub] = useState<null | 'uploads' | 'tools'>(null);
   // Vertical offset of whichever row opened the submenu, measured from the positioning
@@ -424,6 +427,26 @@ export const PlusDropdownMenu: React.FC<{
             </div>
           </>
         )}
+        {sparkMode && sparkToolsEnabled && (
+          <>
+            <Divider />
+            <Row glyph={TOOL_SYMBOLS.plan} family="google-symbols" label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS.goal} family="google-symbols" label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} onMouseEnter={() => setOpenSub(null)} />
+            <Row glyph={TOOL_SYMBOLS['create-pet']} family="google-symbols" label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} onMouseEnter={() => setOpenSub(null)} />
+            <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
+              <Row
+                glyph="more_horiz"
+                family="google-symbols"
+                label="More tools"
+                trailingChevron
+                ariaHasPopup
+                expanded={openSub === 'tools'}
+                onClick={() => openWith('tools')}
+              />
+            </div>
+          </>
+        )}
       </MenuCard>
 
       {openSub === 'uploads' && (
@@ -448,7 +471,13 @@ export const PlusDropdownMenu: React.FC<{
 
       {openSub === 'tools' && (
         <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
-          {!sparkMode && (
+          {sparkMode && sparkToolsEnabled ? (
+            <MenuCard width={253} origin="0 0" label="More tools">
+              <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
+              <Row glyph={TOOL_SYMBOLS['sub-agents']} family="google-symbols" label="Sub-agents" labelInset={44} selected={selectedTool === 'sub-agents'} onClick={() => pickTool('sub-agents')} />
+              <Row glyph={TOOL_SYMBOLS['personal-intelligence']} family="google-symbols" label="Personal Intelligence" labelInset={44} selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} />
+            </MenuCard>
+          ) : (
             <MenuCard width={253} origin="0 0" label="More tools">
               <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
               <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />

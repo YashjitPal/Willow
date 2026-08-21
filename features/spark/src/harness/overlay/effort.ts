@@ -46,6 +46,8 @@ export type CodexEffort =
   | 'max'
   | 'ultra';
 
+export type MultiAgentVersion = 'v1' | 'v2';
+
 export const CODEX_EFFORTS: CodexEffort[] = [
   'none',
   'minimal',
@@ -208,6 +210,8 @@ export function selectableEfforts(model: {
   modelId?: string;
   name?: string;
   reasoningEfforts?: readonly unknown[];
+  multiAgentVersion?: MultiAgentVersion | string | null;
+  supportsMultiAgent?: boolean;
 }): CodexEffort[] {
   return [...supportedEfforts(model), 'ultra'];
 }
@@ -249,6 +253,8 @@ export interface HarnessEffort {
    * `agents.max_concurrent_threads_per_session`, which defaults to 3.
    */
   maxConcurrentAgents: number;
+  /** Codex model-catalog protocol selected for collaboration tools. */
+  multiAgentVersion?: MultiAgentVersion | null;
 }
 
 const ON_REQUEST = 'on-request' as const;
@@ -329,19 +335,10 @@ const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
     delegation: 'proactive',
     maxConcurrentAgents: 4,
     guidance:
-      'You are in proactive delegation mode. Work as if the result ships unreviewed.\n' +
-      '- **Split the work first.** Before writing anything, decide which parts are\n' +
-      '  independent, and call `spawn_agent` for each. Do not do serially what\n' +
-      '  can be done in parallel — that is the whole reason this mode exists.\n' +
-      '- Delegate without being asked. At every other effort you wait to be told;\n' +
-      '  here you are expected to fan out on your own judgement.\n' +
-      '- Keep your own thread for work that must stay coherent: the plan, the parts\n' +
-      '  that reference each other, and the final synthesis of what the agents did.\n' +
-      '- Plan before acting, keep the plan current, and revise it when reality disagrees.\n' +
-      '- Read every file you touch and everything that imports it.\n' +
-      '- Verify with computer_use, and keep fixing until it passes rather than reporting a failure.\n' +
-      '- Cover the states nobody asked about: empty, loading, error, 390px wide, keyboard-only.\n' +
-      'Take the time this needs. Latency is explicitly not a concern at this level.',
+      'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
+      'nobody asked about, and when you find a problem, fix it rather than reporting ' +
+      'it. Use proactive delegation when parallel work would materially improve ' +
+      'speed or quality; keep planning, verification, and tool choice judgment-based.',
   },
 };
 
@@ -365,13 +362,29 @@ export interface ResolvedEffort {
   clamped: boolean;
   /** Loop budget, delegation mode and prompt guidance, from the request. */
   harness: HarnessEffort;
+  /** Catalog capability used to derive Ultra's proactive mode. */
+  multiAgentVersion: MultiAgentVersion | null;
+}
+
+export function resolveMultiAgentVersion(model: {
+  multiAgentVersion?: MultiAgentVersion | string | null;
+  supportsMultiAgent?: boolean;
+}): MultiAgentVersion | null {
+  if (model.supportsMultiAgent === false) return null;
+  if (model.multiAgentVersion === 'v1' || model.multiAgentVersion === 'v2') return model.multiAgentVersion;
+  if (model.supportsMultiAgent === true) return 'v2';
+  // Spark's forked browser runtime implements the V2 protocol itself. Saved
+  // models may explicitly disable or downgrade this, matching Codex catalog
+  // gating while keeping the browser fork usable with legacy model records.
+  return 'v2';
 }
 
 export function resolveEffort(
   requested: CodexEffort,
-  model: { providerId?: string; modelId?: string; name?: string; reasoningEfforts?: readonly unknown[] },
+  model: { providerId?: string; modelId?: string; name?: string; reasoningEfforts?: readonly unknown[]; multiAgentVersion?: MultiAgentVersion | string | null; supportsMultiAgent?: boolean },
 ): ResolvedEffort {
   const supported = supportedEfforts(model);
+  const multiAgentVersion = resolveMultiAgentVersion(model);
 
   // The harness always runs at what was asked for — that half is model-agnostic.
   const harness = harnessEffort(requested);
@@ -387,12 +400,16 @@ export function resolveEffort(
    */
   if (requested === 'ultra') {
     const ceiling = supported[supported.length - 1] ?? 'high';
+    const harness = multiAgentVersion === 'v2'
+      ? { ...harnessEffort(requested), multiAgentVersion }
+      : { ...harnessEffort(requested), delegation: ON_REQUEST, maxConcurrentAgents: 1, multiAgentVersion };
     return {
       requested,
       effective: ceiling,
       level: effortToLevel(ceiling),
       clamped: false,
-      harness,
+      harness: { ...harness, multiAgentVersion },
+      multiAgentVersion,
     };
   }
 
@@ -402,7 +419,8 @@ export function resolveEffort(
       effective: requested,
       level: effortToLevel(requested),
       clamped: false,
-      harness,
+      harness: { ...harness, multiAgentVersion },
+      multiAgentVersion,
     };
   }
 
@@ -414,5 +432,5 @@ export function resolveEffort(
     if (CODEX_EFFORTS.indexOf(candidate) <= wanted) effective = candidate;
   }
 
-  return { requested, effective, level: effortToLevel(effective), clamped: true, harness };
+  return { requested, effective, level: effortToLevel(effective), clamped: true, harness: { ...harness, multiAgentVersion }, multiAgentVersion };
 }

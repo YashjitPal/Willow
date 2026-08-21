@@ -27,7 +27,7 @@
  * with the real observation.
  */
 
-import type { AiOptions, StreamPhase } from '@willow/ai/chat';
+import type { AiOptions, StreamPhase, TokenUsage } from '@willow/ai/chat';
 import { getHarnessProfile, type HarnessProfile } from '../overlay/profile';
 import { isAllowed, refusalFor } from '../overlay/tool-policy';
 import {
@@ -67,6 +67,10 @@ import type {
 
 const MAX_ITERATIONS = 12;
 const MAX_SUBAGENT_ITERATIONS = 6;
+const FINAL_RESPONSE_OBSERVATION =
+  'The work batch is complete, but the user-facing answer has not been emitted yet. ' +
+  'Write `*** Final Response` on its own line now, followed by the complete answer. ' +
+  'Do not call another tool or add another progress update unless the work is genuinely incomplete.';
 
 export interface ModelBinding {
   /** Passed through to `streamChat`. */
@@ -100,6 +104,7 @@ export interface ModelBinding {
        */
       delegation?: 'proactive' | 'on-request';
       maxConcurrentAgents?: number;
+      multiAgentVersion?: 'v1' | 'v2' | null;
     };
   };
 }
@@ -120,6 +125,7 @@ export type Transport = (
   onPhase?: (phase: StreamPhase) => void,
   onToolCall?: (name: string, args: Record<string, unknown>) => Promise<unknown>,
   onThought?: (thought: string) => void,
+  onUsage?: (usage: TokenUsage) => void,
 ) => Promise<unknown>;
 
 export interface TurnOptions {
@@ -150,6 +156,15 @@ export interface TurnOptions {
   toolDeclarations?: { functionDeclarations: Record<string, unknown>[] }[];
 }
 
+const isUsageLimitError = (error: unknown): boolean => {
+  const value = error as any;
+  const text = [value?.name, value?.code, value?.message, value?.error?.code, value?.error?.message]
+    .filter((part) => part !== undefined && part !== null)
+    .join(' ')
+    .toLowerCase();
+  return /\b429\b|rate.?limit|resource.?exhausted|token.?limit|context.?length|max.?output|quota|usage.?limit|budget.?limit|too many tokens/.test(text);
+};
+
 /**
  * The default transport: `platform/ai`'s `streamChat`.
  *
@@ -160,7 +175,20 @@ export interface TurnOptions {
  */
 const defaultTransport: Transport = async (...args) => {
   const { streamChat } = await import('@willow/ai/chat');
-  return (streamChat as Transport)(...args);
+  const [messages, options, onToken, onStart, systemPrompt, onPhase, onToolCall, onThought, onUsage] = args;
+  return streamChat(
+    messages,
+    options,
+    onToken,
+    onStart,
+    systemPrompt,
+    onPhase,
+    onToolCall,
+    onThought,
+    undefined,
+    undefined,
+    onUsage,
+  );
 };
 
 class Cancelled extends Error {
@@ -213,6 +241,14 @@ function projectContext(files: FileMap): string {
 const isWorkRequest = (prompt: string): boolean =>
   /\b(file|files|folder|workspace|patch|edit|修改|write|create file|delete file|rename file|move file|run command|shell|terminal|script|build|debug|code|source|repository|repo|package\.json|typescript|javascript|css|html)\b/i.test(prompt);
 
+const isCasualConversation = (prompt: string): boolean => {
+  const normalized = prompt.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return true;
+  return /^(?:h+i+|he+y+|hello+|yo+|good (?:morning|afternoon|evening)|thanks?(?: you)?|thank you|ty|ok(?:ay)?|alright|cool|nice|great|got it|understood|bye|goodbye)[!.?\s]*$/.test(normalized);
+};
+
+const isAgenticRequest = (prompt: string): boolean => !isCasualConversation(prompt);
+
 const isMutationRequest = (prompt: string): boolean =>
   /\b(create|write|edit|update|append|save|rename|delete|remove|move|modify|change|fix|implement|add)\b[\s\S]{0,80}\b(file|files|document|folder|workspace|code|script|text)\b/i.test(prompt)
   || /\b(file|files|document|folder|workspace)\b[\s\S]{0,80}\b(create|write|edit|update|append|save|rename|delete|remove|move|modify|change)\b/i.test(prompt);
@@ -238,8 +274,10 @@ function effortSection(model: ModelBinding): string {
   const lines = [
     '# Effort',
     '',
-    'How to approach work that the user has actually asked for. A greeting, a',
-    'question, or a remark is not work; answer it directly.',
+    'How to approach work that the user has actually asked for. A greeting,',
+    'thanks, or a casual acknowledgement is not work; answer it directly.',
+    'Substantive questions may still use Spark\'s visible work batch even when',
+    'they do not require a file or external tool.',
     '',
     // The *requested* level is stated, not the wire value, because this section
     // governs how the agent works rather than what the API was told.
@@ -294,8 +332,8 @@ function collaborationSection(model: ModelBinding): string {
     'Spawned agents receive separate context and may use the same tools, including spawning their own sub-agents.',
     `There are ${cap + 1} available concurrency slots, including you.`,
     proactive
-      ? 'Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality.'
-      : 'Do not spawn sub-agents unless the user explicitly asks for sub-agents, delegation, or parallel agent work.',
+      ? 'Proactive multi-agent delegation is active. Any earlier instruction requiring an explicit user request before spawning sub-agents no longer applies. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.'
+      : 'Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.',
   ].join('\n');
 }
 
@@ -320,6 +358,10 @@ interface IterationResult {
   didMutate: boolean;
   /** True when the model emitted at least one call needing a result. */
   wantsMore: boolean;
+  /** The work batch ended without the explicit final-answer boundary. */
+  needsFinalResponse: boolean;
+  /** A real tool, Patch, or provider operation ran in this iteration. */
+  performedAction: boolean;
 }
 
 /**
@@ -340,6 +382,12 @@ async function runIteration(
   const pending: PendingCall[] = [];
   let nativeMutated = false;
   let nativeToolUsed = false;
+  let goalControlUsed = false;
+  let workBatchStarted = false;
+  let finalResponseStarted = false;
+  let finalText = '';
+  let reportedProviderTokens = 0;
+  const finalResponseBoundaryEnabled = systemPrompt.includes('*** Final Response');
   /** Prose only — what the user reads. */
   let text = '';
   /** Prose *and* envelopes — what the model is shown of its own turn. */
@@ -372,9 +420,21 @@ async function runIteration(
   const parser = new ResponseStreamParser({
     onText: (chunk) => {
       text += chunk;
+      if (finalResponseStarted) finalText += chunk;
     },
-    onWorkTitle: (title) => sink.workTitle(title),
+    onWorkTitle: (title) => {
+      workBatchStarted = true;
+      sink.workTitle(title);
+    },
+    onFinalResponse: () => {
+      if (finalResponseStarted) return;
+      flushWorkLog();
+      callTextOffset = text.length;
+      finalResponseStarted = true;
+      sink.activity(null);
+    },
     onPatchOpen: () => {
+      workBatchStarted = true;
       sink.workTitle(fallbackWorkTitle());
       flushWorkLog();
       callTextOffset = text.length;
@@ -423,6 +483,7 @@ async function runIteration(
     },
 
     onCall: (name, body) => {
+      workBatchStarted = true;
       sink.workTitle(fallbackWorkTitle());
       pending.push({ name, body, narration: text.slice(callTextOffset) });
       callTextOffset = text.length;
@@ -452,6 +513,9 @@ async function runIteration(
       enableCodeExecution: options.model.options.enableCodeExecution,
       onToolCallStart: (name, args) => {
         nativeToolUsed = true;
+        workBatchStarted = true;
+        if (!finalResponseStarted) flushWorkLog();
+        callTextOffset = text.length;
         sink.activity('Working on it…');
         sink.workTitle(fallbackWorkTitle());
         const normalized = name.trim().toLowerCase();
@@ -482,12 +546,17 @@ async function runIteration(
     },
     () => sink.activity('Thinking it through…'),
     systemPrompt,
-    (phase) => sink.activity(phase === 'thinking' ? 'Thinking it through…' : phase === 'responding' ? null : 'Working on it…'),
+    (phase) => {
+      if (phase === 'thinking') sink.activity('Thinking it through…');
+      else if (phase !== 'responding') sink.activity('Working on it…');
+    },
     async (name, args) => {
       nativeToolUsed = true;
+      goalControlUsed ||= name === 'create_goal' || name === 'update_goal';
+      workBatchStarted = true;
       sink.activity('Working on it…');
       sink.workTitle(fallbackWorkTitle());
-      flushWorkLog();
+      if (!finalResponseStarted) flushWorkLog();
       const observation = await runCall(
         { name, body: JSON.stringify(args ?? {}), narration: '' },
         registry,
@@ -499,6 +568,14 @@ async function runIteration(
         : { status: 'success', result: observation };
     },
     (thought: string) => sink.onThought(thought),
+    (usage: TokenUsage) => {
+      const total = usage.totalTokens
+        ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+      const normalized = Math.floor(total);
+      const delta = Math.max(0, normalized - reportedProviderTokens);
+      reportedProviderTokens = Math.max(reportedProviderTokens, normalized);
+      if (delta > 0) options.goalRuntime?.accountProgress(delta);
+    },
   );
 
   parser.end();
@@ -529,18 +606,31 @@ async function runIteration(
     observations.push(looseCodeObservation(loose));
   }
 
-  const didWork = nativeToolUsed || pending.length > 0 || patchObservations.length > 0;
+  const didWork = workBatchStarted || nativeToolUsed || pending.length > 0 || patchObservations.length > 0;
+  const finalResponseNeeded = finalResponseBoundaryEnabled
+    && workBatchStarted
+    && !goalControlUsed
+    && !finalResponseStarted
+    && pending.length === 0
+    && patchObservations.length === 0;
+  if (finalResponseNeeded) observations.push(FINAL_RESPONSE_OBSERVATION);
   const patchNeedsResponse =
     patchObservations.some((observation) => observation.startsWith('Patch applied:')) &&
     text.slice(workLogOffset).trim() === '';
   if (pending.length > 0) {
     const trailing = text.slice(callTextOffset).trim();
-    if (trailing) sink.onText(trailing);
+    if (trailing && !finalResponseStarted) sink.workLog(trailing);
+  } else if (finalResponseStarted) {
+    if (finalText.trim()) sink.onText(finalText);
   } else if (patchObservations.length > 0) {
     const finalText = text.slice(workLogOffset);
     if (finalText.trim()) sink.onText(finalText);
-  } else if (nativeToolUsed) {
+  } else if (goalControlUsed) {
     sink.onText(text.slice(workLogOffset));
+  } else if (nativeToolUsed || (finalResponseBoundaryEnabled && workBatchStarted)) {
+    // Without the explicit boundary this prose is ambiguous: it may be a
+    // checkpoint or it may be the answer. Hold it for one corrective round
+    // instead of leaking it into either surface.
   } else {
     sink.onText(text);
   }
@@ -550,10 +640,13 @@ async function runIteration(
     raw,
     observations,
     didWork,
+    needsFinalResponse: finalResponseNeeded,
+    performedAction: nativeToolUsed || pending.length > 0 || patchObservations.length > 0,
     didMutate: nativeMutated || patchObservations.some((observation) => observation.startsWith('Patch applied:')),
     wantsMore:
       pending.length > 0 ||
       loose.length > 0 ||
+      finalResponseNeeded ||
       patchNeedsResponse ||
       patchObservations.some((observation) => observation.startsWith('ERROR')),
   };
@@ -744,10 +837,12 @@ async function runCall(
     const result: ToolResult = await registry.get(name)!.run(args, context);
     sink.activity(null);
     finish(result.failed ? new Error(result.observation) : undefined);
+    if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     return result.failed ? `ERROR ${name}: ${result.observation}` : result.observation;
   } catch (error) {
     sink.activity(null);
     finish(error);
+    if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     if (error instanceof Cancelled) throw error;
     return `ERROR ${name} threw: ${(error as Error).message}`;
   }
@@ -957,6 +1052,7 @@ class CollaborationRuntime {
           ? String(args.task_name).trim()
           : '';
         const taskName = this.uniqueTaskName(parentPath, rawName || 'agent');
+        const displayName = this.displayTaskName(rawName || taskName);
         const objective = typeof args.message === 'string'
           ? String(args.message).trim()
           : '';
@@ -974,7 +1070,7 @@ class CollaborationRuntime {
         const childModel = this.resolveChildModel(parentModel, args.model, args.reasoning_effort);
         const agent: SubAgent = {
           id: nextId('agent'),
-          name: taskName,
+          name: displayName,
           kind,
           objective,
           status: 'running',
@@ -1221,6 +1317,21 @@ class CollaborationRuntime {
     return candidate;
   }
 
+  /** Agent paths need stable identifier-safe segments, but those identifiers are
+   * implementation detail. Present a natural title in Spark's sub-agent UI. */
+  private displayTaskName(taskName: string): string {
+    const clean = taskName.replace(/\s+/g, ' ').trim();
+    if (!clean) return 'Agent';
+    // Preserve a natural label exactly as supplied. Only prettify an identifier
+    // when the model itself returned one rather than a human-facing name.
+    if (/^[a-z0-9_-]+$/.test(clean) && /[_-]/.test(clean)) {
+      return clean
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+    return clean;
+  }
+
   private forkConversation(
     source: readonly { role: 'user' | 'assistant'; content: string }[],
     rawMode: unknown,
@@ -1243,6 +1354,7 @@ class CollaborationRuntime {
           providerId: parent.options.provider,
           modelId,
           name: requestedModel || parent.label,
+          multiAgentVersion: parent.effort?.harness?.multiAgentVersion,
         })
       : parent.effort;
     return {
@@ -1328,7 +1440,9 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   }
 
   const context = isWorkRequest(options.prompt) ? projectContext(options.files()) : '';
-  const intent = context ? '<intent>execution</intent>' : '<intent>conversation</intent>';
+  const intent = isAgenticRequest(options.prompt)
+    ? '<intent>execution</intent>'
+    : '<intent>conversation</intent>';
   conversation.push({
     role: 'user',
     content: [intent, context, options.prompt].filter(Boolean).join('\n\n'),
@@ -1359,6 +1473,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   const mutationRequired = isMutationRequest(options.prompt);
   let mutationCompleted = false;
   let mutationNudged = false;
+  let finalResponseNudged = false;
 
   try {
     options.goalRuntime?.beginTurn();
@@ -1371,6 +1486,37 @@ export async function runTurn(options: TurnOptions): Promise<void> {
         registry,
       );
       mutationCompleted ||= result.didMutate;
+
+      const goalState = options.goalRuntime?.current();
+      if (goalState && goalState.status !== 'active' && goalState.status !== 'complete') {
+        options.goalRuntime.finishTurn();
+        options.onEvent({ type: 'turn-end', reason: 'complete' });
+        return;
+      }
+
+      if (result.needsFinalResponse) {
+        if (options.goalRuntime && !options.goalRuntime.isActive() && result.text.trim()) {
+          // Goal completion is itself a terminal tool result. Older goal-aware
+          // model profiles may not emit Spark's final-response marker, so let
+          // the completion report finish this turn without another round.
+          options.onEvent({ type: 'text', chunk: result.text.trim() });
+          options.goalRuntime.finishTurn();
+          options.onEvent({ type: 'turn-end', reason: 'complete' });
+          return;
+        }
+        if (result.performedAction) {
+          finalResponseNudged = false;
+        } else if (finalResponseNudged && result.text.trim()) {
+          // One recovery attempt is enough. If a provider/model still ignores
+          // the boundary, prefer a complete answer over an exhausted loop.
+          options.onEvent({ type: 'text', chunk: result.text.trim() });
+          options.goalRuntime?.finishTurn();
+          options.onEvent({ type: 'turn-end', reason: 'complete' });
+          return;
+        } else {
+          finalResponseNudged = true;
+        }
+      }
 
       if (!result.wantsMore) {
         if (mutationRequired && !mutationCompleted && !mutationNudged) {
@@ -1386,6 +1532,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
           continue;
         }
         if (mutationRequired && !mutationCompleted && mutationNudged) {
+          options.goalRuntime?.stopForError('blocked');
           options.onEvent({
             type: 'turn-end',
             reason: 'error',
@@ -1444,11 +1591,12 @@ export async function runTurn(options: TurnOptions): Promise<void> {
     options.onEvent({ type: 'turn-end', reason: 'complete' });
   } catch (error) {
     collaboration.cancelAll();
-    options.goalRuntime?.finishTurn();
     if (error instanceof Cancelled || options.signal?.aborted) {
+      options.goalRuntime?.finishTurn();
       options.onEvent({ type: 'turn-end', reason: 'cancelled' });
       return;
     }
+    options.goalRuntime?.stopForError(isUsageLimitError(error) ? 'usage_limited' : 'blocked');
     options.onEvent({
       type: 'turn-end',
       reason: 'error',

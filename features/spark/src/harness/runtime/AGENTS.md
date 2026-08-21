@@ -19,6 +19,11 @@ and event sink. Keep the protocol and the visible timeline separate.
    are not Patch rows. If the model did not precede one with visible prose, do not
    fabricate a narration line.
 
+4. **Final-response boundary:** Spark may emit `*** Final Response` after a
+   substantive work batch. The marker is stripped by `ResponseStreamParser`.
+   Prose before it belongs to the work timeline; prose after it is the complete
+   user-facing response. No tool, Patch, or progress update may follow it.
+
 ## Thought Summaries Are Private
 
 Gemini's `thought_summary` stream is delivered through the transport's
@@ -45,6 +50,17 @@ Only prose actually emitted by the model belongs there. Do not synthesize file
 names, Patch success messages, tool descriptions, or generic continuation text.
 Do not introduce a separate Work Log marker protocol.
 
+Spark's overlay strengthens the cadence for its general-purpose work surface:
+one factual update before the first meaningful action, then as many distinct
+updates around meaningful phases as the work genuinely supports. There is no
+fixed count and no required placement before or after a tool call. Each
+newline-separated update remains its own timeline entry. These remain
+model-authored prose, never harness-generated narration; a simple phase may
+still have only one update. Stop when another sentence would only pad or repeat
+the timeline.
+Work titles and narration are plain text without Markdown decoration. This
+display rule never modifies the literal contents of a user's file Patch.
+
 ## Headings
 
 `Work Title` is the stable heading for the whole work batch. The runtime supplies
@@ -56,8 +72,8 @@ when a real task prompt is available.
 
 Spark's system prompt is composed from the complete vendored Codex prompt. The
 Spark overlay changes only the identity, environment/tool boundaries, private
-workspace rules, capability declarations, and the single `Work Title` metadata
-line. Do not replace the composed prompt with a shortened Spark summary. Local
+workspace rules, capability declarations, `Work Title`, and the final-response
+boundary. Do not replace the composed prompt with a shortened Spark summary. Local
 workspace, App, and MCP actions use the Codex text-call protocol; only genuine
 provider-native Search and Code Execution arrive as provider events.
 

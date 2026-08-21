@@ -64,6 +64,7 @@ export interface AppendSparkTaskTurnInput {
   activityLog?: SparkActivityEntry[];
   subagents?: SparkSubAgent[];
   usedTools?: string[];
+  tools?: string[];
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   generatedFiles?: SparkGeneratedFile[];
@@ -101,7 +102,7 @@ const cloneInitialTasks = () => INITIAL_SPARK_TASKS.map((task) => ({
     subagents: task.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: task.activityPhase,
   tools: task.tools ? [...task.tools] : undefined,
-  usedTools: task.usedTools ? [...task.usedTools] : undefined,
+    usedTools: task.usedTools ? [...task.usedTools] : undefined,
   turns: task.turns.map((turn) => ({
     ...turn,
     thinkingSteps: turn.thinkingSteps ? [...turn.thinkingSteps] : undefined,
@@ -111,6 +112,7 @@ const cloneInitialTasks = () => INITIAL_SPARK_TASKS.map((task) => ({
     subagents: turn.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: turn.activityPhase,
     usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
+    tools: turn.tools ? [...turn.tools] : undefined,
     attachments: turn.attachments?.map((attachment) => ({ ...attachment })),
     generatedFiles: turn.generatedFiles?.map((file) => ({ ...file })),
   })),
@@ -904,6 +906,9 @@ const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
     usedTools: Array.isArray(value.usedTools)
       ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
       : undefined,
+    tools: Array.isArray(value.tools)
+      ? value.tools.filter((tool): tool is string => typeof tool === 'string')
+      : undefined,
     attachments: Array.isArray(value.attachments)
       ? value.attachments.map(normalizeAttachment).filter((item): item is SparkTaskAttachment => Boolean(item))
       : [],
@@ -976,6 +981,7 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     goal: isRecord(value.goal) && typeof value.goal.objective === 'string'
       ? {
           threadId: asString(value.goal.threadId),
+          goalId: asString(value.goal.goalId) || `legacy-goal-${asString(value.goal.threadId) || 'thread'}`,
           objective: value.goal.objective.trim(),
           status: ['active', 'paused', 'blocked', 'usage_limited', 'budget_limited', 'complete'].includes(asString(value.goal.status))
             ? asString(value.goal.status) as NonNullable<SparkTask['goal']>['status']
@@ -1323,6 +1329,7 @@ export const createSparkTask = (
       activityLog: turn.activityLog ? turn.activityLog.map((entry) => ({ ...entry })) : undefined,
       subagents: turn.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
       usedTools: turn.usedTools ? [...turn.usedTools] : undefined,
+      tools: turn.tools ? [...turn.tools] : undefined,
     })) ?? [],
     attachments: options.attachments?.map((attachment) => ({ ...attachment })) ?? [],
     generatedFiles: options.generatedFiles?.map((file) => ({ ...file })) ?? [],
@@ -1534,6 +1541,7 @@ export const appendSparkTaskTurn = (
     subagents: input.subagents?.map((agent) => ({ ...agent, calls: agent.calls.map((call) => ({ ...call })), timeline: agent.timeline.map((entry) => ({ ...entry })) })),
     activityPhase: input.activityPhase,
     usedTools: input.usedTools ? [...input.usedTools] : [],
+    tools: input.tools ? [...input.tools] : [],
     attachments: input.attachments?.map((attachment) => ({ ...attachment })),
     generatedFiles: input.generatedFiles?.map((file) => ({ ...file })),
     reaction: undefined,
@@ -1589,6 +1597,9 @@ export const updateSparkTaskTurn = (
     usedTools: update.usedTools
       ? [...update.usedTools]
       : existingTurn.usedTools,
+    tools: update.tools
+      ? [...update.tools]
+      : existingTurn.tools,
     attachments: update.attachments
       ? update.attachments.map((attachment) => ({ ...attachment }))
       : existingTurn.attachments,
