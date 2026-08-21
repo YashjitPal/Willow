@@ -126,7 +126,11 @@ export function supportedEfforts(model: {
   providerId?: string;
   modelId?: string;
   name?: string;
+  reasoningEfforts?: readonly unknown[];
 }): CodexEffort[] {
+  const declared = declaredSupportedEfforts(model.reasoningEfforts);
+  if (declared.length > 0) return declared;
+
   const provider = String(model.providerId ?? '').toLowerCase();
   const identity = `${model.modelId ?? ''} ${model.name ?? ''}`.toLowerCase();
 
@@ -153,6 +157,45 @@ export function supportedEfforts(model: {
 }
 
 /**
+ * Model records created in Settings can carry their own effort roster. Keep
+ * the harness vocabulary canonical while accepting the labels/value shapes
+ * already used by the model picker. Unknown provider-specific values are
+ * ignored so they cannot accidentally be sent as a Codex wire value.
+ */
+function declaredSupportedEfforts(raw: readonly unknown[] | undefined): CodexEffort[] {
+  if (!Array.isArray(raw)) return [];
+  const aliases: Record<string, CodexEffort> = {
+    none: 'none',
+    minimal: 'minimal',
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    xhigh: 'xhigh',
+    'extra high': 'xhigh',
+    max: 'max',
+  };
+  const byLevel: Record<number, CodexEffort> = {
+    0: 'none',
+    1: 'low',
+    2: 'medium',
+    3: 'high',
+    4: 'xhigh',
+    5: 'max',
+  };
+  const result = new Map<CodexEffort, number>();
+  raw.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+    const value = String((entry as { value?: unknown }).value ?? '').trim().toLowerCase();
+    const label = String((entry as { label?: unknown }).label ?? '').trim().toLowerCase();
+    const level = Number((entry as { level?: unknown }).level);
+    const effort = aliases[value] ?? aliases[label] ?? byLevel[level];
+    if (!effort || effort === 'ultra') return;
+    result.set(effort, level);
+  });
+  return [...result.keys()].sort((a, b) => CODEX_EFFORTS.indexOf(a) - CODEX_EFFORTS.indexOf(b));
+}
+
+/**
  * What the user may pick.
  *
  * Every API level the model takes, **plus Ultra on every model** — because
@@ -164,6 +207,7 @@ export function selectableEfforts(model: {
   providerId?: string;
   modelId?: string;
   name?: string;
+  reasoningEfforts?: readonly unknown[];
 }): CodexEffort[] {
   return [...supportedEfforts(model), 'ultra'];
 }
@@ -287,7 +331,7 @@ const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
     guidance:
       'You are in proactive delegation mode. Work as if the result ships unreviewed.\n' +
       '- **Split the work first.** Before writing anything, decide which parts are\n' +
-      '  independent, and start a `task` sub-agent for each. Do not do serially what\n' +
+      '  independent, and call `spawn_agent` for each. Do not do serially what\n' +
       '  can be done in parallel — that is the whole reason this mode exists.\n' +
       '- Delegate without being asked. At every other effort you wait to be told;\n' +
       '  here you are expected to fan out on your own judgement.\n' +
@@ -325,7 +369,7 @@ export interface ResolvedEffort {
 
 export function resolveEffort(
   requested: CodexEffort,
-  model: { providerId?: string; modelId?: string; name?: string },
+  model: { providerId?: string; modelId?: string; name?: string; reasoningEfforts?: readonly unknown[] },
 ): ResolvedEffort {
   const supported = supportedEfforts(model);
 

@@ -13,6 +13,18 @@ const text = (value: unknown): string => typeof value === 'string' ? value.trim(
 
 export const createSparkCapabilityTools = (context: SparkCapabilityContext): ToolHandler[] => {
   const tools: ToolHandler[] = [];
+  if (context.skills.length) {
+    tools.push({
+      id: 'use_skill',
+      async run(args): Promise<ToolResult> {
+        const requested = text(args.skill);
+        const match = context.skills.find((skill) => skill.name.toLowerCase() === requested.toLowerCase());
+        if (!match) return { observation: `No Spark skill named ${JSON.stringify(requested)} is available.`, failed: true };
+        context.onCapability?.(`skill:${match.name}`);
+        return { observation: `Apply the ${match.name} skill for this task:\n\n${match.instructions}` };
+      },
+    });
+  }
   if (context.connectedApps.length) {
     tools.push({
       id: 'connected_app',

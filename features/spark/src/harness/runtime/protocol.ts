@@ -256,6 +256,10 @@ export type ToolCall =
 
 export type AgentKind = 'explorer' | 'implementer' | 'reviewer' | 'researcher';
 
+export type SubAgentTimelineEntry =
+  | { id: string; kind: 'narration'; text: string }
+  | { id: string; kind: 'tool'; callId: string };
+
 export interface SubAgent {
   id: string;
   name: string;
@@ -266,6 +270,7 @@ export interface SubAgent {
   endedAt?: number;
   progress: number;
   calls: ToolCall[];
+  timeline: SubAgentTimelineEntry[];
   activity?: string;
   result?: string;
   model: string;
@@ -344,7 +349,9 @@ export type HarnessEvent =
   | { type: 'call-start'; call: ToolCall }
   | { type: 'call-progress'; id: string; patch: Partial<ToolCall> }
   | { type: 'call-end'; id: string; patch: Partial<ToolCall> }
+  | { type: 'generated-file'; file: { id: string; name: string; path: string; mimeType: string; createdAt: string } }
   | { type: 'agents-start'; agents: SubAgent[] }
   | { type: 'agent-progress'; id: string; patch: Partial<SubAgent> }
+  | { type: 'goal-updated'; goal: import('./goal').SparkThreadGoal | null }
   | { type: 'activity'; label: string | null }
   | { type: 'turn-end'; reason: 'complete' | 'cancelled' | 'error'; error?: string };

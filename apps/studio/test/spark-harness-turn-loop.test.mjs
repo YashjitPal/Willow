@@ -10,6 +10,18 @@ const { runTurn } = await importTs(
 const { createSparkHarnessProfile } = await importTs(
   path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'overlay', 'spark-profile.ts'),
 );
+const { createSparkCapabilityTools } = await importTs(
+  path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'spark-tools.ts'),
+);
+const { SparkGoalRuntime } = await importTs(
+  path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'runtime', 'goal.ts'),
+);
+const { resolveEffort, supportedEfforts } = await importTs(
+  path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'overlay', 'effort.ts'),
+);
+const { runSparkHarnessTurn } = await importTs(
+  path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'spark-harness.ts'),
+);
 
 const MODEL = { label: 'Test', options: { provider: 'gemini', model: 'test', apiKey: 'k' } };
 const PROFILE = { systemPrompt: 'You are a general-purpose work agent.' };
@@ -59,8 +71,235 @@ it('builds Spark from the full Codex prompt while preserving its Work Title', as
   assert.match(profile.systemPrompt, /Sharing progress updates/i);
   assert.match(profile.systemPrompt, /Your final message should read naturally/i);
   assert.match(profile.systemPrompt, /\*\*\* Work Title:/);
+  assert.match(profile.systemPrompt, /spawn_agent/);
+  assert.match(profile.systemPrompt, /wait_agent/);
+  assert.doesNotMatch(profile.systemPrompt, /Multiple consecutive `task` envelopes are started concurrently/i);
   assert.doesNotMatch(profile.systemPrompt, /\*\*\* Work Log:/);
   assert.ok(profile.systemPrompt.length > 18000, `Spark profile was unexpectedly compact: ${profile.systemPrompt.length} chars`);
+});
+
+it('spawns native Spark sub-agents without blocking the root turn', async () => {
+  const events = [];
+  let releaseChildren;
+  const childrenReleased = new Promise((resolve) => { releaseChildren = resolve; });
+  let rootFinished = false;
+  let childCalls = 0;
+  const scripted = async (messages, _options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    if (messages.at(-1)?.content.includes('Task name:')) {
+      childCalls += 1;
+      await childrenReleased;
+      onToken(`Child ${childCalls} complete.`);
+      return;
+    }
+    await onToolCall('spawn_agent', { task_name: 'alpha', message: 'Inspect alpha.', agent_type: 'researcher' });
+    await onToolCall('spawn_agent', { task_name: 'beta', message: 'Inspect beta.', agent_type: 'researcher' });
+    onToken('Both sub-agents were started.');
+  };
+
+  await runTurn({
+    prompt: 'Use two sub-agents to inspect alpha and beta.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    transport: scripted,
+    onEvent: (event) => {
+      events.push(event);
+      if (event.type === 'turn-end') rootFinished = true;
+    },
+  });
+
+  assert.equal(rootFinished, true);
+  assert.equal(childCalls, 2);
+  assert.equal(events.filter((event) => event.type === 'agents-start').length, 2);
+  assert.equal(events.filter((event) => event.type === 'agents-start').every((event) => event.agents[0].status === 'running'), true);
+  releaseChildren();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(events.filter((event) => event.type === 'agent-progress' && event.patch.status === 'success').length, 2);
+});
+
+it('gives child agents the native collaboration declarations for nested delegation', async () => {
+  let childDeclarations = [];
+  const scripted = async (messages, options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    if (messages.at(-1)?.content.includes('Task name:')) {
+      childDeclarations = (options.toolDeclarations ?? [])
+        .flatMap((group) => group.functionDeclarations ?? [])
+        .map((declaration) => declaration.name);
+      onToken('Child complete.');
+      return;
+    }
+    await onToolCall('spawn_agent', { task_name: 'parent', message: 'Delegate if useful.' });
+    onToken('Parent started.');
+  };
+
+  await runTurn({
+    prompt: 'Use a sub-agent that may delegate further.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    transport: scripted,
+    onEvent: () => {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(childDeclarations.includes('spawn_agent'));
+  assert.ok(childDeclarations.includes('send_message'));
+  assert.ok(childDeclarations.includes('wait_agent'));
+});
+
+it('reuses a sub-agent identity and conversation on a later Spark turn', async () => {
+  const events = [];
+  let childRuns = 0;
+  let followupSawPriorAnswer = false;
+  const scripted = async (messages, _options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    if (messages.at(-1)?.content.includes('Task name:')) {
+      childRuns += 1;
+      if (childRuns === 2) {
+        followupSawPriorAnswer = messages.some((message) => message.content.includes('Initial child answer'));
+      }
+      onToken(childRuns === 1 ? 'Initial child answer.' : 'Follow-up child answer.');
+      return;
+    }
+    const latest = messages.at(-1)?.content ?? '';
+    if (latest.includes('Start the worker')) {
+      await onToolCall('spawn_agent', { task_name: 'worker', message: 'Do the first pass.', fork_turns: 'none' });
+      onToken('Worker started.');
+      return;
+    }
+    await onToolCall('followup_task', { target: '/root/worker', message: 'Do the second pass.' });
+    onToken('Worker follow-up started.');
+  };
+  const common = {
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    transport: scripted,
+    collaborationThreadId: 'persistent-collaboration-test',
+    onEvent: (event) => events.push(event),
+  };
+  await runTurn({ ...common, prompt: 'Start the worker.' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await runTurn({ ...common, prompt: 'Continue the worker.' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(events.filter((event) => event.type === 'agents-start').length, 1);
+  assert.equal(childRuns, 2);
+  assert.equal(followupSawPriorAnswer, true);
+  const terminal = events.filter((event) => event.type === 'agent-progress' && event.patch.status === 'success');
+  assert.equal(new Set(terminal.map((event) => event.id)).size, 1);
+});
+
+it('preserves native Goal lifecycle and Ultra mode semantics', async () => {
+  let current = null;
+  const runtime = new SparkGoalRuntime('spark-thread', null, (goal) => { current = goal; });
+  const tools = Object.fromEntries(runtime.tools().map((tool) => [tool.id, tool]));
+  const created = await tools.create_goal.run({ objective: 'Finish the research task', token_budget: 100 }, {});
+  assert.match(created.observation, /Finish the research task/);
+  assert.equal(current.status, 'active');
+  const fetched = await tools.get_goal.run({}, {});
+  assert.match(fetched.observation, /"status":"active"/);
+  const blocked = await tools.update_goal.run({ status: 'blocked' }, {});
+  assert.match(blocked.observation, /"status":"blocked"/);
+  const rejected = await tools.create_goal.run({ objective: 'A replacement goal' }, {});
+  assert.equal(rejected.failed, true);
+  await tools.update_goal.run({ status: 'complete' }, {});
+  const replacement = await tools.create_goal.run({ objective: 'A replacement goal' }, {});
+  assert.equal(replacement.failed, undefined);
+
+  const ultra = resolveEffort('ultra', { providerId: 'gemini', modelId: 'gemini-3-pro' });
+  assert.equal(ultra.effective, 'high');
+  assert.equal(ultra.clamped, false);
+  assert.equal(ultra.harness.delegation, 'proactive');
+});
+
+it('uses each model declared effort roster before provider defaults', () => {
+  const futureGemini = {
+    providerId: 'gemini',
+    modelId: 'gemini-3.5-pro',
+    reasoningEfforts: [
+      { level: 1, label: 'Low', value: 'low' },
+      { level: 2, label: 'Medium', value: 'medium' },
+      { level: 3, label: 'High', value: 'high' },
+      { level: 4, label: 'Extra High', value: 'xhigh' },
+    ],
+  };
+  assert.deepEqual(supportedEfforts(futureGemini), ['low', 'medium', 'high', 'xhigh']);
+  const ultra = resolveEffort('ultra', futureGemini);
+  assert.equal(ultra.effective, 'xhigh');
+  assert.equal(ultra.level, 4);
+  assert.equal(ultra.harness.delegation, 'proactive');
+
+  const compactModel = {
+    providerId: 'gemini',
+    modelId: 'gemini-compact',
+    reasoningEfforts: [
+      { level: 1, label: 'Low', value: 'low' },
+      { level: 2, label: 'Medium', value: 'medium' },
+    ],
+  };
+  assert.equal(resolveEffort('ultra', compactModel).effective, 'medium');
+});
+
+it('continues an active Goal automatically and stops after completion', async () => {
+  const prompts = [];
+  const goals = [];
+  let calls = 0;
+  const scripted = async (messages, _options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    prompts.push(messages.at(-1)?.content ?? '');
+    if (calls++ === 0) {
+      await onToolCall('create_goal', { objective: 'Finish the goal autonomously' });
+      onToken('I started the goal.');
+      return;
+    }
+    await onToolCall('update_goal', { status: 'complete' });
+    onToken('The goal is complete.');
+  };
+  const result = await runSparkHarnessTurn({
+    prompt: 'Create a goal to finish the work autonomously.',
+    model: { ...MODEL.options, label: MODEL.label },
+    scope: 'goal-test-scope',
+    threadId: 'goal-test-thread',
+    capabilities: { skills: [], connectedApps: [] },
+    workspace: {
+      readFiles: async () => ({}),
+      writeFiles: async () => {},
+    },
+    transport: scripted,
+    onGoalChange: (goal) => goals.push(goal),
+    onEvent: () => {},
+  });
+
+  assert.equal(calls, 2);
+  assert.match(prompts[1], /Continue working toward the active thread goal/);
+  assert.equal(goals.at(-1).status, 'complete');
+  assert.match(result.response, /goal is complete/i);
+});
+
+it('requires an explicit skill call and reports only the skill actually used', async () => {
+  const used = [];
+  const tools = createSparkCapabilityTools({
+    skills: [{ name: 'Document polish', instructions: 'Use concise headings and clean spacing.' }],
+    connectedApps: [],
+    onCapability: (capability) => used.push(capability),
+  });
+  const skill = tools.find((tool) => tool.id === 'use_skill');
+  assert.ok(skill);
+
+  const result = await skill.run({ skill: 'Document polish' }, {});
+  assert.equal(result.failed, undefined);
+  assert.match(result.observation, /Use concise headings and clean spacing/);
+  assert.deepEqual(used, ['skill:Document polish']);
+
+  const profile = createSparkHarnessProfile({
+    skills: [{ name: 'Document polish', instructions: 'Use concise headings and clean spacing.' }],
+    connectedApps: [],
+  });
+  assert.match(profile.systemPrompt, /call `use_skill` with \{"skill":"Document polish"\} before applying it/);
 });
 
 it('keeps Spark workspace calls on the Codex text protocol', async () => {
@@ -113,6 +352,22 @@ it('continues after a successful patch when the patch stream has no closing resp
   assert.match(files['/spark-note.txt'], /work timeline/);
   assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'The note was created successfully.');
   assert.equal(events.at(-1).reason, 'complete');
+});
+
+it('emits created files as generated artifacts owned by the current Spark run', async () => {
+  const { events } = await run(
+    'Create a note about Spark.',
+    [
+      `*** Begin Patch\n*** Add File: /spark-output.txt\n+Spark created this file.\n*** End Patch\n`,
+      'The note is ready.',
+    ],
+  );
+
+  const generated = events.filter((event) => event.type === 'generated-file');
+  assert.equal(generated.length, 1);
+  assert.equal(generated[0].file.name, 'spark-output.txt');
+  assert.equal(generated[0].file.path, '/spark-output.txt');
+  assert.equal(generated[0].file.mimeType, 'text/plain');
 });
 
 it('fails honestly when a mutation request never changes a file', async () => {

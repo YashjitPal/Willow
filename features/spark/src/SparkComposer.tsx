@@ -6,6 +6,8 @@ import {
   validateSparkAttachmentFiles,
 } from './attachment-storage';
 import { getActiveSparkStorageScope } from './spark-store';
+import { setSparkUltraEngaged, sparkUltraEngaged } from './spark-store';
+import { useStore } from '@nanostores/react';
 import type { SparkTaskAttachment } from './spark-types';
 import './SparkComposer.css';
 
@@ -78,6 +80,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   disabled = false,
   composerRef,
 }) => {
+  const isUltra = useStore(sparkUltraEngaged);
   const [error, setError] = useState('');
   const mountedRef = useRef(true);
   const submitInFlightRef = useRef(false);
@@ -152,7 +155,18 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
         onSubmit={(prompt, _mode, attachments, tool) => submit(prompt, attachments ?? [], tool)}
         modelConfig={modelConfig}
         selectedModelId={selectedModelId}
-        setSelectedModelId={setSelectedModelId ?? (() => undefined)}
+        setSelectedModelId={(id) => {
+          setSparkUltraEngaged(false);
+          setSelectedModelId?.(id);
+        }}
+        effortDisplayOverride={isUltra ? 'Ultra' : undefined}
+        extraEfforts={[{
+          id: 'spark-ultra',
+          label: 'Ultra',
+          badge: 'Sub-agents',
+          selected: isUltra,
+          onSelect: () => setSparkUltraEngaged(true),
+        }]}
         workspaceColor={workspaceColor}
         isAuthenticated={isAuthenticated}
         onAuthRequired={onAuthRequired}

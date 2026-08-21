@@ -45,8 +45,7 @@ Use the full Codex preamble, planning, task-execution, progress-update, verifica
 - \`update_plan\` for visible multi-step plans.
 - \`run_command\` only when the local companion boundary is authorized.
 - \`connected_app\` and declared MCP bridges only when listed in the capability section.
-- \`task\` for bounded sub-agents when delegation is appropriate.
-
+- \`get_goal\`, \`create_goal\`, and \`update_goal\` expose Codex's persisted thread-goal lifecycle. Create a goal only when the user explicitly asks for one; ordinary tasks are not goals.
 Do not claim access to undeclared tools. Do not replace concise Codex preambles with hidden thoughts, synthetic metadata markers, or generic fallback narration.`;
 
 const sparkPatchToolSection = (): string => {
@@ -82,17 +81,28 @@ ${grammar}
 {"path":"/workspace/example.txt"}
 *** End Call
 
-The body is one JSON object. Emit at most one call per envelope and stop after it
-so the harness can return the real result. Available calls are \`read_file\`,
-\`list_files\`, \`search_files\`, \`update_plan\`, \`run_command\`, \`task\`,
-\`connected_app\`, and the exact \`mcp:<name>\` entries declared below.
+The body is one JSON object. Emit at most one call per envelope. Stop after a
+collaboration call so the harness can return its real result.
+Available calls are \`read_file\`,
+\`list_files\`, \`search_files\`, \`update_plan\`, \`run_command\`,
+\`spawn_agent\`, \`send_message\`, \`followup_task\`, \`wait_agent\`,
+\`interrupt_agent\`, \`list_agents\`,
+\`get_goal\`, \`create_goal\`, \`update_goal\`,
+\`connected_app\`, \`use_skill\`, and the exact \`mcp:<name>\` entries declared below.
+
+\`spawn_agent\` accepts \`{"task_name":"short_name","message":"Self-contained task","agent_type":"researcher","fork_turns":"all"}\`.
+It returns immediately with the new agent path. Use \`wait_agent\` to wait for
+mail, \`send_message\` to add context without starting a turn,
+\`followup_task\` to start more work on an idle agent, \`interrupt_agent\` to
+stop an active turn, and \`list_agents\` to inspect the live tree. Use these
+native collaboration names; Spark does not expose a separate \`task\` tool.
 
 Write an ordinary concise Codex preamble before a meaningful call or patch.
 Never place the Work Title or status prose inside the literal patch envelope.`;
 };
 
 const capabilitySection = (context: SparkProfileContext): string => {
-  const skills = context.skills.map((skill) => `- ${skill.name}: ${skill.instructions}`).join('\n');
+  const skills = context.skills.map((skill) => `- ${skill.name}: call \`use_skill\` with {"skill":"${skill.name}"} before applying it.`).join('\n');
   const apps = context.connectedApps.map((app) => `- ${app.label}: call \`connected_app\` with {"app":"${app.id}"}.`).join('\n');
   const mcp = (context.mcpTools ?? []).map((tool) => `- ${tool.name}${tool.description ? `: ${tool.description}` : ''}: call \`mcp:${tool.name}\`.`).join('\n');
   const selected = (context.selectedCapabilities ?? []).join(', ');

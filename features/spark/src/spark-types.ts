@@ -1,3 +1,5 @@
+import type { SparkThreadGoal } from './harness/runtime/goal';
+
 export type SparkTaskStatus =
   | 'queued'
   | 'running'
@@ -7,11 +9,48 @@ export type SparkTaskStatus =
   | 'cancelled';
 
 /** Live agent lifecycle used by the processing-state UI. */
-export type SparkActivityPhase = 'queued' | 'thinking' | 'working';
+export type SparkActivityPhase = 'queued' | 'thinking' | 'planning' | 'working';
+
+export interface SparkPlanStep {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
 
 export type SparkActivityEntry =
   | { id: string; kind: 'narration'; text: string }
-  | { id: string; kind: 'tool'; tool: string };
+  | { id: string; kind: 'tool'; tool: string }
+  | { id: string; kind: 'subagents' };
+
+/** Persistable projection of a Codex sub-agent for Spark's delegated-work UI. */
+export type SparkSubAgentStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
+
+export interface SparkSubAgentCall {
+  id: string;
+  kind: string;
+  status: SparkSubAgentStatus;
+  label: string;
+}
+
+export type SparkSubAgentTimelineEntry =
+  | { id: string; kind: 'narration'; text: string }
+  | { id: string; kind: 'tool'; callId: string };
+
+export interface SparkSubAgent {
+  id: string;
+  name: string;
+  kind: string;
+  objective: string;
+  status: SparkSubAgentStatus;
+  startedAt: number;
+  endedAt?: number;
+  progress: number;
+  calls: SparkSubAgentCall[];
+  timeline: SparkSubAgentTimelineEntry[];
+  activity?: string;
+  result?: string;
+  model: string;
+  tokensUsed: number;
+}
 
 export type SparkReaction = 'like' | 'dislike' | null;
 
@@ -47,11 +86,14 @@ export interface SparkTaskTurn {
   thinkingSteps?: string[];
   /** Stable Gemini-style heading for this turn's work timeline. */
   activityTitle?: string;
+  plan?: SparkPlanStep[];
   activityLog?: SparkActivityEntry[];
+  subagents?: SparkSubAgent[];
   /** Capabilities actually invoked while this turn ran. */
   usedTools?: string[];
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
+  generatedFiles?: SparkGeneratedFile[];
   reaction?: SparkReaction;
   createdAt: string;
 }
@@ -64,6 +106,14 @@ export interface SparkTaskAttachment {
   type?: 'image' | 'text' | 'file';
   /** Loaded on demand from IndexedDB. Never persisted in localStorage. */
   data?: string;
+}
+
+export interface SparkGeneratedFile {
+  id: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  createdAt: string;
 }
 
 export interface SparkTask {
@@ -80,12 +130,17 @@ export interface SparkTask {
   thinkingSteps?: string[];
   /** Stable Gemini-style heading for this task's work timeline. */
   activityTitle?: string;
+  plan?: SparkPlanStep[];
   activityLog?: SparkActivityEntry[];
+  subagents?: SparkSubAgent[];
   /** Capabilities actually invoked while this task ran. */
   usedTools?: string[];
   activityPhase?: SparkActivityPhase;
   turns: SparkTaskTurn[];
   attachments?: SparkTaskAttachment[];
+  generatedFiles?: SparkGeneratedFile[];
+  /** Codex-style persisted Goal mode state for this Spark thread. */
+  goal?: SparkThreadGoal;
   tools?: string[];
   reaction?: SparkReaction;
   approval?: SparkTaskApproval;

@@ -8,6 +8,9 @@ import type {
   SparkActivityPhase,
   SparkActivityEntry,
   SparkTaskAttachment,
+  SparkGeneratedFile,
+  SparkPlanStep,
+  SparkSubAgent,
 } from './spark-store';
 import { getActiveSparkStorageScope } from './spark-store';
 import {
@@ -27,7 +30,7 @@ import { formatSparkRelativeTime } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import './SparkTaskDetail.css';
-import { SYMBOL_PROPS, mergeSelectedFiles, getAttachmentSymbol, SparkComposerContextChip, SparkAttachmentPills } from './spark-composer-chips';
+import { SYMBOL_PROPS, mergeSelectedFiles, SparkComposerContextChip, SparkAttachmentPills } from './spark-composer-chips';
 import workingAnimationTemplate from './gemini-working-animation/template.svg?raw';
 import workingAnimationData from './gemini-working-animation/frames.json';
 import {
@@ -192,6 +195,69 @@ const SparkAssistantResponse: React.FC<{
     animate={isStreaming}
     reveal={isStreaming}
   />
+);
+
+const GEMINI_DOCS_LOGO = 'https://www.gstatic.com/images/branding/productlogos/docs_2026/v2/web-96dp/logo_docs_2026_color_2x_web_96dp.png';
+
+const getGeneratedFileIcon = (file: SparkGeneratedFile) => {
+  const lower = file.name.toLowerCase();
+  if (file.mimeType.startsWith('text/') || file.mimeType === 'application/vnd.google-apps.document' || /\.(doc|docx)$/.test(lower)) {
+    return <img src={GEMINI_DOCS_LOGO} alt="" aria-hidden="true" className="spark-task-detail__generated-file-icon" />;
+  }
+  return (
+    <span className="spark-task-detail__generated-file-icon spark-task-detail__generated-file-icon--generic" aria-hidden="true">
+      <MaterialSymbol family="google-symbols" name="description" size={24} weight={320} roundness={100} opticalSize={24} />
+    </span>
+  );
+};
+
+const SparkGeneratedFileCard: React.FC<{
+  file: SparkGeneratedFile;
+  onClose: (id: string) => void;
+}> = ({ file, onClose }) => (
+  <div className="spark-task-detail__generated-file-wrapper">
+    <div className="spark-task-detail__generated-file-card" data-test-id="spark-generated-file-card">
+      <div className="spark-task-detail__generated-file-icon-container">
+        {getGeneratedFileIcon(file)}
+      </div>
+      <div className="spark-task-detail__generated-file-text-container">
+        <span className="spark-task-detail__generated-file-title" title={file.name}>{file.name}</span>
+        <span className="spark-task-detail__generated-file-subtitle">
+          Created {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(file.createdAt))}
+        </span>
+      </div>
+      <button
+        type="button"
+        className="spark-task-detail__generated-file-close"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose(file.id);
+        }}
+      >
+        Close
+      </button>
+    </div>
+  </div>
+);
+
+const SparkProgressMarker: React.FC<{ complete: boolean }> = ({ complete }) => complete ? (
+  <MaterialSymbol family="google-symbols" name="check" size={12} weight={400} opticalSize={12} className="spark-task-detail__progress-marker is-complete" />
+) : (
+  <span className="spark-task-detail__progress-marker" aria-hidden="true" />
+);
+
+const SparkProgressPlan: React.FC<{ steps: readonly SparkPlanStep[] }> = ({ steps }) => (
+  <div className="spark-task-detail__progress-plan">
+    {steps.map((step, index) => (
+      <div key={`${index}-${step.text}`} className="spark-task-detail__progress-plan-step">
+        <SparkProgressMarker complete={step.status === 'completed'} />
+        <span className={step.status === 'in_progress' ? 'is-current' : undefined}>
+          {step.text}
+        </span>
+      </div>
+    ))}
+  </div>
 );
 
 const taskStatus = (task: SparkTask) => task.status;
@@ -469,12 +535,16 @@ const SparkProcessingState: React.FC<{
   title?: string;
   activity?: readonly SparkActivityEntry[];
   phase?: SparkActivityPhase;
-}> = ({ title, activity = [], phase }) => {
-  const hasTimelineDetails = activity.length > 0;
+  subagents?: readonly SparkSubAgent[];
+}> = ({ title, activity = [], phase, subagents = [] }) => {
+  const timelineActivity = activity.some((entry) => entry.kind === 'subagents') || subagents.length === 0
+    ? activity
+    : [...activity, { id: 'spark-subagents-fallback', kind: 'subagents' as const }];
+  const hasTimelineDetails = timelineActivity.length > 0;
   const [isExpanded, setIsExpanded] = useState(Boolean(phase && hasTimelineDetails));
   const detailsId = useId();
   const previousPhaseRef = useRef<SparkActivityPhase | undefined>(undefined);
-  const activityGroups = groupSparkActivity(activity);
+  const activityGroups = groupSparkActivity(timelineActivity);
 
   useLayoutEffect(() => {
     if (!phase) {
@@ -485,9 +555,9 @@ const SparkProcessingState: React.FC<{
     previousPhaseRef.current = phase;
   }, [hasTimelineDetails, phase]);
 
-  if (!activity.length && !phase && !title) return null;
+  if (!activity.length && !phase && !title && !subagents.length) return null;
 
-  if (phase === 'queued') {
+  if (phase === 'queued' && subagents.length === 0) {
     return (
       <div className="spark-task-detail__pending-dots" aria-live="polite" aria-label="Starting task">
         <GeminiThinkingVisualizer />
@@ -496,7 +566,7 @@ const SparkProcessingState: React.FC<{
   }
 
   const heading = title || 'Thinking it through…';
-  const showAgentWorking = phase === 'thinking' || phase === 'working';
+  const showAgentWorking = phase === 'thinking' || phase === 'planning' || phase === 'working';
 
   return (
     <div className="spark-task-detail__processing-state">
@@ -534,6 +604,14 @@ const SparkProcessingState: React.FC<{
                   isFirst={index === 0}
                   isLast={index === activityGroups.length - 1}
                 />
+              ) : group.kind === 'subagents' ? (
+                <SparkSubagentGroup
+                  key={group.id}
+                  agents={subagents}
+                  active={Boolean(phase) || subagents.some((agent) => agent.status === 'running' || agent.status === 'queued')}
+                  hasLeadingGap={index > 0}
+                  isLast={index === activityGroups.length - 1}
+                />
               ) : (
                 <div
                   key={group.entry.id}
@@ -554,17 +632,194 @@ const SparkProcessingState: React.FC<{
           aria-live="polite"
         >
           <SparkAgentWorkingAnimation />
-          <span>{phase === 'working' ? 'Working on it…' : 'Thinking it through…'}</span>
+          <span>{phase === 'planning' ? 'Planning…' : phase === 'working' ? 'Working on it…' : 'Thinking it through…'}</span>
         </div>
       )}
     </div>
   );
 };
 
+const SparkSubagentGroup: React.FC<{
+  agents: readonly SparkSubAgent[];
+  active: boolean;
+  hasLeadingGap: boolean;
+  isLast: boolean;
+}> = ({ agents, active, hasLeadingGap, isLast }) => {
+  const [expanded, setExpanded] = useState(active);
+  const detailsId = useId();
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (active) setExpanded(true);
+    else if (wasActiveRef.current) setExpanded(false);
+    wasActiveRef.current = active;
+  }, [active]);
+
+  return (
+    <div className={`spark-task-detail__subagent-group${hasLeadingGap ? ' has-leading-gap' : ''}${isLast ? ' is-last-activity' : ''}`}>
+      <button
+        type="button"
+        className="spark-task-detail__subagent-header"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="spark-task-detail__subagent-header-content">
+          <MaterialSymbol family="luminous" name="arrow_split" size={24} weight={320} roundness={100} opticalSize={24} />
+          <span>Running tasks in parallel</span>
+          <MaterialSymbol
+            family="luminous"
+            name="expand_more"
+            size={20}
+            weight={320}
+            roundness={100}
+            opticalSize={20}
+            className={`spark-task-detail__subagent-chevron${expanded ? ' is-expanded' : ''}`}
+          />
+        </span>
+      </button>
+      <div
+        id={detailsId}
+        className={`spark-task-detail__subagent-content-wrapper${expanded ? ' is-expanded' : ''}`}
+        aria-hidden={!expanded}
+      >
+        <div className="spark-task-detail__subagent-content synthetic-group">
+          {agents.map((agent) => <SparkSubagentItem key={agent.id} agent={agent} />)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+type SparkSubagentTimelineGroup =
+  | { id: string; kind: 'narration'; entries: Extract<SparkSubAgent['timeline'][number], { kind: 'narration' }>[] }
+  | { id: string; kind: 'tool'; entry: Extract<SparkSubAgent['timeline'][number], { kind: 'tool' }> };
+
+const groupSparkSubagentTimeline = (
+  timeline: readonly SparkSubAgent['timeline'][number][],
+): SparkSubagentTimelineGroup[] => {
+  const groups: SparkSubagentTimelineGroup[] = [];
+  timeline.forEach((entry) => {
+    const previous = groups.at(-1);
+    if (entry.kind === 'narration') {
+      if (previous?.kind === 'narration') previous.entries.push(entry);
+      else groups.push({ id: entry.id, kind: 'narration', entries: [entry] });
+    } else {
+      groups.push({ id: entry.id, kind: 'tool', entry });
+    }
+  });
+  return groups;
+};
+
+const SparkSubagentItem: React.FC<{ agent: SparkSubAgent }> = ({ agent }) => {
+  const isRunning = agent.status === 'running' || agent.status === 'queued';
+  const [expanded, setExpanded] = useState(isRunning);
+  const [showAll, setShowAll] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const detailsId = useId();
+  const contentId = useId();
+  const capRef = useRef<HTMLDivElement>(null);
+  const firstTool = agent.calls.find((call) => call.kind !== 'task')?.kind;
+  const callsById = new Map(agent.calls.map((call) => [call.id, call]));
+  const timeline = agent.timeline.length > 0
+    ? agent.timeline
+    : agent.calls.map((call) => ({ id: `legacy-${call.id}`, kind: 'tool' as const, callId: call.id }));
+  const timelineGroups = groupSparkSubagentTimeline(timeline);
+
+  useEffect(() => {
+    setExpanded(isRunning);
+  }, [isRunning]);
+
+  useLayoutEffect(() => {
+    const cap = capRef.current;
+    if (!cap) return;
+    const update = () => setIsOverflowing(cap.scrollHeight > 110);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(cap);
+    Array.from(cap.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [timeline]);
+  return (
+    <div className="spark-task-detail__subagent-item">
+      <button
+        type="button"
+        className="spark-task-detail__subagent-header spark-task-detail__subagent-child-header"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="spark-task-detail__subagent-header-content">
+          <span className="spark-task-detail__subagent-child-icon">
+            {firstTool
+              ? <SparkToolIcon tool={firstTool} />
+              : <span className="spark-task-detail__subagent-bullet" />}
+          </span>
+          <span className="spark-task-detail__subagent-title">{agent.name || agent.objective}</span>
+          <MaterialSymbol
+            family="luminous"
+            name="expand_more"
+            size={20}
+            weight={320}
+            roundness={100}
+            opticalSize={20}
+            className={`spark-task-detail__subagent-chevron${expanded ? ' is-expanded' : ''}`}
+          />
+        </span>
+      </button>
+      <div
+        id={detailsId}
+        className={`spark-task-detail__subagent-content-wrapper spark-task-detail__subagent-child-content${expanded ? ' is-expanded' : ''}`}
+        aria-hidden={!expanded}
+      >
+        <div className="spark-task-detail__subagent-content group-child">
+          <div className={`spark-task-detail__subagent-thought${isOverflowing ? ' is-overflowing' : ''}`}>
+            <div
+              ref={capRef}
+              className={`spark-task-detail__subagent-thought-cap${showAll ? ' is-expanded' : ''}`}
+            >
+              <div id={contentId} className="spark-task-detail__subagent-details">
+                {timelineGroups.map((group) => {
+                  if (group.kind === 'narration') {
+                    return <div className="spark-task-detail__subagent-line spark-task-detail__subagent-narration" key={group.id}>
+                      <SparkActivityClock />
+                      <span className="spark-task-detail__subagent-narration-text">
+                        {group.entries.map((entry) => <span key={entry.id}>{entry.text}</span>)}
+                      </span>
+                    </div>;
+                  }
+                  const call = callsById.get(group.entry.callId);
+                  if (!call) return null;
+                  return <div className="spark-task-detail__subagent-line" key={group.id}>
+                    <SparkToolIcon tool={call.kind} />
+                    <span>{getToolCapabilityLabel(call.kind).label}</span>
+                  </div>;
+                })}
+              </div>
+            </div>
+            {isOverflowing && <button
+              type="button"
+              className="spark-task-detail__subagent-show-more"
+              aria-expanded={showAll}
+              aria-controls={contentId}
+              onClick={() => setShowAll((open) => !open)}
+            >
+              {showAll ? 'Show less' : 'Show all'}
+            </button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const getProgressSummary = (workTitle?: string) =>
+  workTitle || 'No plan available yet.';
+
 type SparkNarrationEntry = Extract<SparkActivityEntry, { kind: 'narration' }>;
 type SparkGroupedActivity =
   | { id: string; kind: 'narration'; entries: SparkNarrationEntry[] }
-  | { id: string; kind: 'tool'; entry: Extract<SparkActivityEntry, { kind: 'tool' }> };
+  | { id: string; kind: 'tool'; entry: Extract<SparkActivityEntry, { kind: 'tool' }> }
+  | { id: string; kind: 'subagents' };
 
 const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroupedActivity[] => {
   const groups: SparkGroupedActivity[] = [];
@@ -573,6 +828,10 @@ const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroup
     if (entry.kind === 'narration') {
       if (last?.kind === 'narration') last.entries.push(entry);
       else groups.push({ id: entry.id, kind: 'narration', entries: [entry] });
+      return;
+    }
+    if (entry.kind === 'subagents') {
+      groups.push({ id: entry.id, kind: 'subagents' });
       return;
     }
     groups.push({ id: entry.id, kind: 'tool', entry });
@@ -648,6 +907,7 @@ const SparkAgentWorkingAnimation: React.FC = () => {
     visit(svg);
 
     let animationFrame = 0;
+    let intervalId: number | undefined;
     const startedAt = performance.now();
     const applyFrame = (frameIndex: number) => {
       const frame = workingAnimationData.frames[frameIndex];
@@ -661,7 +921,7 @@ const SparkAgentWorkingAnimation: React.FC = () => {
       });
     };
     let appliedFrameIndex = -1;
-    const tick = (now: number) => {
+    const drawFrameAt = (now: number) => {
       const elapsed = (now - startedAt) % workingAnimationData.durationMs;
       let low = 0;
       let high = workingAnimationData.times.length - 1;
@@ -674,12 +934,22 @@ const SparkAgentWorkingAnimation: React.FC = () => {
         applyFrame(low);
         appliedFrameIndex = low;
       }
+    };
+    const tick = (now: number) => {
+      drawFrameAt(now);
       animationFrame = window.requestAnimationFrame(tick);
     };
     applyFrame(0);
     appliedFrameIndex = 0;
     animationFrame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(animationFrame);
+    // Keep a timer alongside rAF. A phase label update can briefly interrupt
+    // compositing; the timer advances the SVG to the next frame immediately
+    // after that transition instead of leaving the first working frame static.
+    intervalId = window.setInterval(() => drawFrameAt(performance.now()), 32);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
   }, [instanceId]);
 
   return (
@@ -760,6 +1030,8 @@ const GEMINI_APP_TOOL_LOGOS: Record<string, string> = {
 
 const getToolCapabilityLabel = (tool: string): { icon: string; label: string } => {
   if (tool === 'computer') return { icon: 'monitor', label: 'Computer' };
+  if (tool.startsWith('skill:')) return { icon: 'build', label: tool.slice(6) || 'Skill' };
+  if (tool.startsWith('mcp:')) return { icon: 'extension', label: tool.slice(4) || 'MCP tool' };
   const known = TASK_CAPABILITY_LABELS[tool];
   if (known) return known;
   if (tool.startsWith('app:')) {
@@ -811,6 +1083,24 @@ const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
     }
   }
   return <MaterialSymbol family={tool === 'list' ? 'material-rounded' : 'google-symbols'} name={meta.icon} size={20} weight={320} roundness={100} opticalSize={20} className="spark-task-detail__processing-tool-icon" />;
+};
+
+const SparkCapabilityIcon: React.FC<{ tool: string; icon: string }> = ({ tool, icon }) => {
+  const logo = tool.startsWith('app:') ? GEMINI_APP_TOOL_LOGOS[tool.slice(4)] : undefined;
+  if (logo) {
+    return <img src={logo} alt="" aria-hidden="true" className="spark-task-detail__capability-logo" />;
+  }
+  return (
+    <MaterialSymbol
+      family="google-symbols"
+      name={icon}
+      size={24}
+      weight={320}
+      roundness={100}
+      opticalSize={24}
+      className="spark-task-detail__capability-icon"
+    />
+  );
 };
 
 const SparkResponseActions: React.FC<{
@@ -1105,6 +1395,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
   const [newTaskTool, setNewTaskTool] = useState<string | null>(null);
   const [followUpTool, setFollowUpTool] = useState<string | null>(null);
+  const [dismissedGeneratedFileIds, setDismissedGeneratedFileIds] = useState<Set<string>>(new Set());
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [thinkingPanelTarget, setThinkingPanelTarget] = useState<SparkThinkingPanelTarget | null>(null);
   const [taskFilter, setTaskFilter] = useState<SparkTaskFilter>('Recent');
@@ -1247,6 +1538,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     setNewTaskAttachmentError('');
     setFollowUpAttachmentError('');
     setFollowUpTool(null);
+    setDismissedGeneratedFileIds(new Set());
     setStatusOpen(false);
     setTaskMenuOpen(false);
     setThinkingPanelTarget(null);
@@ -1598,20 +1890,34 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.label === entry.label) === index);
   const hasProcessingState = Boolean(currentTask.activityTitle || currentTask.activityPhase)
     || (currentTask.activityLog?.length ?? 0) > 0
+    || (currentTask.subagents?.length ?? 0) > 0
     || currentProcessingTools.length > 0;
   const hasRootResponseActions = needsApproval(currentTask) || (
     Boolean(response) && ['complete', 'failed', 'cancelled'].includes(taskStatus(currentTask))
   );
-  const taskAttachments = Array.from(new Map([
-    ...(currentTask.attachments ?? []),
-    ...(currentTask.turns ?? []).flatMap((turn) => turn.attachments ?? []),
-  ].map((attachment) => [attachment.id, attachment])).values());
-  const taskCapabilities = Array.from(new Set(currentTask.tools ?? []))
-    .map((tool) => TASK_CAPABILITY_LABELS[tool])
-    .filter((capability): capability is { icon: string; label: string } => Boolean(capability));
-  if (computerUse || currentTask.approval?.kind === 'browser') {
-    taskCapabilities.push(TASK_CAPABILITY_LABELS.computer);
-  }
+  const generatedFiles = Array.from(new Map([
+    ...(currentTask.generatedFiles ?? []),
+    ...(currentTask.turns ?? []).flatMap((turn) => turn.generatedFiles ?? []),
+  ].map((file) => [file.path, file])).values());
+  const rootGeneratedFiles = (currentTask.generatedFiles ?? [])
+    .filter((file) => !dismissedGeneratedFileIds.has(file.id));
+  const latestWorkTitle = [...(currentTask.turns ?? [])]
+    .reverse()
+    .find((turn) => turn.activityTitle)?.activityTitle
+    || currentTask.activityTitle;
+  const latestPlan = currentTask.plan?.length
+    ? currentTask.plan
+    : [...(currentTask.turns ?? [])].reverse().find((turn) => turn.plan?.length)?.plan ?? [];
+  const usedCapabilityTools = Array.from(new Set([
+    ...(currentTask.usedTools ?? []),
+    ...(currentTask.turns ?? []).flatMap((turn) => turn.usedTools ?? []),
+  ])).filter((tool) => tool === 'computer'
+    || tool.startsWith('app:')
+    || tool.startsWith('mcp:')
+    || tool.startsWith('skill:'));
+  const taskCapabilities = usedCapabilityTools
+    .map((tool) => ({ tool, ...getToolCapabilityLabel(tool) }))
+    .filter((capability) => capability.label !== 'Tool');
   const uniqueTaskCapabilities = Array.from(
     new Map(taskCapabilities.map((capability) => [capability.label, capability])).values(),
   );
@@ -1957,29 +2263,22 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             >
               <h2 id={statusPopoverHeadingId} className="spark-task-detail__popover-heading">Progress</h2>
               <div className="spark-task-detail__progress-summary">
-                <MaterialSymbol
-                  {...SYMBOL_PROPS}
-                  name={getStatusSymbol(currentTask)}
-                  size={16}
-                  opticalSize={16}
-                  className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}`}
-                />
-                <span>{currentTask.progressLabel || getStatusLabel(currentTask)}</span>
+                {latestPlan.length ? <SparkProgressPlan steps={latestPlan} /> : (
+                  <>
+                    {latestWorkTitle && <SparkProgressMarker complete={isTaskComplete(currentTask)} />}
+                    <span>{getProgressSummary(latestWorkTitle)}</span>
+                  </>
+                )}
               </div>
 
               <section className="spark-task-detail__popover-group spark-task-detail__popover-files">
                 <h2>Files</h2>
-                {taskAttachments.length ? (
+                {generatedFiles.length ? (
                   <div className="spark-task-detail__popover-file-list">
-                    {taskAttachments.map((attachment) => (
-                      <div key={attachment.id} className="spark-task-detail__popover-file">
-                        <MaterialSymbol
-                          {...SYMBOL_PROPS}
-                          name={getAttachmentSymbol(attachment)}
-                          size={20}
-                          opticalSize={20}
-                        />
-                        <span>{attachment.name}</span>
+                    {generatedFiles.map((file) => (
+                      <div key={file.id} className="spark-task-detail__popover-file">
+                        {getGeneratedFileIcon(file)}
+                        <span>{file.name}</span>
                       </div>
                     ))}
                   </div>
@@ -1990,15 +2289,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <h2>Skills and apps</h2>
                 {uniqueTaskCapabilities.map((capability) => (
                   <div key={capability.label} className="spark-task-detail__popover-capability">
-                    <MaterialSymbol
-                      family="luminous"
-                      name={capability.icon}
-                      size={24}
-                      weight={320}
-                      roundness={100}
-                      opticalSize={24}
-                      className="spark-task-detail__capability-icon"
-                    />
+                    <SparkCapabilityIcon tool={capability.tool} icon={capability.icon} />
                     <span>{capability.label}</span>
                   </div>
                 ))}
@@ -2114,6 +2405,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   <SparkProcessingState
                     title={currentTask.activityTitle}
                     activity={currentTask.activityLog ?? []}
+                    subagents={currentTask.subagents ?? []}
                     phase={hasSparkResponseStarted(currentTask.response) ? undefined : currentTask.activityPhase}
                   />
                 )}
@@ -2129,6 +2421,14 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     />
                   </div>
                 )}
+
+                {rootGeneratedFiles.map((file) => (
+                  <SparkGeneratedFileCard
+                    key={file.id}
+                    file={file}
+                    onClose={(id) => setDismissedGeneratedFileIds((ids) => new Set([...ids, id]))}
+                  />
+                ))}
 
                 {needsApproval(currentTask) && approvalResponse === null && (
                   <section className="spark-task-detail__approval-card" aria-labelledby={approvalTitleId}>
@@ -2224,10 +2524,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       aria-label="Spark follow-up response"
                       aria-busy={turnIsPending}
                     >
-                      {((turn.activityLog?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
+                      {((turn.activityLog?.length ?? 0) > 0 || (turn.subagents?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
                         <SparkProcessingState
                           title={turn.activityTitle}
                           activity={turn.activityLog ?? []}
+                          subagents={turn.subagents ?? []}
                           phase={hasSparkResponseStarted(turn.response)
                             ? undefined
                             : turn.activityPhase ?? (turnIsStreaming ? 'queued' : undefined)}
@@ -2244,6 +2545,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           />
                         </div>
                       )}
+                      {(turn.generatedFiles ?? [])
+                        .filter((file) => !dismissedGeneratedFileIds.has(file.id))
+                        .map((file) => (
+                          <SparkGeneratedFileCard
+                            key={file.id}
+                            file={file}
+                            onClose={(id) => setDismissedGeneratedFileIds((ids) => new Set([...ids, id]))}
+                          />
+                        ))}
                       {turnResponse && !turnIsPending && (
                         <SparkResponseActions
                           responseText={turnResponse}
@@ -2383,9 +2693,14 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 </span>
               </div>
               <div className="spark-task-detail__progress-panel-content">
-                <p className="spark-task-detail__progress-panel-summary">
-                  {currentTask.progressLabel || 'No plan available yet.'}
-                </p>
+                <div className="spark-task-detail__progress-panel-summary">
+                  {latestPlan.length ? <SparkProgressPlan steps={latestPlan} /> : (
+                    <>
+                      {latestWorkTitle && <SparkProgressMarker complete={isTaskComplete(currentTask)} />}
+                      <span>{getProgressSummary(latestWorkTitle)}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </section>
 
@@ -2395,18 +2710,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   <span className="spark-task-detail__progress-panel-title">Files</span>
                 </span>
               </div>
-              {taskAttachments.length > 0 && (
+              {generatedFiles.length > 0 && (
                 <div className="spark-task-detail__progress-panel-content">
                   <div className="spark-task-detail__progress-panel-file-list">
-                    {taskAttachments.map((attachment) => (
-                      <div key={attachment.id} className="spark-task-detail__progress-panel-file">
-                        <MaterialSymbol
-                          {...SYMBOL_PROPS}
-                          name={getAttachmentSymbol(attachment)}
-                          size={20}
-                          opticalSize={20}
-                        />
-                        <span>{attachment.name}</span>
+                    {generatedFiles.map((file) => (
+                      <div key={file.id} className="spark-task-detail__progress-panel-file">
+                        {getGeneratedFileIcon(file)}
+                        <span>{file.name}</span>
                       </div>
                     ))}
                   </div>
@@ -2424,15 +2734,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <div className="spark-task-detail__progress-panel-content">
                   {uniqueTaskCapabilities.map((capability) => (
                     <div key={capability.label} className="spark-task-detail__progress-panel-capability">
-                      <MaterialSymbol
-                        family="luminous"
-                        name={capability.icon}
-                        size={24}
-                        weight={320}
-                        roundness={100}
-                        opticalSize={24}
-                        className="spark-task-detail__capability-icon"
-                      />
+                      <SparkCapabilityIcon tool={capability.tool} icon={capability.icon} />
                       <span>{capability.label}</span>
                     </div>
                   ))}

@@ -983,7 +983,9 @@ const streamChatImpl: any = async (
     
     // Map numeric UI levels to Gemini string labels
     let geminiThinkingLevel: string = model.includes('flash') ? 'high' : 'low';
-    if (options.thinkingLevel !== undefined) {
+    if (typeof options.reasoningEffort === 'string' && options.reasoningEffort.trim()) {
+      geminiThinkingLevel = options.reasoningEffort.trim();
+    } else if (options.thinkingLevel !== undefined) {
       if (model.includes('flash')) {
         const flashMap: Record<number, string> = { 0: 'minimal', 1: 'low', 2: 'medium', 3: 'high' };
         geminiThinkingLevel = flashMap[options.thinkingLevel] ?? 'high';

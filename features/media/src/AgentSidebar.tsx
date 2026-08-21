@@ -285,6 +285,18 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   const [isVidDropdownOpen, setIsVidDropdownOpen] = useState(false);
   const [lastSubView, setLastSubView] = useState<'settings' | 'instructions'>('instructions');
 
+  useEffect(() => {
+    if (!isImgDropdownOpen && !isVidDropdownOpen) return undefined;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-agent-model-dropdown]')) return;
+      setIsImgDropdownOpen(false);
+      setIsVidDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside, { capture: true });
+    return () => document.removeEventListener('mousedown', handleClickOutside, { capture: true });
+  }, [isImgDropdownOpen, isVidDropdownOpen]);
+
   // Synchronous render-phase state update to completely eliminate any 1-frame transition lag or flash
   if ((sidebarView === 'settings' || sidebarView === 'instructions') && lastSubView !== sidebarView) {
     setLastSubView(sidebarView);
@@ -1079,7 +1091,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                   </div>
 
                   {/* Image Model Dropdown */}
-                  <div className="relative w-full">
+                  <div className="relative w-full" data-agent-model-dropdown>
                     <button 
                       type="button"
                       onClick={() => {
@@ -1157,7 +1169,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                   </div>
 
                   {/* Video Model Dropdown */}
-                  <div className="relative w-full">
+                  <div className="relative w-full" data-agent-model-dropdown>
                     <button 
                       type="button"
                       onClick={() => {
