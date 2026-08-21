@@ -161,9 +161,10 @@
   position: relative;
 }
 
-/* Keep the left composer's overlays above the task-list divider (z-index: 28). */
+/* Keep the left composer's overlays above the divider and the adjacent task card.
+ * Stay below Spark's dialogs, whose backdrop starts at z-index 40. */
 .spark-task-detail__new-composer .spark-composer-host > div {
-  z-index: 30;
+  z-index: 39;
 }
 
 /* The follow-up box is Chat's `InputBar` now, so this is only its placement — the surface,

@@ -55,6 +55,26 @@ describe('model menu positioning', () => {
     }), -121);
   });
 
+  it('keeps the effort submenu on the right when it fits and flips it left near the viewport edge', async () => {
+    const { chooseSubmenuSide } = await importTs(
+      path.join(root, 'platform/ui/src/models/menu-position.ts'),
+    );
+
+    assert.equal(chooseSubmenuSide({
+      submenuWidth: 220,
+      spacing: 8,
+      spaceLeft: 900,
+      spaceRight: 300,
+    }), 'right');
+
+    assert.equal(chooseSubmenuSide({
+      submenuWidth: 220,
+      spacing: 8,
+      spaceLeft: 900,
+      spaceRight: 180,
+    }), 'left');
+  });
+
   it('remeasures while the main menu settles and when its animation ends', () => {
     const source = fs.readFileSync(
       path.join(root, 'platform/ui/src/models/ModelsMenu.tsx'),
@@ -66,6 +86,8 @@ describe('model menu positioning', () => {
     assert.match(source, /new ResizeObserver\(calculatePosition\)/);
     assert.match(source, /addEventListener\('animationend', handleModelMenuAnimationEnd\)/);
     assert.match(source, /isEffortPositionReady/);
+    assert.match(source, /chooseSubmenuSide/);
+    assert.match(source, /keyboard_arrow_left/);
     assert.match(source, /willChange: 'transform'/);
     assert.match(source, /translateZ\(0\)/);
   });
