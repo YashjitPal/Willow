@@ -7,14 +7,17 @@ and event sink. Keep the protocol and the visible timeline separate.
 
 1. **Patch protocol:** `*** Begin Patch` through `*** End Patch` is the literal
    freeform file-edit grammar. It is parsed by `ResponseStreamParser` and applied
-   by `applyPatchEnvelope`. Never insert `Work Title`, `Work Log`, or status prose
-   inside this envelope.
-2. **Work metadata:** `*** Work Title:` and `*** Work Log:` are Spark-only lines
-   outside the Patch grammar. They become the visible narration entries in the
-   Spark processing timeline. They should describe real, user-safe milestones.
+   by `applyPatchEnvelope`. Never insert `Work Title` or status prose inside
+   this envelope.
+2. **Visible work prose:** Codex-style preambles and progress updates are ordinary
+   model-authored prose immediately before a Patch or tool call. The runtime moves
+   that prose into `work-log` events for the Spark processing timeline instead
+   of including it in the final answer. `work-log` is an internal event name,
+   not a model-facing protocol: there is no `*** Work Log:` marker.
 3. **Provider events:** native Google Search and native Code Execution arrive from
    `platform/ai` through `onToolCallStart`. They create tool rows in Spark. They
-   are not Patch rows and must not be represented by a fabricated narration line.
+   are not Patch rows. If the model did not precede one with visible prose, do not
+   fabricate a narration line.
 
 ## Thought Summaries Are Private
 
@@ -30,17 +33,17 @@ Search and Code Execution are enabled by passing the model options through the
 harness. A real provider invocation emits exactly one corresponding tool row
 (deduplicated by the provider step identity where available). Do not add a fixed
 sentence such as “I'm searching the web for the information this task needs.” If
-the model emits no Work Log around a native tool, preserve the truthful tool row
+the model emits no preamble around a native tool, preserve the truthful tool row
 instead of inventing a status sentence.
 
-## More Timeline Lines
+## Work Logs
 
-The Spark profile asks the model for moderate-length Work Logs around meaningful
-research, Patch, and verification phases. More lines must come from distinct
-observable milestones, not repeated synonyms or hidden chain-of-thought. It is
-valid for several Work Logs to occur consecutively without a tool call; the UI
-groups consecutive narration under one timeline branch and shows the clock only
-on that branch's first row. A tool row starts a new branch.
+The original Codex prompt asks the model for concise preambles before tool calls
+and occasional progress updates during longer work. Spark calls those visible
+sentences “work logs” after the runtime has classified them for the timeline.
+Only prose actually emitted by the model belongs there. Do not synthesize file
+names, Patch success messages, tool descriptions, or generic continuation text.
+Do not introduce a separate Work Log marker protocol.
 
 ## Headings
 
@@ -48,6 +51,15 @@ on that branch's first row. A tool row starts a new branch.
 a task-derived fallback when a Patch, native tool, or harness call starts before
 the model has emitted a title. Do not leave the heading as the generic `Working`
 when a real task prompt is available.
+
+## Keep The Codex Base Whole
+
+Spark's system prompt is composed from the complete vendored Codex prompt. The
+Spark overlay changes only the identity, environment/tool boundaries, private
+workspace rules, capability declarations, and the single `Work Title` metadata
+line. Do not replace the composed prompt with a shortened Spark summary. Local
+workspace, App, and MCP actions use the Codex text-call protocol; only genuine
+provider-native Search and Code Execution arrive as provider events.
 
 When changing this contract, update the focused tests in
 `apps/studio/test/spark-harness-turn-loop.test.mjs` and run the Spark harness

@@ -7,6 +7,9 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..');
 const { runTurn } = await importTs(
   path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'runtime', 'agent.ts'),
 );
+const { createSparkHarnessProfile } = await importTs(
+  path.join(repoRoot, 'features', 'spark', 'src', 'harness', 'overlay', 'spark-profile.ts'),
+);
 
 const MODEL = { label: 'Test', options: { provider: 'gemini', model: 'test', apiKey: 'k' } };
 const PROFILE = { systemPrompt: 'You are a general-purpose work agent.' };
@@ -46,6 +49,40 @@ it('keeps greetings conversational and omits workspace context', async () => {
   assert.equal(scripted.conversations[0].at(-1).content, '<intent>conversation</intent>\n\nheyy');
 });
 
+it('builds Spark from the full Codex prompt while preserving its Work Title', async () => {
+  const profile = createSparkHarnessProfile({
+    skills: [],
+    connectedApps: [],
+    mcpTools: [],
+  });
+  assert.match(profile.systemPrompt, /Before making tool calls, send a brief preamble/i);
+  assert.match(profile.systemPrompt, /Sharing progress updates/i);
+  assert.match(profile.systemPrompt, /Your final message should read naturally/i);
+  assert.match(profile.systemPrompt, /\*\*\* Work Title:/);
+  assert.doesNotMatch(profile.systemPrompt, /\*\*\* Work Log:/);
+  assert.ok(profile.systemPrompt.length > 18000, `Spark profile was unexpectedly compact: ${profile.systemPrompt.length} chars`);
+});
+
+it('keeps Spark workspace calls on the Codex text protocol', async () => {
+  let receivedOptions;
+  let calls = 0;
+  const scripted = async (_messages, options, onToken) => {
+    receivedOptions = options;
+    if (calls++ === 0) onToken('I will inspect the workspace.\n*** Call: list_files\n{}\n*** End Call\n');
+    else onToken('The workspace is empty.');
+  };
+  await runTurn({
+    prompt: 'List the workspace files.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: { systemPrompt: createSparkHarnessProfile({ skills: [], connectedApps: [] }).systemPrompt },
+    transport: scripted,
+    onEvent: () => {},
+  });
+});
+
 it('does not complete a requested file write after read-only inspection', async () => {
   const { files, events, scripted } = await run(
     'Create a text document file and write down the usefulness of AI',
@@ -53,13 +90,29 @@ it('does not complete a requested file write after read-only inspection', async 
       `*** Call: read_file\n{"path":"/ai_usefulness.txt"}\n*** End Call\n`,
       'The file already exists, so there is nothing to do.',
       `*** Begin Patch\n*** Update File: /ai_usefulness.txt\n@@\n-old\n+AI is useful for automation, analysis, creativity, and accessibility.\n*** End Patch\n`,
+      'The file now contains the requested information.',
     ],
     { '/ai_usefulness.txt': 'old\n' },
   );
-  assert.equal(scripted.turns, 3);
+  assert.equal(scripted.turns, 4);
   assert.match(files['/ai_usefulness.txt'], /automation/);
   assert.equal(events.at(-1).reason, 'complete');
   assert.match(scripted.conversations[2].at(-1).content, /mutation is not complete/i);
+});
+
+it('continues after a successful patch when the patch stream has no closing response', async () => {
+  const { files, events, scripted } = await run(
+    'Create a note about Spark.',
+    [
+      `*** Begin Patch\n*** Add File: /spark-note.txt\n+Spark keeps the work timeline separate from the final response.\n*** End Patch\n`,
+      'The note was created successfully.',
+    ],
+  );
+
+  assert.equal(scripted.turns, 2);
+  assert.match(files['/spark-note.txt'], /work timeline/);
+  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'The note was created successfully.');
+  assert.equal(events.at(-1).reason, 'complete');
 });
 
 it('fails honestly when a mutation request never changes a file', async () => {
@@ -170,27 +223,7 @@ it('deduplicates a repeated Interactions search delta without hiding a second se
   assert.equal(events.filter((event) => event.name === 'web_search').length, 2);
 });
 
-it('accepts concise Work Log metadata between ordinary streamed phases', async () => {
-  const events = [];
-  const scripted = transport(['*** Work Title: Research task\n*** Work Log: I\'m comparing the latest sources.\n*** Work Log: I\'m narrowing the answer to the relevant finding.\nThe answer is ready.']);
-  await runTurn({
-    prompt: 'Research and summarize the answer.',
-    history: [],
-    files: () => ({}),
-    writeFiles: () => {},
-    model: MODEL,
-    profile: PROFILE,
-    transport: scripted,
-    onEvent: (event) => events.push(event),
-  });
-  assert.deepEqual(
-    events.filter((event) => event.type === 'work-log').map((event) => event.text),
-    ["I'm comparing the latest sources.", "I'm narrowing the answer to the relevant finding."],
-  );
-  assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'The answer is ready.');
-});
-
-it('emits visible work narration before tool rows and never exposes provider thoughts', async () => {
+it('uses ordinary Codex-style preamble prose as work narration and never exposes provider thoughts', async () => {
   const events = [];
   let turn = 0;
   const scripted = async (_messages, _options, onToken, _onStart, _system, _onPhase, _onToolCall, onThought) => {
@@ -218,14 +251,12 @@ it('emits visible work narration before tool rows and never exposes provider tho
   assert.match(events[workIndex].text, /update the workspace/i);
   assert.equal(events.some((event) => event.type === 'thought'), false);
   const progress = events.filter((event) => event.type === 'work-log').map((event) => event.text);
-  assert.equal(progress.length, 3);
-  assert.match(progress[1], /creating \/workspace\/note\.txt/i);
-  assert.match(progress[2], /applied successfully/i);
+  assert.deepEqual(progress, ['I will update the workspace now.']);
   assert.equal(events.filter((event) => event.type === 'text').some((event) => /update the workspace/i.test(event.chunk)), false);
   assert.equal(events.filter((event) => event.type === 'text').some((event) => /created the workspace note/i.test(event.chunk)), true);
 });
 
-it('adds a visible status line before every call in a narration-free batch', async () => {
+it('does not fabricate status lines for a narration-free tool batch', async () => {
   const { events } = await run('Inspect both workspace files.', [
     `*** Call: read_file\n{"path":"/one.txt"}\n*** End Call\n*** Call: read_file\n{"path":"/two.txt"}\n*** End Call`,
     'I checked both files.',
@@ -233,12 +264,7 @@ it('adds a visible status line before every call in a narration-free batch', asy
   const ordered = events
     .filter((event) => event.type === 'work-log' || event.type === 'call-start')
     .map((event) => event.type === 'work-log' ? `line:${event.text}` : `tool:${event.call.kind}`);
-  assert.deepEqual(ordered.slice(0, 4), [
-    "line:I'm checking the file contents now.",
-    'tool:read',
-    "line:I'm checking the file contents now.",
-    'tool:read',
-  ]);
+  assert.deepEqual(ordered, ['tool:read', 'tool:read']);
 });
 
 it('emits one stable work heading as metadata, separate from the timeline', async () => {

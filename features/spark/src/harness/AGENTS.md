@@ -181,5 +181,9 @@ vendored file.
 Read [`runtime/AGENTS.md`](runtime/AGENTS.md) before changing the Spark turn loop,
 stream parser, Patch lifecycle, native Search/Code Execution events, or visible
 work timeline. The runtime guide is the source of truth for the separation
-between literal Patch envelopes, Spark Work Logs, provider tool rows, and private
-thought summaries.
+between literal Patch envelopes, Codex-style preamble prose rendered as work
+logs, provider tool rows, and private thought summaries.
+
+Spark must continue to compose the complete vendored Codex prompt. Its fork is
+an overlay for Spark identity, Work Title, workspace boundaries, Search/Code
+Execution, Skills, Apps, and MCP—not a compact rewrite of Codex behavior.

@@ -1308,7 +1308,7 @@
   min-height: 100%;
   margin: 0 auto;
   direction: ltr;
-  transform: translateX(8.85px);
+  transform: translateX(14px);
 }
 
 .spark-task-detail.has-computer-use .spark-task-detail__conversation {
@@ -1330,7 +1330,7 @@
 }
 
 /*
- * `remy-processing-state`, measured: host `padding: 0 8px 8px 16px`; trigger 32px
+ * `remy-processing-state`, measured: host `padding: 0 8px 8px`; trigger 32px
  * tall, fully rounded, `padding: 0 8px`, gap 8px, label gds-body-s (13px/17px) in
  * rgba(255,255,255,.55); chevron `expand_more` 20px weight 320. Gemini's trigger
  * computes `cursor: default` — the chevron is the affordance, not the pointer.
@@ -1338,53 +1338,56 @@
 .spark-task-detail__processing-state {
   display: flex;
   flex-direction: column;
-  padding: 0 8px 8px 16px;
+  padding: 0 8px 8px;
 }
 
 .spark-task-detail__pending-dots {
   display: flex;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   align-items: center;
-  gap: 3px;
   margin: 4px 0 8px 0;
-  padding-left: 4px;
 }
 
-.spark-task-detail__pending-dots span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.78);
-  animation: spark-pending-dot 1.1s ease-in-out infinite;
-}
-
-.spark-task-detail__pending-dots span:nth-child(2) { animation-delay: 120ms; }
-.spark-task-detail__pending-dots span:nth-child(3) { animation-delay: 240ms; }
-
-.spark-task-detail__processing-working {
+.spark-task-detail__agent-working {
   display: flex;
   min-height: 28px;
   align-items: flex-start;
   gap: 8px;
-  margin: 16px 0 8px -3px;
-  color: #8ab4f8;
-  font-size: 17px;
-  font-weight: 500;
+  margin: 16px 0 0 -3px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 400;
   line-height: 28px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.spark-task-detail__processing-working.is-thinking {
-  margin-top: 8px;
+.spark-task-detail__agent-working.is-thinking {
+  margin-top: 16px;
 }
 
-.spark-task-detail__processing-spark {
-  flex-shrink: 0;
-  color: #8ab4f8;
+.spark-task-detail__processing-details > .spark-task-detail__agent-working {
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
-.spark-task-detail__processing-spark.is-animated {
-  animation: spark-working-pulse 1.6s ease-in-out infinite;
+.spark-task-detail__agent-working-animation {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  overflow: visible;
+}
+
+.spark-task-detail__agent-working-animation > svg {
+  display: block;
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0;
+  overflow: visible;
 }
 
 /*
@@ -1400,6 +1403,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 8px;
+  margin-bottom: 2px;
   border: 0;
   border-radius: 9999px;
   background: transparent;
@@ -1408,12 +1412,14 @@
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
-  margin-left: -16px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  margin-left: -8px;
   text-align: left;
   cursor: default;
   animation:
     spark-processing-expand-height 50ms linear forwards,
     spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transition: margin-bottom 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .spark-task-detail__processing-trigger:hover {
@@ -1458,17 +1464,18 @@
 }
 
 .spark-task-detail__processing-details {
-  --spark-processing-row-gap: 16px;
+  --spark-processing-group-gap: 16px;
 
   display: flex;
   min-height: 0;
   overflow: hidden;
   flex-direction: column;
-  gap: var(--spark-processing-row-gap);
+  gap: 0;
   padding: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
   line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
 }
 
 .spark-task-detail__processing-step,
@@ -1478,18 +1485,12 @@
   min-height: 24px;
   align-items: flex-start;
   gap: 8px;
-  animation: spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 /* Connector between one row's node and the next one's.
- *
- * Drawn as a border rather than a filled box on purpose: the rows sit at a
- * fractional device-pixel offset (the conversation column is centred by an auto
- * margin inside a resizable pane, then nudged by a fractional transform), and a
- * background box is rasterized from its snapped edges, so a 2px fill lands on 2
- * or 3 device pixels depending on where the row happens to fall. Border widths
- * are snapped to whole device pixels before paint, so this stays at one weight
- * in both pane states and while the pane animates between them.
  *
  * Spans from the bottom of the 24px node to the top of the next row's node, so
  * rows whose label wraps to a second line don't break the line. */
@@ -1497,20 +1498,17 @@
 .spark-task-detail__processing-tool::after {
   position: absolute;
   top: 24px;
-  bottom: calc(-1 * var(--spark-processing-row-gap));
-  left: 11px;
-  width: 0;
-  border-left: 2px solid rgb(122, 122, 122);
+  bottom: calc(-1 * var(--spark-processing-group-gap));
+  left: 12px;
+  width: 1px;
+  background: rgb(122, 122, 122);
   content: '';
 }
 
 .spark-task-detail__processing-step:last-child::after,
-.spark-task-detail__processing-tool:last-child::after {
-  display: none;
-}
-
-.spark-task-detail__processing-step:nth-last-child(2):has(+ .spark-task-detail__processing-show-less)::after,
-.spark-task-detail__processing-tool:nth-last-child(2):has(+ .spark-task-detail__processing-show-less)::after {
+.spark-task-detail__processing-tool:last-child::after,
+.spark-task-detail__processing-step.is-last-activity::after,
+.spark-task-detail__processing-tool.is-last-activity::after {
   display: none;
 }
 
@@ -1523,6 +1521,13 @@
 }
 
 .spark-task-detail__google-search-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
+.spark-task-detail__app-tool-icon {
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
@@ -1544,9 +1549,9 @@
  * through the empty node slot on the following rows. */
 .spark-task-detail__processing-step.is-continuation .spark-task-detail__processing-node::before {
   position: absolute;
-  inset: 0 auto 0 11px;
-  width: 0;
-  border-left: 2px solid rgb(122, 122, 122);
+  inset: 0 auto 0 12px;
+  width: 1px;
+  background: rgb(122, 122, 122);
   content: '';
 }
 
@@ -1556,6 +1561,7 @@
   align-items: flex-start;
   gap: 8px;
   color: rgba(255, 255, 255, 0.55);
+  margin-left: 1px;
 }
 
 .spark-task-detail__processing-tool > :first-child {
@@ -1596,6 +1602,109 @@
   color: rgba(196, 199, 197, 0.92);
 }
 
+.spark-task-detail__processing-thought {
+  position: relative;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.spark-task-detail__processing-thought.has-leading-gap,
+.spark-task-detail__processing-tool.has-leading-gap {
+  margin-top: var(--spark-processing-group-gap);
+}
+
+.spark-task-detail__processing-thought::after {
+  position: absolute;
+  top: 24px;
+  bottom: calc(-1 * var(--spark-processing-group-gap));
+  left: 12px;
+  width: 1px;
+  background: rgb(122, 122, 122);
+  content: '';
+}
+
+.spark-task-detail__processing-thought.is-last-activity::after {
+  display: none;
+}
+
+.spark-task-detail__processing-thought.is-last-activity.is-overflowing::after {
+  display: block;
+  bottom: 0;
+}
+
+.spark-task-detail__processing-thought-header {
+  display: flex;
+  min-height: 24px;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: 1px;
+}
+
+.spark-task-detail__processing-thought-cap {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  max-height: 110px;
+  padding-top: 3px;
+  overflow: hidden;
+  transition: max-height 200ms ease-out;
+}
+
+.spark-task-detail__processing-thought-cap.is-expanded {
+  max-height: var(--spark-expanded-height, 2000px);
+}
+
+.spark-task-detail__processing-thought-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spark-task-detail__processing-thought.is-overflowing .spark-task-detail__processing-thought-cap:not(.is-expanded)::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 60px;
+  background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  animation: spark-processing-fade-in 150ms cubic-bezier(0.4, 0, 0.2, 1) 150ms forwards;
+}
+
+.spark-task-detail__processing-thought-item {
+  min-height: 17px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.spark-task-detail__processing-show-more {
+  display: block;
+  min-height: 25px;
+  margin: 4px 0 0 24px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  cursor: pointer;
+  animation:
+    spark-processing-expand-height 50ms linear forwards,
+    spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.spark-task-detail__processing-show-more:hover {
+  color: #e6e6e6;
+}
+
 .spark-task-detail__processing-show-less {
   align-self: flex-start;
   padding: 0;
@@ -1617,16 +1726,6 @@
   }
 }
 
-@keyframes spark-pending-dot {
-  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-2px); }
-}
-
-@keyframes spark-working-pulse {
-  0%, 100% { opacity: 0.65; transform: scale(0.92) rotate(0deg); }
-  50% { opacity: 1; transform: scale(1.08) rotate(12deg); }
-}
-
 @keyframes spark-processing-fade-slide-up {
   from {
     opacity: 0;
@@ -1638,6 +1737,10 @@
   }
 }
 
+@keyframes spark-processing-fade-in {
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spark-task-detail__processing-chevron {
     transition: none;
@@ -1645,7 +1748,11 @@
 
   .spark-task-detail__processing-trigger,
   .spark-task-detail__processing-step,
-  .spark-task-detail__processing-tool {
+  .spark-task-detail__processing-tool,
+  .spark-task-detail__processing-thought,
+  .spark-task-detail__processing-show-more,
+  .spark-task-detail__agent-working,
+  .spark-task-detail__agent-working-animation {
     animation: none;
   }
 
@@ -1863,95 +1970,10 @@
 
 .spark-task-detail__assistant-response {
   margin: 10px 8px 0;
-  color: #e6e6e6;
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 24px;
-  overflow-wrap: anywhere;
 }
 
-.spark-task-detail__assistant-response strong,
 .spark-task-detail__thinking-step strong {
   font-weight: 540;
-}
-
-.spark-task-detail__assistant-response > :first-child {
-  margin-top: 0;
-}
-
-.spark-task-detail__assistant-response > :last-child {
-  margin-bottom: 0;
-}
-
-.spark-task-detail__assistant-response p,
-.spark-task-detail__assistant-response ul,
-.spark-task-detail__assistant-response ol {
-  margin: 0 0 16px;
-}
-
-.spark-task-detail__assistant-response ul,
-.spark-task-detail__assistant-response ol {
-  padding-left: 24px;
-}
-
-.spark-task-detail__assistant-response h1,
-.spark-task-detail__assistant-response h2,
-.spark-task-detail__assistant-response h3 {
-  margin: 24px 0 12px;
-  color: #e6e6e6;
-  font-size: 17px;
-  font-weight: 650;
-  line-height: 24px;
-}
-
-.spark-task-detail__assistant-response a {
-  color: #a8c7fa;
-}
-
-.spark-task-detail__assistant-response code {
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.07);
-  padding: 1px 4px;
-  font-family: "Roboto Mono", Consolas, monospace;
-  font-size: 0.9em;
-}
-
-.spark-task-detail__assistant-response pre {
-  max-width: 100%;
-  margin: 0 0 16px;
-  padding: 14px 16px;
-  overflow-x: auto;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 12px;
-  background: #171717;
-}
-
-.spark-task-detail__assistant-response pre code {
-  padding: 0;
-  background: transparent;
-  white-space: pre;
-}
-
-.spark-task-detail__assistant-response blockquote {
-  margin: 0 0 16px;
-  padding-left: 14px;
-  border-left: 3px solid rgba(168, 199, 250, 0.55);
-  color: #c4c7c5;
-}
-
-.spark-task-detail__assistant-response table {
-  display: block;
-  max-width: 100%;
-  margin-bottom: 16px;
-  overflow-x: auto;
-  border-collapse: collapse;
-}
-
-.spark-task-detail__assistant-response th,
-.spark-task-detail__assistant-response td {
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  text-align: left;
 }
 
 .spark-task-detail__approval-card {

@@ -180,14 +180,14 @@ const appendSparkNarration = (entries: SparkActivityEntry[], text: string): Spar
   const next = [...entries];
   text
     .split(/\n{2,}/)
-    .map((part) => part.replace(/\s+/g, ' ').trim().replace(/^\*\*|\*\*$/g, '').slice(0, 600))
+    .map((part) => part.replace(/\s+/g, ' ').trim().replace(/^\*\*|\*\*$/g, ''))
     .filter(Boolean)
     .forEach((part) => {
       const last = next.at(-1);
       if (last?.kind === 'narration' && last.text === part) return;
       next.push({ id: `spark-activity-${Date.now()}-${next.length}`, kind: 'narration', text: part });
     });
-  return next.slice(-40);
+  return next;
 };
 
 const normalizeRuntimeToolName = (name: string): string => {
@@ -201,6 +201,8 @@ const normalizeRuntimeToolName = (name: string): string => {
   if (normalized.includes('calendar')) return 'app:google-calendar';
   if (normalized.includes('drive')) return 'app:google-drive';
   if (normalized.includes('docs')) return 'app:google-docs';
+  if (normalized.includes('keep')) return 'app:google-keep';
+  if (normalized.includes('google chat')) return 'app:google-chat';
   if (normalized.includes('youtube')) return 'app:youtube';
   if (normalized.includes('spotify')) return 'app:spotify';
   if (normalized.includes('github')) return 'app:github';
@@ -408,6 +410,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         description: 'A model API key is required',
         progressLabel: 'Could not start',
         response: `Add an API key for ${execution.provider} in Settings > Models, then retry this task.`,
+        activityPhase: undefined,
         modelLabel: execution.modelLabel,
         reaction: undefined,
       });
@@ -419,7 +422,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     updateSparkTask(taskId, {
       status: 'running',
       description: 'Working on your task',
-      progressLabel: 'Thinking it through...',
+      progressLabel: 'Thinking it through…',
       activityPhase: 'queued',
       response: '',
       modelLabel: execution.modelLabel,
@@ -436,7 +439,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     let activityTitle: string | undefined;
     let activityLog: SparkActivityEntry[] = [];
     let usedTools: string[] = [];
-    let activityPhase: SparkActivityPhase = 'queued';
+    let activityPhase: SparkActivityPhase | undefined = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
       publishTimer = undefined;
@@ -449,7 +452,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityLog = appendSparkNarration(activityLog, text);
       if (activityPhase === 'queued') activityPhase = 'thinking';
       if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
-      if (isCurrentRun()) updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+      if (isCurrentRun()) updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
     };
     const publishUsedTool = (name: string) => {
       const tool = normalizeRuntimeToolName(name);
@@ -459,7 +462,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityPhase = 'working';
       if (isCurrentRun()) {
         updateSparkTaskActivityTransient(taskId, activityLog);
-        updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it...' });
+        updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
       }
     };
     const publishCapability = (name: string) => {
@@ -467,7 +470,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (!tool) return;
       if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
       activityPhase = 'working';
-      if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it...' });
+      if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
     };
 
     try {
@@ -507,6 +510,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           if (!isCurrentRun()) return;
           if (event.type === 'text') {
             response += event.chunk;
+            if (response.trim() && activityPhase !== undefined) {
+              activityPhase = undefined;
+              updateSparkTask(taskId, { activityPhase: undefined });
+            }
             queueResponsePublish();
           } else if (event.type === 'work-title') {
             const title = event.title.trim();
@@ -519,12 +526,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           } else if (event.type === 'thought') {
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
-            if (event.label?.toLowerCase().includes('working')) {
+            const activityLabel = event.label?.toLowerCase() ?? '';
+            if (activityLabel && !activityLabel.includes('thinking')) {
               activityPhase = 'working';
-              updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it...' });
-            } else if (event.label?.toLowerCase().includes('thinking') && activityPhase === 'queued') {
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it…' });
+            } else if (activityLabel.includes('thinking') && activityPhase === 'queued') {
               activityPhase = 'thinking';
-              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'call-start') {
             publishUsedTool(event.call.kind);
@@ -663,13 +671,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     updateSparkTask(taskId, {
       status: 'running',
       description: 'Working on your follow-up',
-      progressLabel: 'Thinking it through...',
-      activityPhase: 'queued',
+      progressLabel: 'Thinking it through…',
     });
     if (!execution.apiKey) {
       updateSparkTaskTurn(taskId, turnId, {
         response: `Add an API key for ${execution.provider} in Settings > Models, then retry this follow-up.`,
         modelLabel: execution.modelLabel,
+        activityPhase: undefined,
       });
       updateSparkTask(taskId, {
         status: 'failed',
@@ -685,7 +693,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     let activityTitle: string | undefined;
     let activityLog: SparkActivityEntry[] = [];
     let usedTools: string[] = [];
-    let activityPhase: SparkActivityPhase = 'queued';
+    let activityPhase: SparkActivityPhase | undefined = 'queued';
     let publishTimer: ReturnType<typeof setTimeout> | undefined;
     const publishResponse = () => {
       publishTimer = undefined;
@@ -697,7 +705,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (isCurrentRun()) {
         updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
         updateSparkTaskTurn(taskId, turnId, { activityPhase });
-        updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+        updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
       }
     };
     const publishUsedTool = (name: string) => {
@@ -709,7 +717,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (isCurrentRun()) {
         updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
         updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase: 'working' });
-        updateSparkTask(taskId, { activityPhase: 'working', progressLabel: 'Working on it...' });
+        updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
     };
     const publishCapability = (name: string) => {
@@ -719,7 +727,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityPhase = 'working';
       if (isCurrentRun()) {
         updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase: 'working' });
-        updateSparkTask(taskId, { activityPhase: 'working', progressLabel: 'Working on it...' });
+        updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
     };
 
@@ -761,27 +769,31 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           if (!isCurrentRun()) return;
           if (event.type === 'text') {
             response += event.chunk;
+            if (response.trim() && activityPhase !== undefined) {
+              activityPhase = undefined;
+              updateSparkTaskTurn(taskId, turnId, { activityPhase: undefined });
+            }
             if (!publishTimer) publishTimer = setTimeout(publishResponse, 80);
           } else if (event.type === 'work-title') {
             const title = event.title.trim();
             if (title && !activityTitle) {
               activityTitle = title;
               updateSparkTaskTurn(taskId, turnId, { activityTitle });
-              updateSparkTask(taskId, { activityTitle });
             }
           } else if (event.type === 'work-log') {
             publishNarration(event.text);
           } else if (event.type === 'thought') {
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
-            if (event.label?.toLowerCase().includes('working')) {
+            const activityLabel = event.label?.toLowerCase() ?? '';
+            if (activityLabel && !activityLabel.includes('thinking')) {
               activityPhase = 'working';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
-              updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it...' });
-            } else if (event.label?.toLowerCase().includes('thinking') && activityPhase === 'queued') {
+              updateSparkTask(taskId, { progressLabel: 'Working on it…' });
+            } else if (activityLabel.includes('thinking') && activityPhase === 'queued') {
               activityPhase = 'thinking';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
-              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through...' });
+              updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'call-start') {
             publishUsedTool(event.call.kind);
@@ -804,7 +816,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         status: 'complete',
         description: 'Task updated',
         progressLabel: 'Done',
-        activityPhase: undefined,
       });
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
@@ -823,7 +834,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         status: 'failed',
         description: 'Follow-up failed',
         progressLabel: 'Failed',
-        activityPhase: undefined,
       });
     } finally {
       finishSparkRun(runKey, controller);

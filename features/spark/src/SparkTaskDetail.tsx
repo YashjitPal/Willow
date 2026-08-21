@@ -16,9 +16,11 @@ import {
   validateSparkAttachmentFiles,
 } from './attachment-storage';
 import { PlusDropdownMenu } from '@willow/chat/composer/PlusDropdownMenu';
+import { GeminiThinkingVisualizer } from '@willow/chat/GeminiThinkingVisualizer';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
 import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime } from './spark-types';
@@ -26,6 +28,13 @@ import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import './SparkTaskDetail.css';
 import { SYMBOL_PROPS, mergeSelectedFiles, getAttachmentSymbol, SparkComposerContextChip, SparkAttachmentPills } from './spark-composer-chips';
+import workingAnimationTemplate from './gemini-working-animation/template.svg?raw';
+import workingAnimationData from './gemini-working-animation/frames.json';
+import {
+  hasSparkResponseStarted,
+  isSparkRootResponseStreaming,
+  isSparkTurnResponseStreaming,
+} from './spark-response-lifecycle';
 
 type SparkTaskFilter = 'Recent' | 'Scheduled' | 'Needs input' | 'In progress' | 'Completed';
 
@@ -172,6 +181,18 @@ const SparkSentMessage: React.FC<{
     </div>
   );
 };
+
+const SparkAssistantResponse: React.FC<{
+  text: string;
+  isStreaming: boolean;
+}> = ({ text, isStreaming }) => (
+  <StreamingMarkdown
+    text={text}
+    isStreaming={isStreaming}
+    animate={isStreaming}
+    reveal={isStreaming}
+  />
+);
 
 const taskStatus = (task: SparkTask) => task.status;
 
@@ -440,7 +461,7 @@ const SparkThinkingStepsPanel: React.FC<{
  * Measured off the live element: the trigger is 32px tall and fully rounded with
  * `padding: 0 8px`, its label is gds-body-s (13px/17px) in
  * `--lumi-sys-color--on-surface-variant`, the chevron is `expand_more` at 20px
- * weight 320, and the host carries `padding: 0 8px 8px 16px`. Gemini's own trigger
+ * weight 320, and the host carries `padding: 0 8px 8px`. Gemini's own trigger
  * computes `cursor: default`, so the affordance is the chevron rather than a
  * pointer.
  */
@@ -449,84 +470,225 @@ const SparkProcessingState: React.FC<{
   activity?: readonly SparkActivityEntry[];
   phase?: SparkActivityPhase;
 }> = ({ title, activity = [], phase }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const hasTimelineDetails = activity.length > 0;
+  const [isExpanded, setIsExpanded] = useState(Boolean(phase && hasTimelineDetails));
   const detailsId = useId();
+  const previousPhaseRef = useRef<SparkActivityPhase | undefined>(undefined);
+  const activityGroups = groupSparkActivity(activity);
+
+  useLayoutEffect(() => {
+    if (!phase) {
+      setIsExpanded(false);
+    } else if (!previousPhaseRef.current && hasTimelineDetails) {
+      setIsExpanded(true);
+    }
+    previousPhaseRef.current = phase;
+  }, [hasTimelineDetails, phase]);
+
   if (!activity.length && !phase && !title) return null;
 
   if (phase === 'queued') {
     return (
       <div className="spark-task-detail__pending-dots" aria-live="polite" aria-label="Starting task">
-        <span />
-        <span />
-        <span />
+        <GeminiThinkingVisualizer />
       </div>
     );
   }
 
-  if (phase === 'thinking' && !activity.length && !title) {
-    return (
-      <div className="spark-task-detail__processing-working is-thinking" aria-live="polite">
-        <MaterialSymbol family="luminous" name="spark_outline" size={28} opticalSize={28} className="spark-task-detail__processing-spark is-animated" />
-        <span>Thinking it through...</span>
-      </div>
-    );
-  }
-
-  const heading = title || (phase === 'thinking' ? 'Thinking it through...' : 'Working');
+  const heading = title || 'Thinking it through…';
+  const showAgentWorking = phase === 'thinking' || phase === 'working';
 
   return (
     <div className="spark-task-detail__processing-state">
-      <button
-        type="button"
-        className="spark-task-detail__processing-trigger"
-        aria-expanded={isExpanded}
-        aria-controls={detailsId}
-        onClick={() => setIsExpanded((open) => !open)}
-      >
-        <span className="spark-task-detail__processing-label">{heading}</span>
-        {activity.length > 0 && <MaterialSymbol
-          family="luminous"
-          name="expand_more"
-          size={20}
-          weight={320}
-          roundness={100}
-          opticalSize={20}
-          className={`spark-task-detail__processing-chevron${isExpanded ? ' is-expanded' : ''}`}
-        />}
-      </button>
+      {(title || hasTimelineDetails) && (
+        <React.Fragment key="processing-timeline">
+          <button
+            type="button"
+            className="spark-task-detail__processing-trigger"
+            aria-expanded={isExpanded}
+            aria-controls={detailsId}
+            onClick={() => setIsExpanded((open) => !open)}
+          >
+            <span className="spark-task-detail__processing-label">{heading}</span>
+            {hasTimelineDetails && <MaterialSymbol
+              family="luminous"
+              name="expand_more"
+              size={20}
+              weight={320}
+              roundness={100}
+              opticalSize={20}
+              className={`spark-task-detail__processing-chevron${isExpanded ? ' is-expanded' : ''}`}
+            />}
+          </button>
 
-      <div
-        id={detailsId}
-        className={`spark-task-detail__processing-details-wrapper${isExpanded ? ' is-expanded' : ''}`}
-        aria-hidden={!isExpanded}
-      >
-        <div className="spark-task-detail__processing-details">
-          {activity.map((entry, index) => entry.kind === 'narration' ? (
-            <div
-              key={entry.id}
-              className={`spark-task-detail__processing-step${index > 0 && activity[index - 1]?.kind === 'narration' ? ' is-continuation' : ''}`}
-            >
-              <span className="spark-task-detail__processing-node">
-                {index === 0 || activity[index - 1]?.kind !== 'narration' ? <SparkActivityClock /> : null}
-              </span>
-              <span>{entry.text}</span>
+          <div
+            id={detailsId}
+            className={`spark-task-detail__processing-details-wrapper${isExpanded ? ' is-expanded' : ''}`}
+            aria-hidden={!isExpanded}
+          >
+            <div className="spark-task-detail__processing-details">
+              {activityGroups.map((group, index) => group.kind === 'narration' ? (
+                <SparkNarrationGroup
+                  key={group.id}
+                  entries={group.entries}
+                  isFirst={index === 0}
+                  isLast={index === activityGroups.length - 1}
+                />
+              ) : (
+                <div
+                  key={group.entry.id}
+                  className={`spark-task-detail__processing-tool${index > 0 ? ' has-leading-gap' : ''}${index === activityGroups.length - 1 ? ' is-last-activity' : ''}`}
+                >
+                  <span className="spark-task-detail__processing-node"><SparkToolIcon tool={group.entry.tool} /></span>
+                  <span>{getToolCapabilityLabel(group.entry.tool).label}</span>
+                </div>
+              ))}
             </div>
-          ) : (
-            <div key={entry.id} className="spark-task-detail__processing-tool">
-              <span className="spark-task-detail__processing-node"><SparkToolIcon tool={entry.tool} /></span>
-              <span>{getToolCapabilityLabel(entry.tool).label}</span>
-            </div>
-          ))}
-          {activity.length > 1 && <button type="button" className="spark-task-detail__processing-show-less" onClick={() => setIsExpanded(false)}>Show less</button>}
-        </div>
-      </div>
-      {phase === 'working' && (
-        <div className="spark-task-detail__processing-working" aria-live="polite">
-          <MaterialSymbol family="luminous" name="spark_outline" size={28} opticalSize={28} className="spark-task-detail__processing-spark is-animated" />
-          <span>Working on it...</span>
+          </div>
+        </React.Fragment>
+      )}
+      {showAgentWorking && (
+        <div
+          key="agent-working"
+          className={`spark-task-detail__agent-working${phase === 'thinking' ? ' is-thinking' : ''}`}
+          aria-live="polite"
+        >
+          <SparkAgentWorkingAnimation />
+          <span>{phase === 'working' ? 'Working on it…' : 'Thinking it through…'}</span>
         </div>
       )}
     </div>
+  );
+};
+
+type SparkNarrationEntry = Extract<SparkActivityEntry, { kind: 'narration' }>;
+type SparkGroupedActivity =
+  | { id: string; kind: 'narration'; entries: SparkNarrationEntry[] }
+  | { id: string; kind: 'tool'; entry: Extract<SparkActivityEntry, { kind: 'tool' }> };
+
+const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroupedActivity[] => {
+  const groups: SparkGroupedActivity[] = [];
+  activity.forEach((entry) => {
+    const last = groups.at(-1);
+    if (entry.kind === 'narration') {
+      if (last?.kind === 'narration') last.entries.push(entry);
+      else groups.push({ id: entry.id, kind: 'narration', entries: [entry] });
+      return;
+    }
+    groups.push({ id: entry.id, kind: 'tool', entry });
+  });
+  return groups;
+};
+
+const SparkNarrationGroup: React.FC<{
+  entries: readonly SparkNarrationEntry[];
+  isFirst: boolean;
+  isLast: boolean;
+}> = ({ entries, isFirst, isLast }) => {
+  const [showAll, setShowAll] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const contentId = useId();
+  const capRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const cap = capRef.current;
+    if (!cap) return;
+    const update = () => {
+      cap.style.setProperty('--spark-expanded-height', `${cap.scrollHeight}px`);
+      setIsOverflowing(cap.scrollHeight > 110);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(cap);
+    Array.from(cap.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [entries]);
+
+  return (
+    <div className={`spark-task-detail__processing-thought${isFirst ? '' : ' has-leading-gap'}${isLast ? ' is-last-activity' : ''}${isOverflowing ? ' is-overflowing' : ''}`}>
+      <div className="spark-task-detail__processing-thought-header">
+        <span className="spark-task-detail__processing-node"><SparkActivityClock /></span>
+        <div ref={capRef} className={`spark-task-detail__processing-thought-cap${showAll ? ' is-expanded' : ''}`}>
+          <div id={contentId} className={`spark-task-detail__processing-thought-content${showAll ? ' is-expanded' : ''}`}>
+            {entries.map((entry) => <div key={entry.id} className="spark-task-detail__processing-thought-item">{entry.text}</div>)}
+          </div>
+        </div>
+      </div>
+      {isOverflowing && (
+        <button
+          type="button"
+          className="spark-task-detail__processing-show-more"
+          aria-expanded={showAll}
+          aria-controls={contentId}
+          onClick={() => setShowAll((open) => !open)}
+        >
+          {showAll ? 'Show less' : 'Show all'}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const SparkAgentWorkingAnimation: React.FC = () => {
+  const instanceId = useId().replaceAll(':', '');
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const instanceTemplate = useMemo(
+    () => workingAnimationTemplate.replaceAll('willow_', `willow_${instanceId}_`),
+    [instanceId],
+  );
+
+  useEffect(() => {
+    const svg = rootRef.current?.firstElementChild;
+    if (!svg) return;
+    const elements: Element[] = [];
+    const visit = (element: Element) => {
+      elements.push(element);
+      Array.from(element.children).forEach(visit);
+    };
+    visit(svg);
+
+    let animationFrame = 0;
+    const startedAt = performance.now();
+    const applyFrame = (frameIndex: number) => {
+      const frame = workingAnimationData.frames[frameIndex];
+      workingAnimationData.attributes.forEach(([elementIndex, name], attributeIndex) => {
+        const element = elements[elementIndex];
+        if (!element) return;
+        const rawValue = workingAnimationData.values[frame[attributeIndex]];
+        const value = rawValue === null ? null : rawValue.replaceAll('willow_', `willow_${instanceId}_`);
+        if (value === null) element.removeAttribute(name);
+        else element.setAttribute(name, value);
+      });
+    };
+    let appliedFrameIndex = -1;
+    const tick = (now: number) => {
+      const elapsed = (now - startedAt) % workingAnimationData.durationMs;
+      let low = 0;
+      let high = workingAnimationData.times.length - 1;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (workingAnimationData.times[middle] <= elapsed) low = middle;
+        else high = middle - 1;
+      }
+      if (low !== appliedFrameIndex) {
+        applyFrame(low);
+        appliedFrameIndex = low;
+      }
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+    applyFrame(0);
+    appliedFrameIndex = 0;
+    animationFrame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [instanceId]);
+
+  return (
+    <span
+      ref={rootRef}
+      className="spark-task-detail__agent-working-animation"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: instanceTemplate }}
+    />
   );
 };
 
@@ -561,6 +723,8 @@ const APP_TOOL_LABELS: Record<string, string> = {
   'google-calendar': 'Google Calendar',
   'google-drive': 'Google Drive',
   'google-docs': 'Google Docs',
+  'google-keep': 'Google Keep',
+  'google-chat': 'Google Chat',
   youtube: 'YouTube',
   spotify: 'Spotify',
   github: 'GitHub',
@@ -580,6 +744,18 @@ const APP_TOOL_ICONS: Record<string, string> = {
   contacts: 'contacts',
   opentable: 'restaurant',
   'google-tasks': 'task_alt',
+};
+
+/* Product-logo sources captured from Gemini Spark's live tool-row DOM. Keep this
+ * map limited to assets we have actually observed there; unknown/custom apps
+ * continue to use the verified generic Connected-app glyph below. */
+const GEMINI_APP_TOOL_LOGOS: Record<string, string> = {
+  gmail: 'https://www.gstatic.com/images/branding/productlogos/gmail_2026/v2/web-96dp/logo_gmail_2026_color_2x_web_96dp.png',
+  'google-docs': 'https://www.gstatic.com/images/branding/productlogos/docs_2026/v2/web-96dp/logo_docs_2026_color_2x_web_96dp.png',
+  'google-drive': 'https://www.gstatic.com/images/branding/productlogos/drive_2026/v2/web-96dp/logo_drive_2026_color_2x_web_96dp.png',
+  'google-keep': 'https://www.gstatic.com/images/branding/productlogos/keep_2026/v2/web-96dp/logo_keep_2026_color_2x_web_96dp.png',
+  contacts: 'https://www.gstatic.com/images/branding/productlogos/contacts_2022/v2/192px.svg',
+  'google-chat': 'https://www.gstatic.com/images/branding/productlogos/chat_2026/v2/web-96dp/logo_chat_2026_color_2x_web_96dp.png',
 };
 
 const getToolCapabilityLabel = (tool: string): { icon: string; label: string } => {
@@ -613,7 +789,7 @@ const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
   if (tool === 'web_search') {
     return (
       <img
-        src="https://www.gstatic.com/images/branding/productlogos/googleg/v6/192px.svg"
+        src="https://www.gstatic.com/images/branding/productlogos/google_search_round/v8/web-48dp/logo_google_search_round_color_1x_web_48dp.png"
         alt=""
         aria-hidden="true"
         className="spark-task-detail__google-search-icon"
@@ -624,9 +800,15 @@ const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
     return (
       <span className="spark-task-detail__create-file-icon" aria-hidden="true">
         <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} opticalSize={20} />
-        <MaterialSymbol family="google-symbols" name="add" size={10} weight={500} roundness={100} opticalSize={10} />
       </span>
     );
+  }
+  if (tool.startsWith('app:')) {
+    const appId = tool.slice(4);
+    const logo = GEMINI_APP_TOOL_LOGOS[appId];
+    if (logo) {
+      return <img src={logo} alt="" aria-hidden="true" className="spark-task-detail__app-tool-icon" />;
+    }
   }
   return <MaterialSymbol family={tool === 'list' ? 'material-rounded' : 'google-symbols'} name={meta.icon} size={20} weight={320} roundness={100} opticalSize={20} className="spark-task-detail__processing-tool-icon" />;
 };
@@ -1409,6 +1591,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       ? 'I need your approval before I can continue with this task.'
       : terminalResponseFallback);
   const hasVisibleResponse = Boolean(response);
+  const rootResponseStreaming = isSparkRootResponseStreaming(currentTask);
   const currentProcessingTools = (currentTask.usedTools ?? currentTask.tools ?? [])
     .filter((tool) => tool !== 'thinking')
     .map(getToolCapabilityLabel)
@@ -1931,16 +2114,19 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   <SparkProcessingState
                     title={currentTask.activityTitle}
                     activity={currentTask.activityLog ?? []}
-                    phase={currentTask.activityPhase}
+                    phase={hasSparkResponseStarted(currentTask.response) ? undefined : currentTask.activityPhase}
                   />
                 )}
 
-                {hasVisibleResponse && (
+                {(hasVisibleResponse || rootResponseStreaming) && (
                   <div
                     className="spark-task-detail__assistant-response"
-                    aria-live={isTaskActive(currentTask) ? 'polite' : undefined}
+                    aria-live={rootResponseStreaming ? 'polite' : undefined}
                   >
-                    <ReactMarkdown>{response}</ReactMarkdown>
+                    <SparkAssistantResponse
+                      text={response}
+                      isStreaming={rootResponseStreaming}
+                    />
                   </div>
                 )}
 
@@ -2017,8 +2203,9 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
 
               {(currentTask.turns ?? []).map((turn, index, turns) => {
                 const isLatestTurn = index === turns.length - 1;
+                const turnIsStreaming = isSparkTurnResponseStreaming(currentTask, turn);
                 const turnIsPending = isLatestTurn
-                  && (isTaskActive(currentTask) || needsApproval(currentTask));
+                  && (turnIsStreaming || needsApproval(currentTask));
                 const turnFallback = turnIsPending ? '' : getTerminalResponseFallback(currentTask, true);
                 const turnResponse = turn.response || turnFallback;
                 return (
@@ -2037,36 +2224,39 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       aria-label="Spark follow-up response"
                       aria-busy={turnIsPending}
                     >
-                      {turnResponse ? (
-                        <>
-                  {((turn.activityLog?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle) && (
-                    <SparkProcessingState
-                      title={turn.activityTitle}
-                      activity={turn.activityLog ?? []}
-                              phase={turn.activityPhase}
-                            />
-                          )}
-                          <div
-                            className="spark-task-detail__assistant-response"
-                            aria-live={turnIsPending ? 'polite' : undefined}
-                          >
-                            <ReactMarkdown>{turnResponse}</ReactMarkdown>
-                          </div>
-                          {!turnIsPending && (
-                            <SparkResponseActions
-                              responseText={turnResponse}
-                              reaction={turn.reaction ?? null}
-                              onReactionChange={(reaction) => {
-                                onResponseReactionChange(currentTask.id, turn.id, reaction);
-                              }}
-                              onRetry={() => onRetryTurn(currentTask.id, turn.id)}
-                            />
-                          )}
-                        </>
-                      ) : (
+                      {((turn.activityLog?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
+                        <SparkProcessingState
+                          title={turn.activityTitle}
+                          activity={turn.activityLog ?? []}
+                          phase={hasSparkResponseStarted(turn.response)
+                            ? undefined
+                            : turn.activityPhase ?? (turnIsStreaming ? 'queued' : undefined)}
+                        />
+                      )}
+                      {(turnResponse || turnIsStreaming) && (
+                        <div
+                          className="spark-task-detail__assistant-response"
+                          aria-live={turnIsStreaming ? 'polite' : undefined}
+                        >
+                          <SparkAssistantResponse
+                            text={turnResponse}
+                            isStreaming={turnIsStreaming}
+                          />
+                        </div>
+                      )}
+                      {turnResponse && !turnIsPending && (
+                        <SparkResponseActions
+                          responseText={turnResponse}
+                          reaction={turn.reaction ?? null}
+                          onReactionChange={(reaction) => {
+                            onResponseReactionChange(currentTask.id, turn.id, reaction);
+                          }}
+                          onRetry={() => onRetryTurn(currentTask.id, turn.id)}
+                        />
+                      )}
+                      {!turnResponse && needsApproval(currentTask) && (
                         <div className="spark-task-detail__working-row" aria-live="polite">
-                          <MaterialSymbol {...SYMBOL_PROPS} name="progress_activity" size={20} opticalSize={20} />
-                          <span>{needsApproval(currentTask) ? 'Waiting for your approval' : 'Working on your follow-up'}</span>
+                          <span>Waiting for your approval</span>
                         </div>
                       )}
                     </article>

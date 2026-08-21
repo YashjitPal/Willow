@@ -46,8 +46,6 @@ export const CALL_BEGIN = '*** Call:';
 export const CALL_END = '*** End Call';
 /** Spark-only metadata emitted once before the first work step. */
 export const WORK_TITLE_BEGIN = '*** Work Title:';
-/** Spark-only metadata emitted for concise, user-safe progress updates. */
-export const WORK_LOG_BEGIN = '*** Work Log:';
 
 /* ------------------------------------------------------------------------ */
 /* Session entities                                                          */

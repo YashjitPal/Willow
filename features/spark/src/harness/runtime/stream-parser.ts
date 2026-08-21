@@ -12,14 +12,13 @@
  * throwing.
  */
 
-import { CALL_BEGIN, CALL_END, PATCH_BEGIN, PATCH_END, WORK_LOG_BEGIN, WORK_TITLE_BEGIN } from './protocol';
+import { CALL_BEGIN, CALL_END, PATCH_BEGIN, PATCH_END, WORK_TITLE_BEGIN } from './protocol';
 
 export interface StreamHandlers {
   /** Prose, already stripped of any tool envelope. */
   onText: (chunk: string) => void;
   /** Spark metadata that labels the overall job, separate from work-log prose. */
   onWorkTitle: (title: string) => void;
-  onWorkLog: (text: string) => void;
   onPatchOpen: () => void;
   /** One raw line of the patch body, envelope lines included. */
   onPatchLine: (line: string) => void;
@@ -109,7 +108,7 @@ export class ResponseStreamParser {
    */
   #findOpener(text: string): { index: number; opener: string } | null {
     let found: { index: number; opener: string } | null = null;
-    for (const opener of [WORK_TITLE_BEGIN, WORK_LOG_BEGIN, PATCH_BEGIN, CALL_BEGIN]) {
+    for (const opener of [WORK_TITLE_BEGIN, PATCH_BEGIN, CALL_BEGIN]) {
       const index = text.indexOf(opener);
       if (index !== -1 && (found === null || index < found.index)) {
         found = { index, opener };
@@ -176,12 +175,6 @@ export class ResponseStreamParser {
         if (found.opener === WORK_TITLE_BEGIN) {
           const title = rest.trim().replace(/\s+/g, ' ').slice(0, 160);
           if (title) this.handlers.onWorkTitle(title);
-          return;
-        }
-
-        if (found.opener === WORK_LOG_BEGIN) {
-          const update = rest.trim().replace(/\s+/g, ' ').slice(0, 600);
-          if (update) this.handlers.onWorkLog(update);
           return;
         }
 
