@@ -1,4 +1,5 @@
 export type MenuSide = 'top' | 'bottom';
+export type SubmenuSide = 'left' | 'right';
 
 export const chooseMenuSide = ({
   preferredSide,
@@ -34,4 +35,28 @@ export const getViewportConstrainedOffset = ({
   margin?: number;
 }): number => {
   return Math.min(0, viewportHeight - margin - bottom);
+};
+
+export const chooseSubmenuSide = ({
+  preferredSide = 'right',
+  submenuWidth,
+  spacing,
+  spaceLeft,
+  spaceRight,
+}: {
+  preferredSide?: SubmenuSide;
+  submenuWidth: number;
+  spacing: number;
+  spaceLeft: number;
+  spaceRight: number;
+}): SubmenuSide => {
+  const requiredSpace = submenuWidth + spacing;
+  const preferredSpace = preferredSide === 'right' ? spaceRight : spaceLeft;
+  const oppositeSpace = preferredSide === 'right' ? spaceLeft : spaceRight;
+
+  if (preferredSpace >= requiredSpace || preferredSpace >= oppositeSpace) {
+    return preferredSide;
+  }
+
+  return preferredSide === 'right' ? 'left' : 'right';
 };

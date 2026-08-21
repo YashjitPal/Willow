@@ -25,8 +25,10 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
 import {
   chooseMenuSide,
+  chooseSubmenuSide,
   getViewportConstrainedOffset,
   type MenuSide,
+  type SubmenuSide,
 } from '@willow/ui/models/menu-position';
 import {
   getModelGroupKey,
@@ -133,6 +135,7 @@ export const ModelsMenu: React.FC<{
   const effortMenuWrapperRef = useRef<HTMLDivElement>(null);
   const effortMenuRef = useRef<HTMLDivElement>(null);
   const [effortOffset, setEffortOffset] = useState(0);
+  const [effortSide, setEffortSide] = useState<SubmenuSide>('right');
 
   const seenModelKeys = new Set<string>();
   const ALL_MODELS = rawModels.filter((m: any) => {
@@ -211,7 +214,16 @@ export const ModelsMenu: React.FC<{
     const calculateEffortPosition = () => {
       const effortMenuWrapper = effortMenuWrapperRef.current;
       const effortMenu = effortMenuRef.current;
-      if (!effortMenuWrapper || !effortMenu) return;
+      const modelMenu = menuRef.current;
+      if (!effortMenuWrapper || !effortMenu || !modelMenu) return;
+
+      const modelRect = modelMenu.getBoundingClientRect();
+      setEffortSide(chooseSubmenuSide({
+        submenuWidth: effortMenu.offsetWidth,
+        spacing: 8,
+        spaceLeft: modelRect.left - 16,
+        spaceRight: window.innerWidth - modelRect.right - 16,
+      }));
 
       const previousTransform = effortMenuWrapper.style.transform;
       effortMenuWrapper.style.transform = 'none';
@@ -475,20 +487,26 @@ export const ModelsMenu: React.FC<{
                 aria-haspopup="menu"
                 className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
               >
-                <span className="w-9 shrink-0" aria-hidden="true" />
+                {effortSide === 'left' ? (
+                  <MaterialSymbol family="luminous" name="keyboard_arrow_left" size={24} weight={300} roundness={100} className="ml-2 mr-1" />
+                ) : (
+                  <span className="w-9 shrink-0" aria-hidden="true" />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block leading-[17px]">Thinking Effort</span>
                   <span className="block truncate text-[12px] leading-4 text-white/55">
                     {getThinkingEffortLabel(selectedEffort)}
                   </span>
                 </span>
-                <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
+                {effortSide === 'right' && (
+                  <MaterialSymbol family="luminous" name="keyboard_arrow_right" size={24} weight={300} roundness={100} className="mr-2" />
+                )}
               </button>
 
               {isEffortHovered && (
                 <div 
                   ref={effortMenuWrapperRef}
-                  className={`pointer-events-auto absolute left-full -ml-2 pl-4 ${side === "top" ? "bottom-0" : "top-0"}`}
+                  className={`pointer-events-auto absolute ${effortSide === 'left' ? 'right-full -mr-2 pr-4' : 'left-full -ml-2 pl-4'} ${side === "top" ? "bottom-0" : "top-0"}`}
                   style={{ transform: `translateY(${effortOffset}px)` }}
                 >
                   <div
