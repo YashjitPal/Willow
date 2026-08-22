@@ -975,18 +975,42 @@ const SparkAgentWorkingAnimation: React.FC = () => {
     [instanceId],
   );
 
+  // React 19 decides whether to write a prop by object identity and its
+  // `dangerouslySetInnerHTML` handler assigns `innerHTML` without comparing the
+  // HTML string, so a fresh `{ __html }` literal would replace this whole SVG on
+  // every re-render — even though the markup is byte-identical. That detached the
+  // nodes the loop below animates (the loop's deps never change, so it was never
+  // re-run against the replacements) and froze the icon on its template pose.
+  // Holding one object across renders keeps the mounted markup untouched.
+  const markup = useMemo(() => ({ __html: instanceTemplate }), [instanceTemplate]);
+
   useEffect(() => {
-    const svg = rootRef.current?.firstElementChild;
-    if (!svg) return;
-    const elements: Element[] = [];
-    const visit = (element: Element) => {
-      elements.push(element);
-      Array.from(element.children).forEach(visit);
+    const root = rootRef.current;
+    if (!root) return;
+
+    let boundSvg: Element | null = null;
+    let elements: Element[] = [];
+    let appliedFrameIndex = -1;
+
+    // Re-bind if anything ever swaps the SVG out from under us. Writing frames
+    // to an orphaned tree is invisible — the loop keeps running while the icon
+    // sits static — so rebinding is the only self-healing check that matters.
+    const bindToCurrentSvg = (): boolean => {
+      const svg = root.firstElementChild;
+      if (!svg) return false;
+      if (svg === boundSvg) return true;
+      boundSvg = svg;
+      elements = [];
+      const visit = (element: Element) => {
+        elements.push(element);
+        Array.from(element.children).forEach(visit);
+      };
+      visit(svg);
+      appliedFrameIndex = -1;
+      return true;
     };
-    visit(svg);
 
     let animationFrame = 0;
-    let intervalId: number | undefined;
     const startedAt = performance.now();
     const applyFrame = (frameIndex: number) => {
       const frame = workingAnimationData.frames[frameIndex];
@@ -999,8 +1023,8 @@ const SparkAgentWorkingAnimation: React.FC = () => {
         else element.setAttribute(name, value);
       });
     };
-    let appliedFrameIndex = -1;
     const drawFrameAt = (now: number) => {
+      if (!bindToCurrentSvg()) return;
       const elapsed = (now - startedAt) % workingAnimationData.durationMs;
       let low = 0;
       let high = workingAnimationData.times.length - 1;
@@ -1018,17 +1042,9 @@ const SparkAgentWorkingAnimation: React.FC = () => {
       drawFrameAt(now);
       animationFrame = window.requestAnimationFrame(tick);
     };
-    applyFrame(0);
-    appliedFrameIndex = 0;
+    drawFrameAt(startedAt);
     animationFrame = window.requestAnimationFrame(tick);
-    // Keep a timer alongside rAF. A phase label update can briefly interrupt
-    // compositing; the timer advances the SVG to the next frame immediately
-    // after that transition instead of leaving the first working frame static.
-    intervalId = window.setInterval(() => drawFrameAt(performance.now()), 32);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      if (intervalId !== undefined) window.clearInterval(intervalId);
-    };
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [instanceId]);
 
   return (
@@ -1036,7 +1052,7 @@ const SparkAgentWorkingAnimation: React.FC = () => {
       ref={rootRef}
       className="spark-task-detail__agent-working-animation"
       aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: instanceTemplate }}
+      dangerouslySetInnerHTML={markup}
     />
   );
 };
