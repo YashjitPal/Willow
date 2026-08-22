@@ -127,7 +127,10 @@ ${grammar}
 
 The body is one JSON object. Emit at most one call per envelope. Collaboration
 calls may be interleaved with other calls; their results are returned as
-coordination proceeds. Do not add prose while sub-agents are still running.
+coordination proceeds. When the next meaningful action is \`spawn_agent\`, invoke
+it directly without an announcing or explanatory preamble immediately before
+the call. This rule applies only to that immediate pre-spawn narration; after
+the call, continue with ordinary progress updates and coordination as useful.
 Available calls are \`read_file\`,
 \`list_files\`, \`search_files\`, \`update_plan\`, \`run_command\`,
 \`spawn_agent\`, \`send_message\`, \`followup_task\`, \`wait_agent\`,

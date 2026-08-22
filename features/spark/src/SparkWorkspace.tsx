@@ -576,7 +576,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     };
     const publishNarration = (text: string) => {
       activityLog = appendSparkNarration(activityLog, text);
-      if (activityPhase === 'queued') activityPhase = 'thinking';
+      // A streamed answer chunk can temporarily clear the phase between
+      // harness batches. Any later work narration means the agent is active
+      // again, regardless of the previous phase value.
+      if (activityPhase !== 'working' && activityPhase !== 'planning') activityPhase = 'thinking';
       if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
       if (isCurrentRun()) updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
     };
@@ -667,13 +670,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
             const activityLabel = event.label?.toLowerCase() ?? '';
-            if (activityLabel.includes('planning')) {
+            if (!activityLabel) {
+              activityPhase = 'thinking';
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
+            } else if (activityLabel.includes('planning')) {
               activityPhase = 'planning';
               updateSparkTask(taskId, { activityPhase, progressLabel: 'Planning…' });
             } else if (activityLabel && !activityLabel.includes('thinking')) {
               activityPhase = 'working';
               updateSparkTask(taskId, { activityPhase, progressLabel: 'Working on it…' });
-            } else if (activityLabel.includes('thinking') && activityPhase === 'queued') {
+            } else if (activityLabel.includes('thinking')) {
               activityPhase = 'thinking';
               updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
             }
@@ -690,6 +696,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
               publishPlan(event.patch.steps as SparkPlanStep[], isInitialPlan);
+            }
+            if (event.patch.status && event.patch.status !== 'running' && activityPhase === 'planning') {
+              activityPhase = 'thinking';
+              updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'generated-file') {
             generatedFiles = [
@@ -908,7 +918,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     };
     const publishNarration = (text: string) => {
       activityLog = appendSparkNarration(activityLog, text);
-      if (activityPhase === 'queued') activityPhase = 'thinking';
+      // A streamed answer chunk can temporarily clear the phase between
+      // harness batches. Any later work narration means the agent is active
+      // again, regardless of the previous phase value.
+      if (activityPhase !== 'working' && activityPhase !== 'planning') activityPhase = 'thinking';
       if (isCurrentRun()) {
         updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
         updateSparkTaskTurn(taskId, turnId, { activityPhase });
@@ -1011,7 +1024,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             // Provider reasoning is intentionally private in Spark.
           } else if (event.type === 'activity') {
             const activityLabel = event.label?.toLowerCase() ?? '';
-            if (activityLabel.includes('planning')) {
+            if (!activityLabel) {
+              activityPhase = 'thinking';
+              updateSparkTaskTurn(taskId, turnId, { activityPhase });
+              updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
+            } else if (activityLabel.includes('planning')) {
               activityPhase = 'planning';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
               updateSparkTask(taskId, { progressLabel: 'Planning…' });
@@ -1019,7 +1036,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               activityPhase = 'working';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
               updateSparkTask(taskId, { progressLabel: 'Working on it…' });
-            } else if (activityLabel.includes('thinking') && activityPhase === 'queued') {
+            } else if (activityLabel.includes('thinking')) {
               activityPhase = 'thinking';
               updateSparkTaskTurn(taskId, turnId, { activityPhase });
               updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
@@ -1037,6 +1054,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
               publishPlan(event.patch.steps as SparkPlanStep[], isInitialPlan);
+            }
+            if (event.patch.status && event.patch.status !== 'running' && activityPhase === 'planning') {
+              activityPhase = 'thinking';
+              updateSparkTaskTurn(taskId, turnId, { activityPhase });
+              updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'generated-file') {
             generatedFiles = [

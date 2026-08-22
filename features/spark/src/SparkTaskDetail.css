@@ -2119,6 +2119,13 @@
   object-fit: contain;
 }
 
+.spark-task-detail__files-tool-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
 .spark-task-detail__app-tool-icon {
   width: 20px;
   height: 20px;
