@@ -228,7 +228,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
       <form className="spark-skill-editor__content" onSubmit={submit}>
         <header className="spark-skill-editor__header">
           <button type="button" className="spark-skill-editor__back" onClick={back}>
-            <MaterialSymbol family="luminous" name="arrow_back" size={24} weight={320} roundness={100} />
+            <MaterialSymbol family="luminous" name="arrow_back" size={28} weight={260} roundness={100} />
             <span id={headingId}>Skills</span>
           </button>
           <div className="spark-skill-editor__header-actions">
@@ -244,7 +244,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               </button>
             )}
             <button type="submit" className="spark-skill-editor__create" disabled={!canSubmit}>
-              {isEditing ? 'Save' : 'Create'}
+              <span>{isEditing ? 'Save' : 'Create'}</span>
             </button>
           </div>
         </header>
@@ -284,11 +284,11 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
             />
           </div>
 
-          <label className="spark-skill-editor__field" htmlFor={descriptionId}>
+          <label className="spark-skill-editor__field spark-skill-editor__field--description" htmlFor={descriptionId}>
             <span>Description</span>
-            <input
+            <textarea
               id={descriptionId}
-              type="text"
+              rows={1}
               value={draft.description}
               placeholder="Give your skill a description"
               autoComplete="off"
@@ -299,11 +299,6 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
           <div className="spark-skill-editor__field">
             <div className="spark-skill-editor__instructions-heading">
               <label htmlFor={instructionsId}>Instructions</label>
-              {onAskGemini && (
-                <button type="button" disabled={isAskingGemini} onClick={() => void askGemini()}>
-                  {isAskingGemini ? 'Asking Gemini' : 'Ask Gemini'}
-                </button>
-              )}
             </div>
             {assistError && <p className="spark-skill-editor__assist-error" role="alert">{assistError}</p>}
             <textarea

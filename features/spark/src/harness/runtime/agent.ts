@@ -798,7 +798,7 @@ async function runCall(
     return `ERROR ${name}: ${(error as Error).message}`;
   }
 
-  if (name !== 'wait_agent') sink.activity(ACTIVITY[name] ?? 'Working');
+  if (name !== 'wait_agent' && name !== 'update_plan') sink.activity(ACTIVITY[name] ?? 'Working');
 
   const context: ToolContext = {
     readFiles: options.files,
@@ -816,12 +816,12 @@ async function runCall(
 
   try {
     const result: ToolResult = await registry.get(name)!.run(args, context);
-    if (name !== 'wait_agent') sink.activity(null);
+    if (name !== 'wait_agent' && name !== 'update_plan') sink.activity(null);
     finish(result.failed ? new Error(result.observation) : undefined);
     if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     return result.failed ? `ERROR ${name}: ${result.observation}` : result.observation;
   } catch (error) {
-    if (name !== 'wait_agent') sink.activity(null);
+    if (name !== 'wait_agent' && name !== 'update_plan') sink.activity(null);
     finish(error);
     if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     if (error instanceof Cancelled) throw error;
@@ -833,7 +833,6 @@ const ACTIVITY: Record<string, string> = {
   read_file: 'Reading files',
   list_files: 'Listing files',
   search_files: 'Searching',
-  update_plan: 'Planning',
   add_dependency: 'Adding a dependency',
   spawn_agent: 'Starting sub-agents',
   send_message: 'Messaging sub-agents',
@@ -1184,15 +1183,42 @@ class CollaborationRuntime {
     };
     const sink = agentSink(state.agent.id, this.options.onEvent, activityState);
     const registry = toolRegistry([
-      ...this.tools(state.path, state.conversation, state.model),
+      ...this.tools(state.path, state.conversation, state.model)
+        .filter((tool) => tool.id !== 'spawn_agent'),
       ...(this.options.goalRuntime?.tools() ?? []),
       ...(this.options.extraTools ?? []),
     ]);
+    registry.delete('spawn_agent');
+    // Plans belong to the root work tree. Sub-agents report their concrete
+    // actions through their own timeline instead of creating a second plan.
+    registry.delete('update_plan');
+    const parentToolDeclarations = (this.options.toolDeclarations ?? [])
+      .map((group) => ({
+        ...group,
+        functionDeclarations: group.functionDeclarations.filter(
+          (declaration) => declaration.name !== 'update_plan',
+        ),
+      }))
+      .filter((group) => group.functionDeclarations.length > 0);
+    const childModelToolDeclarations = (state.model.options.toolDeclarations ?? [])
+      .map((group) => ({
+        ...group,
+        functionDeclarations: group.functionDeclarations.filter(
+          (declaration) => declaration.name !== 'update_plan',
+        ),
+      }))
+      .filter((group) => group.functionDeclarations.length > 0);
+    const childCollaborationDeclarations = {
+      functionDeclarations: this.declarations().functionDeclarations.filter(
+        (declaration) => declaration.name !== 'spawn_agent',
+      ),
+    };
     const subPrompt = [
       this.systemPrompt,
       '# Multi-agent identity',
       `You are ${state.path}, an agent in a team collaborating to complete a task.`,
-      'You may use the same collaboration tools as the root agent.',
+      'You may message, follow up with, wait for, interrupt, and inspect existing agents, but you cannot start another sub-agent.',
+      'Do not call `update_plan` or create a plan. Work directly on the assigned subtask and report concrete progress through your timeline.',
       'When your turn is done, give a concise final report; it will be delivered to your parent.',
     ].join('\n\n');
     const conversation = state.conversation;
@@ -1218,11 +1244,17 @@ class CollaborationRuntime {
           subPrompt,
           {
             ...this.options,
-            model: state.model,
+            model: {
+              ...state.model,
+              options: {
+                ...state.model.options,
+                toolDeclarations: childModelToolDeclarations,
+              },
+            },
             signal: state.controller.signal,
             toolDeclarations: [
-              ...(this.options.toolDeclarations ?? []),
-              this.declarations(),
+              ...parentToolDeclarations,
+              childCollaborationDeclarations,
             ],
           },
           sink,

@@ -1189,7 +1189,7 @@ const SparkActivityClock: React.FC = () => (
   />
 );
 
-const SparkToolIcon: React.FC<{ tool: string; createdFile?: SparkGeneratedFile }> = ({ tool, createdFile }) => {
+const SparkToolIcon: React.FC<{ tool: string; createdFile?: SparkGeneratedFile }> = ({ tool }) => {
   const meta = getToolCapabilityLabel(tool);
   if (tool === 'web_search') {
     return (
@@ -1202,11 +1202,13 @@ const SparkToolIcon: React.FC<{ tool: string; createdFile?: SparkGeneratedFile }
     );
   }
   if (isFileTimelineTool(tool)) {
-    if (createdFile) return getGeneratedFileIcon(createdFile);
     return (
-      <span className="spark-task-detail__create-file-icon" aria-hidden="true">
-        <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} opticalSize={20} />
-      </span>
+      <img
+        src={GEMINI_DOCS_LOGO}
+        alt=""
+        aria-hidden="true"
+        className="spark-task-detail__files-tool-icon"
+      />
     );
   }
   if (tool.startsWith('app:')) {
@@ -1223,7 +1225,7 @@ const SparkCapabilityIcon: React.FC<{
   tool: string;
   icon: string;
   createdFile?: SparkGeneratedFile;
-}> = ({ tool, icon, createdFile }) => {
+}> = ({ tool, icon }) => {
   if (tool === 'web_search') {
     return (
       <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
@@ -1235,17 +1237,10 @@ const SparkCapabilityIcon: React.FC<{
       </span>
     );
   }
-  if (tool === 'create' && createdFile) {
+  if (tool === 'files' || tool === 'create') {
     return (
       <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
-        {getGeneratedFileIcon(createdFile)}
-      </span>
-    );
-  }
-  if (tool === 'files' && createdFile) {
-    return (
-      <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
-        {getGeneratedFileIcon(createdFile)}
+        <img src={GEMINI_DOCS_LOGO} alt="" className="spark-task-detail__capability-logo" />
       </span>
     );
   }
@@ -2654,7 +2649,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     activity={currentTask.activityLog ?? []}
                     subagents={currentTask.subagents ?? []}
                     createdFile={latestGeneratedFile}
-                    phase={hasSparkResponseStarted(currentTask.response) ? undefined : currentTask.activityPhase}
+                    phase={currentTask.activityPhase}
                   />
                 )}
 
@@ -2779,9 +2774,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           activity={turn.activityLog ?? []}
                           subagents={turn.subagents ?? []}
                           createdFile={latestGeneratedFile}
-                          phase={hasSparkResponseStarted(turn.response)
-                            ? undefined
-                            : turn.activityPhase ?? (turnIsStreaming ? 'queued' : undefined)}
+                          phase={turn.activityPhase
+                            ?? (!hasSparkResponseStarted(turn.response) && turnIsStreaming ? 'queued' : undefined)}
                         />
                       )}
                       {(turnResponse || turnIsStreaming) && (

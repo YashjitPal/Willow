@@ -26,6 +26,13 @@ const workspaceSource = fs.readFileSync(path.join(
   'src',
   'SparkWorkspace.tsx',
 ), 'utf8');
+const detailSource = fs.readFileSync(path.join(
+  repoRoot,
+  'features',
+  'spark',
+  'src',
+  'SparkTaskDetail.tsx',
+), 'utf8');
 
 const createTask = (overrides = {}) => ({
   id: 'task-1',
@@ -88,4 +95,32 @@ it('keeps follow-up processing metadata on the follow-up turn', () => {
   assert.match(executeTurnSource, /updateSparkTaskTurn\(taskId, turnId, \{ activityTitle \}\)/);
   assert.match(executeTurnSource, /updateSparkTaskTurnActivityTransient\(taskId, turnId, activityLog\)/);
   assert.match(executeTurnSource, /updateSparkTaskTurn\(taskId, turnId, \{ activityPhase/);
+});
+
+it('keeps an active work phase visible after response text has started', () => {
+  assert.match(detailSource, /phase=\{currentTask\.activityPhase\}/);
+  assert.match(
+    detailSource,
+    /phase=\{turn\.activityPhase\s*\?\?\s*\(!hasSparkResponseStarted\(turn\.response\)/,
+  );
+  assert.match(workspaceSource, /activityLabel\.includes\('thinking'\)\) \{/);
+  assert.match(
+    workspaceSource,
+    /activityPhase !== 'working' && activityPhase !== 'planning'\) activityPhase = 'thinking'/,
+  );
+});
+
+it('ends the planning phase when the plan call completes', () => {
+  assert.match(
+    workspaceSource,
+    /!activityLabel\)\s*\{[\s\S]*?updateSparkTask\(taskId, \{ activityPhase, progressLabel: 'Thinking it through…' \}\)/,
+  );
+  assert.match(
+    workspaceSource,
+    /announce\s*\?[\s\S]*?: \{ plan \}/,
+  );
+  assert.match(
+    workspaceSource,
+    /event\.patch\.status && event\.patch\.status !== 'running' && activityPhase === 'planning'[\s\S]*?activityPhase = 'thinking'/,
+  );
 });

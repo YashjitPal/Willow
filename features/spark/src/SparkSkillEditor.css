@@ -6,7 +6,7 @@
 .spark-skill-editor {
   width: 100%;
   min-height: 100%;
-  padding: 48px 0 64px;
+  padding: 0 0 140px;
   overflow-x: clip;
   background: var(--studio-surface, #0f0f0f);
   color: #e3e3e3;
@@ -22,23 +22,25 @@
 }
 
 .spark-skill-editor__content {
-  width: min(660px, calc(100% - 32px));
+  width: min(1060px, calc(100% - 32px));
   margin: 0 auto;
 }
 
 .spark-skill-editor__header {
   display: flex;
-  min-height: 48px;
+  height: 60px;
+  min-height: 60px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin: 0;
+  padding: 12px 0;
 }
 
 .spark-skill-editor__header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .spark-skill-editor__delete {
@@ -63,10 +65,10 @@
  * the schedule editor's header, which is the same component in Gemini. */
 .spark-skill-editor__back {
   display: inline-flex;
-  height: 36px;
+  height: 28px;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  padding: 0 0 0 16px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -78,17 +80,25 @@
   transition: color 140ms ease;
 }
 
+.spark-skill-editor__back > span:last-child {
+  display: block;
+  height: 24px;
+  font-size: 17px;
+  line-height: 24px;
+}
+
 .spark-skill-editor__back:hover {
   color: #e6e6e6;
 }
 
 .spark-skill-editor__create {
   height: 36px;
-  padding: 0 20px;
+  min-width: 90px;
+  padding: 0;
   border: 0;
   border-radius: 9999px;
   background: #a8c7fa;
-  color: #062e6f;
+  color: #e3e3e3;
   font-size: 15px;
   font-weight: 370;
   line-height: 20px;
@@ -97,8 +107,46 @@
 
 .spark-skill-editor__create:disabled {
   background: rgba(230, 230, 230, 0.12);
-  color: rgba(255, 255, 255, 0.3);
+  color: #e3e3e3;
   cursor: default;
+}
+
+.spark-skill-editor__create:not(:disabled) {
+  background: #1f3b9b;
+  color: #ffffff;
+}
+
+.spark-skill-editor__create:not(:disabled):hover {
+  background: #2948a8;
+}
+
+/* The editor reset is intentionally scoped above the controls; these two rules
+ * restore Gemini's text metrics after the form-control shorthand has applied. */
+.spark-skill-editor .spark-skill-editor__back {
+  font-family: Arial, sans-serif;
+  font-size: 13.3333px;
+  line-height: normal;
+}
+
+.spark-skill-editor .spark-skill-editor__create {
+  font-family: Arial, sans-serif;
+  font-size: 13.3333px;
+  line-height: normal;
+}
+
+.spark-skill-editor .spark-skill-editor__back > span:last-child,
+.spark-skill-editor .spark-skill-editor__create {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+}
+
+.spark-skill-editor__create > span {
+  display: block;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 370;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
 }
 
 .spark-skill-editor__gemini-note {
@@ -133,12 +181,15 @@
  * 24px padding, and 20px between sections. */
 .spark-skill-editor__panel {
   display: flex;
+  width: 100%;
+  min-height: 690.4px;
   padding: 24px;
   flex-direction: column;
   gap: 20px;
   border: 1px solid #171717;
   border-radius: 28px;
   background: #1e1f20;
+  overflow: hidden;
 }
 
 .spark-skill-editor__file {
@@ -185,6 +236,12 @@
 
 .spark-skill-editor__field input {
   height: 53.6px;
+}
+
+.spark-skill-editor__field.spark-skill-editor__field--description textarea {
+  height: 73.6px;
+  min-height: 73.6px;
+  resize: none;
 }
 
 .spark-skill-editor__field--title input {

@@ -777,6 +777,14 @@ const streamGeminiInteractions = async ({
     }
     return null;
   };
+  const reportInteractionSearch = (event: any, step: any, query?: string): void => {
+    const key = interactionStepKey(event, step);
+    if (key !== null) {
+      if (reportedInteractionSearches.has(key)) return;
+      reportedInteractionSearches.add(key);
+    }
+    onToolCallStart?.('web_search', query ? { query } : undefined);
+  };
 
   const handleEvent = (name: string, raw: string): boolean => {
     if (!raw || raw === '[DONE]') return false;
@@ -797,6 +805,7 @@ const streamGeminiInteractions = async ({
     if (isStepStart) {
       if (step?.type === 'google_search_call') {
         onPhase?.('searching');
+        reportInteractionSearch(event, step);
         return true;
       } else if (step?.type === 'code_execution_call') {
         onPhase?.('executing');
@@ -820,13 +829,11 @@ const streamGeminiInteractions = async ({
       if (delta.type === 'google_search_call') {
         onPhase?.('searching');
         const queries = Array.isArray(delta.arguments?.queries) ? delta.arguments.queries : [];
-        const key = interactionStepKey(event, step);
-        if (key === null || !reportedInteractionSearches.has(key)) {
-          if (key !== null) reportedInteractionSearches.add(key);
-          onToolCallStart?.('web_search', typeof queries[0] === 'string' && queries[0]
-            ? { query: queries[0] }
-            : undefined);
-        }
+        reportInteractionSearch(
+          event,
+          step,
+          typeof queries[0] === 'string' && queries[0] ? queries[0] : undefined,
+        );
         return true;
       } else if (delta.type === 'code_execution_call') {
         onPhase?.('executing');
@@ -1525,6 +1532,16 @@ Adhere to the following rules and guidelines:
       const iterationStart = answerText.length;
       let iterationText = '';
       const groundingSeen: any[] = [];
+      let reportedSearchWithoutQuery = false;
+
+      const reportLegacySearch = (queries: readonly string[]): void => {
+        const freshQueries = queries.filter((query) => !reportedSearchQueries.has(query));
+        if (!freshQueries.length && reportedSearchWithoutQuery) return;
+        freshQueries.forEach((query) => reportedSearchQueries.add(query));
+        reportedSearchWithoutQuery = true;
+        options.onToolCallStart?.('web_search', freshQueries[0] ? { query: freshQueries[0] } : undefined);
+        setPhase('searching');
+      };
 
       for await (const chunk of result.stream) {
         throwIfAborted(signal);
@@ -1546,13 +1563,7 @@ Adhere to the following rules and guidelines:
           const hasSearchGrounding = searchQueries.length > 0
             || hasWebGrounding
             || !!groundingMetadata.searchEntryPoint;
-          if (!hasEmittedText && hasSearchGrounding) {
-            searchQueries.forEach((query: string) => reportedSearchQueries.add(query));
-            options.onToolCallStart?.('web_search', {
-              ...(searchQueries[0] ? { query: searchQueries[0] } : {}),
-            });
-            setPhase('searching');
-          }
+          if (hasSearchGrounding) reportLegacySearch(searchQueries);
         }
 
         const chunkParts: any[] = cand?.content?.parts ?? [];
@@ -1575,15 +1586,13 @@ Adhere to the following rules and guidelines:
           // Some newer server-side invocation payloads expose the native search
           // call as a raw part before grounding metadata is attached.
           const nativeSearchCall = part?.googleSearchCall;
-          if (!hasEmittedText && nativeSearchCall) {
+          if (nativeSearchCall) {
             const queries = Array.isArray(nativeSearchCall.queries)
               ? nativeSearchCall.queries.filter((query: unknown): query is string => typeof query === 'string' && query.length > 0)
               : Array.isArray(nativeSearchCall.arguments?.queries)
                 ? nativeSearchCall.arguments.queries.filter((query: unknown): query is string => typeof query === 'string' && query.length > 0)
                 : [];
-            queries.forEach((query: string) => reportedSearchQueries.add(query));
-            options.onToolCallStart?.('web_search', queries[0] ? { query: queries[0] } : undefined);
-            setPhase('searching');
+            reportLegacySearch(queries);
             continue;
           }
 
@@ -2466,6 +2475,7 @@ Adhere to the following rules and guidelines:
 
           let toolResult: any;
           if (tc.name === 'web_search' || tc.name === 'x_search') {
+            options.onToolCallStart?.(tc.name, parsedArgs);
             try {
               const queryStr = parsedArgs.query || parsedArgs.search_query || '';
               const searchRes = await fetch(`/llm-search?q=${encodeURIComponent(queryStr)}&type=${tc.name}`);
