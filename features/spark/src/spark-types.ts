@@ -157,6 +157,8 @@ export interface SparkTask {
   updatedAt: string;
   /** False when this is only the lightweight task-list record. */
   bodyLoaded?: boolean;
+  /** True while the configured Chat-naming model is generating title/description. */
+  isNaming?: boolean;
 }
 
 export type SparkScheduleFrequency = 'Daily' | 'Weekly';

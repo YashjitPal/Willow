@@ -826,6 +826,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         hasNone: false,
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
+    {
+        id: 'gemma-4-26b-a4b-it',
+        name: 'Gemma 4 26B A4B IT',
+        maxLevels: 1,
+        hasNone: true,
+        noneLabel: 'Minimal',
+        levelLabels: { 1: 'High' },
+        reasoningEfforts: [
+            { id: 'gemma-4-26b-a4b-it-effort-0', level: 0, label: 'Minimal', value: 'minimal' },
+            { id: 'gemma-4-26b-a4b-it-effort-1', level: 1, label: 'High', value: 'high' },
+        ]
+    },
+    {
+        id: 'gemma-4-31b-it',
+        name: 'Gemma 4 31B IT',
+        maxLevels: 1,
+        hasNone: true,
+        noneLabel: 'Minimal',
+        levelLabels: { 1: 'High' },
+        reasoningEfforts: [
+            { id: 'gemma-4-31b-it-effort-0', level: 0, label: 'Minimal', value: 'minimal' },
+            { id: 'gemma-4-31b-it-effort-1', level: 1, label: 'High', value: 'high' },
+        ]
+    },
     { 
         id: 'gemini-2.5-flash-lite', 
         name: 'Gemini 2.5 Flash Lite', 

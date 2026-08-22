@@ -134,6 +134,10 @@ const createInitialState = (): SparkState => ({
 
 export const sparkState = atom<SparkState>(createInitialState());
 
+// Set only after the persisted Spark snapshot has been read and published.
+// The customise pages use this instead of a presentation-only timeout.
+export const sparkHydrationScope = atom<string | null>(null);
+
 const SPARK_ULTRA_KEY = 'willow:spark:ultra';
 const readSparkUltra = (): boolean => {
   try {
@@ -214,6 +218,7 @@ const createSparkTaskSummary = (task: SparkTask): SparkTask => ({
   createdAt: task.createdAt,
   updatedAt: task.updatedAt,
   bodyLoaded: false,
+  isNaming: task.isNaming,
 });
 
 const mergeSparkTaskSummary = (summary: SparkTask, body: SparkTask): SparkTask => ({
@@ -234,6 +239,7 @@ const mergeSparkTaskSummary = (summary: SparkTask, body: SparkTask): SparkTask =
   reaction: summary.reaction,
   updatedAt: summary.updatedAt,
   bodyLoaded: true,
+  isNaming: summary.isNaming,
 });
 
 const persistSparkTaskRecord = (task: SparkTask): void => {
@@ -1010,6 +1016,7 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     createdAt: asString(value.createdAt, now),
     updatedAt: wasInterrupted ? now : asString(value.updatedAt, now),
     bodyLoaded,
+    isNaming: Boolean(value.isNaming),
   };
 };
 
@@ -1147,6 +1154,7 @@ function readPersistedSparkSnapshot(): SparkSnapshot | null {
 export const hydrateSparkState = (scopeId = 'guest'): void => {
   activeSparkStorageScope = scopeId || 'guest';
   hasHydratedSparkState = true;
+  sparkHydrationScope.set(null);
   getSparkSyncChannel();
   const fallback = createInitialState();
 
@@ -1156,6 +1164,7 @@ export const hydrateSparkState = (scopeId = 'guest'): void => {
       activeSparkSyncMetadata = createEmptySparkSyncMetadata();
       sparkState.set(fallback);
       persistSparkState(fallback, activeSparkSyncMetadata);
+      sparkHydrationScope.set(activeSparkStorageScope);
       return;
     }
 
@@ -1216,10 +1225,12 @@ export const hydrateSparkState = (scopeId = 'guest'): void => {
     } else {
       publishSparkState(viewedHydratedState);
     }
+    sparkHydrationScope.set(activeSparkStorageScope);
   } catch {
     activeSparkSyncMetadata = createEmptySparkSyncMetadata();
     sparkState.set(fallback);
     persistSparkState(fallback, activeSparkSyncMetadata);
+    sparkHydrationScope.set(activeSparkStorageScope);
   }
 };
 
@@ -1348,6 +1359,7 @@ export const createSparkTask = (
     createdAt: now,
     updatedAt: now,
     bodyLoaded: true,
+    isNaming: Boolean(options.isNaming),
   };
 
   const current = sparkState.get();

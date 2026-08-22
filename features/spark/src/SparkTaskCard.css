@@ -73,6 +73,36 @@
   flex-direction: column;
 }
 
+/* Gemini's `ghost-loader.description-loader`: 192x16, 4px corners, and a
+ * 1.5s white sweep while the Chat-naming model supplies the task copy. */
+.spark-goal-naming-ghost {
+  display: block;
+  width: 192px;
+  height: 16px;
+  margin: 0 0 8px;
+  border-radius: 4px;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  background-size: 200% 100%;
+  animation:
+    spark-task-name-fade-in 200ms ease-out both,
+    spark-task-name-shimmer 1500ms linear infinite;
+}
+
+@keyframes spark-task-name-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spark-task-name-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
 /* Completed tasks use Chat's emphasized treatment until their first opening. */
 .spark-goal-description {
   display: -webkit-box;

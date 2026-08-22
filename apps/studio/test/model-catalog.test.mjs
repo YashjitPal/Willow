@@ -98,6 +98,22 @@ it('does not offer Gemini 3.7 Flash the Minimal effort', () => {
   assert.match(chat, /model === 'gemini-3\.7-flash' && options\.thinkingLevel === 0/);
 });
 
+it('offers Gemma 4 models with Minimal and High reasoning efforts', () => {
+  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
+  const modelsTab = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'ModelsTab.tsx'), 'utf8');
+  const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
+  for (const [id, name] of [
+    ['gemma-4-26b-a4b-it', 'Gemma 4 26B A4B IT'],
+    ['gemma-4-31b-it', 'Gemma 4 31B IT'],
+  ]) {
+    assert.match(settings, new RegExp(`id: '${id}',\\s*name: '${name}',[\\s\\S]{0,180}?maxLevels: 1,[\\s\\S]{0,100}?noneLabel: 'Minimal',[\\s\\S]{0,100}?levelLabels: \\{ 1: 'High' \\}`));
+  }
+  assert.match(modelsTab, /thinkingLevel: selectedModel\.maxLevels/);
+  assert.match(modelsTab, /selectedModel\.reasoningEfforts/);
+  assert.match(chat, /model\.startsWith\('gemma-4-'\)/);
+  assert.match(chat, /0: 'minimal', 1: 'high'/);
+});
+
 it('uses the shared ordered text catalog in Chat, Workbench, and the model menu', () => {
   const menu = fs.readFileSync(path.join(repoRoot, 'platform', 'ui', 'src', 'models', 'ModelsMenu.tsx'), 'utf8');
   const chat = fs.readFileSync(path.join(repoRoot, 'features', 'chat', 'src', 'composer', 'use-composer-models.ts'), 'utf8');

@@ -59,7 +59,7 @@ import {
 // Re-exported so this module's public surface is unchanged: ChatView and the
 // shell Sidebar import isTempChatId from here.
 export { isTempChatId, parseTempIdTimestamp, sortChatsNewestToOldest } from './chat-metadata';
-import { generateChatTitleWith } from './chat-title';
+import { generateChatDescriptionWith, generateChatTitleWith } from './chat-title';
 import { bumpChatSelectionEpoch } from './chat-selection-store';
 import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
 import { getSyncedFolders } from '../synced-folders';
@@ -148,6 +148,7 @@ interface LocalFSContextType {
   renameLocalFSProject: (oldName: string, newName: string) => Promise<boolean>;
   saveLocalFSCover: (projectName: string, url: string) => Promise<boolean>;
   generateChatTitle: (userMessage: string, assistantMessage?: string) => Promise<string>;
+  generateChatDescription: (userMessage: string, assistantMessage?: string) => Promise<string>;
   localChats: string[];
   activeChatId: string | null;
   selectLocalFSInboxChat: (chatId: string | null) => void | Promise<void>;
@@ -2513,6 +2514,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       generateChatTitleWith(modelConfig, apiKeys, userMessage, assistantMessage),
     [apiKeys, modelConfig],
   );
+  const generateChatDescription = useCallback(
+    (userMessage: string, assistantMessage?: string): Promise<string> =>
+      generateChatDescriptionWith(modelConfig, apiKeys, userMessage, assistantMessage),
+    [apiKeys, modelConfig],
+  );
 
   /**
    * Select local inbox chat
@@ -3292,6 +3298,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         renameLocalFSProject,
         saveLocalFSCover,
         generateChatTitle,
+        generateChatDescription,
         localChats,
         activeChatId,
         selectLocalFSInboxChat,

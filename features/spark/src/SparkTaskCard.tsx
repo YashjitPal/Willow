@@ -39,6 +39,7 @@ export interface SparkTaskCardProps {
   isUnread?: boolean;
   isSelected?: boolean;
   isPinned?: boolean;
+  isNaming?: boolean;
   /** Only the active row is tabbable, per the listbox roving-tabindex pattern. */
   isTabbable?: boolean;
   actions?: SparkTaskCardAction[];
@@ -57,6 +58,7 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
   isUnread = false,
   isSelected = false,
   isPinned = false,
+  isNaming = false,
   isTabbable = false,
   actions,
   onOpen,
@@ -144,8 +146,15 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
     >
       <div className="spark-goal-card-header">
         <div className="spark-goal-titles">
-          <span className={`spark-goal-description${isUnread ? ' is-unread' : ''}`}>{title}</span>
-          <div className="spark-goal-secondary-text">
+          {isNaming ? (
+            <>
+              <span className="spark-goal-naming-ghost" aria-label="Naming task" />
+              <div className="spark-goal-secondary-text">Initialising task&hellip;</div>
+            </>
+          ) : (
+            <>
+              <span className={`spark-goal-description${isUnread ? ' is-unread' : ''}`}>{title}</span>
+              <div className="spark-goal-secondary-text">
             {descriptionIcon && (
               <MaterialSymbol
                 family="luminous"
@@ -158,7 +167,9 @@ export const SparkTaskCard: React.FC<SparkTaskCardProps> = ({
               />
             )}
             <span className="spark-goal-secondary-content">{description}</span>
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="spark-goal-card-actions">

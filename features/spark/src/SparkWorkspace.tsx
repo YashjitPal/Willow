@@ -46,6 +46,7 @@ import {
   setSparkTaskTurnReaction,
   SPARK_HISTORY_STATE_KEY,
   sparkState,
+  sparkHydrationScope,
   toggleSparkTaskPinned,
   updateSparkSchedule,
   updateSparkSkill,
@@ -343,9 +344,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
   const { user } = useAuth();
-  const { chatScopeId } = useLocalFS();
+  const { chatScopeId, generateChatTitle, generateChatDescription } = useLocalFS();
   const { apiKeys } = useUserDataContext();
   const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
+  const hydratedScope = useStore(sparkHydrationScope);
+  const scopeId = chatScopeId || user?.uid || 'guest';
   const [loadedCustomisePages, setLoadedCustomisePages] = useState<Record<'skills' | 'schedules', boolean>>({
     skills: false,
     schedules: false,
@@ -355,12 +358,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     : null;
 
   useEffect(() => {
-    if (!customisePage || loadedCustomisePages[customisePage]) return;
-    const timer = window.setTimeout(() => {
-      setLoadedCustomisePages((current) => ({ ...current, [customisePage]: true }));
-    }, 1350);
-    return () => window.clearTimeout(timer);
-  }, [customisePage, loadedCustomisePages]);
+    if (!customisePage || loadedCustomisePages[customisePage] || hydratedScope !== scopeId) return;
+    setLoadedCustomisePages((current) => ({ ...current, [customisePage]: true }));
+  }, [customisePage, hydratedScope, loadedCustomisePages, scopeId]);
 
   const isCustomiseLoading = customisePage !== null && !loadedCustomisePages[customisePage];
   const schedulerBusyRef = useRef(false);
@@ -717,7 +717,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (!isCurrentRun()) return;
       updateSparkTask(taskId, {
         status: 'complete',
-        description: 'Task completed',
         progressLabel: 'Done',
         activityPhase: undefined,
         response: response.trim() || 'The task completed without a text response.',
@@ -777,21 +776,42 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     } : undefined;
     const createdTask = createSparkTask(prompt, {
       title,
-      description: requiresApproval ? 'Waiting for your approval' : 'Getting started',
+      description: requiresApproval ? 'Waiting for your approval' : 'Initialising task…',
       status: requiresApproval ? 'needs-input' : 'running',
       progressLabel: requiresApproval ? 'Approval needed' : 'Planning the next steps',
       response: requiresApproval
         ? 'Before I open the browser and proceed, I need you to confirm you are ok to use it.'
         : '',
       modelLabel: execution.modelLabel,
+      isNaming: !requiresApproval && !title,
       attachments,
       tools,
       approval,
     });
+    if (createdTask && !requiresApproval && !title) {
+      void Promise.all([
+        generateChatTitle(prompt),
+        generateChatDescription(prompt),
+      ]).then(([generatedTitle, generatedDescription]) => {
+        const current = sparkState.get().tasks.find((candidate) => candidate.id === createdTask.id);
+        if (!current) return;
+        updateSparkTask(createdTask.id, {
+          title: generatedTitle || current.title,
+          description: generatedDescription || 'Getting started',
+          isNaming: false,
+        });
+      }).catch(() => {
+        // Never leave the task in its transient naming state after an unexpected failure.
+        updateSparkTask(createdTask.id, {
+          description: 'Getting started',
+          isNaming: false,
+        });
+      });
+    }
     if (createdTask && !requiresApproval) {
       void executeTask(createdTask.id, prompt, [], tools, attachments);
     }
-  }, [executeTask, getExecutionSettings]);
+  }, [executeTask, generateChatDescription, generateChatTitle, getExecutionSettings]);
 
   const buildTurnHistory = useCallback(async (
     activeTask: SparkTask,
@@ -1054,7 +1074,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       });
       updateSparkTask(taskId, {
         status: 'complete',
-        description: 'Task updated',
         progressLabel: 'Done',
       });
     } catch (error) {

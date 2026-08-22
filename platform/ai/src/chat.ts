@@ -1028,6 +1028,9 @@ const streamChatImpl: any = async (
           ? 1
           : options.thinkingLevel;
         geminiThinkingLevel = flashMap[requestedLevel] ?? 'high';
+      } else if (model.startsWith('gemma-4-')) {
+        const gemmaMap: Record<number, string> = { 0: 'minimal', 1: 'high' };
+        geminiThinkingLevel = gemmaMap[options.thinkingLevel] ?? 'high';
       } else if (model.includes('3.1-pro')) {
         const pro31Map: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high' };
         geminiThinkingLevel = pro31Map[options.thinkingLevel] || 'high';
