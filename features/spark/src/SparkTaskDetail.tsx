@@ -2268,13 +2268,22 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       onClick={() => onOpenTask(recentTask.id)}
                     >
                       <span className="spark-task-detail__task-copy">
-                        <span className="spark-task-detail__task-title">{recentTask.title}</span>
-                        <span className="spark-task-detail__task-description">
-                          {recentTask.scheduledLabel && (
-                            <MaterialSymbol {...SYMBOL_PROPS} name="schedule" size={16} opticalSize={16} />
-                          )}
-                          <span>{recentTask.description || recentTask.progressLabel || 'Spark task'}</span>
-                        </span>
+                        {recentTask.isNaming ? (
+                          <>
+                            <span className="spark-task-detail__task-naming-ghost" aria-label="Naming task" />
+                            <span className="spark-task-detail__task-description">Initialising task&hellip;</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="spark-task-detail__task-title">{recentTask.title}</span>
+                            <span className="spark-task-detail__task-description">
+                              {recentTask.scheduledLabel && (
+                                <MaterialSymbol {...SYMBOL_PROPS} name="schedule" size={16} opticalSize={16} />
+                              )}
+                              <span>{recentTask.description || recentTask.progressLabel || 'Spark task'}</span>
+                            </span>
+                          </>
+                        )}
                       </span>
                     </button>
                     <span className="spark-task-detail__task-meta">
@@ -2400,7 +2409,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             >
               <MaterialSymbol {...SYMBOL_PROPS} name="arrow_back" size={20} opticalSize={20} />
             </button>
-            <h1 className="spark-task-detail__header-title" title={displayTitle}>{displayTitle}</h1>
+            {currentTask.isNaming ? (
+              <span className="spark-task-detail__header-naming-ghost" aria-label="Naming task" />
+            ) : (
+              <h1 className="spark-task-detail__header-title" title={displayTitle}>{displayTitle}</h1>
+            )}
             <div className="spark-task-detail__header-actions">
               <span className="spark-task-detail__beta-pill">Beta</span>
 

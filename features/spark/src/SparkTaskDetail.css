@@ -1140,6 +1140,42 @@
   white-space: nowrap;
 }
 
+.spark-task-detail__header-naming-ghost,
+.spark-task-detail__task-naming-ghost {
+  display: block;
+  width: 192px;
+  height: 16px;
+  border-radius: 4px;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  background-size: 200% 100%;
+  animation:
+    spark-task-name-fade-in 200ms ease-out both,
+    spark-task-name-shimmer 1500ms linear infinite;
+}
+
+.spark-task-detail__header-naming-ghost {
+  flex: 0 0 192px;
+}
+
+.spark-task-detail__task-naming-ghost {
+  margin: 0 0 8px;
+}
+
+@keyframes spark-task-name-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spark-task-name-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
 /*
  * Gemini's `.beta-badge` in the chat thread header, measured: 48×25.6, fully
  * rounded, `padding: 0 8px`, a 1px rgba(255,255,255,.12) hairline, and 13px/#e6e6e6

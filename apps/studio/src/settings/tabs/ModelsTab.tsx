@@ -149,6 +149,7 @@ interface GeminiModel {
   hasNone: boolean;
   noneLabel?: string;
   levelLabels?: Record<number, string>;
+  reasoningEfforts?: Array<{ id: string; level: number; label: string; value: string }>;
   capabilities?: string[];
 }
 
@@ -657,8 +658,22 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                               id: Math.random().toString(36).substr(2, 9),
                               modelId: selectedModel.id,
                               name: selectedModel.name,
-                              thinkingLevel: selectedModel.maxLevels > 0 ? 3 : 0,
-                              thinkingLabel: selectedModel.maxLevels > 0 ? 'High' : 'None',
+                              thinkingLevel: selectedModel.maxLevels,
+                              thinkingLabel: getConfiguredThinkingLabel(
+                                selectedModel.maxLevels,
+                                selectedModel.levelLabels,
+                                selectedModel.noneLabel,
+                              ),
+                              ...(selectedModel.reasoningEfforts
+                                ? {
+                                    reasoningEfforts: selectedModel.reasoningEfforts,
+                                    effortLabel: getConfiguredThinkingLabel(
+                                      selectedModel.maxLevels,
+                                      selectedModel.levelLabels,
+                                      selectedModel.noneLabel,
+                                    ),
+                                  }
+                                : {}),
                               capabilities: selectedModel.capabilities
                             }
                           ]

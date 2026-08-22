@@ -32,11 +32,18 @@ type ApiKeyMap = any;
  * alone (see the title effect in ChatView), so the no-reply form is the common
  * case, not a degraded one.
  */
-const buildTitlePrompt = (userMessage: string, assistantMessage?: string): string => {
+const buildNamingPrompt = (
+  userMessage: string,
+  assistantMessage: string | undefined,
+  kind: 'title' | 'description',
+): string => {
   const transcript = assistantMessage?.trim()
     ? `User: ${userMessage}\nAssistant: ${assistantMessage}`
     : `User: ${userMessage}`;
-  return `Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.\n\n${transcript}`;
+  const instruction = kind === 'description'
+    ? 'Summarize this task into one short, clear sentence (maximum 12 words). Return ONLY the sentence, with no quotation marks, introduction, or extra commentary.'
+    : 'Summarize this chat starting message into a very short, concise, and clean file/folder name (maximum 5 to 6 words). Return ONLY the rephrased name itself, with no quotation marks, punctuation, file extension, or introduction.';
+  return `${instruction}\n\n${transcript}`;
 };
 
 /**
@@ -44,6 +51,7 @@ const buildTitlePrompt = (userMessage: string, assistantMessage?: string): strin
  * length so the title cannot overflow a path.
  */
 const toSafeTitle = (text: string): string => text.replace(/[\/:*?"<>|]/g, '').trim().slice(0, 80) || 'Untitled Chat';
+const cleanDescription = (text: string): string => text.replace(/\s+/g, ' ').trim().slice(0, 160);
 
 /**
  * Returns a short title for a chat, or '' when it cannot produce one.
@@ -52,11 +60,12 @@ const toSafeTitle = (text: string): string => text.replace(/[\/:*?"<>|]/g, '').t
  * a naming failure has to degrade to "keep the current name", not break the save.
  * The request is abandoned after 10s for the same reason.
  */
-export const generateChatTitleWith = async (
+const generateNamingTextWith = async (
   modelConfig: any,
   apiKeys: ApiKeyMap,
   userMessage: string,
   assistantMessage?: string,
+  kind: 'title' | 'description' = 'title',
 ): Promise<string> => {
   // 1. Resolve which model the user has selected for Chat Naming
   const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
@@ -115,7 +124,7 @@ export const generateChatTitleWith = async (
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: buildTitlePrompt(userMessage, assistantMessage)
+                  text: buildNamingPrompt(userMessage, assistantMessage, kind)
                 }]
               }]
             })
@@ -125,7 +134,7 @@ export const generateChatTitleWith = async (
           const data = await response.json();
           const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
           if (text) {
-            return toSafeTitle(text);
+            return kind === 'title' ? toSafeTitle(text) : cleanDescription(text);
           }
         }
     } else if (targetProvider === 'openai') {
@@ -140,7 +149,7 @@ export const generateChatTitleWith = async (
             model: targetModelId,
             messages: [{
               role: 'user',
-              content: buildTitlePrompt(userMessage, assistantMessage)
+              content: buildNamingPrompt(userMessage, assistantMessage, kind)
             }]
           })
         });
@@ -148,7 +157,7 @@ export const generateChatTitleWith = async (
             const data = await response.json();
             const text = data?.choices?.[0]?.message?.content?.trim();
             if (text) {
-                return toSafeTitle(text);
+                return kind === 'title' ? toSafeTitle(text) : cleanDescription(text);
             }
         }
     } else if (targetProvider === 'anthropic') {
@@ -166,7 +175,7 @@ export const generateChatTitleWith = async (
               max_tokens: 50,
               messages: [{
                 role: 'user',
-                content: buildTitlePrompt(userMessage, assistantMessage)
+                content: buildNamingPrompt(userMessage, assistantMessage, kind)
               }]
             })
           });
@@ -174,7 +183,7 @@ export const generateChatTitleWith = async (
               const data = await response.json();
               const text = data?.content?.[0]?.text?.trim();
               if (text) {
-                  return toSafeTitle(text);
+                  return kind === 'title' ? toSafeTitle(text) : cleanDescription(text);
               }
           }
     }
@@ -185,3 +194,17 @@ export const generateChatTitleWith = async (
   }
   return '';
 };
+
+export const generateChatTitleWith = (
+  modelConfig: any,
+  apiKeys: ApiKeyMap,
+  userMessage: string,
+  assistantMessage?: string,
+): Promise<string> => generateNamingTextWith(modelConfig, apiKeys, userMessage, assistantMessage, 'title');
+
+export const generateChatDescriptionWith = (
+  modelConfig: any,
+  apiKeys: ApiKeyMap,
+  userMessage: string,
+  assistantMessage?: string,
+): Promise<string> => generateNamingTextWith(modelConfig, apiKeys, userMessage, assistantMessage, 'description');

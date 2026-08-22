@@ -172,6 +172,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                   descriptionIcon={task.scheduledLabel ? 'schedule' : undefined}
                   isUnread={task.hasUnreadCompletion === true}
                   isPinned={task.isPinned}
+                  isNaming={task.isNaming}
                   isTabbable={index === 0}
                   onOpen={() => onOpenTask?.(task.id)}
                   actions={[
