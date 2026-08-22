@@ -555,8 +555,122 @@ export interface SkillsPageProps extends SparkPageBaseProps {
   onDeleteSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
   onRecommendedSkillSelect?: (title: string) => void;
-  onUploadSkill?: (file: File) => Promise<void> | void;
+  onUploadSkill?: (files: File[], onStatus?: (status: string) => void) => Promise<void> | void;
 }
+
+interface SparkUploadDialogProps {
+  error: string;
+  isUploading: boolean;
+  status: string;
+  onClose: () => void;
+  onFiles: (files: File[]) => void;
+}
+
+const SparkUploadDialog: React.FC<SparkUploadDialogProps> = ({ error, isUploading, onClose, onFiles, status }) => {
+  const filesInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  const requestClose = () => {
+    if (isUploading || closing) return;
+    setClosing(true);
+    window.setTimeout(onClose, 400);
+  };
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  });
+
+  const acceptFiles = (list: FileList | File[]) => {
+    const files = Array.from(list);
+    if (files.length) onFiles(files);
+  };
+
+  return (
+    <div
+      className={`spark-upload-dialog-backdrop${closing ? ' is-closing' : ''}`}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) requestClose();
+      }}
+    >
+      <div
+        className="spark-upload-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="spark-upload-dialog-title"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') requestClose();
+        }}
+      >
+        <h2 id="spark-upload-dialog-title">Upload a skill</h2>
+        <section className="spark-upload-dialog__requirements">
+          <p>Make sure that your files meet these requirements:</p>
+          <ul>
+            <li>Use kebab case for the skill name in SKILL.md</li>
+            <li>Include a SKILL.md file in the main folder</li>
+          </ul>
+        </section>
+        <p className="spark-upload-dialog__guidelines">
+          Follow Gemini&apos;s <a href="https://support.google.com/gemini?p=pn_skills" target="_blank" rel="noreferrer">content guidelines</a> and only upload files from trusted sources. <a href="https://support.google.com/gemini?p=pn_skills" target="_blank" rel="noreferrer">Learn more</a>
+        </p>
+        {error && (
+          <div className="spark-upload-dialog__error" role="alert">
+            <MaterialSymbol family="google-symbols" name="error_outline" size={28} weight={400} roundness={100} />
+            <span>{error}</span>
+          </div>
+        )}
+        {status && !error && (
+          <div className="spark-upload-dialog__status" role="status" aria-live="polite">
+            {status}
+          </div>
+        )}
+        <div
+          className={`spark-upload-dialog__dropzone${dragging ? ' is-dragging' : ''}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            dragDepthRef.current += 1;
+            setDragging(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+            if (!dragDepthRef.current) setDragging(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            dragDepthRef.current = 0;
+            setDragging(false);
+            acceptFiles(event.dataTransfer.files);
+          }}
+        >
+          <div className="spark-upload-dialog__drop-content">
+            <div>
+              <span>Drag or select </span>
+              <button type="button" className="spark-upload-dialog__link" onClick={() => filesInputRef.current?.click()} disabled={isUploading}>files</button>
+              <span> or a </span>
+              <button type="button" className="spark-upload-dialog__link" onClick={() => folderInputRef.current?.click()} disabled={isUploading}>folder</button>
+              <span> to upload</span>
+            </div>
+            <span className="spark-upload-dialog__formats">CSV, PY, TXT and MD files</span>
+          </div>
+          <input ref={filesInputRef} type="file" hidden multiple accept=".zip,.md,.txt,.py,.csv" disabled={isUploading} onChange={(event) => { acceptFiles(event.target.files ?? []); event.target.value = ''; }} />
+          <input ref={folderInputRef} type="file" hidden multiple accept=".zip,.md,.txt,.py,.csv" disabled={isUploading} {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)} onChange={(event) => { acceptFiles(event.target.files ?? []); event.target.value = ''; }} />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const SkillsPage: React.FC<SkillsPageProps> = ({
   className = '',
@@ -573,26 +687,30 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   const headingId = useId();
   const activeHeadingId = useId();
   const recommendedHeadingId = useId();
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
   const [skillToDelete, setSkillToDelete] = useState<SparkSkill | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [uploadStatus, setUploadStatus] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const uploadInFlightRef = useRef(false);
 
-  const selectUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file || uploadInFlightRef.current) return;
+  const selectUpload = async (files: File[]) => {
+    if (!files.length || uploadInFlightRef.current) return;
 
     uploadInFlightRef.current = true;
     setIsUploading(true);
     setUploadError('');
+    setUploadStatus('');
     try {
       if (!onUploadSkill) throw new Error('Skill import is unavailable');
-      await onUploadSkill(file);
-    } catch {
-      setUploadError(`Couldn't import ${file.name}`);
+      await onUploadSkill(files, setUploadStatus);
+      setUploadOpen(false);
+    } catch (error) {
+      setUploadError(error instanceof Error && error.message
+        ? error.message
+        : `Couldn't import ${files[0].name}`);
+      setUploadStatus('');
     } finally {
       uploadInFlightRef.current = false;
       setIsUploading(false);
@@ -626,7 +744,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
             aria-busy={isUploading}
             title={!onUploadSkill ? 'Skill upload is unavailable' : isUploading ? 'Importing skill' : 'Upload skill'}
             disabled={isUploading || !onUploadSkill}
-            onClick={() => uploadInputRef.current?.click()}
+            onClick={() => { setUploadError(''); setUploadStatus(''); setUploadOpen(true); }}
           >
             <MaterialSymbol
               family="luminous"
@@ -637,17 +755,15 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
               opticalSize={24}
             />
           </button>
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept=".zip,.md,.txt"
-            hidden
-            disabled={isUploading || !onUploadSkill}
-            onChange={selectUpload}
-          />
         </div>
-        {uploadError && (
-          <p className="spark-skills-upload-error" role="alert">{uploadError}</p>
+        {uploadOpen && onUploadSkill && (
+          <SparkUploadDialog
+            error={uploadError}
+            isUploading={isUploading}
+            status={uploadStatus}
+            onClose={() => setUploadOpen(false)}
+            onFiles={(files) => { void selectUpload(files); }}
+          />
         )}
 
         {isLoading ? (

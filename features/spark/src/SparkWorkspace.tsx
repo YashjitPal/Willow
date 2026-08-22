@@ -353,6 +353,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     skills: false,
     schedules: false,
   });
+  const [uploadedSkillDraft, setUploadedSkillDraft] = useState<SparkSkillDraft | null>(null);
   const customisePage = location.page === 'skills' || location.page === 'schedules'
     ? location.page
     : null;
@@ -1336,26 +1337,31 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     };
   }, [requestStructuredSuggestion]);
 
-  const importSkill = useCallback(async (file: File) => {
+  const importSkill = useCallback(async (files: File[], onStatus?: (status: string) => void): Promise<SparkSkillDraft> => {
+    const file = files.find((candidate) => /^skill\.md$/i.test(candidate.name)
+      || /(?:^|[\\/])skill\.md$/i.test((candidate as File & { webkitRelativePath?: string }).webkitRelativePath ?? ''))
+      ?? (files.length === 1 && (/\.zip$/i.test(files[0].name) ? files[0] : undefined));
+    if (!file) throw new Error('One of the uploaded files must be a SKILL.md file.');
     const importScope = getActiveSparkStorageScope();
     const isZip = file.type === 'application/zip' || /\.zip$/i.test(file.name);
+    const isFolder = files.length > 1 || Boolean((file as File & { webkitRelativePath?: string }).webkitRelativePath);
     let instructions = '';
     let sourceName = file.name;
     if (isZip) {
+      onStatus?.('Zipping files…');
       if (file.size > 5_000_000) throw new Error('The skill ZIP is too large.');
       const { default: JSZip } = await import('jszip');
       const archive = await JSZip.loadAsync(file);
       const candidates = Object.values(archive.files)
-        .filter((entry) => !entry.dir && /(?:^|\/)(?:skill\.md|[^/]+\.(?:md|txt))$/i.test(entry.name))
-        .sort((left, right) => Number(/(?:^|\/)skill\.md$/i.test(right.name))
-          - Number(/(?:^|\/)skill\.md$/i.test(left.name)));
+        .filter((entry) => !entry.dir && /(?:^|\/)skill\.md$/i.test(entry.name));
       const entry = candidates[0];
-      if (!entry) throw new Error('The ZIP does not contain SKILL.md, Markdown, or text instructions.');
+      if (!entry) throw new Error('One of the uploaded files must be a SKILL.md file.');
       const expandedSize = Number((entry as any)._data?.uncompressedSize ?? 0);
       if (expandedSize > 500_000) throw new Error('The skill instructions in this ZIP are too large.');
       instructions = await entry.async('string');
       sourceName = entry.name.split('/').pop() || entry.name;
     } else {
+      if (isFolder) onStatus?.('Zipping files…');
       if (file.size > 1_000_000) throw new Error('The skill file is too large.');
       instructions = await file.text();
     }
@@ -1364,17 +1370,30 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (getActiveSparkStorageScope() !== importScope) {
       throw new Error('The active account changed before the skill could be imported.');
     }
+    onStatus?.('Uploading… 100%');
 
+    const frontmatterMatch = instructions.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
+    const frontmatter = frontmatterMatch?.[1] ?? '';
+    const readFrontmatter = (field: string) => {
+      const value = frontmatter.match(new RegExp(`^${field}:\\s*(.+)$`, 'im'))?.[1]?.trim() ?? '';
+      return value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2').trim();
+    };
+    const frontmatterName = readFrontmatter('name');
+    const frontmatterDescription = readFrontmatter('description');
+    if (!frontmatterMatch || !frontmatterName || !frontmatterDescription) {
+      throw new Error("SKILL.md is missing frontmatter. It must start with '---' followed by name and description fields.");
+    }
+    if (frontmatterMatch) instructions = instructions.slice(frontmatterMatch[0].length).trim();
     const heading = instructions.match(/^#\s+(.+)$/m)?.[1]?.trim();
     const fallbackName = sourceName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Imported skill';
-    const created = createSparkSkill({
-      name: heading || fallbackName,
-      description: `Imported from ${file.name}`,
+    onStatus?.('Upload successful! Saving metadata…');
+    return {
+      name: frontmatterName || heading || fallbackName,
+      description: frontmatterDescription || `Imported from ${file.name}`,
       instructions,
       source: 'upload',
       fileName: file.name,
-    });
-    if (!created) throw new Error('Could not create the imported skill.');
+    };
   }, []);
 
   useEffect(() => {
@@ -1658,6 +1677,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       source: 'recommended' as const,
     } : undefined;
 
+    const uploadDraft = location.mode === 'upload' ? uploadedSkillDraft : null;
+
     return (
       <SparkSkillEditor
         recordKey={skill?.id ?? `new-skill:${location.mode}:${location.template ?? ''}`}
@@ -1669,8 +1690,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           instructions: skill.instructions,
           source: skill.source,
           fileName: skill.fileName,
-        } : templateDraft}
-        onBack={() => closeEditor('skill-editor', 'skills')}
+        } : uploadDraft ?? templateDraft}
+        onBack={() => {
+          if (location.mode === 'upload') setUploadedSkillDraft(null);
+          closeEditor('skill-editor', 'skills');
+        }}
         onAskGemini={askGeminiForSkill}
         onDelete={skill ? () => {
           deleteSparkSkill(skill.id);
@@ -1680,6 +1704,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onSubmit={(draft) => {
           if (skill) updateSparkSkill(skill.id, draft);
           else createSparkSkill(draft);
+          if (location.mode === 'upload') setUploadedSkillDraft(null);
           closeEditor('skill-editor', 'skills');
         }}
       />
@@ -1712,7 +1737,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onLearnMore={() => window.open('https://support.google.com/gemini?p=skills', '_blank', 'noopener,noreferrer')}
         onOpenSkill={(skillId) => goToSparkSkillEditor('manual', { skillId })}
         onRecommendedSkillSelect={(template) => goToSparkSkillEditor('recommended', { template })}
-        onUploadSkill={importSkill}
+        onUploadSkill={async (files) => {
+          const draft = await importSkill(files);
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+          setUploadedSkillDraft(draft);
+          goToSparkSkillEditor('upload');
+        }}
       />
     );
   }
