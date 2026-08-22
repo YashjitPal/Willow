@@ -27,6 +27,7 @@ import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
 import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime } from './spark-types';
+import type { SparkSubAgentCall } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import './SparkTaskDetail.css';
@@ -544,7 +545,8 @@ const SparkProcessingState: React.FC<{
   activity?: readonly SparkActivityEntry[];
   phase?: SparkActivityPhase;
   subagents?: readonly SparkSubAgent[];
-}> = ({ title, activity = [], phase, subagents = [] }) => {
+  createdFile?: SparkGeneratedFile;
+}> = ({ title, activity = [], phase, subagents = [], createdFile }) => {
   const timelineActivity = activity.some((entry) => entry.kind === 'subagents') || subagents.length === 0
     ? activity
     : [...activity, { id: 'spark-subagents-fallback', kind: 'subagents' as const }];
@@ -639,7 +641,9 @@ const SparkProcessingState: React.FC<{
             className={`spark-task-detail__processing-details-wrapper${isExpanded ? ' is-expanded' : ''}`}
             aria-hidden={!isExpanded}
           >
-            <div className="spark-task-detail__processing-details-inner">
+            <div
+              className={`spark-task-detail__processing-details-inner${isTimelineOverflowing && !showAll ? ' is-collapsed-overflow' : ''}`}
+            >
               <div
                 ref={timelineCapRef}
                 className={`spark-task-detail__processing-details-cap${showAll ? ' is-expanded' : ''}${isTimelineOverflowing ? ' is-overflowing' : ''}`}
@@ -666,8 +670,10 @@ const SparkProcessingState: React.FC<{
                   key={group.entry.id}
                   className={`spark-task-detail__processing-tool${index > 0 ? ' has-leading-gap' : ''}${index === activityGroups.length - 1 ? ' is-last-activity' : ''}`}
                 >
-                  <span className="spark-task-detail__processing-node"><SparkToolIcon tool={group.entry.tool} /></span>
-                  <span>{getToolCapabilityLabel(group.entry.tool).label}</span>
+                  <span className="spark-task-detail__processing-node">
+                    <SparkToolIcon tool={group.entry.tool} createdFile={createdFile} />
+                  </span>
+                  <span>{getTimelineToolLabel(group.entry.tool)}</span>
                 </div>
               ))}
                 </div>
@@ -773,6 +779,7 @@ type SparkSubagentTimelineGroup =
 
 const groupSparkSubagentTimeline = (
   timeline: readonly SparkSubAgent['timeline'][number][],
+  callsById: ReadonlyMap<string, SparkSubAgentCall>,
 ): SparkSubagentTimelineGroup[] => {
   const groups: SparkSubagentTimelineGroup[] = [];
   timeline.forEach((entry) => {
@@ -781,6 +788,9 @@ const groupSparkSubagentTimeline = (
       if (previous?.kind === 'narration') previous.entries.push(entry);
       else groups.push({ id: entry.id, kind: 'narration', entries: [entry] });
     } else {
+      const tool = callsById.get(entry.callId)?.kind;
+      const previousTool = previous?.kind === 'tool' ? callsById.get(previous.entry.callId)?.kind : undefined;
+      if (tool && previousTool && isFileTimelineTool(tool) && isFileTimelineTool(previousTool)) return;
       groups.push({ id: entry.id, kind: 'tool', entry });
     }
   });
@@ -803,7 +813,7 @@ const SparkSubagentItem: React.FC<{
   const timeline = agent.timeline.length > 0
     ? agent.timeline
     : agent.calls.map((call) => ({ id: `legacy-${call.id}`, kind: 'tool' as const, callId: call.id }));
-  const timelineGroups = groupSparkSubagentTimeline(timeline);
+  const timelineGroups = groupSparkSubagentTimeline(timeline, callsById);
 
   useEffect(() => {
     if (previousResetVersionRef.current !== resetVersion) {
@@ -883,8 +893,10 @@ const SparkSubagentItem: React.FC<{
                   const call = callsById.get(group.entry.callId);
                   if (!call) return null;
                   return <div className="spark-task-detail__subagent-line" key={group.id}>
-                    <span className="spark-task-detail__subagent-line-icon" aria-hidden="true"><SparkToolIcon tool={call.kind} /></span>
-                    <span>{getToolCapabilityLabel(call.kind).label}</span>
+                    <span className="spark-task-detail__subagent-line-icon" aria-hidden="true">
+                      <SparkToolIcon tool={call.kind} />
+                    </span>
+                    <span>{getTimelineToolLabel(call.kind)}</span>
                   </div>;
                 })}
               </div>
@@ -927,6 +939,12 @@ const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroup
       groups.push({ id: entry.id, kind: 'subagents' });
       return;
     }
+    if (
+      entry.kind === 'tool'
+      && last?.kind === 'tool'
+      && isFileTimelineTool(last.entry.tool)
+      && isFileTimelineTool(entry.tool)
+    ) return;
     groups.push({ id: entry.id, kind: 'tool', entry });
   });
   return groups;
@@ -1024,6 +1042,10 @@ const SparkAgentWorkingAnimation: React.FC = () => {
 };
 
 const TASK_CAPABILITY_LABELS: Record<string, { icon: string; label: string }> = {
+  files: { icon: 'description', label: 'Files' },
+  // `task_alt` is not present in the bundled Google Symbols subset and gets
+  // clipped into a stray fragment. `check_circle` is verified in that subset.
+  plan: { icon: 'check_circle', label: 'Plan' },
   read: { icon: 'description', label: 'Read' },
   list: { icon: 'folder_open', label: 'List files' },
   search: { icon: 'search', label: 'Search files' },
@@ -1105,6 +1127,56 @@ const getToolCapabilityLabel = (tool: string): { icon: string; label: string } =
   return { icon: 'extension', label: label || 'Tool' };
 };
 
+const normalizeCapabilityTool = (tool: string): string => {
+  const raw = tool.trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('skill:')) return `skill:${raw.slice(6).trim()}`;
+  if (lower.startsWith('mcp:')) return `mcp:${raw.slice(4).trim()}`;
+  if (lower === 'google_search' || lower === 'grounding') return 'web_search';
+  const nativeAliases: Record<string, string> = {
+    read: 'files',
+    read_file: 'files',
+    list: 'files',
+    list_files: 'files',
+    search: 'files',
+    search_files: 'files',
+    edit: 'files',
+    edit_file: 'files',
+    delete: 'files',
+    delete_file: 'files',
+    create: 'files',
+    create_file: 'files',
+    run_command: 'command',
+    code_execution: 'code_execution',
+  };
+  if (nativeAliases[lower]) return nativeAliases[lower];
+  return raw;
+};
+
+const HIDDEN_NATIVE_CAPABILITY_TOOLS = new Set(['command']);
+
+const isVisibleCapabilityTool = (tool: string): boolean => (
+  tool.startsWith('app:')
+  || tool.startsWith('mcp:')
+  || tool.startsWith('skill:')
+  || (
+    Object.prototype.hasOwnProperty.call(TASK_CAPABILITY_LABELS, tool)
+    // Shell execution remains an internal operation. File operations are
+    // normalized to the single user-facing `Files` capability above.
+    && !HIDDEN_NATIVE_CAPABILITY_TOOLS.has(tool)
+  )
+);
+
+const isFileTimelineTool = (tool: string): boolean => {
+  const normalized = normalizeCapabilityTool(tool);
+  return normalized === 'files' || normalized === 'create';
+};
+
+const getTimelineToolLabel = (tool: string): string => (
+  isFileTimelineTool(tool) ? 'Files' : getToolCapabilityLabel(normalizeCapabilityTool(tool)).label
+);
+
 const SparkActivityClock: React.FC = () => (
   <MaterialSymbol
     family="luminous"
@@ -1117,7 +1189,7 @@ const SparkActivityClock: React.FC = () => (
   />
 );
 
-const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
+const SparkToolIcon: React.FC<{ tool: string; createdFile?: SparkGeneratedFile }> = ({ tool, createdFile }) => {
   const meta = getToolCapabilityLabel(tool);
   if (tool === 'web_search') {
     return (
@@ -1129,7 +1201,8 @@ const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
       />
     );
   }
-  if (tool === 'create') {
+  if (isFileTimelineTool(tool)) {
+    if (createdFile) return getGeneratedFileIcon(createdFile);
     return (
       <span className="spark-task-detail__create-file-icon" aria-hidden="true">
         <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} opticalSize={20} />
@@ -1146,21 +1219,56 @@ const SparkToolIcon: React.FC<{ tool: string }> = ({ tool }) => {
   return <MaterialSymbol family={tool === 'list' ? 'material-rounded' : 'google-symbols'} name={meta.icon} size={20} weight={320} roundness={100} opticalSize={20} className="spark-task-detail__processing-tool-icon" />;
 };
 
-const SparkCapabilityIcon: React.FC<{ tool: string; icon: string }> = ({ tool, icon }) => {
+const SparkCapabilityIcon: React.FC<{
+  tool: string;
+  icon: string;
+  createdFile?: SparkGeneratedFile;
+}> = ({ tool, icon, createdFile }) => {
+  if (tool === 'web_search') {
+    return (
+      <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
+        <img
+          src="https://www.gstatic.com/images/branding/productlogos/google_search_round/v8/web-48dp/logo_google_search_round_color_1x_web_48dp.png"
+          alt=""
+          className="spark-task-detail__capability-logo"
+        />
+      </span>
+    );
+  }
+  if (tool === 'create' && createdFile) {
+    return (
+      <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
+        {getGeneratedFileIcon(createdFile)}
+      </span>
+    );
+  }
+  if (tool === 'files' && createdFile) {
+    return (
+      <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
+        {getGeneratedFileIcon(createdFile)}
+      </span>
+    );
+  }
   const logo = tool.startsWith('app:') ? GEMINI_APP_TOOL_LOGOS[tool.slice(4)] : undefined;
   if (logo) {
-    return <img src={logo} alt="" aria-hidden="true" className="spark-task-detail__capability-logo" />;
+    return (
+      <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
+        <img src={logo} alt="" className="spark-task-detail__capability-logo" />
+      </span>
+    );
   }
   return (
-    <MaterialSymbol
-      family="google-symbols"
-      name={icon}
-      size={24}
-      weight={320}
-      roundness={100}
-      opticalSize={24}
-      className="spark-task-detail__capability-icon"
-    />
+    <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
+      <MaterialSymbol
+        family="google-symbols"
+        name={icon}
+        size={24}
+        weight={320}
+        roundness={100}
+        opticalSize={24}
+        className="spark-task-detail__capability-icon"
+      />
+    </span>
   );
 };
 
@@ -1961,6 +2069,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     ...(currentTask.generatedFiles ?? []),
     ...(currentTask.turns ?? []).flatMap((turn) => turn.generatedFiles ?? []),
   ].map((file) => [file.path, file])).values());
+  const latestGeneratedFile = generatedFiles[generatedFiles.length - 1];
   const rootGeneratedFiles = (currentTask.generatedFiles ?? [])
     .filter((file) => !dismissedGeneratedFileIds.has(file.id));
   const latestWorkTitle = [...(currentTask.turns ?? [])]
@@ -1970,13 +2079,19 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const latestPlan = currentTask.plan?.length
     ? currentTask.plan
     : [...(currentTask.turns ?? [])].reverse().find((turn) => turn.plan?.length)?.plan ?? [];
+  // Gemini's Skills and apps section lists capabilities actually invoked by the
+  // run, including real apps, skills, MCP tools, and meaningful user-facing
+  // capabilities. Composer selections and internal control calls are excluded.
   const usedCapabilityTools = Array.from(new Set([
     ...(currentTask.usedTools ?? []),
     ...(currentTask.turns ?? []).flatMap((turn) => turn.usedTools ?? []),
-  ])).filter((tool) => tool === 'computer'
-    || tool.startsWith('app:')
-    || tool.startsWith('mcp:')
-    || tool.startsWith('skill:'));
+    ...(currentTask.activityLog ?? []).flatMap((entry) => entry.kind === 'tool' ? [entry.tool] : []),
+    ...(currentTask.turns ?? []).flatMap((turn) => (turn.activityLog ?? [])
+      .flatMap((entry) => entry.kind === 'tool' ? [entry.tool] : [])),
+    ...(currentTask.subagents ?? []).flatMap((agent) => agent.calls.map((call) => call.kind)),
+    ...(currentTask.turns ?? []).flatMap((turn) => (turn.subagents ?? [])
+      .flatMap((agent) => agent.calls.map((call) => call.kind))),
+  ].map(normalizeCapabilityTool))).filter((tool) => tool !== 'thinking' && isVisibleCapabilityTool(tool));
   const taskCapabilities = usedCapabilityTools
     .map((tool) => ({ tool, ...getToolCapabilityLabel(tool) }))
     .filter((capability) => capability.label !== 'Tool');
@@ -2402,7 +2517,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <h2>Skills and apps</h2>
                 {uniqueTaskCapabilities.map((capability) => (
                   <div key={capability.label} className="spark-task-detail__popover-capability">
-                    <SparkCapabilityIcon tool={capability.tool} icon={capability.icon} />
+                    <SparkCapabilityIcon
+                      tool={capability.tool}
+                      icon={capability.icon}
+                      createdFile={latestGeneratedFile}
+                    />
                     <span>{capability.label}</span>
                   </div>
                 ))}
@@ -2521,6 +2640,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     title={currentTask.activityTitle}
                     activity={currentTask.activityLog ?? []}
                     subagents={currentTask.subagents ?? []}
+                    createdFile={latestGeneratedFile}
                     phase={hasSparkResponseStarted(currentTask.response) ? undefined : currentTask.activityPhase}
                   />
                 )}
@@ -2645,6 +2765,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           title={turn.activityTitle}
                           activity={turn.activityLog ?? []}
                           subagents={turn.subagents ?? []}
+                          createdFile={latestGeneratedFile}
                           phase={hasSparkResponseStarted(turn.response)
                             ? undefined
                             : turn.activityPhase ?? (turnIsStreaming ? 'queued' : undefined)}
@@ -2843,14 +2964,18 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             <section className="spark-task-detail__progress-panel-section">
               <div className="spark-task-detail__progress-panel-header is-empty">
                 <span className="spark-task-detail__progress-panel-title-wrapper">
-                  <span className="spark-task-detail__progress-panel-title">Skills &amp; apps</span>
+                  <span className="spark-task-detail__progress-panel-title">Skills and apps</span>
                 </span>
               </div>
               {uniqueTaskCapabilities.length > 0 && (
                 <div className="spark-task-detail__progress-panel-content">
                   {uniqueTaskCapabilities.map((capability) => (
                     <div key={capability.label} className="spark-task-detail__progress-panel-capability">
-                      <SparkCapabilityIcon tool={capability.tool} icon={capability.icon} />
+                      <SparkCapabilityIcon
+                        tool={capability.tool}
+                        icon={capability.icon}
+                        createdFile={latestGeneratedFile}
+                      />
                       <span>{capability.label}</span>
                     </div>
                   ))}

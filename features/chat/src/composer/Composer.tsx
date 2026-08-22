@@ -488,6 +488,7 @@ export const InputBar: React.FC<{
     const tool = (sparkMode ? SPARK_TOOLS[toolId as keyof typeof SPARK_TOOLS] : TOOLS[toolId as keyof typeof TOOLS]) ?? TOOLS[toolId as keyof typeof TOOLS];
     const Icon = tool.icon;
     const glyph = TOOL_SYMBOLS[toolId];
+    const useSparkIcon = sparkMode && (toolId === 'plan' || toolId === 'goal' || toolId === 'create-pet');
 
     return (
       <button
@@ -497,7 +498,7 @@ export const InputBar: React.FC<{
         className="group flex h-6 shrink-0 cursor-default select-none items-center justify-center rounded-full bg-[rgba(255,255,255,0.12)] pl-1 pr-2 hover:pr-1 focus-visible:pr-1"
       >
         <span className="flex items-center gap-1">
-          {chatVariant && glyph
+          {chatVariant && glyph && !useSparkIcon
             ? <MaterialSymbol
                 name={glyph}
                 family={sparkMode ? 'google-symbols' : 'luminous'}

@@ -8,14 +8,11 @@
  *
  * ## Shape of a turn
  *
- * A turn is a bounded loop. Each iteration streams one model response; patches
+ * A turn is an open-ended loop. Each iteration streams one model response; patches
  * apply the instant their envelope closes, so the preview updates while the
  * model is still writing. Calls that need a result are collected after the
- * stream ends and execute in order. Spawning is non-blocking, so consecutive
- * `spawn_agent` calls still fan out immediately. Their observations are fed
- * back as the next user message.
- * The loop stops when a response contains no calls, or when the iteration
- * budget is spent.
+ * stream ends. The loop stops when the model completes, the turn is cancelled,
+ * or its explicit goal lifecycle ends. Spark imposes no artificial round cap.
  *
  * ## Why patches apply mid-stream but calls do not
  *
@@ -65,13 +62,10 @@ import type {
   ToolResult,
 } from './protocol';
 
-const MAX_ITERATIONS = 12;
-const MAX_SUBAGENT_ITERATIONS = 6;
 const FINAL_RESPONSE_OBSERVATION =
   'The work batch is complete, but the user-facing answer has not been emitted yet. ' +
   'Write `*** Final Response` on its own line now, followed by the complete answer. ' +
   'Do not call another tool or add another progress update unless the work is genuinely incomplete.';
-
 export interface ModelBinding {
   /** Passed through to `streamChat`. */
   options: Omit<AiOptions, 'signal'>;
@@ -88,14 +82,8 @@ export interface ModelBinding {
     /** Numeric Willow request level for the effective wire effort. */
     level: number;
     clamped: boolean;
-    /**
-     * Loop budget and working guidance, derived from the *requested* level
-     * rather than the clamped one. This half is model-agnostic — it is Willow's
-     * own loop and prompt — which is what lets Ultra mean something on a model
-     * whose API tops out lower.
-     */
+    /** Working guidance derived from the requested effort level. */
     harness?: {
-      maxIterations: number;
       guidance: string;
       /**
        * Upstream derives this from effort: `ultra` → proactive, everything
@@ -103,7 +91,6 @@ export interface ModelBinding {
        * parameter is already at the model's ceiling by then.
        */
       delegation?: 'proactive' | 'on-request';
-      maxConcurrentAgents?: number;
       multiAgentVersion?: 'v1' | 'v2' | null;
     };
   };
@@ -289,8 +276,7 @@ function effortSection(model: ModelBinding): string {
   // than treating sub-agents as an option it might get around to.
   if (effort.harness?.delegation === 'proactive') {
     lines.push(
-      `<delegation>proactive — spawn sub-agents on your own judgement, up to ` +
-        `${effort.harness.maxConcurrentAgents ?? 3} at once, without being asked.</delegation>`,
+      '<delegation>proactive — spawn sub-agents on your own judgement without being asked.</delegation>',
     );
   }
 
@@ -322,15 +308,12 @@ interface PendingCall {
 }
 
 function collaborationSection(model: ModelBinding): string {
-  const cap = Math.max(1, model.effort?.harness?.maxConcurrentAgents ?? 3);
   const proactive = model.effort?.harness?.delegation === 'proactive';
   return [
     '# Multi-agent collaboration',
     '',
     'You are `/root`, the primary agent in a team collaborating to fulfil the user\'s goals.',
     'You can use `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.',
-    'Spawned agents receive separate context and may use the same tools, including spawning their own sub-agents.',
-    `There are ${cap + 1} available concurrency slots, including you.`,
     proactive
       ? 'Proactive multi-agent delegation is active. Any earlier instruction requiring an explicit user request before spawning sub-agents no longer applies. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.'
       : 'Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.',
@@ -582,10 +565,8 @@ async function runIteration(
   throwIfAborted(options.signal);
 
   const observations = [...patchObservations];
-
-  for (let index = 0; index < pending.length; index += 1) {
+  for (const call of pending) {
     throwIfAborted(options.signal);
-    const call = pending[index]!;
     const narration = call.narration.trim();
     sink.workTitle(fallbackWorkTitle());
     if (narration) sink.workLog(narration);
@@ -817,7 +798,7 @@ async function runCall(
     return `ERROR ${name}: ${(error as Error).message}`;
   }
 
-  sink.activity(ACTIVITY[name] ?? 'Working');
+  if (name !== 'wait_agent') sink.activity(ACTIVITY[name] ?? 'Working');
 
   const context: ToolContext = {
     readFiles: options.files,
@@ -835,12 +816,12 @@ async function runCall(
 
   try {
     const result: ToolResult = await registry.get(name)!.run(args, context);
-    sink.activity(null);
+    if (name !== 'wait_agent') sink.activity(null);
     finish(result.failed ? new Error(result.observation) : undefined);
     if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     return result.failed ? `ERROR ${name}: ${result.observation}` : result.observation;
   } catch (error) {
-    sink.activity(null);
+    if (name !== 'wait_agent') sink.activity(null);
     finish(error);
     if (name !== 'update_goal') options.goalRuntime?.accountProgress();
     if (error instanceof Cancelled) throw error;
@@ -1058,12 +1039,6 @@ class CollaborationRuntime {
           : '';
         if (!objective) return { observation: 'spawn_agent requires a task message.', failed: true };
 
-        const cap = Math.max(1, this.options.model.effort?.harness?.maxConcurrentAgents ?? 3);
-        const active = [...this.agents.values()].filter((state) => state.agent.status === 'running').length;
-        if (active >= cap) {
-          return { observation: `No collaboration slot is available. Wait for one of the ${active} active sub-agents first.`, failed: true };
-        }
-
         const kindRaw = String(args.agent_type ?? 'researcher');
         const kind = (AGENT_KINDS as string[]).includes(kindRaw) ? kindRaw as AgentKind : 'researcher';
         const path = `${parentPath}/${taskName}`;
@@ -1154,9 +1129,14 @@ class CollaborationRuntime {
         }
         const timeout = Math.max(0, Math.min(60_000, Number(args.timeout_ms ?? 30_000)));
         await new Promise<void>((resolve) => {
-          const done = () => { this.waiters.delete(done); resolve(); };
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const done = () => {
+            this.waiters.delete(done);
+            if (timer !== undefined) clearTimeout(timer);
+            resolve();
+          };
           this.waiters.add(done);
-          setTimeout(done, timeout);
+          timer = setTimeout(done, timeout);
         });
         return { observation: JSON.stringify({
           updates: this.drainMailbox(callerPath),
@@ -1208,14 +1188,12 @@ class CollaborationRuntime {
       ...(this.options.goalRuntime?.tools() ?? []),
       ...(this.options.extraTools ?? []),
     ]);
-    const slots = Math.max(1, this.options.model.effort?.harness?.maxConcurrentAgents ?? 3) + 1;
     const subPrompt = [
       this.systemPrompt,
       '# Multi-agent identity',
       `You are ${state.path}, an agent in a team collaborating to complete a task.`,
-      'You may use the same collaboration tools as the root agent, including spawning child agents.',
+      'You may use the same collaboration tools as the root agent.',
       'When your turn is done, give a concise final report; it will be delivered to your parent.',
-      `There are ${slots} available concurrency slots including the root agent.`,
     ].join('\n\n');
     const conversation = state.conversation;
     conversation.push({
@@ -1224,9 +1202,9 @@ class CollaborationRuntime {
     });
     let report = '';
     try {
-      for (let step = 0; step < MAX_SUBAGENT_ITERATIONS; step += 1) {
+      for (;;) {
         if (state.controller.signal.aborted || this.options.signal?.aborted) throw new Cancelled();
-        this.options.onEvent({ type: 'agent-progress', id: state.agent.id, patch: { progress: step / MAX_SUBAGENT_ITERATIONS } });
+        this.options.onEvent({ type: 'agent-progress', id: state.agent.id, patch: { progress: 0 } });
         if (state.inbox.length) {
           conversation.push({
             role: 'user',
@@ -1463,11 +1441,6 @@ export async function runTurn(options: TurnOptions): Promise<void> {
     ...(options.extraTools ?? []),
   ]);
 
-  // Effort buys tool-call rounds, not just a bigger reasoning parameter. At
-  // `low` a turn that keeps calling tools is usually stuck; at `ultra` it is
-  // usually working. One fixed ceiling cannot serve both.
-  const budget = options.model.effort?.harness?.maxIterations ?? MAX_ITERATIONS;
-
   /** Whether the "you announced but did not act" nudge has been spent. */
   let nudged = false;
   const mutationRequired = isMutationRequest(options.prompt);
@@ -1477,7 +1450,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
 
   try {
     options.goalRuntime?.beginTurn();
-    for (let iteration = 0; iteration < budget; iteration += 1) {
+    for (;;) {
       const result = await runIteration(
         conversation,
         systemPrompt,
@@ -1580,15 +1553,6 @@ export async function runTurn(options: TurnOptions): Promise<void> {
       });
     }
 
-    // Budget exhausted. Tell the model's audience, not just the console.
-    options.onEvent({
-      type: 'text',
-      chunk:
-        '\n\nI stopped after reaching the tool-call limit for one turn. ' +
-        'The work so far is applied — send another message to continue.',
-    });
-    options.goalRuntime?.finishTurn();
-    options.onEvent({ type: 'turn-end', reason: 'complete' });
   } catch (error) {
     collaboration.cancelAll();
     if (error instanceof Cancelled || options.signal?.aborted) {

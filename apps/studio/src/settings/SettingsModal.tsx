@@ -792,8 +792,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         id: 'gemini-3.7-flash',
         name: 'Gemini 3.7 Flash',
         maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
+        hasNone: false,
         levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
     },
     { 

@@ -46,6 +46,9 @@ export type MediaItem = {
   ratio: string;
   timestamp: number;
   attachments?: ImageAttachment[];
+  /** Flow-style detail-view lineage. Items in one viewer history share this id. */
+  historyGroupId?: string;
+  historyParentId?: string;
   favorite?: boolean;
   isSavedToFS?: boolean;
   fsName?: string;

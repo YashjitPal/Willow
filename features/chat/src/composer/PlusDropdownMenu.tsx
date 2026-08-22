@@ -1,6 +1,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { TOOL_SYMBOLS, TOOL_TOOLTIPS, type ToolId } from './composer-options';
+import {
+  CodexGoalIcon,
+  CodexPetIcon,
+  CodexPlanIcon,
+  CodexSideChatIcon,
+} from './composer-icons';
 
 /**
  * Gemini's plus menu, transcribed rather than designed.
@@ -139,8 +145,9 @@ const PersonalRecommendationsGlyph: React.FC = () => (
  * uploader rows, 44 on the tool rows. Both measured.
  */
 const Row: React.FC<{
-  glyph: string;
+  glyph?: string;
   family?: IconFamily;
+  icon?: React.ReactNode;
   label: string;
   labelInset?: 40 | 44;
   /**
@@ -165,6 +172,7 @@ const Row: React.FC<{
 }> = ({
   glyph,
   family,
+  icon,
   label,
   labelInset = 40,
   tooltip,
@@ -194,7 +202,7 @@ const Row: React.FC<{
       className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
       style={{ backgroundColor: HOVER_LAYER }}
     />
-    <Glyph name={glyph} family={family} />
+    {icon ?? (glyph ? <Glyph name={glyph} family={family} /> : null)}
     <span
       className={`relative ${LABEL_CLASS} whitespace-nowrap`}
       style={{ ...LABEL_STYLE, marginLeft: labelInset - 32 }}
@@ -430,10 +438,10 @@ export const PlusDropdownMenu: React.FC<{
         {sparkMode && sparkToolsEnabled && (
           <>
             <Divider />
-            <Row glyph={TOOL_SYMBOLS.plan} family="google-symbols" label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS.goal} family="google-symbols" label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} onMouseEnter={() => setOpenSub(null)} />
+            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexPlanIcon size={18} strokeWidth={2} /></span>} label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} onMouseEnter={() => setOpenSub(null)} />
+            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexGoalIcon size={18} strokeWidth={2} /></span>} label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} onMouseEnter={() => setOpenSub(null)} />
             <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS['create-pet']} family="google-symbols" label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} onMouseEnter={() => setOpenSub(null)} />
+            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexSideChatIcon size={18} strokeWidth={2} /></span>} label="Side chat" labelInset={44} onClick={onClose} onMouseEnter={() => setOpenSub(null)} />
             <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
               <Row
                 glyph="more_horiz"
@@ -474,8 +482,8 @@ export const PlusDropdownMenu: React.FC<{
           {sparkMode && sparkToolsEnabled ? (
             <MenuCard width={253} origin="0 0" label="More tools">
               <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
-              <Row glyph={TOOL_SYMBOLS['sub-agents']} family="google-symbols" label="Sub-agents" labelInset={44} selected={selectedTool === 'sub-agents'} onClick={() => pickTool('sub-agents')} />
-              <Row glyph={TOOL_SYMBOLS['personal-intelligence']} family="google-symbols" label="Personal Intelligence" labelInset={44} selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} />
+              <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexPetIcon size={18} strokeWidth={2} /></span>} label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} />
+              <Row icon={<PersonalRecommendationsGlyph />} label="Personal Intelligence" labelInset={44} selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} />
             </MenuCard>
           ) : (
             <MenuCard width={253} origin="0 0" label="More tools">

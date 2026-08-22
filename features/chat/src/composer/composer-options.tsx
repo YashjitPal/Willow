@@ -19,6 +19,11 @@ import {
   Video,
   Zap,
 } from "lucide-react";
+import {
+  CodexGoalIcon,
+  CodexPetIcon,
+  CodexPlanIcon,
+} from './composer-icons';
 
 /**
  * The selectable tools for normal Chat, matching Gemini's plus menu exactly.
@@ -55,10 +60,10 @@ export const TOOLS: Record<Exclude<ToolId, 'plan' | 'goal' | 'computer-use' | 'c
 /** Spark-only composer tools. The catalog controls menu placement and chips; Plan,
  * Goal and Sub-agents have runtime semantics in the Spark harness today. */
 export const SPARK_TOOLS: Record<Extract<ToolId, 'plan' | 'goal' | 'computer-use' | 'create-pet' | 'create-skill' | 'sub-agents' | 'personal-intelligence'>, ToolMetadata> = {
-  plan: { id: 'plan', label: 'Plan', chipLabel: 'Plan', icon: SquarePen },
-  goal: { id: 'goal', label: 'Goal', chipLabel: 'Goal', icon: Telescope },
+  plan: { id: 'plan', label: 'Plan', chipLabel: 'Plan', icon: CodexPlanIcon },
+  goal: { id: 'goal', label: 'Goal', chipLabel: 'Goal', icon: CodexGoalIcon },
   'computer-use': { id: 'computer-use', label: 'Computer Use', chipLabel: 'Computer Use', icon: Zap },
-  'create-pet': { id: 'create-pet', label: 'Create pet', chipLabel: 'Create pet', icon: Rocket },
+  'create-pet': { id: 'create-pet', label: 'Create pet', chipLabel: 'Create pet', icon: CodexPetIcon },
   'create-skill': { id: 'create-skill', label: 'Create skill', chipLabel: 'Create skill', icon: BookOpen },
   'sub-agents': { id: 'sub-agents', label: 'Sub-agents', chipLabel: 'Sub-agents', icon: MessageSquare },
   'personal-intelligence': { id: 'personal-intelligence', label: 'Personal Intelligence', chipLabel: 'Personal Intelligence', icon: Zap },
