@@ -287,6 +287,31 @@ interface SparkPageBaseProps {
   onCreateManually?: () => void;
 }
 
+interface SparkListSkeletonProps {
+  heading: string;
+  className: string;
+}
+
+const SparkListSkeleton: React.FC<SparkListSkeletonProps> = ({ className, heading }) => (
+  <section className={`spark-customise-loading-section ${className}`.trim()} aria-busy="true">
+    <h2>{heading}</h2>
+    <div className="spark-customise-loading-list" aria-hidden="true">
+      {[0, 1, 2].map((row) => (
+        <span key={row} className="spark-customise-loading-row">
+          <span className="spark-customise-loading-row-content">
+            <span className="spark-customise-loading-bar spark-customise-loading-bar--short">
+              <span className="spark-customise-loading-bar-fill" />
+            </span>
+            <span className="spark-customise-loading-bar">
+              <span className="spark-customise-loading-bar-fill" />
+            </span>
+          </span>
+        </span>
+      ))}
+    </div>
+  </section>
+);
+
 interface SparkPageHeaderProps {
   description: string;
   headingId: string;
@@ -360,6 +385,7 @@ const SparkActionButton: React.FC<SparkActionButtonProps> = ({
 );
 
 export interface SchedulesPageProps extends SparkPageBaseProps {
+  isLoading?: boolean;
   schedules: readonly SparkSchedule[];
   onDeleteSchedule: (scheduleId: string) => void;
   onOpenSchedule: (scheduleId: string) => void;
@@ -375,6 +401,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
   onOpenSchedule,
   onScheduleEnabledChange,
   schedules,
+  isLoading = false,
 }) => {
   const headingId = useId();
   const ongoingHeadingId = useId();
@@ -403,69 +430,69 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
           </SparkActionButton>
         </div>
 
-        <section className="spark-schedules-section" aria-labelledby={ongoingHeadingId}>
-          {/* Gemini shows no section label while the list is empty — the empty-state
-            * card stands alone under the action buttons. */}
-          {schedules.length > 0 && <h2 id={ongoingHeadingId}>Ongoing</h2>}
-          <div className="spark-schedule-list">
-            {schedules.map((schedule) => {
-              const runLabel = formatScheduleRunLabel(schedule, now);
-              return (
-                <div key={schedule.id} className="spark-schedule-row">
-                  <button
-                    type="button"
-                    className="spark-schedule-card"
-                    aria-label={`Open schedule: ${schedule.title}`}
-                    onClick={() => onOpenSchedule(schedule.id)}
-                  >
-                    <span className="spark-schedule-card__icon" aria-hidden="true">
-                      <MaterialSymbol
-                        family="luminous"
-                        name="chat_bubble"
-                        size={24}
-                        weight={330}
-                        roundness={100}
-                        opticalSize={24}
-                      />
-                    </span>
-                    <span className="spark-schedule-card__copy">
-                      <span className="spark-schedule-card__title">{schedule.title}</span>
-                      {/* The stored time stays 24-hour because `spark-store` parses it to
-                        * work out the next run; only the label is localised. */}
-                      <span className="spark-schedule-card__detail">
-                        {schedule.frequency}{schedule.frequency === 'Weekly' && schedule.weekdays.length
-                          ? ` on ${schedule.weekdays.join(', ')}`
-                          : ''}{` around ${formatSparkScheduleTime(schedule.time)}`}
-                      </span>
-                    </span>
-                    {runLabel && <span className="spark-schedule-card__last-run">{runLabel}</span>}
-                    {!schedule.enabled && <span className="spark-schedule-card__paused">Paused</span>}
-                  </button>
-                  <div className="spark-schedule-row__actions">
-                    <SparkRowActionMenu
-                      menuLabel={`Schedule options for ${schedule.title}`}
-                      deleteLabel="Delete"
-                      secondaryIcon={schedule.enabled ? 'pause_circle' : 'play_circle'}
-                      secondaryLabel={schedule.enabled ? 'Pause' : 'Resume'}
-                      onSecondaryAction={() => onScheduleEnabledChange(schedule.id, !schedule.enabled)}
-                      onDelete={() => setScheduleToDelete(schedule)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            {/* Gemini's `.empty-state`: an outlined card with a centred title and
-              * subtitle and no icon. */}
-            {schedules.length === 0 && (
-              <div className="spark-schedules-empty">
-                <h2 className="spark-schedules-empty__title">Add your first schedule</h2>
-                <p className="spark-schedules-empty__subtitle">
-                  Schedules created from your tasks appear automatically
-                </p>
+        {isLoading ? (
+          <SparkListSkeleton heading="Ongoing" className="spark-customise-loading-section--schedules" />
+        ) : schedules.length > 0 && (
+          <section className="spark-schedules-section" aria-labelledby={ongoingHeadingId}>
+              <h2 id={ongoingHeadingId}>Ongoing</h2>
+              <div className="spark-schedule-list">
+                {schedules.map((schedule) => {
+                  const runLabel = formatScheduleRunLabel(schedule, now);
+                  return (
+                    <div key={schedule.id} className="spark-schedule-row">
+                      <button
+                        type="button"
+                        className="spark-schedule-card"
+                        aria-label={`Open schedule: ${schedule.title}`}
+                        onClick={() => onOpenSchedule(schedule.id)}
+                      >
+                        <span className="spark-schedule-card__icon" aria-hidden="true">
+                          <MaterialSymbol
+                            family="luminous"
+                            name="chat_bubble"
+                            size={24}
+                            weight={330}
+                            roundness={100}
+                            opticalSize={24}
+                          />
+                        </span>
+                        <span className="spark-schedule-card__copy">
+                          <span className="spark-schedule-card__title">{schedule.title}</span>
+                          {/* The stored time stays 24-hour because `spark-store` parses it to
+                            * work out the next run; only the label is localised. */}
+                          <span className="spark-schedule-card__detail">
+                            {schedule.frequency}{schedule.frequency === 'Weekly' && schedule.weekdays.length
+                              ? ` on ${schedule.weekdays.join(', ')}`
+                              : ''}{` around ${formatSparkScheduleTime(schedule.time)}`}
+                          </span>
+                        </span>
+                        {runLabel && <span className="spark-schedule-card__last-run">{runLabel}</span>}
+                        {!schedule.enabled && <span className="spark-schedule-card__paused">Paused</span>}
+                      </button>
+                      <div className="spark-schedule-row__actions">
+                        <SparkRowActionMenu
+                          menuLabel={`Schedule options for ${schedule.title}`}
+                          deleteLabel="Delete"
+                          secondaryIcon={schedule.enabled ? 'pause_circle' : 'play_circle'}
+                          secondaryLabel={schedule.enabled ? 'Pause' : 'Resume'}
+                          onSecondaryAction={() => onScheduleEnabledChange(schedule.id, !schedule.enabled)}
+                          onDelete={() => setScheduleToDelete(schedule)}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
+          </section>
+        )}
+        {!isLoading && schedules.length === 0 && (
+          <div className="spark-schedules-empty">
+            <h2 className="spark-schedules-empty__title">Add your first schedule</h2>
+            <p className="spark-schedules-empty__subtitle">
+              Schedules created from your tasks appear automatically
+            </p>
           </div>
-        </section>
+        )}
       </div>
       {scheduleToDelete && (
         <SparkDeleteDialog
@@ -523,6 +550,7 @@ const RECOMMENDED_SKILLS: readonly RecommendedSkill[] = [
 ] as const;
 
 export interface SkillsPageProps extends SparkPageBaseProps {
+  isLoading?: boolean;
   skills: readonly SparkSkill[];
   onDeleteSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
@@ -540,6 +568,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   onRecommendedSkillSelect,
   onUploadSkill,
   skills,
+  isLoading = false,
 }) => {
   const headingId = useId();
   const activeHeadingId = useId();
@@ -620,28 +649,22 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
         {uploadError && (
           <p className="spark-skills-upload-error" role="alert">{uploadError}</p>
         )}
+
+        {isLoading ? (
+          <SparkListSkeleton heading="Active" className="spark-customise-loading-section--skills" />
+        ) : skills.length === 0 && (
+          <div className="spark-skills-empty">
+            <h2>Add your first skill</h2>
+            <p>
+              Select <span>Create with Gemini</span>, write custom instructions or upload a skill
+            </p>
+          </div>
+        )}
       </div>
 
-      <section className="spark-skills-library" aria-labelledby={activeHeadingId}>
-        <h2 id={activeHeadingId}>Active</h2>
-        {skills.length === 0 ? (
-          <div className="spark-skills-active-empty">
-            <span className="spark-skills-active-empty__icon" aria-hidden="true">
-              <MaterialSymbol
-                family="luminous"
-                name="extension"
-                size={28}
-                weight={320}
-                roundness={100}
-                opticalSize={28}
-              />
-            </span>
-            <span className="spark-skills-active-empty__copy">
-              <strong>No active skills</strong>
-              <span>Create or upload a skill to reuse its instructions in Spark.</span>
-            </span>
-          </div>
-        ) : (
+      {!isLoading && skills.length > 0 && (
+        <section className="spark-skills-library" aria-labelledby={activeHeadingId}>
+          <h2 id={activeHeadingId}>Active</h2>
           <div className="spark-skills-library__list">
             {skills.map((skill) => (
               <div key={skill.id} className="spark-skill-row">
@@ -669,44 +692,46 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
               </div>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
-        <h2 id={recommendedHeadingId}>Recommended</h2>
-        <div className="spark-recommended-skills__grid">
-          {RECOMMENDED_SKILLS.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
-            <button
-              key={skill.title}
-              type="button"
-              className="spark-recommended-skill"
-              disabled={!onRecommendedSkillSelect}
-              onClick={() => onRecommendedSkillSelect?.(skill.title)}
-            >
-              <span className="spark-recommended-skill__copy">
-                <h3 className="spark-recommended-skill__title">{skill.title}</h3>
-                <p className="spark-recommended-skill__description">{skill.description}</p>
-              </span>
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="spark-show-more"
-          aria-expanded={showAllRecommendations}
-          onClick={() => setShowAllRecommendations((visible) => !visible)}
-        >
-          <span>{showAllRecommendations ? 'Show less' : 'Show more'}</span>
-          <MaterialSymbol
+      {!isLoading && (
+        <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
+          <h2 id={recommendedHeadingId}>Recommended</h2>
+          <div className="spark-recommended-skills__grid">
+            {RECOMMENDED_SKILLS.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
+              <button
+                key={skill.title}
+                type="button"
+                className="spark-recommended-skill"
+                disabled={!onRecommendedSkillSelect}
+                onClick={() => onRecommendedSkillSelect?.(skill.title)}
+              >
+                <span className="spark-recommended-skill__copy">
+                  <h3 className="spark-recommended-skill__title">{skill.title}</h3>
+                  <p className="spark-recommended-skill__description">{skill.description}</p>
+                </span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="spark-show-more"
+            aria-expanded={showAllRecommendations}
+            onClick={() => setShowAllRecommendations((visible) => !visible)}
+          >
+            <span>{showAllRecommendations ? 'Show less' : 'Show more'}</span>
+            <MaterialSymbol
             family="luminous"
             name={showAllRecommendations ? 'expand_less' : 'expand_more'}
             size={28}
             weight={260}
             roundness={100}
             opticalSize={28}
-          />
-        </button>
-      </section>
+            />
+          </button>
+        </section>
+      )}
       {skillToDelete && (
         <SparkDeleteDialog
           itemName={skillToDelete.name}

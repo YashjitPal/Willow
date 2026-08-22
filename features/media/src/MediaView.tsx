@@ -15,8 +15,6 @@ import {
   Settings, 
   ArrowRight,
   X,
-  Image as ImageIcon,
-  PlayCircle,
   Scan,
   ChevronDown,
   Heart,
@@ -38,6 +36,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   ViewSettingsMenu,
   MoreMenu,
+  AccountMenu,
   ProjectMenu,
   SortFilterMenu,
   DEFAULT_VIEW_SETTINGS,
@@ -128,22 +127,33 @@ import { CropOverlay } from './CropOverlay';
 import { PenMenu } from './PenMenu';
 import { SelectMenu, CropMenu } from './ToolFlyouts';
 import { collectSavedModelsInCatalogOrder, getModelCategory } from '@willow/core/model-catalog';
+import './flow-image-history.css';
 
 const popupItemVariants = {
-  hidden: { opacity: 0, y: 8, scale: 0.97 },
+  hidden: { opacity: 1, y: 0, scale: 1 },
   visible: {
     opacity: 1,
     y: 0,
     scale: 1,
-    transition: { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const },
+    transition: { duration: 0 },
   },
   exit: {
-    opacity: 0,
-    y: -4,
-    scale: 0.98,
-    transition: { duration: 0.14, ease: [0.32, 0.72, 0, 1] as const },
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0 },
   },
 };
+
+/* Flow uses semantic Google Symbol names for the non-16:9 ratios. The literal
+ * `crop_4_3`/`crop_3_4` names are not glyphs in Flow's face and render as text. */
+const flowRatioGlyph = (ratio: string) => ({
+  '16:9': 'crop_16_9',
+  '4:3': 'crop_landscape',
+  '1:1': 'crop_square',
+  '3:4': 'crop_portrait',
+  '9:16': 'crop_9_16',
+}[ratio] || 'crop_16_9');
 
 // Returns a function whose identity never changes but which always invokes the
 // latest render's implementation. Lets memoized tiles receive stable handler
@@ -156,7 +166,7 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
 
 
 export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, signInWithGoogle, signOut } = useAuth();
   const { apiKeys } = useUserDataContext();
   const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
 
@@ -234,6 +244,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   // One piece of state rather than three booleans: the menus are mutually exclusive, and
   // opening one while another is up has to close the other, not stack them.
   const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'project' | 'settings' | 'more' | 'filter' | null>(null);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
   const projectMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const viewSettingsButtonRef = React.useRef<HTMLButtonElement>(null);
   const moreMenuButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -959,6 +970,16 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const [isViewerModelDropdownOpen, setIsViewerModelDropdownOpen] = React.useState(false);
   const viewerModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const [viewerAttachments, setViewerAttachments] = React.useState<ImageAttachment[]>([]);
+  const [expandedHistoryPrompts, setExpandedHistoryPrompts] = React.useState<Set<string>>(new Set());
+  const [expandableHistoryPrompts, setExpandableHistoryPrompts] = React.useState<Set<string>>(new Set());
+
+  // Flow keeps prompt expansion ephemeral. Opening another history item starts
+  // collapsed again, while the current item's own expand/collapse choice stays
+  // intact across live metadata updates.
+  React.useEffect(() => {
+    setExpandedHistoryPrompts(new Set());
+    setExpandableHistoryPrompts(new Set());
+  }, [selectedItem?.id]);
   const [viewerRemovingIds, setViewerRemovingIds] = React.useState<Set<string>>(new Set());
   const hasViewerAttachments = viewerAttachments.length > 0 && !viewerAttachments.every(att => viewerRemovingIds.has(att.id));
   const [isViewerAssetMenuOpen, setIsViewerAssetMenuOpen] = React.useState(false);
@@ -1655,6 +1676,9 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const displayMediaItems = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     let filtered = mediaItems.filter((item) => {
+      // Flow keeps viewer edits in the detail history rail. They should not
+      // become separate tiles in the main canvas/gallery.
+      if (item.historyParentId) return false;
       if (query && !(item.shortenedPrompt || item.prompt || '').toLowerCase().includes(query)) {
         return false;
       }
@@ -2319,6 +2343,17 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const videoModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const videoModelButtonRef = React.useRef<HTMLButtonElement>(null);
   const getVideoModelName = (id: VideoModelId) => availableVideoModels.find(m => m.id === id)?.name ?? 'Gemini Omni Flash';
+  const getVideoModelDisplayName = (id: VideoModelId) => {
+    const name = getVideoModelName(id);
+    if (!name) return 'Model';
+    return name
+      .replace(/Gemini\s+/gi, '')
+      .replace(/Claude\s+/gi, '')
+      .replace(/GPT\s+/gi, '')
+      .replace(/OpenAI\s+/gi, '')
+      .replace(/\s+Extended$/gi, '')
+      .trim();
+  };
 
   const toggleImageModelDropdown = () => {
     setIsImageModelDropdownOpen(open => {
@@ -2391,7 +2426,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       activeMenuButtonRef.current = menuRef.current;
       const r = menuRef.current.getBoundingClientRect();
       setMenuRect({
-        bottom: window.innerHeight - r.top + 12,
+        bottom: window.innerHeight - r.top + 4,
         right: window.innerWidth - r.right,
       });
     }
@@ -2402,7 +2437,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     activeMenuButtonRef.current = buttonElement;
     const r = buttonElement.getBoundingClientRect();
     setMenuRect({
-      bottom: window.innerHeight - r.top + 12,
+      bottom: window.innerHeight - r.top + 4,
       right: window.innerWidth - r.right,
     });
     setIsModelMenuOpen(true);
@@ -2556,10 +2591,11 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     if (toolbarRef.current) {
       toolbarRef.current.style.transform = `translateY(${delta / 2}px)`;
     }
-    // History thumbnail is bottom-anchored → it drifts up by the full delta.
-    // 28px is the original `translate-y-7` resting nudge, folded in here.
+    // History rail is bottom-anchored → it drifts up by the full delta.
+    // Keep it at the actual bottom edge so the prompt actions remain inside
+    // the visible rail instead of being clipped by the history viewport.
     if (historyRailRef.current) {
-      historyRailRef.current.style.transform = `translateY(${28 + delta}px)`;
+      historyRailRef.current.style.transform = `translateY(${delta}px)`;
     }
   }, []);
 
@@ -4107,13 +4143,49 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     if (!selectedItem) return [];
     const groupId = selectedItem.historyGroupId || selectedItem.id;
     const items = mediaItems.filter((item) =>
-      item.url && item.status === 'completed' &&
-      (item.id === groupId || item.historyGroupId === groupId),
+      (item.id === groupId || item.historyGroupId === groupId) &&
+      (item.status === 'completed' || item.id === pendingViewerItemIdRef.current),
     );
     // Old records have no lineage and therefore naturally produce a one-card
-    // history. New edits are ordered oldest → newest, like Flow's bottom-anchored rail.
+    // history. New edits are ordered oldest -> newest, like Flow's bottom-anchored
+    // rail. The active generating child is included immediately so the edit is
+    // visible in the open viewer instead of appearing only as a new gallery tile.
     return items.sort((a, b) => a.timestamp - b.timestamp);
   }, [mediaItems, selectedItem]);
+
+  React.useLayoutEffect(() => {
+    const next = new Set<string>();
+    for (const item of viewerHistoryItems) {
+      const prompt = document.querySelector<HTMLElement>(`[data-flow-history-prompt-id="${CSS.escape(item.id)}"]`);
+      if (!prompt) continue;
+
+      // Chromium's scrollHeight for a -webkit-line-clamp element can equal its
+      // clamped clientHeight, even when the underlying text has more lines.
+      // Measure the same node once without the clamp so the Flow expand button
+      // is mounted whenever the prompt really has hidden content.
+      const wasExpanded = expandedHistoryPrompts.has(item.id);
+      const originalStyle = prompt.getAttribute('style');
+      const visibleHeight = prompt.getBoundingClientRect().height;
+      let fullHeight = prompt.scrollHeight;
+      if (!wasExpanded) {
+        prompt.style.display = 'block';
+        prompt.style.webkitLineClamp = 'unset';
+        prompt.style.webkitBoxOrient = 'initial';
+        prompt.style.overflowY = 'visible';
+        fullHeight = prompt.scrollHeight;
+        if (originalStyle === null) prompt.removeAttribute('style');
+        else prompt.setAttribute('style', originalStyle);
+      }
+
+      if (wasExpanded || fullHeight > visibleHeight + 1) {
+        next.add(item.id);
+      }
+    }
+    setExpandableHistoryPrompts((previous) => {
+      if (previous.size === next.size && [...next].every((id) => previous.has(id))) return previous;
+      return next;
+    });
+  }, [expandedHistoryPrompts, viewerHistoryItems]);
 
   const selectedIdx = React.useMemo(() => {
     if (!selectedItem) return -1;
@@ -5036,10 +5108,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </button>
           </div>
 
-          <button
-            ref={accountButtonRef}
+            <button
+              ref={accountButtonRef}
+            onClick={() => setIsAccountMenuOpen((open) => !open)}
             className="flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10"
-          >
+            aria-label="Open account menu"
+            >
             <span className="text-xs font-semibold text-gray-300 mr-1 truncate max-w-[100px]">
               {userProfile?.displayName || user?.email?.split('@')[0] || 'Guest'}
             </span>
@@ -5051,6 +5125,17 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </button>
         </div>
       </header>
+
+      <AccountMenu
+        open={isAccountMenuOpen}
+        onClose={() => setIsAccountMenuOpen(false)}
+        isAuthenticated={Boolean(user)}
+        displayName={userProfile?.displayName || user?.email?.split('@')[0] || 'Guest'}
+        email={user?.email || ''}
+        photoURL={userProfile?.photoURL || user?.photoURL}
+        onSignIn={signInWithGoogle}
+        onSignOut={signOut}
+      />
 
       <ViewSettingsMenu
         open={openHeaderMenu === 'settings'}
@@ -6148,62 +6233,61 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <button
                     key="model-selector-btn"
                     onClick={() => (isModelMenuOpen ? setIsModelMenuOpen(false) : openModelMenu())}
-                    className={`flex items-center h-9 transition-colors rounded-full px-3.5 gap-1.5 outline-none ${isModelMenuOpen ? 'bg-[#33343a]' : 'bg-[#27282b] hover:bg-[#33343a]'}`}
+                    className="flex items-center h-[34px] transition-colors rounded-[15px] px-3 gap-1 outline-none"
+                    style={{
+                      background: isModelMenuOpen ? 'rgba(218, 220, 224, 0.15)' : 'rgba(218, 220, 224, 0.05)',
+                      color: 'rgba(218, 220, 224, 0.75)',
+                      fontFamily: '"Google Sans Text", sans-serif',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      lineHeight: '16px',
+                      transition: 'background-color 100ms ease-in-out, filter 100ms ease-in-out, box-shadow 100ms ease-in-out',
+                    }}
                   >
                     {(() => {
                       const activeName = modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
-                      return activeName.toLowerCase().includes('banana') ? (
-                        <span className="text-[11px]">🍌</span>
+                      return modelMode === 'image' && activeName.toLowerCase().includes('banana') ? (
+                        <span className="text-[11px] leading-4">🍌</span>
                       ) : null;
                     })()}
-                    <span className="text-[11px] font-semibold text-[#d0d0d0]">
-                      {modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel)}
+                    <span className="text-[11px] font-medium leading-4 text-[rgba(218,220,224,0.75)]">
+                      {modelMode === 'image' ? getImageModelName(imageModel) : `${getVideoModelDisplayName(videoModel)} · 720p · ${videoDuration}`}
                     </span>
-                    <div className="text-[#888888] flex items-center justify-center">
-                      <RatioIcon ratio={modelMode === 'image' ? imageRatio : videoRatio} className="w-3 h-3" />
-                    </div>
-                    <span className="text-[11px] font-bold text-[#888888]">
+                    <MaterialSymbol
+                      name={flowRatioGlyph(modelMode === 'image' ? (imageRatio || '16:9') : (videoRatio || '16:9'))}
+                      family="google-symbols"
+                      size={16}
+                      weight={400}
+                      variationSettings=""
+                    />
+                    <span className="text-[11px] font-medium leading-4 text-[rgba(255,255,255,0.5)]">
                       {modelMode === 'image' ? imageBatch : videoBatch}
                     </span>
                   </button>
 
                   {createPortal(
-                  <AnimatePresence>
-                  {isModelMenuOpen && menuRect && (
-                    <motion.div
+                  isModelMenuOpen && menuRect ? (
+                    <div
                       ref={popupRef}
-                      layout
-                      initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                      transition={{
-                        layout: { duration: 0.32, ease: [0.32, 0.72, 0, 1] },
-                        opacity: { duration: 0.16, ease: 'easeOut' },
-                        scale: { duration: 0.22, ease: [0.32, 0.72, 0, 1] },
-                        y: { duration: 0.22, ease: [0.32, 0.72, 0, 1] },
-                      }}
                       style={{
                         position: 'fixed',
                         bottom: menuRect.bottom,
                         right: menuRect.right,
-                        originY: 1,
-                        originX: 1,
-                        willChange: 'transform, height, opacity',
                       }}
-                      className="w-[270px] bg-[#141517]/90 backdrop-blur-xl rounded-[22px] p-1.5 flex flex-col gap-1.5 shadow-2xl border border-white/5 z-[110] overflow-hidden"
+                      className="w-[280px] bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[18px] p-2 flex flex-col gap-1 shadow-2xl z-[110] overflow-hidden"
                     >
 
                       {/* Top Tabs */}
-                      <motion.div layout="position" className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                      <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                         <button
                           onClick={() => {
                             setModelMode('image');
                             setIsImageModelDropdownOpen(false);
                             setIsVideoModelDropdownOpen(false);
                           }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] transition-colors font-normal ${modelMode === 'image' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                          className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${modelMode === 'image' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                         >
-                          <ImageIcon size={14} strokeWidth={2} />
+                          <MaterialSymbol name="image" family="google-symbols" size={16} weight={400} variationSettings="" />
                           <span className="text-[13px]">Image</span>
                         </button>
                         <button
@@ -6212,65 +6296,48 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                             setIsImageModelDropdownOpen(false);
                             setIsVideoModelDropdownOpen(false);
                           }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] transition-colors font-normal ${modelMode === 'video' ? 'bg-[#f4f4f4] text-black' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                          className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${modelMode === 'video' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                         >
-                          <PlayCircle size={14} strokeWidth={2} />
+                          <MaterialSymbol name="videocam" family="google-symbols" size={16} weight={400} variationSettings="" />
                           <span className="text-[13px]">Video</span>
                         </button>
-                      </motion.div>
+                      </div>
 
-                      <motion.div layout="position" className="relative w-full flex flex-col">
-                      <AnimatePresence mode="popLayout" initial={false}>
+                      <div className="relative w-full flex flex-col">
                       {modelMode === 'image' ? (
-                        <motion.div
-                          key="image-panel"
-                          layout="position"
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          variants={{
-                            hidden: { opacity: 0 },
-                            visible: {
-                              opacity: 1,
-                              transition: { staggerChildren: 0.035 },
-                            },
-                            exit: {
-                              opacity: 0,
-                              transition: { staggerChildren: 0.02, staggerDirection: -1 },
-                            },
-                          }}
+                        <div
                           className="w-full flex flex-col gap-1.5"
                         >
                           {/* Image Aspect Ratios */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1 justify-between">
+                          <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0 justify-between">
                             {['16:9', '4:3', '1:1', '3:4', '9:16'].map(ratio => (
                                <button
                                  key={ratio}
                                  onClick={() => setImageRatio(ratio)}
-                                 className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-[10px] transition-colors ${imageRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
+                                 className={`flex-1 flex h-[53.2px] flex-col items-center justify-center gap-1 px-3 rounded-[12px] transition-colors text-xs ${imageRatio === ratio ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                >
                                  <RatioIcon ratio={ratio} className="w-4 h-4" />
                                  <span className={`text-[11px] font-normal text-white`}>{ratio}</span>
                                </button>
                             ))}
-                          </motion.div>
+                          </div>
 
                           {/* Image Multipliers */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                             {['1x', 'x2', 'x3', 'x4'].map(batch => (
                               <button
                                 key={batch}
                                 onClick={() => setImageBatch(batch)}
-                                className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageBatch === batch ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
                                 {batch}
                               </button>
                             ))}
-                          </motion.div>
+                          </div>
 
                            {/* Dynamic Effort Level Selector (For Supported Models) */}
                            { (imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
-                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                                { imageModel === 'gpt-image-2' ? (
                                  // OpenAI Effort Levels: Standard, Balanced, Reasoning
                                  [
@@ -6282,7 +6349,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                      key={eff.id}
                                      type="button"
                                      onClick={() => setImageEffort(eff.id as any)}
-                                     className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageEffort === eff.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                    >
                                      {eff.name}
                                    </button>
@@ -6297,64 +6364,67 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                      key={eff.id}
                                      type="button"
                                      onClick={() => setImageEffort(eff.id as any)}
-                                     className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageEffort === eff.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                     className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                    >
                                      {eff.name}
                                    </button>
                                  ))
                                )}
-                             </motion.div>
+                             </div>
                            )}
 
                            {/* Dynamic Quality Selector (For Supported Models) */}
                            { imageModel === 'gpt-image-2' && (
-                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                                {['low', 'medium', 'high'].map(qual => (
                                  <button
                                    key={qual}
                                    type="button"
                                    onClick={() => setImageQuality(qual)}
-                                   className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal capitalize transition-colors ${imageQuality === qual ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium capitalize transition-colors ${imageQuality === qual ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                  >
                                    {qual}
                                  </button>
                                ))}
-                             </motion.div>
+                             </div>
                            )}
 
                            {/* Dynamic Resolution Selector (For All Image Models: Google & GPT) */}
                            { (imageModel === 'gemini-3-pro-image-preview' || imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
-                             <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                                {['1k', '2k', '4k'].map(res => (
                                  <button
                                    key={res}
                                    type="button"
                                    onClick={() => setImageResolution(res)}
-                                   className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal uppercase transition-colors ${imageResolution === res ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium uppercase transition-colors ${imageResolution === res ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                  >
                                    {res}
                                  </button>
                                ))}
-                             </motion.div>
+                             </div>
                            )}
 
                           {/* Model Selector */}
-                          <motion.div variants={popupItemVariants} className="relative" ref={imageModelDropdownRef}>
+                          <div className="relative" ref={imageModelDropdownRef}>
                             <button
                               type="button"
                               ref={imageModelButtonRef}
                               onClick={toggleImageModelDropdown}
-                              className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[14px] px-3 py-3"
+                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.05)] hover:bg-[rgba(218,220,224,0.1)] transition-colors rounded-[12px] px-4 pr-[18px]"
                             >
-                              <span className="text-[13px] font-normal text-white">{getImageModelName(imageModel)}</span>
-                              <ChevronDown
-                                size={16}
-                                className={`text-[#a0a0a0] transition-transform duration-200 ${isImageModelDropdownOpen ? 'rotate-180' : ''}`}
+                              <span className="text-xs font-medium text-white">{getImageModelName(imageModel)}</span>
+                              <MaterialSymbol
+                                name="arrow_drop_down"
+                                family="google-symbols"
+                                size={24}
+                                weight={400}
+                                variationSettings='"FILL" 1'
                               />
                             </button>
 
                             {isImageModelDropdownOpen && (
-                              <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-[120]`}>
+                              <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
                                 {availableImageModels.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
@@ -6363,47 +6433,31 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                       setImageModel(modelOpt.id);
                                       setIsImageModelDropdownOpen(false);
                                     }}
-                                    className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${imageModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                    className={`w-full h-[34px] text-left px-4 rounded-[12px] text-xs font-medium transition-colors ${imageModel === modelOpt.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                   >
                                     {modelOpt.name}
                                   </button>
                                 ))}
                               </div>
                             )}
-                          </motion.div>
-                        </motion.div>
+                          </div>
+                        </div>
                       ) : (
-                        <motion.div
-                          key="video-panel"
-                          layout="position"
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          variants={{
-                            hidden: { opacity: 0 },
-                            visible: {
-                              opacity: 1,
-                              transition: { staggerChildren: 0.035 },
-                            },
-                            exit: {
-                              opacity: 0,
-                              transition: { staggerChildren: 0.02, staggerDirection: -1 },
-                            },
-                          }}
+                        <div
                           className="w-full flex flex-col gap-1.5"
                         >
                           {/* Video Tabs */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                             <button
                               onClick={() => setVideoMode('frames')}
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors font-normal ${videoMode === 'frames' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
+                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${videoMode === 'frames' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                             >
                               <Scan size={14} strokeWidth={2} />
                               <span className="text-[12px]">Frames</span>
                             </button>
                             <button
                               onClick={() => setVideoMode('ingredients')}
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[12px] transition-colors font-normal ${videoMode === 'ingredients' ? 'bg-[#f4f4f4] text-black' : 'bg-[#1e1f21]/50 backdrop-blur-md text-[#a0a0a0] hover:text-white hover:bg-[#202020]/50'}`}
+                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${videoMode === 'ingredients' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                             >
                               <svg 
                                 xmlns="http://www.w3.org/2000/svg" 
@@ -6419,52 +6473,55 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                               </svg>
                               <span className="text-[12px]">Ingredients</span>
                             </button>
-                          </motion.div>
+                          </div>
 
                           {/* Video Aspect Ratios */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                              {['9:16', '16:9'].map(ratio => (
                                <button
                                  key={ratio}
                                  onClick={() => setVideoRatio(ratio)}
-                                 className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-[10px] transition-colors ${videoRatio === ratio ? 'bg-[#4a4a4a]' : 'hover:bg-white/5'}`}
+                                 className={`flex-1 flex h-[53.2px] flex-col items-center justify-center gap-1 px-3 rounded-[12px] transition-colors text-xs ${videoRatio === ratio ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                >
                                  <RatioIcon ratio={ratio} className={videoRatio === ratio ? "text-white w-3.5 h-3.5" : "text-[#a0a0a0] w-3.5 h-3.5"} />
                                  <span className={`text-[11px] font-normal ${videoRatio === ratio ? 'text-white' : 'text-[#a0a0a0]'}`}>{ratio}</span>
                                </button>
                              ))}
-                          </motion.div>
+                          </div>
 
                           {/* Video Multipliers */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                             {['1x', 'x2', 'x3', 'x4'].map(batch => (
                               <button
                                 key={batch}
                                 onClick={() => setVideoBatch(batch)}
-                                className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoBatch === batch ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${videoBatch === batch ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
                                 {batch}
                               </button>
                             ))}
-                          </motion.div>
+                          </div>
 
                           {/* Video Model Selector */}
-                          <motion.div variants={popupItemVariants} className="relative" ref={videoModelDropdownRef}>
+                          <div className="relative" ref={videoModelDropdownRef}>
                             <button
                               type="button"
                               ref={videoModelButtonRef}
                               onClick={toggleVideoModelDropdown}
-                              className="w-full flex items-center justify-between bg-[#1e1f21]/50 backdrop-blur-md hover:bg-[#202020]/50 transition-colors rounded-[14px] px-3 py-3"
+                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.05)] hover:bg-[rgba(218,220,224,0.1)] transition-colors rounded-[12px] px-4 pr-[18px]"
                             >
-                              <span className="text-[13px] font-normal text-white">{getVideoModelName(videoModel)}</span>
-                              <ChevronDown
-                                size={16}
-                                className={`text-[#a0a0a0] transition-transform duration-200 ${isVideoModelDropdownOpen ? 'rotate-180' : ''}`}
+                              <span className="text-xs font-medium text-white">{getVideoModelName(videoModel)}</span>
+                              <MaterialSymbol
+                                name="arrow_drop_down"
+                                family="google-symbols"
+                                size={24}
+                                weight={400}
+                                variationSettings='"FILL" 1'
                               />
                             </button>
 
                             {isVideoModelDropdownOpen && (
-                              <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'} left-0 right-0 bg-[#141517]/90 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-[120]`}>
+                              <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
                                 {VIDEO_MODELS.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
@@ -6473,34 +6530,32 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                       setVideoModel(modelOpt.id);
                                       setIsVideoModelDropdownOpen(false);
                                     }}
-                                    className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoModel === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                    className={`w-full h-[34px] text-left px-4 rounded-[12px] text-xs font-medium transition-colors ${videoModel === modelOpt.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                                   >
                                     {modelOpt.name}
                                   </button>
                                 ))}
                               </div>
                             )}
-                          </motion.div>
+                          </div>
 
                           {/* Video Duration */}
-                          <motion.div variants={popupItemVariants} className="flex bg-[#1e1f21]/50 backdrop-blur-md rounded-[14px] p-1">
+                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
                             {['4s', '6s', '8s', '10s'].map(dur => (
                               <button
                                 key={dur}
                                 onClick={() => setVideoDuration(dur)}
-                                className={`flex-1 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${videoDuration === dur ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${videoDuration === dur ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
                                 {dur}
                               </button>
                             ))}
-                          </motion.div>
-                        </motion.div>
+                          </div>
+                        </div>
                       )}
-                      </AnimatePresence>
-                    </motion.div>
-                  </motion.div>
-                )}
-                </AnimatePresence>,
+                      </div>
+                    </div>
+                  ) : null,
                 document.body
                 )}
               </div>
@@ -6560,7 +6615,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -15, opacity: 0 }}
               transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="h-16 flex items-center justify-between px-6 shrink-0 z-10 bg-transparent"
+              className={`${selectedItem.kind === 'video' ? 'h-[76px]' : 'h-16'} flex items-center justify-between px-6 shrink-0 z-10 bg-transparent`}
             >
               {/* Left controls */}
               <div className="flex items-center gap-4 w-[380px]">
@@ -6740,7 +6795,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 modelName={viewerModelName || selectedItem.modelName || 'Omni Flash'}
               />
             ) : (
-            <div className="flex-1 min-h-0 flex items-center justify-between px-8 pt-6 pb-0 overflow-visible relative">
+            <div className="flex-1 min-h-0 flex items-center justify-between pl-8 pr-0 pt-6 pb-0 overflow-visible relative z-20">
               {/* Left Toolbar */}
               <motion.div 
                 ref={toolbarRef} 
@@ -6997,18 +7052,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               {/* Right Sidebar - History panel */}
               <AnimatePresence>
                 {showHistory && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15, ease: 'easeOut' }}
-                    className="h-full flex flex-col justify-end shrink-0 select-none ml-6"
-                  >
-                    <div
-                      ref={setHistoryRail}
-                      className="w-[248.8px] p-2 flex flex-col justify-end gap-6 overflow-y-auto overflow-x-hidden"
-                      style={{ maxHeight: 'calc(100vh - 92px)', scrollbarWidth: 'thin' }}
-                    >
+                  <div className="flow-image-history-viewport h-full flex flex-col justify-end shrink-0 select-none ml-6 relative z-[80]">
+                    <div ref={setHistoryRail} className="flow-image-history-scroll" tabIndex={0}>
                       {viewerHistoryItems.map((historyItem) => {
                         const ratio = historyItem.ratio;
                         let ar = 16 / 9;
@@ -7016,55 +7061,106 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                         else if (ratio === '1:1') ar = 1;
                         else if (ratio === '3:4') ar = 3 / 4;
                         else if (ratio === '9:16') ar = 9 / 16;
-                        const promptText = historyItem.shortenedPrompt || historyItem.prompt;
+                        const promptText = historyItem.prompt;
+                        const isExpanded = expandedHistoryPrompts.has(historyItem.id);
+                        const isGenerating = historyItem.status === 'generating';
+                        const parentImageUrl = historyItem.historyParentId
+                          ? mediaItems.find((item) => item.id === historyItem.historyParentId)?.url
+                          : undefined;
+                        const historyImageUrl = historyItem.url || parentImageUrl || (historyItem.id === selectedItem.id ? selectedItem.url : undefined);
                         return (
-                          <motion.div
+                          <div
                             key={historyItem.id}
-                            layout
-                            initial={{ opacity: 0, y: 12 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-                            className={`w-full overflow-hidden rounded-[20px] border-2 bg-[#141517]/40 shadow-xl flex flex-col shrink-0 ${historyItem.id === selectedItem.id ? 'border-white' : 'border-white/10'}`}
-                          >
-                            <button
-                              type="button"
-                              className="w-full overflow-hidden bg-zinc-900"
-                              style={{ aspectRatio: ar }}
-                              onClick={() => setSelectedItem(historyItem)}
-                              aria-label={`Open ${promptText}`}
+                            data-selected={historyItem.id === selectedItem.id ? 'true' : 'false'}
+                            className="flow-image-history-item"
                             >
-                              <img src={historyItem.url} className="w-full h-full object-cover" alt={promptText} />
-                            </button>
-                            <div className="relative min-h-[28px] px-2 pt-1.5 pr-9 pb-1 text-[12px] leading-4 text-white/85 truncate">
-                              <span className="block truncate">{promptText}</span>
+                              <button
+                                type="button"
+                                className="flow-image-history-image"
+                                style={{ aspectRatio: ar }}
+                                onClick={() => { if (!isGenerating && historyImageUrl) setSelectedItem(historyItem); }}
+                                aria-label={`Open ${promptText}`}
+                              >
+                                {historyImageUrl ? (
+                                  <img
+                                    src={historyImageUrl}
+                                    className={`w-full h-full object-cover ${isGenerating ? 'opacity-[0.45]' : ''}`}
+                                    alt={promptText}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-white/[0.06]" aria-hidden="true" />
+                                )}
+                                {isGenerating && (
+                                  <span className="absolute inset-0 flex items-center justify-center bg-black/20" aria-label="Generating">
+                                    <span className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                                  </span>
+                                )}
+                              </button>
+                            <div className="flow-image-history-meta">
+                              <div className={`flow-image-history-prompt-row${isExpanded ? ' flow-image-history-prompt-row--expanded' : ''}`}>
+                                <div
+                                  data-flow-history-prompt-id={historyItem.id}
+                                  className="flow-image-history-prompt"
+                                  style={isExpanded ? {
+                                    WebkitLineClamp: 'unset',
+                                    WebkitBoxOrient: 'vertical',
+                                    overflowY: 'auto',
+                                    paddingBottom: '6px',
+                                    marginBottom: 0,
+                                  } : undefined}
+                                >
+                                  {promptText}
+                                </div>
+                                <div className="flow-image-history-actions">
+                                  <button
+                                    type="button"
+                                    title="Reuse text prompt"
+                                    aria-label="Reuse text prompt"
+                                    onClick={() => setEditPrompt(historyItem.prompt)}
+                                  >
+                                    <span className="flow-image-history-icon flow-image-history-icon--redo" aria-hidden="true">redo</span>
+                                  </button>
+                                  {expandableHistoryPrompts.has(historyItem.id) && (
+                                    <button
+                                      type="button"
+                                      title={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
+                                      aria-label={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
+                                      onClick={() => setExpandedHistoryPrompts((previous) => {
+                                        const next = new Set(previous);
+                                        if (next.has(historyItem.id)) next.delete(historyItem.id);
+                                        else next.add(historyItem.id);
+                                        return next;
+                                      })}
+                                    >
+                                      <span
+                                        className="flow-image-history-icon flow-image-history-icon--arrow"
+                                        aria-hidden="true"
+                                      >
+                                        {isExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                               {historyItem.attachments && historyItem.attachments.length > 0 && (
-                                <div className="mt-1 flex gap-1.5 overflow-hidden">
+                                <div className="flow-image-history-attachments">
                                   {historyItem.attachments.map((attachment) => (
                                     <img
                                       key={attachment.id}
                                       src={attachment.url}
                                       alt={attachment.name}
                                       title={attachment.name}
-                                      className="h-7 w-7 shrink-0 rounded-[6px] object-cover border border-white/10"
+                                      className="flow-image-history-attachment"
                                     />
                                   ))}
                                 </div>
                               )}
-                              <button
-                                type="button"
-                                title="Reuse text prompt"
-                                aria-label="Reuse text prompt"
-                                onClick={() => setEditPrompt(historyItem.prompt)}
-                                className="absolute right-1.5 top-1.5 h-[18px] w-[18px] rounded-[6px] text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center"
-                              >
-                                <Clipboard size={12} strokeWidth={1.8} />
-                              </button>
                             </div>
-                          </motion.div>
+                          </div>
                         );
                       })}
                     </div>
-                  </motion.div>
+                  </div>
                 )}
               </AnimatePresence>
             </div>
@@ -7076,7 +7172,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
               transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="shrink-0 flex flex-col items-center justify-end relative select-none pt-3 pb-8"
+              className="shrink-0 flex flex-col items-center justify-end relative z-10 select-none pt-3 pb-8"
             >
 
 
