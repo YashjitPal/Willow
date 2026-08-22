@@ -40,9 +40,10 @@ export const isGeminiFlashFamily = (model: ModelEffortRecord): boolean => {
  * This mirrors what the request layer in platform/ai/src/chat.ts actually sends,
  * because that is the only thing that decides whether "off" is real:
  *
- *  - Gemini flash / flash-lite: level 0 maps to `'minimal'`, Gemini's
- *    no-thinking mode. Supported, and labelled "Minimal" rather than "None"
- *    because that is the level's own name — see getThinkingEffortLabel.
+ *  - Gemini flash / flash-lite: level 0 generally maps to `'minimal'`, Gemini's
+ *    no-thinking mode. Gemini 3.7 Flash is the model-specific exception and
+ *    starts at Low. Other Flash models label level 0 "Minimal" rather than
+ *    "None" because that is the level's own name — see getThinkingEffortLabel.
  *  - Gemini Pro: `pro31Map` and `proMap` have no entry for 0, so a 0 would fall
  *    back to `'high'` — asking for none would silently still think. NOT supported.
  *  - OpenAI / GPT: `reasoningEffortMap[0]` is `'none'`. Supported.
@@ -63,6 +64,10 @@ export const modelSupportsNoThinking = (model: ModelEffortRecord): boolean => {
   // Gemini Pro cannot turn thinking off — check before the generic gemini rule.
   const isGoogle = provider.includes('google') || provider.includes('gemini') || identity.includes('gemini');
   if (isGoogle && identity.includes('pro')) return false;
+  // Gemini 3.7 Flash does not expose the shared Flash "Minimal" picker entry.
+  // Keep this model-specific; other Flash generations retain their level-0
+  // `minimal` mapping.
+  if (isGoogle && identity.includes('gemini-3.7-flash')) return false;
   if (identity.includes('grok')) return false;
 
   if (identity.includes('flash')) return true;

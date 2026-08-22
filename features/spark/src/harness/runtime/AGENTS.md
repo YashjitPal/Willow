@@ -61,6 +61,15 @@ the timeline.
 Work titles and narration are plain text without Markdown decoration. This
 display rule never modifies the literal contents of a user's file Patch.
 
+## Collaboration While Work Is Active
+
+Collaboration follows the base harness: `spawn_agent` returns immediately, so
+children may overlap while the parent continues coordinating, narrating, using
+tools, or finishing according to its own judgement. Spark does not reorder
+spawn calls, suppress parent prose, or hold final answers because a child is
+still active. The only timeline-specific exception is that `wait_agent` has no
+activity indicator.
+
 ## Headings
 
 `Work Title` is the stable heading for the whole work batch. The runtime supplies

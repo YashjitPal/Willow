@@ -77,6 +77,27 @@ it('keeps the custom editor collapsed below normal model adding and exposes drag
   assert.match(source, /reorderCatalogModel/);
 });
 
+it('offers GLM 5.3 with Zhipu AI\'s supported effort roster', () => {
+  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'ModelsTab.tsx'), 'utf8');
+  const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
+  assert.match(settings, /id: 'glm-5\.3', name: 'GLM 5\.3'/);
+  assert.match(settings, /level: 1, label: 'Low', value: 'low'/);
+  assert.match(settings, /level: 2, label: 'High', value: 'high'/);
+  assert.match(settings, /level: 3, label: 'Max', value: 'max'/);
+  assert.match(settings, /modelId === 'glm-5\.3'/);
+  assert.match(chat, /provider === 'zhipuai' && model === 'glm-5\.3'/);
+  assert.match(chat, /thinking: \{ type: 'enabled' \}/);
+});
+
+it('does not offer Gemini 3.7 Flash the Minimal effort', () => {
+  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
+  const efforts = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'models', 'efforts.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
+  assert.match(settings, /id: 'gemini-3\.7-flash',[\s\S]{0,160}?hasNone: false/);
+  assert.match(efforts, /identity\.includes\('gemini-3\.7-flash'\)\) return false/);
+  assert.match(chat, /model === 'gemini-3\.7-flash' && options\.thinkingLevel === 0/);
+});
+
 it('uses the shared ordered text catalog in Chat, Workbench, and the model menu', () => {
   const menu = fs.readFileSync(path.join(repoRoot, 'platform', 'ui', 'src', 'models', 'ModelsMenu.tsx'), 'utf8');
   const chat = fs.readFileSync(path.join(repoRoot, 'features', 'chat', 'src', 'composer', 'use-composer-models.ts'), 'utf8');

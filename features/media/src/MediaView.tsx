@@ -38,6 +38,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   ViewSettingsMenu,
   MoreMenu,
+  ProjectMenu,
   SortFilterMenu,
   DEFAULT_VIEW_SETTINGS,
   DEFAULT_SORT_FILTER,
@@ -118,6 +119,7 @@ import {
 import type { MediaKind, MediaItem, ImageAttachment } from './types';
 import { SUNFLOWER_BOX_SHADOW } from './sunflower-art';
 import { MediaVideo, GalleryTile } from './GalleryTile';
+import { FlowVideoEditor } from './FlowVideoEditor';
 import { getImageAr, computeMaxCropBox } from './crop-math';
 import { estimateDropdownHeight, computeDropDirection } from './dropdown-placement';
 import { type Annotation, buildAnnotationSystemPrompt } from './annotations';
@@ -153,7 +155,7 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 
-export const MediaView: React.FC = () => {
+export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
   const { user, userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
   const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
@@ -231,7 +233,8 @@ export const MediaView: React.FC = () => {
   // ── Header popover menus ────────────────────────────────────────────────
   // One piece of state rather than three booleans: the menus are mutually exclusive, and
   // opening one while another is up has to close the other, not stack them.
-  const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'settings' | 'more' | 'filter' | null>(null);
+  const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'project' | 'settings' | 'more' | 'filter' | null>(null);
+  const projectMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const viewSettingsButtonRef = React.useRef<HTMLButtonElement>(null);
   const moreMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const sortFilterButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -925,11 +928,13 @@ export const MediaView: React.FC = () => {
 
   // Full-screen Image viewer modal states
   const [selectedItem, setSelectedItem] = React.useState<MediaItem | null>(null);
+  const pendingViewerItemIdRef = React.useRef<string | null>(null);
   const [fullscreenMusicItem, setFullscreenMusicItem] = React.useState<MediaItem | null>(null);
   const selectedItemRef = React.useRef(selectedItem);
   React.useEffect(() => {
     selectedItemRef.current = selectedItem;
   }, [selectedItem]);
+
   const [showHistory, setShowHistory] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState<'crop' | 'pen' | 'select'>('pen');
   const [showPenMenu, setShowPenMenu] = React.useState(false);
@@ -1701,6 +1706,23 @@ export const MediaView: React.FC = () => {
   // Mirror of mediaItems for use inside non-reactive listeners.
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
   React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
+
+  // Keep the detail viewer bound to the live item as generation updates its URL,
+  // status, shortened prompt, or persisted metadata. This is important for
+  // edits: Flow keeps the viewer open while the new history card is generating.
+  React.useEffect(() => {
+    if (!selectedItem) return;
+    const live = mediaItems.find((item) => item.id === selectedItem.id);
+    if (live && live !== selectedItem) setSelectedItem(live);
+    const pendingId = pendingViewerItemIdRef.current;
+    if (pendingId) {
+      const pending = mediaItems.find((item) => item.id === pendingId);
+      if (pending?.status === 'completed' && pending.url) {
+        pendingViewerItemIdRef.current = null;
+        setSelectedItem(pending);
+      }
+    }
+  }, [mediaItems, selectedItem]);
   const materializingProjectRef = React.useRef<string | null>(null);
 
   // Synchronously bind the canvas items & fullscreen viewer globally in the render body so StreamingMarkdown can preview them instantly during render
@@ -4081,6 +4103,18 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     return mediaItems.filter((m) => m.status === 'completed' && m.url);
   }, [mediaItems]);
 
+  const viewerHistoryItems = React.useMemo(() => {
+    if (!selectedItem) return [];
+    const groupId = selectedItem.historyGroupId || selectedItem.id;
+    const items = mediaItems.filter((item) =>
+      item.url && item.status === 'completed' &&
+      (item.id === groupId || item.historyGroupId === groupId),
+    );
+    // Old records have no lineage and therefore naturally produce a one-card
+    // history. New edits are ordered oldest → newest, like Flow's bottom-anchored rail.
+    return items.sort((a, b) => a.timestamp - b.timestamp);
+  }, [mediaItems, selectedItem]);
+
   const selectedIdx = React.useMemo(() => {
     if (!selectedItem) return -1;
     return completedItems.findIndex((m) => m.id === selectedItem.id);
@@ -4307,8 +4341,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       return;
     }
 
-    setSelectedItem(null);
-
     const systemPrompt = buildAnnotationSystemPrompt(annotations);
     const fullPrompt = `[Context: ${systemPrompt}] ${editPrompt}`;
 
@@ -4327,6 +4359,16 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const activeViewerAttachments = viewerAttachments.filter(att => !viewerRemovingIds.has(att.id));
     attachments.push(...activeViewerAttachments);
 
+    // Flow treats edits as a single detail-view history, not as unrelated
+    // gallery results. Promote the original item to a group on first edit and
+    // carry that same group through every subsequent edit.
+    const historyGroupId = selectedItem.historyGroupId || selectedItem.id;
+    if (!selectedItem.historyGroupId) {
+      setMediaItems(prev => prev.map(item => item.id === selectedItem.id
+        ? { ...item, historyGroupId }
+        : item));
+    }
+
     const newItem: MediaItem = {
       id: `${Date.now()}-viewer-${Math.random().toString(36).slice(2, 8)}`,
       kind: selectedItem.kind,
@@ -4337,6 +4379,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       ratio: selectedItem.ratio,
       timestamp: Date.now(),
       attachments: attachments.length > 0 ? attachments : undefined,
+      historyGroupId,
+      historyParentId: selectedItem.id,
       effort: imageEffort,
       quality: imageQuality,
       resolution: imageResolution,
@@ -4344,6 +4388,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
     setIsLayoutSuppressing(true);
     setMediaItems(prev => [newItem, ...prev]);
+    // Keep the current image visible while the new history card generates;
+    // switch to the new card only once its URL arrives.
+    pendingViewerItemIdRef.current = newItem.id;
     setTimeout(() => {
       setIsLayoutSuppressing(false);
     }, 150);
@@ -4852,6 +4899,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </div>
           {/* Flow dims this one to 50% white, unlike the header-right group. */}
           <button
+            ref={projectMenuButtonRef}
+            onClick={() => setOpenHeaderMenu((m) => (m === 'project' ? null : 'project'))}
             className="w-8 h-8 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-2xl transition-colors hover:text-white"
             style={{ color: 'rgba(255, 255, 255, 0.5)' }}
             title="More options"
@@ -5009,6 +5058,24 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         anchorRef={viewSettingsButtonRef}
         settings={viewSettings}
         onChange={setViewSettings}
+        onMoreSettings={() => onOpenSettings?.()}
+      />
+      <ProjectMenu
+        open={openHeaderMenu === 'project'}
+        onClose={closeHeaderMenu}
+        anchorRef={projectMenuButtonRef}
+        onRename={() => {
+          projectRenameResolvedRef.current = false;
+          setEditingProjectNameValue(projectName);
+          setIsEditingProjectName(true);
+        }}
+        onViewTrash={() => {
+          // The Media trash destination is not routed separately yet; keep the menu action
+          // explicit and non-destructive until that destination exists.
+        }}
+        onDelete={() => {
+          // Deletion remains owned by the Projects surface, which handles every storage adapter.
+        }}
       />
       <MoreMenu open={openHeaderMenu === 'more'} onClose={closeHeaderMenu} anchorRef={moreMenuButtonRef} />
       <SortFilterMenu
@@ -6664,6 +6731,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </motion.div>
 
             {/* Main Area */}
+            {selectedItem.kind === 'video' ? (
+              <FlowVideoEditor
+                item={selectedItem}
+                promptValue={editPrompt}
+                onPromptChange={setEditPrompt}
+                onGenerate={() => void handleViewerGenerate()}
+                modelName={viewerModelName || selectedItem.modelName || 'Omni Flash'}
+              />
+            ) : (
             <div className="flex-1 min-h-0 flex items-center justify-between px-8 pt-6 pb-0 overflow-visible relative">
               {/* Left Toolbar */}
               <motion.div 
@@ -6825,31 +6901,21 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       }`}
                       style={{ aspectRatio: ar, borderWidth: '0.5px', borderColor: '#0e0e10', borderStyle: 'solid' }}
                     >
-                      {selectedItem.kind === 'video' ? (
-                        <MediaVideo
+                      <>
+                        <img
                           src={selectedItem.url}
-                          controls
-                          autoPlay
-                          loop
-                          className="w-full h-full object-cover"
+                          alt={selectedItem.shortenedPrompt || selectedItem.prompt}
+                          className="w-full h-full object-cover pointer-events-none"
                         />
-                      ) : (
-                        <>
-                          <img
-                            src={selectedItem.url}
-                            alt={selectedItem.shortenedPrompt || selectedItem.prompt}
-                            className="w-full h-full object-cover pointer-events-none"
+                        {selectedItem.kind === 'audio' && selectedItem.audioUrl && (
+                          <audio
+                             src={selectedItem.audioUrl}
+                             controls
+                             autoPlay
+                             className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[80%] max-w-[400px] z-50 rounded-full shadow-2xl"
                           />
-                          {selectedItem.kind === 'audio' && selectedItem.audioUrl && (
-                            <audio 
-                               src={selectedItem.audioUrl} 
-                               controls 
-                               autoPlay 
-                               className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[80%] max-w-[400px] z-50 rounded-full shadow-2xl"
-                            />
-                          )}
-                        </>
-                      )}
+                        )}
+                      </>
                       
                       {/* Crop Box Overlay with Corner Vertices */}
                       {activeTool === 'crop' && (
@@ -6938,38 +7004,74 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                     transition={{ duration: 0.15, ease: 'easeOut' }}
                     className="h-full flex flex-col justify-end shrink-0 select-none ml-6"
                   >
-                    <div ref={setHistoryRail} className="w-[220px] flex flex-col items-start">
-                      {(() => {
-                        const ratio = selectedItem.ratio;
+                    <div
+                      ref={setHistoryRail}
+                      className="w-[248.8px] p-2 flex flex-col justify-end gap-6 overflow-y-auto overflow-x-hidden"
+                      style={{ maxHeight: 'calc(100vh - 92px)', scrollbarWidth: 'thin' }}
+                    >
+                      {viewerHistoryItems.map((historyItem) => {
+                        const ratio = historyItem.ratio;
                         let ar = 16 / 9;
                         if (ratio === '4:3') ar = 4 / 3;
                         else if (ratio === '1:1') ar = 1;
                         else if (ratio === '3:4') ar = 3 / 4;
                         else if (ratio === '9:16') ar = 9 / 16;
-
+                        const promptText = historyItem.shortenedPrompt || historyItem.prompt;
                         return (
-                          <div className="w-full rounded-[20px] overflow-hidden border-2 border-white bg-[#141517]/40 shadow-xl flex flex-col">
-                            <div 
+                          <motion.div
+                            key={historyItem.id}
+                            layout
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+                            className={`w-full overflow-hidden rounded-[20px] border-2 bg-[#141517]/40 shadow-xl flex flex-col shrink-0 ${historyItem.id === selectedItem.id ? 'border-white' : 'border-white/10'}`}
+                          >
+                            <button
+                              type="button"
                               className="w-full overflow-hidden bg-zinc-900"
                               style={{ aspectRatio: ar }}
+                              onClick={() => setSelectedItem(historyItem)}
+                              aria-label={`Open ${promptText}`}
                             >
-                              {selectedItem.kind === 'video' ? (
-                                <video src={selectedItem.url} className="w-full h-full object-cover" muted />
-                              ) : (
-                                <img src={selectedItem.url} className="w-full h-full object-cover" alt="" />
+                              <img src={historyItem.url} className="w-full h-full object-cover" alt={promptText} />
+                            </button>
+                            <div className="relative min-h-[28px] px-2 pt-1.5 pr-9 pb-1 text-[12px] leading-4 text-white/85 truncate">
+                              <span className="block truncate">{promptText}</span>
+                              {historyItem.attachments && historyItem.attachments.length > 0 && (
+                                <div className="mt-1 flex gap-1.5 overflow-hidden">
+                                  {historyItem.attachments.map((attachment) => (
+                                    <img
+                                      key={attachment.id}
+                                      src={attachment.url}
+                                      alt={attachment.name}
+                                      title={attachment.name}
+                                      className="h-7 w-7 shrink-0 rounded-[6px] object-cover border border-white/10"
+                                    />
+                                  ))}
+                                </div>
                               )}
+                              <button
+                                type="button"
+                                title="Reuse text prompt"
+                                aria-label="Reuse text prompt"
+                                onClick={() => setEditPrompt(historyItem.prompt)}
+                                className="absolute right-1.5 top-1.5 h-[18px] w-[18px] rounded-[6px] text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center"
+                              >
+                                <Clipboard size={12} strokeWidth={1.8} />
+                              </button>
                             </div>
-                          </div>
+                          </motion.div>
                         );
-                      })()}
+                      })}
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
+            )}
 
             {/* Bottom Area */}
-            <motion.div 
+            {selectedItem.kind !== 'video' && <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
@@ -7221,7 +7323,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 </div>
                 </div>
               )}
-            </motion.div>
+            </motion.div>}
 
             {/* Warning popup overlay */}
             {pendingTool !== null && (

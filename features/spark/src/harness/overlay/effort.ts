@@ -228,9 +228,9 @@ export function selectableEfforts(model: {
  * Gemini Pro it lands on `'low'` — the opposite of what was asked. That half
  * has to clamp.
  *
- * **The harness behaviour** is not. How many tool-call rounds the agent gets,
- * whether it is told to plan before acting, whether it is expected to verify
- * its work — all of that is Willow's own loop and its own prompt, and it works
+ * **The harness behaviour** is not. Whether it is told to plan before acting,
+ * whether it is expected to verify its work — all of that is Willow's own loop
+ * and its own prompt, and it works
  * identically on every model. A Claude model told "you are running at ultra
  * effort, plan first and verify with computer_use" genuinely does more work,
  * even though Anthropic's API never receives a reasoning parameter at all.
@@ -239,8 +239,6 @@ export function selectableEfforts(model: {
  * the wire. That is what makes Ultra mean something everywhere.
  */
 export interface HarnessEffort {
-  /** Tool-call rounds allowed in one turn. */
-  maxIterations: number;
   /** Appended to the turn's context, telling the agent how to work. */
   guidance: string;
   /**
@@ -248,11 +246,6 @@ export interface HarnessEffort {
    * `#29899` describes: `ultra` → proactive, everything else → on request.
    */
   delegation: 'proactive' | 'on-request';
-  /**
-   * Cap on sub-agents running at once. Mirrors upstream's
-   * `agents.max_concurrent_threads_per_session`, which defaults to 3.
-   */
-  maxConcurrentAgents: number;
   /** Codex model-catalog protocol selected for collaboration tools. */
   multiAgentVersion?: MultiAgentVersion | null;
 }
@@ -276,49 +269,35 @@ const ON_REQUEST = 'on-request' as const;
  */
 const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
   none: {
-    maxIterations: 3,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 1,
     guidance: 'Answer immediately, with the shortest thing that is correct.',
   },
   minimal: {
-    maxIterations: 3,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 1,
     guidance: 'Make the smallest change that satisfies the request, and stop there.',
   },
   low: {
-    maxIterations: 5,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 2,
     guidance: 'Act directly. Prefer the shortest path that actually works.',
   },
   medium: {
-    maxIterations: 8,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 3,
     guidance: 'Read what you are about to change before changing it.',
   },
   high: {
-    maxIterations: 12,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 3,
     guidance:
       'Work carefully. Read what you are changing, and keep it consistent with the ' +
       'code around it.',
   },
   xhigh: {
-    maxIterations: 18,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 3,
     guidance:
       'Be thorough. Read what you touch and its neighbours, and consider the states ' +
       'nobody asked about — empty, loading, error.',
   },
   max: {
-    maxIterations: 24,
     delegation: ON_REQUEST,
-    maxConcurrentAgents: 3,
     guidance:
       'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
       'nobody asked about, and when you find a problem, fix it rather than ' +
@@ -331,9 +310,7 @@ const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
    * to be told.
    */
   ultra: {
-    maxIterations: 32,
     delegation: 'proactive',
-    maxConcurrentAgents: 4,
     guidance:
       'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
       'nobody asked about, and when you find a problem, fix it rather than reporting ' +
@@ -360,7 +337,7 @@ export interface ResolvedEffort {
    * and the mode it selects is delivered in full.
    */
   clamped: boolean;
-  /** Loop budget, delegation mode and prompt guidance, from the request. */
+  /** Delegation mode and prompt guidance, from the request. */
   harness: HarnessEffort;
   /** Catalog capability used to derive Ultra's proactive mode. */
   multiAgentVersion: MultiAgentVersion | null;
@@ -402,7 +379,7 @@ export function resolveEffort(
     const ceiling = supported[supported.length - 1] ?? 'high';
     const harness = multiAgentVersion === 'v2'
       ? { ...harnessEffort(requested), multiAgentVersion }
-      : { ...harnessEffort(requested), delegation: ON_REQUEST, maxConcurrentAgents: 1, multiAgentVersion };
+      : { ...harnessEffort(requested), delegation: ON_REQUEST, multiAgentVersion };
     return {
       requested,
       effective: ceiling,

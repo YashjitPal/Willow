@@ -218,3 +218,33 @@
 
 .flow-tab:hover:not([data-state='active']) { background-color: rgba(218, 220, 224, 0.05); }
 .flow-tab:active:not([data-state='active']) { background-color: rgba(218, 220, 224, 0.05); }
+
+/* The project-wide settings entry uses the same full-width control footprint as the Grid/Batch
+   segmented control: 34px high, 12px radius, and the menu's full 268px inner width. */
+.flow-more-settings {
+  width: 100%;
+  height: 34px;
+  border-radius: 12px;
+  color: rgb(255, 255, 255);
+  background-color: rgba(218, 220, 224, 0.05);
+}
+
+.flow-more-settings__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 34px;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flow-more-settings__button:hover { background-color: rgba(218, 220, 224, 0.05); }
+.flow-more-settings__button:active { background-color: rgba(218, 220, 224, 0.05); }

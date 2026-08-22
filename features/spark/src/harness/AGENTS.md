@@ -142,7 +142,7 @@ the overlay's tool-protocol section.
 
 ## The turn loop
 
-`runtime/agent.ts`. A bounded loop; each iteration streams one model response.
+`runtime/agent.ts`. An open-ended loop; each iteration streams one model response.
 
 - **Patches apply mid-stream.** The model does not need the result to keep
   writing, and applying immediately is what makes the preview feel live.
@@ -152,13 +152,14 @@ the overlay's tool-protocol section.
 - **Errors come back as observations, not exceptions.** A malformed patch is
   normal and recoverable, and models fix it far more reliably when handed the
   parser's actual complaint.
-- **`MAX_ITERATIONS` is 12.** On exhaustion the user is told, in the transcript,
-  rather than the turn ending silently.
+- **There is no artificial round limit.** A turn ends when the model completes,
+  the explicit goal lifecycle ends, cancellation occurs, or an error is raised.
 
 Sub-agents run the identical loop through a different `CallSink` — that
-indirection is the only difference between a main turn and a delegated one. They
-get every tool except `task`, because unbounded recursion in a browser tab is
-not a feature.
+indirection is the only difference between a main turn and a delegated one.
+Delegated agents receive the collaboration tools exposed by Spark and there is
+no Spark-specific count or round ceiling; normal completion, cancellation,
+provider limits, and errors remain the only stopping conditions.
 
 ## Licence obligations
 

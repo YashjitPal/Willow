@@ -123,6 +123,7 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'grok-imagine': '$2.00/$8.00',
     // Zhipu
     'glm-5.2': '$1.00/$3.00',
+    'glm-5.3': '$1.40/$4.40',
     'glm-4-plus': '$1.00/$3.00',
     'glm-4-flash': '$0.10/$0.30',
     'glm-4': '$0.50/$1.50',
@@ -1064,14 +1065,15 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                            onClick={() => setZhipuaiDropdownOpen(!zhipuaiDropdownOpen)}
                            className="w-full bg-transparent border border-white/10 rounded-xl px-4 py-3.5 text-[15px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
                        >
-                           <span>{'GLM 5.2'}</span>
+                           <span>{modelConfig.zhipuai.model === 'glm-5.3' ? 'GLM 5.3' : 'GLM 5.2'}</span>
                            <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-200 ${zhipuaiDropdownOpen ? 'rotate-180' : ''}`} />
                        </button>
                        
                        {zhipuaiDropdownOpen && (
                            <div className="absolute top-full mt-2 left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden">
                                {[
-                                   { id: 'glm-5.2', name: 'GLM 5.2' }
+                                    { id: 'glm-5.2', name: 'GLM 5.2' },
+                                    { id: 'glm-5.3', name: 'GLM 5.3' }
                                ].map((model, index, arr) => (
                                    <button
                                        key={model.id}
@@ -1102,9 +1104,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
 
                 <button 
                   onClick={() => {
-                    const modelName = 'GLM 5.2';
+                     const modelId = modelConfig.zhipuai.model;
+                     const modelName = modelId === 'glm-5.3' ? 'GLM 5.3' : 'GLM 5.2';
+                     const reasoningEfforts = modelId === 'glm-5.3'
+                       ? [
+                           { id: `${modelId}-effort-1`, level: 1, label: 'Low', value: 'low' },
+                           { id: `${modelId}-effort-2`, level: 2, label: 'High', value: 'high' },
+                           { id: `${modelId}-effort-3`, level: 3, label: 'Max', value: 'max' },
+                         ]
+                       : undefined;
 
-                    if ((modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === 'glm-5.2')) return;
+                     if ((modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === modelId)) return;
 
                     setModelConfig((prev: any) => ({
                       ...prev,
@@ -1114,10 +1124,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           ...prev.zhipuai.savedModels,
                           {
                             id: Math.random().toString(36).substr(2, 9),
-                            modelId: prev.zhipuai.model,
+                            modelId,
                             name: modelName,
                             thinkingLevel: 3,
-                            thinkingLabel: 'High'
+                            thinkingLabel: modelId === 'glm-5.3' ? 'Max' : 'High',
+                            ...(reasoningEfforts ? { reasoningEfforts, effortLabel: 'Max' } : {}),
                           }
                         ]
                       }

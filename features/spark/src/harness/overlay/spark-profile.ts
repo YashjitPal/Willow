@@ -125,8 +125,9 @@ ${grammar}
 {"path":"/workspace/example.txt"}
 *** End Call
 
-The body is one JSON object. Emit at most one call per envelope. Stop after a
-collaboration call so the harness can return its real result.
+The body is one JSON object. Emit at most one call per envelope. Collaboration
+calls may be interleaved with other calls; their results are returned as
+coordination proceeds. Do not add prose while sub-agents are still running.
 Available calls are \`read_file\`,
 \`list_files\`, \`search_files\`, \`update_plan\`, \`run_command\`,
 \`spawn_agent\`, \`send_message\`, \`followup_task\`, \`wait_agent\`,

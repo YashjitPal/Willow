@@ -581,9 +581,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityPhase = 'working';
       if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
     };
-    const publishPlan = (steps: SparkPlanStep[]) => {
+    const publishPlan = (steps: SparkPlanStep[], announce: boolean) => {
       plan = steps.map((step) => ({ ...step }));
-      if (isCurrentRun()) updateSparkTask(taskId, { plan, activityPhase: 'planning', progressLabel: 'Planning…' });
+      if (!isCurrentRun()) return;
+      updateSparkTask(taskId, announce
+        ? { plan, activityPhase: 'planning', progressLabel: 'Planning…' }
+        : { plan });
     };
 
     try {
@@ -658,11 +661,18 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'call-start') {
-            publishUsedTool(event.call.kind);
-            if (event.call.kind === 'plan') publishPlan(event.call.steps);
+            if (event.call.kind === 'plan') {
+              const isInitialPlan = plan.length === 0;
+              if (isInitialPlan) publishUsedTool(event.call.kind);
+              publishPlan(event.call.steps, isInitialPlan);
+            } else {
+              publishUsedTool(event.call.kind);
+            }
           } else if (event.type === 'call-progress') {
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
-              publishPlan(event.patch.steps as SparkPlanStep[]);
+              const isInitialPlan = plan.length === 0;
+              if (isInitialPlan) publishUsedTool('plan');
+              publishPlan(event.patch.steps as SparkPlanStep[], isInitialPlan);
             }
           } else if (event.type === 'generated-file') {
             generatedFiles = [
@@ -890,11 +900,15 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
     };
-    const publishPlan = (steps: SparkPlanStep[]) => {
+    const publishPlan = (steps: SparkPlanStep[], announce: boolean) => {
       plan = steps.map((step) => ({ ...step }));
       if (isCurrentRun()) {
-        updateSparkTaskTurn(taskId, turnId, { plan, activityPhase: 'planning' });
-        updateSparkTask(taskId, { plan, progressLabel: 'Planning…' });
+        updateSparkTaskTurn(taskId, turnId, announce
+          ? { plan, activityPhase: 'planning' }
+          : { plan });
+        updateSparkTask(taskId, announce
+          ? { plan, progressLabel: 'Planning…' }
+          : { plan });
       }
     };
 
@@ -974,11 +988,18 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
             }
           } else if (event.type === 'call-start') {
-            publishUsedTool(event.call.kind);
-            if (event.call.kind === 'plan') publishPlan(event.call.steps);
+            if (event.call.kind === 'plan') {
+              const isInitialPlan = plan.length === 0;
+              if (isInitialPlan) publishUsedTool(event.call.kind);
+              publishPlan(event.call.steps, isInitialPlan);
+            } else {
+              publishUsedTool(event.call.kind);
+            }
           } else if (event.type === 'call-progress') {
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
-              publishPlan(event.patch.steps as SparkPlanStep[]);
+              const isInitialPlan = plan.length === 0;
+              if (isInitialPlan) publishUsedTool('plan');
+              publishPlan(event.patch.steps as SparkPlanStep[], isInitialPlan);
             }
           } else if (event.type === 'generated-file') {
             generatedFiles = [

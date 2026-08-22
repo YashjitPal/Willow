@@ -1024,7 +1024,10 @@ const streamChatImpl: any = async (
     } else if (options.thinkingLevel !== undefined) {
       if (model.includes('flash')) {
         const flashMap: Record<number, string> = { 0: 'minimal', 1: 'low', 2: 'medium', 3: 'high' };
-        geminiThinkingLevel = flashMap[options.thinkingLevel] ?? 'high';
+        const requestedLevel = model === 'gemini-3.7-flash' && options.thinkingLevel === 0
+          ? 1
+          : options.thinkingLevel;
+        geminiThinkingLevel = flashMap[requestedLevel] ?? 'high';
       } else if (model.includes('3.1-pro')) {
         const pro31Map: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high' };
         geminiThinkingLevel = pro31Map[options.thinkingLevel] || 'high';
@@ -2183,7 +2186,12 @@ Adhere to the following rules and guidelines:
         model,
         // @ts-ignore
         messages: [...systemMessages, ...formattedMessages],
-        ...(provider === 'moonshot' ? { reasoning_effort: reasoningEffort } : {}),
+        ...(provider === 'moonshot' || (provider === 'zhipuai' && model === 'glm-5.3')
+          ? { reasoning_effort: reasoningEffort }
+          : {}),
+        ...(provider === 'zhipuai' && model === 'glm-5.3'
+          ? { thinking: { type: 'enabled' } }
+          : {}),
         ...(searchEnabled ? { tools: compatSearchTools[provider] } : {}),
         stream: true,
       } as any, signal ? { signal } : undefined) as any,

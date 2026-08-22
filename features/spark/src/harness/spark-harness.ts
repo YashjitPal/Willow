@@ -29,11 +29,6 @@ export interface SparkHarnessResult {
   error?: string;
 }
 
-// Browser-safe stand-in for Codex's idle-thread continuation hook. A live app
-// invocation cannot run forever, so retain the active persisted goal after a
-// generous safety bound; reopening/resuming the Spark task continues it.
-const MAX_GOAL_CONTINUATIONS_PER_INVOCATION = 32;
-
 const toMessage = (entry: ChatMessage): Message => ({
   id: entry.id || `history-${entry.createdAt ?? Date.now()}`,
   role: entry.role,
@@ -92,7 +87,9 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     );
   });
   const binding: ModelBinding = {
-    options: options.model,
+    // Spark owns this focused agent loop, so native provider tool rounds must
+    // not reintroduce the shared chat default of 32 iterations.
+    options: { ...options.model, maxToolIterations: Infinity },
     label: options.model.label,
     effort: options.model.effort,
   };
@@ -133,10 +130,10 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
   await runAndRecord(options.prompt);
 
   // Codex Goal mode automatically starts another turn when the thread becomes
-  // idle while its persisted goal is still active. Keep the browser port
-  // bounded per invocation so a broken provider cannot loop forever; the goal
-  // remains active and the next Spark run can resume it.
-  for (let continuation = 0; continuation < MAX_GOAL_CONTINUATIONS_PER_INVOCATION && reason === 'complete' && goalRuntime.isActive(); continuation += 1) {
+  // idle while its persisted goal is still active. Continue until the model
+  // completes the goal, cancellation occurs, or the goal is explicitly ended.
+  for (;;) {
+    if (reason !== 'complete' || !goalRuntime.isActive()) break;
     if (options.signal?.aborted) break;
     await runAndRecord(goalRuntime.continuationPrompt());
   }

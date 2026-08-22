@@ -1552,7 +1552,11 @@ const App: React.FC = () => {
           <WorkbenchRouteGuard>
             <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
               <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
-                <MediaView />
+                <MediaView onOpenSettings={() => {
+                  setSettingsInitialTab(undefined);
+                  setSettingsInitialConnector(undefined);
+                  setIsSettingsOpen(true);
+                }} />
               </Suspense>
             </div>
           </WorkbenchRouteGuard>

@@ -215,7 +215,8 @@ export const ViewSettingsMenu: React.FC<{
   anchorRef: React.RefObject<HTMLElement | null>;
   settings: ViewSettings;
   onChange: (next: ViewSettings) => void;
-}> = ({ open, onClose, anchorRef, settings, onChange }) => {
+  onMoreSettings: () => void;
+}> = ({ open, onClose, anchorRef, settings, onChange, onMoreSettings }) => {
   const set = useCallback(<K extends keyof ViewSettings>(key: K, value: ViewSettings[K]) => {
     onChange({ ...settings, [key]: value });
   }, [settings, onChange]);
@@ -241,6 +242,11 @@ export const ViewSettingsMenu: React.FC<{
       <ToggleRow glyph="mic" label="Return silent videos" value={settings.silentVideos} onChange={(v) => set('silentVideos', v)} />
       <ToggleRow glyph="visibility" label="Show tile details" value={settings.tileDetails} onChange={(v) => set('tileDetails', v)} />
       <ToggleRow glyph="ink_eraser" label="Clear prompt on submit" value={settings.clearPromptOnSubmit} onChange={(v) => set('clearPromptOnSubmit', v)} />
+      <div className="flow-more-settings">
+        <button type="button" className="flow-more-settings__button" onClick={() => { onClose(); onMoreSettings(); }}>
+          More settings
+        </button>
+      </div>
     </FlowMenu>
   );
 };
@@ -268,6 +274,22 @@ export const MoreMenu: React.FC<{
     {MORE_ITEMS.map((item) => (
       <FlowMenuItem key={item.label} glyph={item.glyph} label={item.label} onSelect={onClose} />
     ))}
+  </FlowMenu>
+);
+
+/** Flow's project menu, anchored to the project title's three-dot control. */
+export const ProjectMenu: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLElement | null>;
+  onRename: () => void;
+  onViewTrash: () => void;
+  onDelete: () => void;
+}> = ({ open, onClose, anchorRef, onRename, onViewTrash, onDelete }) => (
+  <FlowMenu open={open} onClose={onClose} anchorRef={anchorRef} width={192}>
+    <FlowMenuItem glyph="edit" label="Rename" onSelect={() => { onClose(); onRename(); }} />
+    <FlowMenuItem glyph="delete" label="View Trash" onSelect={() => { onClose(); onViewTrash(); }} />
+    <FlowMenuItem glyph="delete" label="Delete" danger onSelect={() => { onClose(); onDelete(); }} />
   </FlowMenu>
 );
 

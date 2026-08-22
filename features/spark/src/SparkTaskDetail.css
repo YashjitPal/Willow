@@ -1026,10 +1026,14 @@
 }
 
 .spark-task-detail__progress-panel-capability {
-  min-height: 28px;
+  min-height: 36px;
   padding: 4px;
+  gap: 8px;
+  border-radius: 8px;
   font-size: 13px;
+  font-weight: 370;
   line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
 }
 
 .spark-task-detail__progress-panel-file > span,
@@ -1050,6 +1054,32 @@
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
+}
+
+/* Gemini's `.app-item`: a 28px icon host, 4px inset, and an 8px icon/label
+ * gap. The host keeps native product logos and symbol glyphs on the same box. */
+.spark-task-detail__capability-icon-host {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+}
+
+.spark-task-detail__capability-icon-host .spark-task-detail__capability-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  box-sizing: border-box;
+  object-fit: contain;
+}
+
+.spark-task-detail__capability-icon-host .spark-task-detail__capability-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
 }
 
 /* Same surface and corners as the chat pane, at twice its width. */
@@ -1915,6 +1945,50 @@
   overflow: hidden;
 }
 
+/* A collapsed main timeline uses one rail for the whole visible region. This
+ * avoids a zoom-dependent seam between each row's connector and the Show all
+ * continuation. The row nodes sit above it, preserving the intentional gaps. */
+.spark-task-detail__processing-details-inner.is-collapsed-overflow {
+  position: relative;
+}
+
+.spark-task-detail__processing-details-inner.is-collapsed-overflow::before {
+  position: absolute;
+  top: 24px;
+  right: auto;
+  bottom: 0;
+  left: 12px;
+  z-index: 0;
+  width: var(--spark-processing-connector-width, 1px);
+  background: var(--spark-processing-connector-color, rgb(122, 122, 122));
+  content: '';
+  pointer-events: none;
+}
+
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__processing-details >
+  :is(.spark-task-detail__processing-step, .spark-task-detail__processing-tool,
+    .spark-task-detail__processing-thought, .spark-task-detail__subagent-group)::after {
+  display: none;
+}
+
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__processing-node,
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__subagent-header-content,
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__processing-show-more {
+  position: relative;
+  z-index: 1;
+}
+
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__processing-node,
+.spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__subagent-header-content {
+  background: #1f1f1f;
+}
+
 .spark-task-detail__processing-details-cap {
   position: relative;
   max-height: none;
@@ -1932,7 +2006,9 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  left: 0;
+  /* Keep the node/connector rail above the fade. Main-timeline labels start
+   * after the 24px node slot and 8px text gap. */
+  left: 32px;
   height: 60px;
   background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
   content: '';
@@ -2158,6 +2234,7 @@
 }
 
 .spark-task-detail .spark-task-detail__processing-show-more {
+  position: relative;
   display: block;
   min-height: 25px;
   margin: 4px 0 0 24px;
@@ -2176,6 +2253,9 @@
     spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+/* Continue the existing main-agent connector through the Show all row. This
+ * lives on the row that follows the clipped cap, so it cannot overlap the
+ * per-item connectors or create a second rail over the icons. */
 .spark-task-detail__processing-show-more:hover {
   color: #e6e6e6;
 }

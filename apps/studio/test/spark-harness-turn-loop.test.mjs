@@ -83,11 +83,12 @@ it('builds Spark from the full Codex prompt while preserving its Work Title', as
   assert.match(profile.systemPrompt, /spawn_agent/);
   assert.match(profile.systemPrompt, /wait_agent/);
   assert.doesNotMatch(profile.systemPrompt, /Multiple consecutive `task` envelopes are started concurrently/i);
+  assert.doesNotMatch(profile.systemPrompt, /available concurrency slots|up to \d+ at once|spawning their own sub-agents/i);
   assert.doesNotMatch(profile.systemPrompt, /\*\*\* Work Log:/);
   assert.ok(profile.systemPrompt.length > 18000, `Spark profile was unexpectedly compact: ${profile.systemPrompt.length} chars`);
 });
 
-it('spawns native Spark sub-agents without blocking the root turn', async () => {
+it('dispatches sub-agents without blocking the parent and keeps wait_agent silent', async () => {
   const events = [];
   let releaseChildren;
   const childrenReleased = new Promise((resolve) => { releaseChildren = resolve; });
@@ -100,12 +101,14 @@ it('spawns native Spark sub-agents without blocking the root turn', async () => 
       onToken(`Child ${childCalls} complete.`);
       return;
     }
+    onToken('Parent is coordinating.');
     await onToolCall('spawn_agent', { task_name: 'alpha', message: 'Inspect alpha.', agent_type: 'researcher' });
     await onToolCall('spawn_agent', { task_name: 'beta', message: 'Inspect beta.', agent_type: 'researcher' });
+    await onToolCall('wait_agent', { timeout_ms: 10 });
     onToken('Both sub-agents were started.');
   };
 
-  await runTurn({
+  const turn = runTurn({
     prompt: 'Use two sub-agents to inspect alpha and beta.',
     history: [],
     files: () => ({}),
@@ -119,13 +122,91 @@ it('spawns native Spark sub-agents without blocking the root turn', async () => 
     },
   });
 
-  assert.equal(rootFinished, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(rootFinished, false);
   assert.equal(childCalls, 2);
   assert.equal(events.filter((event) => event.type === 'agents-start').length, 2);
   assert.equal(events.filter((event) => event.type === 'agents-start').every((event) => event.agents[0].status === 'running'), true);
+  assert.equal(events.some((event) => event.type === 'activity' && /waiting for sub-agents/i.test(event.label ?? '')), false);
+  assert.equal(events.some((event) => event.type === 'work-log' && /parent is coordinating/i.test(event.text)), true);
   releaseChildren();
+  await turn;
+  assert.equal(rootFinished, true);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(events.filter((event) => event.type === 'agent-progress' && event.patch.status === 'success').length, 2);
+});
+
+it('allows a final response while children are active', async () => {
+  const events = [];
+  let releaseFirstBatch;
+  const firstBatchReleased = new Promise((resolve) => { releaseFirstBatch = resolve; });
+  let rootTurn = 0;
+  let childCalls = 0;
+  const scripted = async (messages, _options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    if (messages.at(-1)?.content.includes('Task name:')) {
+      childCalls += 1;
+      if (childCalls <= 2) await firstBatchReleased;
+      onToken(`Child ${childCalls} complete.`);
+      return;
+    }
+    rootTurn += 1;
+    if (rootTurn === 1) {
+      await onToolCall('spawn_agent', { task_name: 'first_a', message: 'First A.' });
+      await onToolCall('spawn_agent', { task_name: 'first_b', message: 'First B.' });
+      onToken('*** Final Response\nThis must wait.');
+      return;
+    }
+    await onToolCall('wait_agent', { timeout_ms: 60000 });
+    onToken('*** Final Response\nSecond round complete.');
+  };
+
+  const turn = runTurn({
+    prompt: 'Use two collaboration batches.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: { systemPrompt: 'You are a general-purpose work agent. *** Final Response' },
+    transport: scripted,
+    onEvent: (event) => events.push(event),
+  });
+  setTimeout(releaseFirstBatch, 0);
+  await turn;
+
+  assert.equal(rootTurn, 1);
+  assert.equal(events.filter((event) => event.type === 'agents-start').length, 2);
+  assert.equal(childCalls, 2);
+  assert.equal(events.some((event) => event.type === 'text' && /This must wait/i.test(event.chunk)), true);
+});
+
+it('does not impose a Spark-specific ceiling on one parallel agent batch', async () => {
+  const events = [];
+  let childCalls = 0;
+  const scripted = async (messages, _options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    if (messages.at(-1)?.content.includes('Task name:')) {
+      childCalls += 1;
+      onToken('Child complete.');
+      return;
+    }
+    for (let index = 0; index < 6; index += 1) {
+      await onToolCall('spawn_agent', { task_name: `worker_${index}`, message: `Worker ${index}.` });
+    }
+    onToken('Batch dispatched.');
+  };
+
+  await runTurn({
+    prompt: 'Dispatch the independent workers.',
+    history: [],
+    files: () => ({}),
+    writeFiles: () => {},
+    model: MODEL,
+    profile: PROFILE,
+    transport: scripted,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(events.filter((event) => event.type === 'agents-start').length, 6);
+  assert.equal(childCalls, 6);
 });
 
 it('gives child agents the native collaboration declarations for nested delegation', async () => {
