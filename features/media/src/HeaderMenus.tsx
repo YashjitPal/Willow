@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { Avatar } from '@willow/ui/Avatar';
 import './flow-menu.css';
 
 /** Flow's header and menu glyph axes: unfilled, weight axis 300. */
@@ -276,6 +277,129 @@ export const MoreMenu: React.FC<{
     ))}
   </FlowMenu>
 );
+
+/** Flow's top-right account surface, with avatar/legal/build rows omitted for Willow. */
+export const AccountMenu: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  isAuthenticated: boolean;
+  displayName: string;
+  email: string;
+  photoURL?: string | null;
+  onSignIn: () => void | Promise<void>;
+  onSignOut: () => void | Promise<void>;
+}> = ({ open, onClose, isAuthenticated, displayName, email, photoURL, onSignIn, onSignOut }) => {
+  const [mounted, setMounted] = useState(open);
+  const [entered, setEntered] = useState(false);
+  const [surfaceHeight, setSurfaceHeight] = useState(0);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const [watermarkOn, setWatermarkOn] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      setEntered(false);
+      return undefined;
+    }
+    setEntered(false);
+    const timer = window.setTimeout(() => setMounted(false), 200);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!mounted || !surfaceRef.current) return undefined;
+    const measure = () => {
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const renderedHeight = surface.style.height;
+      surface.style.height = 'auto';
+      setSurfaceHeight(surface.scrollHeight);
+      surface.style.height = renderedHeight;
+    };
+    measure();
+    if (open) {
+      const frame = window.requestAnimationFrame(() => setEntered(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    return undefined;
+  }, [mounted, open, isAuthenticated]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!(target instanceof Element) || !target.closest('[data-willow-account-menu]')) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [open, onClose]);
+
+  if (!mounted) return null;
+  const name = isAuthenticated ? (displayName || 'Willow user') : 'Not signed in';
+  const accountEmail = isAuthenticated ? (email || 'user@example.com') : 'Log in to access your Willow account';
+  return createPortal(
+    <div
+      ref={surfaceRef}
+      data-willow-account-menu
+      role="dialog"
+      aria-label="Account"
+      data-state={entered ? 'open' : 'closed'}
+      className="flow-account-menu"
+      style={{ height: entered ? `${surfaceHeight}px` : 0, opacity: entered ? 1 : 0, transform: entered ? 'translateY(0)' : 'translateY(-16px)', pointerEvents: entered ? 'auto' : 'none' }}
+    >
+      <button type="button" aria-label="Close this modal" className="flow-account-menu__close" onClick={onClose}>
+        <MaterialSymbol name="close" family="google-symbols" size={24} weight={400} variationSettings={AXES} />
+      </button>
+      <div className="flow-account-menu__content">
+        <div className="flow-account-menu__logo-wrap">
+          <span className="flow-account-menu__logo">Willow</span>
+        </div>
+        {isAuthenticated && (
+          <div className="flow-account-menu__identity">
+            <Avatar src={photoURL || undefined} name={name} size={36} />
+            <div className="flow-account-menu__identity-copy"><span className="flow-account-menu__name">{name}</span><span className="flow-account-menu__email">{accountEmail}</span></div>
+          </div>
+        )}
+        <div className="flow-account-menu__body">
+          {isAuthenticated ? (
+            <>
+              <div className="flow-account-menu__credits-card">
+                <div className="flow-account-menu__credits-line"><MaterialSymbol name="movie_filter_auto" family="google-symbols" size={20} weight={400} variationSettings={AXES} /><span>1022 Willow credits</span></div>
+                <button type="button" className="flow-account-menu__credits-button">Get AI credits</button>
+              </div>
+              <button type="button" className="flow-account-menu__action">Manage membership</button>
+              <button type="button" className="flow-account-menu__action" onClick={() => { onClose(); void onSignOut(); }}>Sign out</button>
+              <div className="flow-account-menu__watermark">
+                <div className="flow-account-menu__watermark-label"><MaterialSymbol name="frame_spark" family="google-symbols" size={24} weight={400} variationSettings={AXES} /><span>Visible watermarking</span></div>
+                <div className="flow-account-menu__toggle" role="tablist" aria-label="Visible watermarking">
+                  <button type="button" role="tab" aria-selected={!watermarkOn} data-state={!watermarkOn ? 'active' : 'inactive'} onClick={() => setWatermarkOn(false)}>Off</button>
+                  <button type="button" role="tab" aria-selected={watermarkOn} data-state={watermarkOn ? 'active' : 'inactive'} onClick={() => setWatermarkOn(true)}>On</button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <button type="button" className="flow-account-menu__login-button" onClick={() => { onClose(); void onSignIn(); }}>
+              <span>Log in</span>
+            </button>
+          )}
+        </div>
+        <div className="flow-account-menu__legal">
+          <a href="#privacy" onClick={(event) => event.preventDefault()}>Privacy</a>
+          <span aria-hidden="true">·</span>
+          <a href="#terms" onClick={(event) => event.preventDefault()}>Terms of Service</a>
+          <span aria-hidden="true">·</span>
+          <a href="#licenses" onClick={(event) => event.preventDefault()}>Licenses</a>
+        </div>
+        <div className="flow-account-menu__build">Willow build — local development</div>
+      </div>
+    </div>, document.body,
+  );
+};
 
 /** Flow's project menu, anchored to the project title's three-dot control. */
 export const ProjectMenu: React.FC<{

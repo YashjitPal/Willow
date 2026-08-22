@@ -154,6 +154,115 @@
   margin-top: 16px;
 }
 
+/* Gemini's route-loading list: three clipped rows, each with two staggered
+ * bars. The bars use the same 2.15s gradient sweep and width-growth timings
+ * measured from its `skeleton-loader` DOM. */
+.spark-customise-loading-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.spark-customise-loading-section > h2 {
+  padding: 4px 0 4px 16px;
+  color: #e3e3e3;
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 28px;
+}
+
+.spark-customise-loading-list {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  width: 100%;
+  border: 0.8px solid #171717;
+  border-radius: 16px;
+  background: transparent;
+}
+
+.spark-customise-loading-row {
+  display: block;
+  padding: 16px;
+  background: #1f1f1f;
+}
+
+.spark-customise-loading-row + .spark-customise-loading-row {
+  border-top: 0.8px solid #171717;
+}
+
+.spark-customise-loading-row-content {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  height: 0;
+  animation: spark-customise-loading-content-grow 500ms cubic-bezier(0.54, 0, 0, 1) forwards;
+}
+
+.spark-customise-loading-bar {
+  display: block;
+  width: 100%;
+  height: 15px;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: spark-customise-loading-grow-first 1000ms linear both;
+}
+
+.spark-customise-loading-bar-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  background-image: linear-gradient(
+    33deg,
+    rgba(22, 22, 23, 0.2) 0%,
+    #35383b 25%,
+    #1e1f20 50%,
+    #35383b 75%,
+    rgba(22, 22, 23, 0.2) 100%
+  );
+  background-size: 200% 100%;
+  animation: spark-customise-loading-gradient 2150ms linear infinite;
+}
+
+.spark-customise-loading-bar + .spark-customise-loading-bar {
+  margin-top: 10px;
+  animation: spark-customise-loading-grow-second 1100ms linear both;
+}
+
+.spark-customise-loading-bar + .spark-customise-loading-bar .spark-customise-loading-bar-fill {
+  animation-delay: 500ms;
+}
+
+.spark-customise-loading-bar--short {
+  width: 30%;
+}
+
+@keyframes spark-customise-loading-grow-first {
+  0%, 50% {
+    transform: scaleX(0);
+    animation-timing-function: cubic-bezier(0.54, 0, 0, 1);
+  }
+  100% { transform: scaleX(1); }
+}
+
+@keyframes spark-customise-loading-content-grow {
+  from { height: 0; }
+  to { height: 40px; }
+}
+
+@keyframes spark-customise-loading-grow-second {
+  0%, 45%, 55% { transform: scaleX(0); }
+  55% { animation-timing-function: cubic-bezier(0.54, 0, 0, 1); }
+  100% { transform: scaleX(1); }
+}
+
+@keyframes spark-customise-loading-gradient {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
 /*
  * The reference account has no schedules, so this list is the one Spark surface that
  * could never be measured against Gemini. It follows the pattern the Active-skill list
@@ -300,11 +409,12 @@
  */
 .spark-schedules-empty {
   display: flex;
-  box-sizing: border-box;
+  box-sizing: content-box;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  margin: 36px 0 0;
+  justify-content: normal;
+  width: 100%;
+  margin: 52px 0 0;
   padding: 136px 0;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 28px;
@@ -313,18 +423,20 @@
   text-align: center;
 }
 
-.spark-schedules-empty__title {
+.spark-schedules-empty .spark-schedules-empty__title {
   margin: 0 0 8px;
   color: rgba(255, 255, 255, 0.55);
   font-size: 20px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
   font-weight: 470;
   line-height: 24px;
 }
 
-.spark-schedules-empty__subtitle {
+.spark-schedules-empty .spark-schedules-empty__subtitle {
   margin: 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   font-weight: 400;
   line-height: 17px;
 }
@@ -385,45 +497,38 @@
 
 .spark-skills-empty {
   display: flex;
-  width: min(726px, calc(100% - 32px));
-  height: 323px;
-  align-items: center;
-  justify-content: center;
-  margin: 48px auto 0;
-  padding: 32px;
+  box-sizing: content-box;
+  width: 100%;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.035);
+  align-items: center;
+  gap: 8px;
+  margin: 48px 0 0 -25px;
+  padding: 136px 24px;
+  border: 1px solid #171717;
   border-radius: 28px;
-  background: #171717;
+  background: transparent;
   text-align: center;
 }
 
-.spark-skills-empty__icon {
-  display: inline-flex;
-  width: 52px;
-  height: 52px;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 18px;
-  border-radius: 50%;
-  background: #252525;
-  color: #c4c7c5;
-}
-
 .spark-skills-empty h2 {
-  color: #e3e3e3;
-  font-size: 18px;
-  font-weight: 520;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 20px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  font-weight: 470;
   line-height: 24px;
 }
 
 .spark-skills-empty p {
-  max-width: 430px;
-  margin-top: 8px;
-  color: #a9aaa9;
-  font-size: 15px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   font-weight: 400;
-  line-height: 20px;
+  line-height: 17px;
+}
+
+.spark-skills-empty p span {
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  font-weight: 540;
 }
 
 /* `.recommended-section` is a flex column on an 8px gap: heading, card list, then the

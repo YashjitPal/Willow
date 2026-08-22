@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
@@ -346,6 +346,23 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   const { chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
   const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
+  const [loadedCustomisePages, setLoadedCustomisePages] = useState<Record<'skills' | 'schedules', boolean>>({
+    skills: false,
+    schedules: false,
+  });
+  const customisePage = location.page === 'skills' || location.page === 'schedules'
+    ? location.page
+    : null;
+
+  useEffect(() => {
+    if (!customisePage || loadedCustomisePages[customisePage]) return;
+    const timer = window.setTimeout(() => {
+      setLoadedCustomisePages((current) => ({ ...current, [customisePage]: true }));
+    }, 1350);
+    return () => window.clearTimeout(timer);
+  }, [customisePage, loadedCustomisePages]);
+
+  const isCustomiseLoading = customisePage !== null && !loadedCustomisePages[customisePage];
   const schedulerBusyRef = useRef(false);
   const orderedTasks = useMemo(() => [...tasks].sort((left, right) => {
     if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1;
@@ -1631,6 +1648,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   if (location.page === 'schedules') {
     return (
       <SchedulesPage
+        isLoading={isCustomiseLoading}
         schedules={schedules}
         onCreateManually={() => goToSparkScheduleEditor()}
         onCreateWithGemini={() => createTask('Help me schedule a task.', [], [], 'Creating a schedule')}
@@ -1645,6 +1663,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   if (location.page === 'skills') {
     return (
       <SkillsPage
+        isLoading={isCustomiseLoading}
         skills={skills}
         onCreateManually={() => goToSparkSkillEditor('manual')}
         onCreateWithGemini={() => createTask('Help me create a skill.', [], [], 'Creating a skill')}

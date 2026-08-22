@@ -126,6 +126,57 @@
 .flow-menu-item:disabled:hover { background-color: transparent; }
 .flow-menu-item:disabled:hover .flow-menu-item__overlay { background: transparent; }
 
+/* Flow's account dialog: 360px desktop surface, 16px from the viewport edges. */
+.flow-account-menu {
+  position: fixed;
+  inset: 1rem 1rem auto auto;
+  width: min(90vw, 22.5rem);
+  max-height: 90vh;
+  overflow: hidden;
+  isolation: isolate;
+  z-index: 201;
+  box-sizing: border-box;
+  color: rgb(255, 255, 255);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  background: rgba(27, 27, 27, 0.75);
+  backdrop-filter: blur(80px);
+  -webkit-backdrop-filter: blur(80px);
+  box-shadow: rgba(0, 0, 0, 0.4) 0 16px 32px -8px;
+  font-family: 'Google Sans Text', Inter, system-ui, -apple-system, sans-serif;
+  height: 0;
+  opacity: 0;
+  transform: translateY(-16px);
+  pointer-events: none;
+  transition: all 200ms ease;
+}
+.flow-account-menu[data-state='open'] { pointer-events: auto; }
+.flow-account-menu__close { position: absolute; top: 8px; right: 8px; z-index: 1; width: 40px; height: 44px; padding: 8px; border: 0; background: transparent; color: #fff; cursor: pointer; }
+.flow-account-menu__content { padding: 16px; }
+.flow-account-menu__logo-wrap { display: flex; align-items: center; justify-content: center; height: 32px; }
+.flow-account-menu__logo { display: flex; align-items: center; justify-content: center; width: 74px; height: 32px; font-family: 'Google Sans Flex', 'Google Sans Text', sans-serif; font-size: 22px; font-weight: 400; font-stretch: 100%; line-height: 32px; letter-spacing: 0; color: #fff; }
+.flow-account-menu__identity { display: flex; align-items: center; gap: 8px; margin-top: 16px; height: 36px; }
+.flow-account-menu__identity-copy { display: flex; flex-direction: column; min-width: 0; }
+.flow-account-menu__name { font-size: 14px; font-weight: 500; line-height: 20px; color: #fff; }
+.flow-account-menu__email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; line-height: 16px; color: #9aa0a6; }
+.flow-account-menu__body { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.flow-account-menu__credits-card { padding: 16px; border-radius: 20px; background: rgba(255, 255, 255, 0.05); }
+.flow-account-menu__credits-line { display: flex; align-items: center; gap: 16px; height: 24px; font-size: 16px; line-height: 24px; }
+.flow-account-menu__credits-button { display: flex; align-items: center; justify-content: center; width: 100%; height: 40px; margin-top: 16px; padding: 10px 24px; border: 0; border-radius: 9999px; background: rgba(255, 255, 255, 0.9); color: #0d0d0d; font: 500 14px/20px inherit; cursor: pointer; }
+.flow-account-menu__login-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 40px; padding: 10px 24px; border: 0; border-radius: 9999px; background: rgba(255, 255, 255, 0.9); color: #0d0d0d; font: 500 14px/20px inherit; cursor: pointer; }
+.flow-account-menu__action { display: flex; align-items: center; width: 100%; height: 42px; padding: 10px 24px; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 9999px; background: rgba(27, 27, 27, 0.5); color: #fff; font: 500 14px/20px inherit; text-align: left; cursor: pointer; }
+.flow-account-menu__login-button,
+.flow-account-menu__action { font-family: 'Google Sans Text', Inter, system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; }
+.flow-account-menu__watermark { display: flex; align-items: center; justify-content: space-between; height: 50px; padding: 8px; color: rgba(255,255,255,.9); }
+.flow-account-menu__watermark-label { display: flex; align-items: center; gap: 8px; font: 500 12px/16px inherit; }
+.flow-account-menu__toggle { display: flex; width: 92px; height: 34px; border-radius: 12px; background: rgba(218,220,224,.05); }
+.flow-account-menu__toggle button { flex: 1; height: 34px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: #fff; font: 500 12px/16px inherit; cursor: pointer; }
+.flow-account-menu__toggle button[data-state='active'] { background: rgba(218,220,224,.25); color: rgba(255,255,255,.9); }
+.flow-account-menu__legal { display: flex; align-items: center; justify-content: center; height: 20px; margin-top: 15px; color: rgba(255,255,255,.5); font: 11px/20px 'Google Sans', 'Google Sans Text', sans-serif; }
+.flow-account-menu__legal a { color: inherit; text-decoration: none; }
+.flow-account-menu__legal span { margin: 0 8px; }
+.flow-account-menu__build { min-height: 56px; color: rgba(255,255,255,.5); font: 11px/28px 'Google Sans', 'Google Sans Text', sans-serif; text-align: center; white-space: pre-line; }
+
 /* The tile menu sets its rows in body type; the header's stay at the 11px base. */
 .flow-menu-item--body { font-size: 14px; line-height: 20px; }
 

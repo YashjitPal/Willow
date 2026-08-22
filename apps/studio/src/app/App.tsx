@@ -630,6 +630,7 @@ const App: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [studioExperience, setStudioExperience] = useState<StudioExperience>('chat');
+  const previousSparkLocationKeyRef = React.useRef<string | null>(null);
   const [studioMode, setStudioMode] = useState<'develop' | 'chat' | 'media'>(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
@@ -637,6 +638,24 @@ const App: React.FC = () => {
     }
     return 'chat';
   });
+
+  React.useEffect(() => {
+    const isSparkTask = studioExperience === 'spark' && activeSparkLocation.page === 'task';
+    const currentLocationKey = studioExperience === 'spark'
+      ? (isSparkTask
+        ? `spark:task:${activeSparkLocation.taskId}`
+        : `spark:${activeSparkLocation.page}`)
+      : null;
+    const previousLocationKey = previousSparkLocationKeyRef.current;
+
+    // Collapse once when entering a task. Do not watch isSidebarCollapsed here:
+    // after this transition the user must be able to expand the global sidebar.
+    if (isSparkTask && currentLocationKey !== previousLocationKey) {
+      setIsSidebarCollapsed(true);
+    }
+
+    previousSparkLocationKeyRef.current = currentLocationKey;
+  }, [activeSparkLocation.page, activeSparkLocation.page === 'task' ? activeSparkLocation.taskId : null, studioExperience]);
 
   React.useEffect(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
@@ -648,26 +667,6 @@ const App: React.FC = () => {
   const [chatResetKey, setChatResetKey] = useState(0);
   const [hasActiveChat, setHasActiveChat] = useState(false);
   const [isIncognito, setIsIncognito] = useState(false);
-
-  const sparkSidebarRestoreRef = React.useRef<boolean | null>(null);
-  React.useEffect(() => {
-    const narrowViewport = window.matchMedia('(max-width: 720px)').matches;
-    const isSparkTaskDetail = studioExperience === 'spark' && activeSparkLocation.page === 'task';
-
-    if (isSparkTaskDetail) {
-      if (sparkSidebarRestoreRef.current === null) {
-        sparkSidebarRestoreRef.current = isSidebarCollapsed;
-      }
-      if (!isSidebarCollapsed) setIsSidebarCollapsed(true);
-      return;
-    }
-
-    if (sparkSidebarRestoreRef.current !== null) {
-      const shouldRestoreCollapsed = sparkSidebarRestoreRef.current;
-      sparkSidebarRestoreRef.current = null;
-      setIsSidebarCollapsed(narrowViewport ? true : shouldRestoreCollapsed);
-    }
-  }, [activeSparkLocation.page, studioExperience, isSidebarCollapsed]);
 
   const handleStudioModeChange = (mode: 'develop' | 'chat' | 'media') => {
     if (studioExperience === 'chat' && mode === studioMode) return;
