@@ -14,6 +14,10 @@ const detailSource = await readFile(
   new URL('../../../features/spark/src/SparkTaskDetail.tsx', import.meta.url),
   'utf8',
 );
+const detailCss = await readFile(
+  new URL('../../../features/spark/src/SparkTaskDetail.css', import.meta.url),
+  'utf8',
+);
 const allTasksSource = await readFile(
   new URL('../../../features/spark/src/SparkAllTasks.tsx', import.meta.url),
   'utf8',
@@ -30,6 +34,7 @@ test('connects task-list navigation without wrapping or embedding the task views
   assert.match(workspaceSource, /createPortal\(/);
   assert.match(workspaceSource, /onOpenTask=\{openTaskWithTransition\}/);
   assert.match(workspaceSource, /onBack=\{closeTaskWithTransition\}/);
+  assert.match(workspaceSource, /const openTaskWithTransition = \(taskId: string\) => \{[\s\S]*?if \(location\.page === 'task'\) \{[\s\S]*?goToSparkTask\(taskId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?transitionTaskNavigation\(\(\) => goToSparkTask\(taskId\)\)/);
   assert.doesNotMatch(workspaceSource, /spark-tasks-surface/);
   assert.doesNotMatch(workspaceSource, /<SparkTaskDetail[^>]*embedded/);
 });
@@ -39,6 +44,10 @@ test('keeps the task detail as the owner of its divider and Progress panel', () 
   assert.match(detailSource, /const isProgressPanelOpen = isLibraryCollapsed/);
   assert.match(detailSource, /className="spark-task-detail__library-divider"/);
   assert.match(detailSource, /className=\{`spark-task-detail__progress-panel\$\{isProgressPanelOpen \? ' is-open' : ''\}`\}/);
+  assert.match(detailCss, /\.spark-task-detail__progress-panel\s*\{[\s\S]*?transform:\s*translateX\(var\(--spark-progress-panel-width\)\)/);
+  assert.match(detailCss, /\.spark-task-detail__progress-panel\.is-open\s*\{[\s\S]*?transform:\s*translateX\(0\)/);
+  assert.match(detailCss, /\.spark-task-detail__progress-panel\.is-open\s*\{[\s\S]*?flex:\s*0 0 var\(--spark-progress-panel-width\)/);
+  assert.match(detailCss, /transform 450ms cubic-bezier\(0\.2, 0, 0, 1\)/);
   assert.doesNotMatch(detailSource, /controlledLibraryCollapsed|onLibraryCollapsedChange|embedded\?:/);
 });
 
@@ -62,6 +71,10 @@ test('keeps connected-view CSS transition-only', () => {
   assert.doesNotMatch(workspaceCss, /width 450ms/);
   assert.match(workspaceCss, /animation-duration: 450ms/);
   assert.match(workspaceCss, /cubic-bezier\(0\.2, 0, 0, 1\)/);
+  assert.match(workspaceCss, /::view-transition-new\(spark-task-workspace\)[\s\S]*?animation:\s*spark-task-workspace-enter 450ms/);
+  assert.match(workspaceCss, /::view-transition-old\(spark-task-workspace\)[\s\S]*?animation:\s*spark-task-workspace-exit 450ms/);
+  assert.match(workspaceCss, /@keyframes spark-task-workspace-enter\s*\{[\s\S]*?translateX\(calc\(100% \+ 8px\)\)[\s\S]*?translateX\(0\)/);
+  assert.match(workspaceCss, /@keyframes spark-task-workspace-exit\s*\{[\s\S]*?translateX\(0\)[\s\S]*?translateX\(calc\(100% \+ 8px\)\)/);
   assert.doesNotMatch(workspaceCss, /\.spark-tasks-surface\s*\{/);
 });
 

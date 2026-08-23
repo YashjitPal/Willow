@@ -1658,6 +1658,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   };
 
   const openTaskWithTransition = (taskId: string) => {
+    // The detail shell is already mounted when switching tasks from its list.
+    // Keep that shell and the adjacent Progress card stationary; the full
+    // workspace slide is only for entering detail from the task-list route.
+    if (location.page === 'task') {
+      goToSparkTask(taskId);
+      return;
+    }
     transitionTaskNavigation(() => goToSparkTask(taskId));
   };
 

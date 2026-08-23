@@ -82,12 +82,15 @@ const DEFAULT_API_FORMATS: Record<ProviderId, ProviderApiFormat> = {
 
 export const defaultApiFormatForProvider = (provider: ProviderId): ProviderApiFormat => DEFAULT_API_FORMATS[provider];
 
+// xAI runs web_search and x_search inside its own inference, exactly like the
+// other providers here. Declaring them as client-executed functions instead
+// turns one chat turn into two round trips, and the model narrates the gap.
 const DEFAULT_TOOL_POLICIES: Record<ProviderId, ProviderToolPolicy> = {
   gemini: 'provider-native',
   openai: 'provider-native',
   anthropic: 'provider-native',
   moonshot: 'disabled',
-  spacexai: 'function-calling',
+  spacexai: 'provider-native',
   zhipuai: 'provider-native',
 };
 
