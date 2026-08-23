@@ -187,6 +187,7 @@ export interface SparkSkill {
   description: string;
   instructions: string;
   source: SparkSkillSource;
+  enabled: boolean;
   fileName?: string;
   createdAt: string;
   updatedAt: string;

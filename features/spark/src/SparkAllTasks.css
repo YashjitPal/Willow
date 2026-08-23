@@ -24,8 +24,8 @@
   height: 100%;
   min-height: 100%;
   flex-direction: column;
-  /* `div.container.slide-up-fade-in` opens the route with `padding: 56px 0 0`, which puts
-   * the heading at y=56. Willow's 40px started the whole column 16px high. */
+  /* `div.container.slide-up-fade-in` opens the route with `padding: 56px 0 0`.
+   * The composer pulls up by 6px so its top aligns with task detail at y=50. */
   padding: 56px 0 48px;
   overflow: hidden;
   isolation: isolate;
@@ -53,32 +53,22 @@
   margin: 0 auto;
 }
 
-/*
- * The task list heads with display type, a step up from the home page: Gemini's
- * `div.heading.gds-display-m` is 36px/44px weight 320 on
- * `"ROND" 100, "slnt" 0, "wdth" 100, "wght" 320` with `padding: 0 0 8px` and no margin,
- * measuring 52px tall. Willow was reusing the home page's 28px/36px weight-350
- * `gds-emphasized-headline-l`, which read a full size smaller.
- */
-.spark-all-tasks h1 {
-  height: 52px;
-  margin: 0;
-  padding: 0 0 8px;
-  color: #e3e3e3;
-  font-size: 36px;
-  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
-  font-weight: 320;
-  line-height: 44px;
-  text-align: center;
-}
-
 /* No z-index and no isolation, so the glow below stays behind the task rows and their
  * translucent fill can darken it — see the note on `.spark-composer-anchor` in
  * `SparkHome.css`. */
 .spark-all-tasks__composer-anchor {
   position: relative;
   min-height: 65.6px;
-  margin-top: 27px;
+  margin-top: -6px;
+}
+
+/* The task list uses the same composer host as the task-detail library. Keep the
+ * task-detail element identity in the DOM, while preserving the list route's
+ * measured 580px prompt width. */
+.spark-all-tasks__composer-anchor.spark-task-detail__new-composer {
+  width: 100%;
+  max-width: none;
+  margin: -6px 0 0;
 }
 
 /*
@@ -87,26 +77,11 @@
  * `margin: -6px 40px` on /spark/tasks, both capped at `max-width: 660px`. Chat's composer
  * fills its 660px column, so the 40px a side has to come from here.
  */
-.spark-all-tasks__composer-anchor .spark-composer-host {
+.spark-all-tasks__composer-slot {
   width: calc(100% - 80px);
+  min-height: 65.6px;
   margin: 0 auto;
 }
-
-.spark-all-tasks__composer-anchor::before {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  z-index: -1;
-  width: 792px;
-  height: 160px;
-  border-radius: 9999px;
-  background: rgb(20, 32, 79);
-  content: "";
-  filter: blur(100px);
-  pointer-events: none;
-  transform: translate(-50%, -72px);
-}
-
 
 /*
  * Flex column, so the height constraint reaches the list. This was `display: block`,
@@ -122,7 +97,10 @@
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  margin-top: 21px;
+  /* Detail recents: 26px section gap + 32px filter + 16px list inset.
+   * All Tasks keeps its 40px toolbar, so 18px here lands the first row at
+   * the same y-coordinate instead of starting 3px lower. */
+  margin-top: 18px;
 }
 
 .spark-all-tasks__toolbar {
@@ -151,11 +129,13 @@
  * and the chevron is a 24px Luminous glyph — 16 + 49.1 + 8 + 24 + 16 = 113.1. Willow had
  * the right size but weight 500, half the padding and half the gap, landing at 88.6.
  */
-.spark-all-tasks__filter-button {
+.spark-all-tasks .spark-task-detail__filter-button {
   display: inline-flex;
   height: 32px;
   align-items: center;
-  gap: 8px;
+  align-self: flex-start;
+  gap: 0;
+  margin-top: 8px;
   padding: 0 16px;
   border: 0;
   border-radius: 9999px;
@@ -166,6 +146,13 @@
   font-weight: 540;
   line-height: 20px;
   cursor: pointer;
+}
+
+/* Keep the Recent trigger identical to the one in the task-detail recents
+ * panel. The All Tasks toolbar still owns its placement; only the control's
+ * internal typography and spacing are shared. */
+.spark-all-tasks .spark-task-detail__filter-button > span:first-child {
+  line-height: 18.4px;
 }
 
 /*
@@ -240,67 +227,6 @@
   flex: 0 0 24px;
   align-items: center;
   justify-content: center;
-}
-
-.spark-all-tasks__search {
-  display: flex;
-  width: min(220px, 48%);
-  height: 36px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 12px;
-  border: 1px solid transparent;
-  border-radius: 18px;
-  background: transparent;
-  color: #c4c7c5;
-  transition: border-color 140ms ease, background-color 140ms ease;
-}
-
-.spark-all-tasks__search:hover,
-.spark-all-tasks__search:focus-within {
-  border-color: rgba(255, 255, 255, 0.06);
-  background: #1e1f20;
-}
-
-.spark-all-tasks__search input {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #e3e3e3;
-  font: inherit;
-  font-size: 14px;
-  line-height: 20px;
-}
-
-.spark-all-tasks__search input::placeholder {
-  color: rgba(255, 255, 255, 0.55);
-  opacity: 1;
-}
-
-.spark-all-tasks__search input::-webkit-search-cancel-button {
-  display: none;
-}
-
-.spark-all-tasks__search button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #c4c7c5;
-  cursor: pointer;
-}
-
-.spark-all-tasks__search button:hover {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .spark-all-tasks__results-status {
@@ -793,9 +719,8 @@
   background: rgba(168, 199, 250, 0.08);
 }
 
-.spark-all-tasks__filter-button:focus-visible,
+.spark-task-detail__filter-button:focus-visible,
 .spark-all-tasks__filter-menu button:focus-visible,
-.spark-all-tasks__search button:focus-visible,
 .spark-all-tasks__task-open:focus-visible,
 .spark-all-tasks__row-menu-button:focus-visible,
 .spark-all-tasks__row-menu button:focus-visible,
@@ -803,10 +728,6 @@
 .spark-all-tasks__empty button:focus-visible {
   outline: 2px solid #a8c7fa;
   outline-offset: 2px;
-}
-
-.spark-all-tasks__search:focus-within {
-  border-color: rgba(168, 199, 250, 0.5);
 }
 
 @keyframes spark-all-tasks-popover-in {
@@ -834,30 +755,12 @@
     padding-top: 72px;
   }
 
-  .spark-all-tasks h1 {
-    height: auto;
-    min-height: 48px;
-    font-size: 28px;
-    line-height: 36px;
-  }
-
 }
 
 @media (max-width: 520px) {
-  .spark-all-tasks h1 {
-    font-size: 24px;
-    line-height: 32px;
-  }
-
   .spark-all-tasks__toolbar {
     align-items: stretch;
     flex-wrap: wrap;
-  }
-
-  .spark-all-tasks__search {
-    width: auto;
-    min-width: 160px;
-    flex: 1 1 180px;
   }
 
   .spark-all-tasks__task-row {
@@ -903,23 +806,9 @@
     width: calc(100% - 24px);
   }
 
-  .spark-all-tasks h1 {
-    height: auto;
-    min-height: 44px;
-    padding-top: 4px;
-    font-size: 24px;
-    line-height: 32px;
-  }
-
   .spark-all-tasks__toolbar {
     align-items: stretch;
     flex-wrap: wrap;
-  }
-
-  .spark-all-tasks__search {
-    width: auto;
-    min-width: 150px;
-    flex: 1 1 180px;
   }
 
   .spark-all-tasks__task-open {
@@ -943,10 +832,6 @@
 }
 
 @container (max-width: 400px) {
-  .spark-all-tasks__search {
-    flex-basis: 100%;
-  }
-
   .spark-all-tasks__task-description {
     max-width: 190px;
   }

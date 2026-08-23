@@ -67,3 +67,149 @@
 .spark-studio-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.24);
 }
+
+/* All Tasks and task detail share one mounted composer host. The workspace
+ * reparents that host into each page's existing composer anchor, so it inherits
+ * the same flex, clipping, glow, and route transition as the surrounding page. */
+.spark-connected-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.spark-connected-composer {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 65.6px;
+  transform: translate(var(--spark-live-dx, 0px), var(--spark-live-dy, 0px));
+}
+
+.spark-connected-composer .spark-composer-host {
+  width: 100%;
+}
+
+.spark-connected-composer .willow-gemini-composer {
+  min-height: 65.6px;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+}
+
+/* Task rows are route-local DOM, so move the list's live surface horizontally
+ * after navigation instead of asking Chrome to scale a bitmap snapshot. The
+ * y-coordinate is deliberately untouched because both list implementations
+ * share the same row anchor. */
+.spark-connected-surface [role="list"][aria-label="Task list"] {
+  transform: translate(var(--spark-live-dx, 0px), 0);
+}
+
+.spark-connected-surface [data-spark-task-filter] {
+  transform: translate(var(--spark-live-dx, 0px), 0);
+}
+
+/* One glow follows the shared composer between the task-detail and All Tasks
+ * anchors. It stays visible on both routes, so the original task-detail glow
+ * travels with the prompt box instead of disappearing or swapping to the old,
+ * corrupted All Tasks pseudo-element. */
+.spark-connected-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: 800px;
+  height: 160px;
+  max-width: 792px;
+  border-radius: 9999px;
+  background: var(--spark-task-detail-accent);
+  filter: blur(38px);
+  pointer-events: none;
+  transform: translate(calc(-50% + var(--spark-live-dx, 0px)), calc(-50% + var(--spark-live-dy, 0px)));
+  opacity: 1;
+  animation: spark-task-detail-glow-reveal 0.6s cubic-bezier(0.05, 0.7, 0.1, 1) both;
+  transition: opacity 450ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* This is the original prompt-box glow from the task-detail commit. Keep its
+ * measured animated settle (600x100), rather than the larger pre-animation
+ * box, so the restored glow is visually identical. */
+@keyframes spark-task-detail-glow-reveal {
+  0% {
+    width: 200px;
+    height: 40px;
+    opacity: 0;
+  }
+
+  100% {
+    width: 600px;
+    height: 100px;
+    opacity: 1;
+  }
+}
+
+.spark-connected-loading {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  background: #0f0f0f;
+  color: #9aa0a6;
+  font-size: 13px;
+}
+
+/* These names participate only in Chrome's View Transitions API. They do not
+ * add a wrapper, sizing rule, stacking context, or flex item to either route. */
+@supports (view-transition-name: none) {
+  .spark-task-detail__workspace {
+    view-transition-name: spark-task-workspace;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-group(spark-task-workspace) {
+    animation-duration: 450ms;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  ::view-transition-old(spark-task-workspace),
+  ::view-transition-new(spark-task-workspace) {
+    height: 100%;
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-new(spark-task-workspace) {
+    transform-origin: right center;
+    /* Let the shared view-transition group animate the opening geometry. The
+     * old clip-path reveal made the detail pane pop while it expanded. */
+    animation: none;
+  }
+
+  ::view-transition-old(spark-task-workspace) {
+    transform-origin: right center;
+    animation: spark-task-workspace-exit 450ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+}
+
+@keyframes spark-task-workspace-exit {
+  from {
+    opacity: 1;
+    clip-path: inset(0 round 28px);
+  }
+
+  to {
+    opacity: 0;
+    clip-path: inset(0 0 0 100% round 28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(spark-task-workspace),
+  ::view-transition-old(spark-task-workspace),
+  ::view-transition-new(spark-task-workspace) {
+    animation-duration: 0.01ms !important;
+  }
+}
