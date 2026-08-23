@@ -1,17 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal, flushSync } from 'react-dom';
+import type { ComposerHandle } from '@willow/chat/composer/Composer';
 import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   isAbortError,
   streamChat,
   type ChatMessage as AiChatMessage,
 } from '@willow/ai/chat';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import {
+  createSparkTaskAttachments,
   deleteSparkAttachmentPayloads,
   resolveSparkTaskAttachments,
+  validateSparkAttachmentFiles,
 } from './attachment-storage';
 import {
   appendSparkTaskTurn,
@@ -36,12 +42,14 @@ import {
   hydrateSparkState,
   isSparkStateHydratedForScope,
   isSparkScheduleRunClaimCurrent,
+  loadSparkCustomiseCollection,
   loadSparkTaskBody,
   renameSparkTask,
   replaceSparkLocation,
   restoreSparkLocation,
   setSparkAppConnection,
   setSparkCustomAppConnected,
+  setSparkSkillEnabled,
   setSparkTaskReaction,
   setSparkTaskTurnReaction,
   SPARK_HISTORY_STATE_KEY,
@@ -74,6 +82,7 @@ import { runSparkHarnessTurn } from './harness/spark-harness';
 import { levelToEffort, resolveEffort } from './harness/overlay/effort';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
+import { SparkComposer } from './SparkComposer';
 import { SparkHome } from './SparkHome';
 import {
   SPARK_SCHEDULE_WEEKDAYS,
@@ -343,7 +352,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   setSelectedModelId,
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const { chatScopeId, generateChatTitle, generateChatDescription } = useLocalFS();
   const { apiKeys } = useUserDataContext();
   const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
@@ -353,14 +362,50 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     skills: false,
     schedules: false,
   });
+  const loadedCustomiseScopeRef = useRef(scopeId);
   const [uploadedSkillDraft, setUploadedSkillDraft] = useState<SparkSkillDraft | null>(null);
+  const [sparkInitialPrompt, setSparkInitialPrompt] = useState<string | null>(null);
+  const [sharedComposerSubmitting, setSharedComposerSubmitting] = useState(false);
+  const [sharedComposerError, setSharedComposerError] = useState('');
+  const workspaceShellRef = useRef<HTMLDivElement>(null);
+  const sharedComposerRef = useRef<ComposerHandle | null>(null);
+  const sharedComposerRouteRef = useRef('');
+  const [sharedComposerHost] = useState<HTMLDivElement | null>(() => {
+    if (typeof document === 'undefined') return null;
+    const host = document.createElement('div');
+    host.className = 'spark-connected-composer';
+    return host;
+  });
+  const [sharedGlowHost] = useState<HTMLDivElement | null>(() => {
+    if (typeof document === 'undefined') return null;
+    const host = document.createElement('div');
+    host.className = 'spark-connected-glow';
+    return host;
+  });
   const customisePage = location.page === 'skills' || location.page === 'schedules'
     ? location.page
     : null;
 
   useEffect(() => {
+    if (loadedCustomiseScopeRef.current === scopeId) return;
+    loadedCustomiseScopeRef.current = scopeId;
+    setLoadedCustomisePages({ skills: false, schedules: false });
+  }, [scopeId]);
+
+  useEffect(() => {
     if (!customisePage || loadedCustomisePages[customisePage] || hydratedScope !== scopeId) return;
-    setLoadedCustomisePages((current) => ({ ...current, [customisePage]: true }));
+    let cancelled = false;
+    const minimumVisibleTime = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 950);
+    });
+    const collectionRead = loadSparkCustomiseCollection(customisePage, scopeId);
+    void Promise.all([collectionRead, minimumVisibleTime]).then(() => {
+      if (cancelled) return;
+      setLoadedCustomisePages((current) => ({ ...current, [customisePage]: true }));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [customisePage, hydratedScope, loadedCustomisePages, scopeId]);
 
   const isCustomiseLoading = customisePage !== null && !loadedCustomisePages[customisePage];
@@ -384,6 +429,36 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   const locationKey = location.page === 'task'
     ? `${location.page}:${location.taskId}`
     : location.page;
+  sharedComposerRouteRef.current = locationKey;
+
+  const attachSharedComposer = useCallback(() => {
+    const shell = workspaceShellRef.current;
+    if (!shell || !sharedComposerHost) return;
+    const anchor = shell.querySelector<HTMLElement>('[data-spark-new-composer-anchor]');
+    if (anchor && sharedComposerHost.parentElement !== anchor) anchor.appendChild(sharedComposerHost);
+  }, [sharedComposerHost]);
+
+  const attachSharedGlow = useCallback(() => {
+    const shell = workspaceShellRef.current;
+    if (!shell || !sharedGlowHost) return;
+    sharedGlowHost.style.setProperty(
+      '--spark-task-detail-accent',
+      getWorkspaceTheme(userProfile?.workspaceColor || 'blue').glowAccent,
+    );
+    const anchor = shell.querySelector<HTMLElement>('[data-spark-glow-anchor]');
+    if (anchor && sharedGlowHost.parentElement !== anchor) anchor.appendChild(sharedGlowHost);
+  }, [sharedGlowHost, userProfile?.workspaceColor]);
+
+  useLayoutEffect(() => {
+    attachSharedComposer();
+    attachSharedGlow();
+  }, [attachSharedComposer, attachSharedGlow, locationKey, task?.bodyLoaded]);
+
+  useEffect(() => {
+    if (!sparkInitialPrompt) return;
+    sharedComposerRef.current?.setPrompt(sparkInitialPrompt);
+    setSparkInitialPrompt(null);
+  }, [sparkInitialPrompt]);
   const computerUseApiKey = useMemo(() => (
     (apiKeys as unknown as Record<string, string[] | undefined> | undefined)?.gemini
       ?.find((key) => key.trim())
@@ -641,7 +716,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           effort: execution.effort,
         },
         capabilities: {
-          skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          skills: skills.filter((skill) => skill.enabled !== false).map((skill) => ({ name: skill.name, instructions: skill.instructions })),
           connectedApps: [
             ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
             ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
@@ -995,7 +1070,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           effort: execution.effort,
         },
         capabilities: {
-          skills: skills.map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          skills: skills.filter((skill) => skill.enabled !== false).map((skill) => ({ name: skill.name, instructions: skill.instructions })),
           connectedApps: [
             ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
             ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
@@ -1344,11 +1419,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (!file) throw new Error('One of the uploaded files must be a SKILL.md file.');
     const importScope = getActiveSparkStorageScope();
     const isZip = file.type === 'application/zip' || /\.zip$/i.test(file.name);
-    const isFolder = files.length > 1 || Boolean((file as File & { webkitRelativePath?: string }).webkitRelativePath);
     let instructions = '';
     let sourceName = file.name;
+    const zippingStartedAt = performance.now();
+    onStatus?.('Zipping files…');
     if (isZip) {
-      onStatus?.('Zipping files…');
       if (file.size > 5_000_000) throw new Error('The skill ZIP is too large.');
       const { default: JSZip } = await import('jszip');
       const archive = await JSZip.loadAsync(file);
@@ -1361,7 +1436,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       instructions = await entry.async('string');
       sourceName = entry.name.split('/').pop() || entry.name;
     } else {
-      if (isFolder) onStatus?.('Zipping files…');
       if (file.size > 1_000_000) throw new Error('The skill file is too large.');
       instructions = await file.text();
     }
@@ -1370,7 +1444,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (getActiveSparkStorageScope() !== importScope) {
       throw new Error('The active account changed before the skill could be imported.');
     }
+    if (onStatus) {
+      const remainingZippingMs = Math.max(0, 1_600 - (performance.now() - zippingStartedAt));
+      if (remainingZippingMs) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingZippingMs));
+      }
+    }
     onStatus?.('Uploading… 100%');
+    if (onStatus) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    }
 
     const frontmatterMatch = instructions.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
     const frontmatter = frontmatterMatch?.[1] ?? '';
@@ -1395,6 +1478,15 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       fileName: file.name,
     };
   }, []);
+
+  const replaceSkill = useCallback(async (
+    skillId: string,
+    files: File[],
+    onStatus?: (status: string) => void,
+  ) => {
+    const draft = await importSkill(files, onStatus);
+    if (!updateSparkSkill(skillId, draft)) throw new Error('Could not replace the skill.');
+  }, [importSkill]);
 
   useEffect(() => {
     let disposed = false;
@@ -1488,23 +1580,165 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
 
   if (backgroundOnly) return null;
 
+  /* Keep navigation as the only integration point between the full task list
+   * and the opened-task view. The two existing components continue to own all
+   * of their layout and local state; this helper only asks Chrome to capture
+   * the old and new DOM around the route update. */
+  const transitionTaskNavigation = (navigate: () => void) => {
+    const transitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown;
+    };
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!transitionDocument.startViewTransition || reduceMotion) {
+      navigate();
+      return;
+    }
+
+    const liveMove = (
+      element: HTMLElement | null,
+      from: DOMRect | undefined,
+      moveY = true,
+    ) => {
+      if (!element || !from) return;
+      const to = element.getBoundingClientRect();
+      const dx = from.left - to.left;
+      const dy = moveY ? from.top - to.top : 0;
+      const fromWidth = from.width;
+      const toWidth = to.width;
+      element.style.setProperty('--spark-live-dx', `${dx}px`);
+      element.style.setProperty('--spark-live-dy', `${dy}px`);
+      if (element === sharedComposerHost) element.style.width = `${fromWidth}px`;
+      void element.offsetWidth;
+      requestAnimationFrame(() => {
+        element.style.transition = 'transform 450ms cubic-bezier(0.2, 0, 0, 1), width 450ms cubic-bezier(0.2, 0, 0, 1)';
+        element.style.setProperty('--spark-live-dx', '0px');
+        element.style.setProperty('--spark-live-dy', '0px');
+        if (element === sharedComposerHost) element.style.width = `${toWidth}px`;
+      });
+      window.setTimeout(() => {
+        element.style.transition = '';
+        element.style.removeProperty('--spark-live-dx');
+        element.style.removeProperty('--spark-live-dy');
+        if (element === sharedComposerHost) element.style.width = '';
+      }, 470);
+    };
+
+    const composerFrom = sharedComposerHost?.getBoundingClientRect();
+    const glowFrom = sharedGlowHost?.getBoundingClientRect();
+    const taskListFrom = workspaceShellRef.current?.querySelector<HTMLElement>(
+      '[role="list"][aria-label="Task list"]',
+    )?.getBoundingClientRect();
+    const taskFilterFrom = workspaceShellRef.current?.querySelector<HTMLElement>(
+      '[data-spark-task-filter]',
+    )?.getBoundingClientRect();
+
+    try {
+      transitionDocument.startViewTransition(() => {
+        flushSync(navigate);
+        attachSharedComposer();
+        attachSharedGlow();
+        liveMove(sharedComposerHost, composerFrom);
+        liveMove(sharedGlowHost, glowFrom);
+        liveMove(
+          workspaceShellRef.current?.querySelector<HTMLElement>('[role="list"][aria-label="Task list"]') ?? null,
+          taskListFrom,
+          false,
+        );
+        liveMove(
+          workspaceShellRef.current?.querySelector<HTMLElement>('[data-spark-task-filter]') ?? null,
+          taskFilterFrom,
+          false,
+        );
+      });
+    } catch {
+      // A second click can arrive while Chrome is finishing the previous
+      // transition. The route must still change if that happens.
+      navigate();
+    }
+  };
+
+  const openTaskWithTransition = (taskId: string) => {
+    transitionTaskNavigation(() => goToSparkTask(taskId));
+  };
+
+  const closeTaskWithTransition = () => {
+    transitionTaskNavigation(goToAllSparkTasks);
+  };
+
+  const submitSharedNewTask = async (rawPrompt: string, files: File[], tools: string[]) => {
+    const prompt = rawPrompt.trim();
+    if (!prompt || sharedComposerSubmitting) return;
+    const sourceRoute = locationKey;
+    setSharedComposerSubmitting(true);
+    setSharedComposerError('');
+    const submissionScope = getActiveSparkStorageScope();
+    let attachments: SparkTaskAttachment[] = [];
+    try {
+      validateSparkAttachmentFiles(files);
+      attachments = await createSparkTaskAttachments(files, submissionScope);
+      const stillOnSourceRoute = sharedComposerRouteRef.current === sourceRoute;
+      if (getActiveSparkStorageScope() !== submissionScope || !stillOnSourceRoute) {
+        await deleteSparkAttachmentPayloads(attachments.map((attachment) => attachment.id), submissionScope).catch(() => undefined);
+        return;
+      }
+      createTaskWithTransition(prompt, attachments, tools);
+    } catch (error) {
+      if (attachments.length) {
+        await deleteSparkAttachmentPayloads(attachments.map((attachment) => attachment.id), submissionScope).catch(() => undefined);
+      }
+      setSharedComposerError(error instanceof Error ? error.message : 'One or more files could not be prepared.');
+    } finally {
+      setSharedComposerSubmitting(false);
+    }
+  };
+
+  const createTaskWithTransition = (
+    prompt: string,
+    attachments?: SparkTaskAttachment[],
+    tools?: string[],
+  ) => {
+    transitionTaskNavigation(() => createTask(prompt, attachments, tools));
+  };
+
+  const wrapConnectedPage = (content: React.ReactNode) => (
+    <div ref={workspaceShellRef} className="spark-connected-surface">
+      {content}
+      {sharedGlowHost && createPortal(null, sharedGlowHost)}
+      {sharedComposerHost && createPortal(
+        <>
+          <SparkComposer
+            composerRef={sharedComposerRef}
+            onSubmitFiles={submitSharedNewTask}
+            disabled={sharedComposerSubmitting}
+            modelConfig={modelConfig}
+            selectedModelId={selectedModelId}
+            setSelectedModelId={setSelectedModelId}
+          />
+          {sharedComposerError && (
+            <p className="spark-composer-host__error" role="alert">{sharedComposerError}</p>
+          )}
+        </>,
+        sharedComposerHost,
+      )}
+    </div>
+  );
+
   if (location.page === 'task' && task && task.bodyLoaded === false) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#9aa0a6]" aria-live="polite">
+    return wrapConnectedPage(
+      <div className="spark-connected-loading" aria-live="polite">
         Loading task...
-      </div>
+      </div>,
     );
   }
 
   if (location.page === 'task' && task) {
-    return (
+    return wrapConnectedPage(
       <SparkTaskDetail
         task={task}
         tasks={orderedTasks}
         schedule={taskSchedule}
-        onOpenTask={goToSparkTask}
-        onCreateTask={createTask}
-        onBack={goToAllSparkTasks}
+        onOpenTask={openTaskWithTransition}
+        onBack={closeTaskWithTransition}
         onRenameTask={renameSparkTask}
         onDeleteTask={deleteTaskWithAttachments}
         onTogglePin={toggleSparkTaskPinned}
@@ -1604,23 +1838,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             updateLinkedScheduleRunStatus(task.id, 'Skipped', true);
           }
         }}
-      />
+      />,
     );
   }
 
   if (location.page === 'all-tasks') {
-    return (
+    return wrapConnectedPage(
       <SparkAllTasks
         tasks={orderedTasks}
-        onSubmit={createTask}
-        onOpenTask={goToSparkTask}
+        onOpenTask={openTaskWithTransition}
         onRenameTask={renameSparkTask}
         onTogglePin={toggleSparkTaskPinned}
         onDeleteTask={deleteTaskWithAttachments}
-        modelConfig={modelConfig}
-        selectedModelId={selectedModelId}
-        setSelectedModelId={setSelectedModelId}
-      />
+      />,
     );
   }
 
@@ -1736,9 +1966,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onDeleteSkill={deleteSparkSkill}
         onLearnMore={() => window.open('https://support.google.com/gemini?p=skills', '_blank', 'noopener,noreferrer')}
         onOpenSkill={(skillId) => goToSparkSkillEditor('manual', { skillId })}
+        onEditSkillWithGemini={(skillId) => goToSparkSkillEditor('gemini', { skillId })}
+        onUseSkill={(skill) => {
+          setSparkInitialPrompt(`/${skill.name}`);
+          goToAllSparkTasks();
+        }}
+        onReplaceSkill={replaceSkill}
+        onToggleSkill={(skillId, enabled) => setSparkSkillEnabled(skillId, enabled)}
         onRecommendedSkillSelect={(template) => goToSparkSkillEditor('recommended', { template })}
-        onUploadSkill={async (files) => {
-          const draft = await importSkill(files);
+        onUploadSkill={async (files, onStatus) => {
+          const draft = await importSkill(files, onStatus);
           await new Promise((resolve) => window.setTimeout(resolve, 500));
           setUploadedSkillDraft(draft);
           goToSparkSkillEditor('upload');

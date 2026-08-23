@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import type {
   SparkConnectedAppId,
@@ -9,6 +10,7 @@ import type {
 import { formatSparkRelativeTime } from './spark-types';
 import { formatSparkScheduleTime } from './SparkScheduleEditor';
 import { useSparkNow } from './useSparkNow';
+import type { RecommendedSkill } from './spark-recommended-skills';
 import './SparkCustomisePages.css';
 
 const formatScheduleRunLabel = (schedule: SparkSchedule, now: number): string | undefined => {
@@ -21,6 +23,47 @@ const formatScheduleRunLabel = (schedule: SparkSchedule, now: number): string | 
     return `${schedule.lastRunLabel} \u00b7 ${relativeTime}`;
   }
   return `Last run ${relativeTime}`;
+};
+
+/** Mount one viewport of user-owned rows, then append another viewport as the
+ * user scrolls. The full records remain in Spark's store, so opening a row can
+ * still resolve its complete editor without another UI-wide render. */
+const useIncrementalRows = (
+  total: number,
+  rowHeight: number,
+): [number, React.RefCallback<HTMLDivElement>, React.RefObject<HTMLDivElement | null>] => {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const viewportBatch = useCallback(() => {
+    if (typeof window === 'undefined') return 8;
+    const listTop = container?.getBoundingClientRect().top ?? 0;
+    const availableHeight = Math.max(rowHeight, window.innerHeight - Math.max(0, listTop));
+    return Math.max(1, Math.ceil(availableHeight / rowHeight) + 1);
+  }, [container, rowHeight]);
+  const [visibleCount, setVisibleCount] = useState(1);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    setVisibleCount((current) => Math.min(total, Math.max(current, viewportBatch())));
+  }, [total, viewportBatch]);
+
+  useEffect(() => {
+    const resize = () => setVisibleCount((current) => Math.min(total, Math.max(current, viewportBatch())));
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [total, viewportBatch]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || visibleCount >= total || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setVisibleCount((current) => Math.min(total, current + viewportBatch()));
+    }, { root: null, rootMargin: '0px 0px 240px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [total, visibleCount, viewportBatch]);
+
+  return [visibleCount, setContainer, sentinelRef];
 };
 
 interface SparkToggleProps {
@@ -73,6 +116,16 @@ interface SparkRowActionMenuProps {
   onSecondaryAction?: () => void;
   secondaryIcon?: string;
   secondaryLabel?: string;
+  items?: readonly SparkRowActionMenuItem[];
+}
+
+interface SparkRowActionMenuItem {
+  dividerBefore?: boolean;
+  icon: string;
+  iconFamily?: 'luminous' | 'google-symbols';
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
 }
 
 const SparkRowActionMenu: React.FC<SparkRowActionMenuProps> = ({
@@ -82,41 +135,90 @@ const SparkRowActionMenu: React.FC<SparkRowActionMenuProps> = ({
   onSecondaryAction,
   secondaryIcon,
   secondaryLabel,
+  items: customItems,
 }) => {
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<React.CSSProperties>();
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const menuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const hasSecondaryAction = Boolean(onSecondaryAction && secondaryIcon && secondaryLabel);
-  const menuItemCount = hasSecondaryAction ? 2 : 1;
+  const defaultItems: readonly SparkRowActionMenuItem[] = [
+    ...(hasSecondaryAction ? [{
+      icon: secondaryIcon!,
+      label: secondaryLabel!,
+      onSelect: onSecondaryAction!,
+    }] : []),
+    { icon: 'delete', label: deleteLabel, onSelect: onDelete, danger: true },
+  ];
+  const items = customItems ?? defaultItems;
+  const menuItemCount = items.length;
+
+  const positionMenu = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 186.538;
+    setMenuPosition({
+      top: rect.bottom + 10,
+      left: Math.max(8, rect.left),
+      width,
+    });
+  }, []);
+
+  const finishClose = useCallback((restoreFocus = false) => {
+    closeTimerRef.current = null;
+    setOpen(false);
+    setClosing(false);
+    if (restoreFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  const requestClose = useCallback((restoreFocus = false) => {
+    if (!open || closing) return;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => finishClose(restoreFocus), 125);
+  }, [closing, finishClose, open]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
 
+    const positionFrame = window.requestAnimationFrame(positionMenu);
     const focusFrame = window.requestAnimationFrame(() => menuItemRefs.current[0]?.focus());
 
     const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !popoverRef.current?.contains(target)) requestClose();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      setOpen(false);
-      window.requestAnimationFrame(() => triggerRef.current?.focus());
+      requestClose(true);
     };
 
     document.addEventListener('pointerdown', closeOnOutsidePress);
     window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', positionMenu);
+    window.addEventListener('scroll', positionMenu, true);
     return () => {
+      window.cancelAnimationFrame(positionFrame);
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('pointerdown', closeOnOutsidePress);
       window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', positionMenu);
+      window.removeEventListener('scroll', positionMenu, true);
     };
-  }, [open]);
+  }, [open, positionMenu, requestClose]);
 
   const handleMenuItemKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === 'Tab') {
-      setOpen(false);
+      requestClose();
       return;
     }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -142,58 +244,60 @@ const SparkRowActionMenu: React.FC<SparkRowActionMenuProps> = ({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((visible) => !visible)}
+        onClick={() => {
+          if (open) requestClose();
+          else {
+            positionMenu();
+            setClosing(false);
+            setOpen(true);
+          }
+        }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
           event.preventDefault();
+          positionMenu();
+          setClosing(false);
           setOpen(true);
         }}
       >
         <MaterialSymbol family="luminous" name="more_horiz" size={20} weight={320} roundness={100} />
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={popoverRef}
           id={menuId}
-          className="spark-row-action-menu__popover"
+          className={`spark-row-action-menu__popover${closing ? ' is-closing' : ''}`}
           role="menu"
           aria-label={menuLabel}
+          style={menuPosition}
         >
-          {hasSecondaryAction && (
-            <button
-              ref={(element) => { menuItemRefs.current[0] = element; }}
-              type="button"
-              role="menuitem"
-              onKeyDown={(event) => handleMenuItemKeyDown(event, 0)}
-              onClick={() => {
-                setOpen(false);
-                onSecondaryAction?.();
-              }}
-            >
-              <MaterialSymbol
-                family="luminous"
-                name={secondaryIcon!}
-                size={20}
-                weight={320}
-                roundness={100}
-              />
-              <span>{secondaryLabel}</span>
-            </button>
-          )}
-          <button
-            ref={(element) => { menuItemRefs.current[hasSecondaryAction ? 1 : 0] = element; }}
-            type="button"
-            role="menuitem"
-            className="is-danger"
-            onKeyDown={(event) => handleMenuItemKeyDown(event, hasSecondaryAction ? 1 : 0)}
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-          >
-            <MaterialSymbol family="luminous" name="delete" size={20} weight={320} roundness={100} />
-            <span>{deleteLabel}</span>
-          </button>
-        </div>
+          {items.map((item, index) => (
+            <React.Fragment key={`${item.label}-${index}`}>
+              {item.dividerBefore && <div className="spark-row-action-menu__divider" role="separator" />}
+              <button
+                ref={(element) => { menuItemRefs.current[index] = element; }}
+                type="button"
+                role="menuitem"
+                className={item.danger ? 'is-danger' : undefined}
+                onKeyDown={(event) => handleMenuItemKeyDown(event, index)}
+                onClick={() => {
+                  requestClose();
+                  item.onSelect();
+                }}
+              >
+                <MaterialSymbol
+                  family={item.iconFamily ?? 'luminous'}
+                  name={item.icon}
+                  size={20}
+                  weight={320}
+                  roundness={100}
+                />
+                <span>{item.label}</span>
+              </button>
+            </React.Fragment>
+          ))}
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -407,6 +511,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
   const ongoingHeadingId = useId();
   const now = useSparkNow();
   const [scheduleToDelete, setScheduleToDelete] = useState<SparkSchedule | null>(null);
+  const [visibleScheduleCount, scheduleListRef, scheduleSentinelRef] = useIncrementalRows(schedules.length, 88);
 
   return (
     <main
@@ -435,8 +540,8 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
         ) : schedules.length > 0 && (
           <section className="spark-schedules-section" aria-labelledby={ongoingHeadingId}>
               <h2 id={ongoingHeadingId}>Ongoing</h2>
-              <div className="spark-schedule-list">
-                {schedules.map((schedule) => {
+              <div ref={scheduleListRef} className="spark-schedule-list">
+                {schedules.slice(0, visibleScheduleCount).map((schedule) => {
                   const runLabel = formatScheduleRunLabel(schedule, now);
                   return (
                     <div key={schedule.id} className="spark-schedule-row">
@@ -482,6 +587,9 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
                     </div>
                   );
                 })}
+                {visibleScheduleCount < schedules.length && (
+                  <div ref={scheduleSentinelRef} className="spark-customise-page__load-sentinel" aria-hidden="true" />
+                )}
               </div>
           </section>
         )}
@@ -509,51 +617,15 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
   );
 };
 
-interface RecommendedSkill {
-  description: string;
-  title: string;
-}
-
-const RECOMMENDED_SKILLS: readonly RecommendedSkill[] = [
-  {
-    title: 'Match your writing style',
-    description: 'Learns your voice from your real writing across Workspace apps',
-  },
-  {
-    title: 'Focus your energy',
-    description: 'Align your workload with your energy instead of your calendar',
-  },
-  {
-    title: 'Get more perspectives',
-    description: 'Get 3\u20135 distinct viewpoints before you commit to a decision',
-  },
-  {
-    title: 'Generate fresh ideas',
-    description: 'Turn existing content into 5 entirely new creative concepts',
-  },
-  {
-    title: 'Write clearer updates',
-    description: 'Turn rough notes into concise, audience-ready project updates',
-  },
-  {
-    title: 'Challenge your assumptions',
-    description: 'Surface risks, counterarguments and missing evidence before you decide',
-  },
-  {
-    title: 'Prepare for meetings',
-    description: 'Create a focused brief with context, questions and desired outcomes',
-  },
-  {
-    title: 'Turn feedback into action',
-    description: 'Organise feedback into themes, priorities and concrete next steps',
-  },
-] as const;
-
 export interface SkillsPageProps extends SparkPageBaseProps {
   isLoading?: boolean;
   skills: readonly SparkSkill[];
   onDeleteSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
+  onEditSkillWithGemini?: (skillId: string) => void;
+  onUseSkill?: (skill: SparkSkill) => void;
+  onReplaceSkill?: (skillId: string, files: File[], onStatus?: (status: string) => void) => Promise<void> | void;
+  onToggleSkill?: (skillId: string, enabled: boolean) => void;
   onRecommendedSkillSelect?: (title: string) => void;
   onUploadSkill?: (files: File[], onStatus?: (status: string) => void) => Promise<void> | void;
 }
@@ -626,11 +698,6 @@ const SparkUploadDialog: React.FC<SparkUploadDialogProps> = ({ error, isUploadin
             <span>{error}</span>
           </div>
         )}
-        {status && !error && (
-          <div className="spark-upload-dialog__status" role="status" aria-live="polite">
-            {status}
-          </div>
-        )}
         <div
           className={`spark-upload-dialog__dropzone${dragging ? ' is-dragging' : ''}`}
           onDragEnter={(event) => {
@@ -654,16 +721,34 @@ const SparkUploadDialog: React.FC<SparkUploadDialogProps> = ({ error, isUploadin
             acceptFiles(event.dataTransfer.files);
           }}
         >
-          <div className="spark-upload-dialog__drop-content">
-            <div>
-              <span>Drag or select </span>
-              <button type="button" className="spark-upload-dialog__link" onClick={() => filesInputRef.current?.click()} disabled={isUploading}>files</button>
-              <span> or a </span>
-              <button type="button" className="spark-upload-dialog__link" onClick={() => folderInputRef.current?.click()} disabled={isUploading}>folder</button>
-              <span> to upload</span>
+          {status && !error ? (
+            <div className="spark-upload-dialog__status" role="status" aria-live="polite">
+              <div
+                className={`spark-upload-dialog__progress${status === 'Zipping files…' ? ' is-indeterminate' : ' is-complete'}`}
+                role="progressbar"
+                aria-label={status}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={status === 'Zipping files…' ? undefined : 100}
+              >
+                <span className="spark-upload-dialog__progress-track" />
+                <span className="spark-upload-dialog__progress-bar spark-upload-dialog__progress-bar--primary" />
+                <span className="spark-upload-dialog__progress-bar spark-upload-dialog__progress-bar--secondary" />
+              </div>
+              <span>{status}</span>
             </div>
-            <span className="spark-upload-dialog__formats">CSV, PY, TXT and MD files</span>
-          </div>
+          ) : (
+            <div className="spark-upload-dialog__drop-content">
+              <div>
+                <span>Drag or select </span>
+                <button type="button" className="spark-upload-dialog__link" onClick={() => filesInputRef.current?.click()} disabled={isUploading}>files</button>
+                <span> or a </span>
+                <button type="button" className="spark-upload-dialog__link" onClick={() => folderInputRef.current?.click()} disabled={isUploading}>folder</button>
+                <span> to upload</span>
+              </div>
+              <span className="spark-upload-dialog__formats">CSV, PY, TXT and MD files</span>
+            </div>
+          )}
           <input ref={filesInputRef} type="file" hidden multiple accept=".zip,.md,.txt,.py,.csv" disabled={isUploading} onChange={(event) => { acceptFiles(event.target.files ?? []); event.target.value = ''; }} />
           <input ref={folderInputRef} type="file" hidden multiple accept=".zip,.md,.txt,.py,.csv" disabled={isUploading} {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)} onChange={(event) => { acceptFiles(event.target.files ?? []); event.target.value = ''; }} />
         </div>
@@ -677,10 +762,14 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   onCreateManually,
   onCreateWithGemini,
   onDeleteSkill,
+  onEditSkillWithGemini,
   onLearnMore,
   onOpenSkill,
+  onReplaceSkill,
   onRecommendedSkillSelect,
   onUploadSkill,
+  onToggleSkill,
+  onUseSkill,
   skills,
   isLoading = false,
 }) => {
@@ -688,12 +777,27 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   const activeHeadingId = useId();
   const recommendedHeadingId = useId();
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
+  const [recommendedSkills, setRecommendedSkills] = useState<readonly RecommendedSkill[] | null>(null);
   const [skillToDelete, setSkillToDelete] = useState<SparkSkill | null>(null);
   const [uploadError, setUploadError] = useState('');
   const [uploadStatus, setUploadStatus] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadTargetSkillId, setUploadTargetSkillId] = useState<string | null>(null);
   const uploadInFlightRef = useRef(false);
+  const activeSkills = skills.filter((skill) => skill.enabled !== false);
+  const [visibleSkillCount, skillListRef, skillSentinelRef] = useIncrementalRows(activeSkills.length, 73);
+
+  useEffect(() => {
+    let current = true;
+    setRecommendedSkills(null);
+    void import('./spark-recommended-skills').then(({ RECOMMENDED_SKILLS }) => {
+      if (current) setRecommendedSkills(RECOMMENDED_SKILLS);
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const selectUpload = async (files: File[]) => {
     if (!files.length || uploadInFlightRef.current) return;
@@ -703,9 +807,14 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
     setUploadError('');
     setUploadStatus('');
     try {
-      if (!onUploadSkill) throw new Error('Skill import is unavailable');
-      await onUploadSkill(files, setUploadStatus);
+      if (uploadTargetSkillId && onReplaceSkill) {
+        await onReplaceSkill(uploadTargetSkillId, files, setUploadStatus);
+      } else {
+        if (!onUploadSkill) throw new Error('Skill import is unavailable');
+        await onUploadSkill(files, setUploadStatus);
+      }
       setUploadOpen(false);
+      setUploadTargetSkillId(null);
     } catch (error) {
       setUploadError(error instanceof Error && error.message
         ? error.message
@@ -715,6 +824,23 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
       uploadInFlightRef.current = false;
       setIsUploading(false);
     }
+  };
+
+  const downloadSkill = (skill: SparkSkill) => {
+    const frontmatter = [
+      '---',
+      `name: ${skill.name}`,
+      `description: ${skill.description}`,
+      '---',
+      '',
+      skill.instructions.trim(),
+      '',
+    ].join('\n');
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(new Blob([frontmatter], { type: 'text/markdown;charset=utf-8' }));
+    anchor.download = skill.fileName || `${skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'skill'}.md`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(anchor.href), 0);
   };
 
   return (
@@ -743,8 +869,13 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
             aria-label="Upload skill"
             aria-busy={isUploading}
             title={!onUploadSkill ? 'Skill upload is unavailable' : isUploading ? 'Importing skill' : 'Upload skill'}
-            disabled={isUploading || !onUploadSkill}
-            onClick={() => { setUploadError(''); setUploadStatus(''); setUploadOpen(true); }}
+            disabled={isUploading || (!onUploadSkill && !onReplaceSkill)}
+            onClick={() => {
+              setUploadError('');
+              setUploadStatus('');
+              setUploadTargetSkillId(null);
+              setUploadOpen(true);
+            }}
           >
             <MaterialSymbol
               family="luminous"
@@ -756,12 +887,15 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
             />
           </button>
         </div>
-        {uploadOpen && onUploadSkill && (
+        {uploadOpen && (onUploadSkill || onReplaceSkill) && (
           <SparkUploadDialog
             error={uploadError}
             isUploading={isUploading}
             status={uploadStatus}
-            onClose={() => setUploadOpen(false)}
+            onClose={() => {
+              setUploadOpen(false);
+              setUploadTargetSkillId(null);
+            }}
             onFiles={(files) => { void selectUpload(files); }}
           />
         )}
@@ -781,8 +915,8 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
       {!isLoading && skills.length > 0 && (
         <section className="spark-skills-library" aria-labelledby={activeHeadingId}>
           <h2 id={activeHeadingId}>Active</h2>
-          <div className="spark-skills-library__list">
-            {skills.map((skill) => (
+          <div ref={skillListRef} className="spark-skills-library__list">
+            {activeSkills.slice(0, visibleSkillCount).map((skill) => (
               <div key={skill.id} className="spark-skill-row">
                 <button
                   type="button"
@@ -802,20 +936,69 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
                   <SparkRowActionMenu
                     menuLabel={`Skill options for ${skill.name}`}
                     deleteLabel="Delete"
+                    items={[
+                      {
+                        icon: 'contract',
+                        label: 'Use now',
+                        onSelect: () => onUseSkill?.(skill),
+                      },
+                      {
+                        icon: 'chat_spark',
+                        label: 'Edit with Gemini',
+                        onSelect: () => onEditSkillWithGemini?.(skill.id),
+                      },
+                      {
+                        icon: 'edit_note',
+                        iconFamily: 'google-symbols',
+                        label: 'Edit manually',
+                        onSelect: () => onOpenSkill(skill.id),
+                      },
+                      {
+                        dividerBefore: true,
+                        icon: 'download',
+                        iconFamily: 'google-symbols',
+                        label: 'Download',
+                        onSelect: () => downloadSkill(skill),
+                      },
+                      {
+                        icon: 'upload',
+                        label: 'Replace skill',
+                        onSelect: () => {
+                          setUploadError('');
+                          setUploadStatus('');
+                          setUploadTargetSkillId(skill.id);
+                          setUploadOpen(true);
+                        },
+                      },
+                      {
+                        dividerBefore: true,
+                        icon: 'block',
+                        iconFamily: 'google-symbols',
+                        label: 'Deactivate',
+                        onSelect: () => onToggleSkill?.(skill.id, false),
+                      },
+                      {
+                        icon: 'delete',
+                        label: 'Delete',
+                        onSelect: () => setSkillToDelete(skill),
+                      },
+                    ]}
                     onDelete={() => setSkillToDelete(skill)}
                   />
                 </div>
               </div>
             ))}
+            {visibleSkillCount < activeSkills.length && (
+              <div ref={skillSentinelRef} className="spark-customise-page__load-sentinel" aria-hidden="true" />
+            )}
           </div>
         </section>
       )}
 
-      {!isLoading && (
-        <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
+      {recommendedSkills && <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
           <h2 id={recommendedHeadingId}>Recommended</h2>
           <div className="spark-recommended-skills__grid">
-            {RECOMMENDED_SKILLS.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
+            {recommendedSkills.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
               <button
                 key={skill.title}
                 type="button"
@@ -846,8 +1029,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
             opticalSize={28}
             />
           </button>
-        </section>
-      )}
+      </section>}
       {skillToDelete && (
         <SparkDeleteDialog
           itemName={skillToDelete.name}

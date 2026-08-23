@@ -76,10 +76,12 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
   const discardHeadingId = useId();
   const discardDescriptionId = useId();
   const suppressNavigationWarningRef = useRef(false);
+  const discardCloseTimerRef = useRef<number | null>(null);
   const [isAskingGemini, setIsAskingGemini] = useState(false);
   const [assistError, setAssistError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [discardClosing, setDiscardClosing] = useState(false);
   const canSubmit = Boolean(draft.name.trim() && draft.instructions.trim());
   const currentDraftSnapshot = getDraftSnapshot(draft);
   const isDirty = currentDraftSnapshot !== initialDraftSnapshot;
@@ -92,8 +94,19 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
     setAssistError('');
     setDeleteOpen(false);
     setDiscardOpen(false);
+    setDiscardClosing(false);
+    if (discardCloseTimerRef.current !== null) {
+      window.clearTimeout(discardCloseTimerRef.current);
+      discardCloseTimerRef.current = null;
+    }
     suppressNavigationWarningRef.current = false;
   }, [draftIdentity]);
+
+  useEffect(() => () => {
+    if (discardCloseTimerRef.current !== null) {
+      window.clearTimeout(discardCloseTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!deleteOpen && !discardOpen) return;
@@ -102,12 +115,12 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
       if (deleteOpen) {
         setDeleteOpen(false);
       } else {
-        setDiscardOpen(false);
+        closeDiscardDialog();
       }
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [deleteOpen, discardOpen]);
+  }, [deleteOpen, discardOpen, discardClosing]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -136,6 +149,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
 
       event.stopImmediatePropagation();
       setDeleteOpen(false);
+      setDiscardClosing(false);
       setDiscardOpen(true);
     };
 
@@ -172,6 +186,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
   const back = () => {
     if (isDirty) {
       setDeleteOpen(false);
+      setDiscardClosing(false);
       setDiscardOpen(true);
       return;
     }
@@ -183,16 +198,26 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
     }
   };
 
-  const discardAndBack = () => {
-    suppressNavigationWarningRef.current = true;
-    try {
-      onBack();
-      setInitialDraftSnapshot(currentDraftSnapshot);
+  function closeDiscardDialog(leaveEditor = false) {
+    if (!discardOpen || discardClosing) return;
+
+    setDiscardClosing(true);
+    discardCloseTimerRef.current = window.setTimeout(() => {
+      discardCloseTimerRef.current = null;
       setDiscardOpen(false);
-    } finally {
-      resetWarningSuppression();
-    }
-  };
+      setDiscardClosing(false);
+
+      if (!leaveEditor) return;
+
+      suppressNavigationWarningRef.current = true;
+      setInitialDraftSnapshot(currentDraftSnapshot);
+      try {
+        onBack();
+      } finally {
+        resetWarningSuppression();
+      }
+    }, 125);
+  }
 
   const deleteSkill = () => {
     if (!onDelete) return;
@@ -262,15 +287,6 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
         <section className="spark-skill-editor__panel" aria-label="Skill details">
           {/* Gemini's skill editor has no in-card header — the card opens straight
             * onto the name field. The page's own back-nav supplies the context. */}
-          {draft.fileName && (
-            <div className="spark-skill-editor__file">
-              {/* `google-symbols`: the Luminous subset carries no `description`, and a
-                * ligature a face lacks renders as the letters of its own name. */}
-              <MaterialSymbol family="google-symbols" name="description" size={20} weight={320} roundness={100} />
-              <span>{draft.fileName}</span>
-            </div>
-          )}
-
           {/* Gemini's `.title-section` is an unlabelled input. */}
           <div className="spark-skill-editor__field spark-skill-editor__field--title">
             <input
@@ -329,23 +345,34 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
       )}
       {discardOpen && (
         <div
-          className="spark-skill-editor__dialog-backdrop spark-skill-editor__dialog-backdrop--discard"
+          className={`spark-skill-editor__dialog-backdrop spark-skill-editor__dialog-backdrop--discard${discardClosing ? ' is-closing' : ''}`}
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setDiscardOpen(false);
+            if (event.currentTarget === event.target) closeDiscardDialog();
           }}
         >
           <div
-            className="spark-skill-editor__discard-dialog"
+            className={`spark-skill-editor__discard-dialog${discardClosing ? ' is-closing' : ''}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby={discardHeadingId}
             aria-describedby={discardDescriptionId}
           >
-            <h2 id={discardHeadingId}>Discard unsaved changes?</h2>
-            <p id={discardDescriptionId}>Your changes to this skill won&apos;t be saved.</p>
-            <div>
-              <button type="button" autoFocus onClick={() => setDiscardOpen(false)}>Keep editing</button>
-              <button type="button" className="is-discard" onClick={discardAndBack}>Discard</button>
+            <div className="spark-skill-editor__discard-copy">
+              <h2 id={discardHeadingId}>Leave without saving?</h2>
+              <p id={discardDescriptionId}>You&apos;ll lose any recent changes</p>
+            </div>
+            <div className="spark-skill-editor__discard-actions">
+              <button type="button" autoFocus disabled={discardClosing} onClick={() => closeDiscardDialog()}>
+                <span>Cancel</span>
+              </button>
+              <button
+                type="button"
+                className="is-discard"
+                disabled={discardClosing}
+                onClick={() => closeDiscardDialog(true)}
+              >
+                <span>Leave</span>
+              </button>
             </div>
           </div>
         </div>

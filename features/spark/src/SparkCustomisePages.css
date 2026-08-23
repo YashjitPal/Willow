@@ -278,6 +278,13 @@
   border-radius: 16px;
 }
 
+/* Keeps the observer target in flow without creating a visible extra row. */
+.spark-customise-page__load-sentinel {
+  width: 100%;
+  height: 1px;
+  pointer-events: none;
+}
+
 .spark-schedule-row {
   position: relative;
   display: flex;
@@ -338,7 +345,8 @@
 }
 
 .spark-schedule-row:hover .spark-schedule-row__actions,
-.spark-schedule-row:focus-within .spark-schedule-row__actions {
+.spark-schedule-row:focus-within .spark-schedule-row__actions,
+.spark-schedule-row:has(.spark-row-action-menu__trigger[aria-expanded="true"]) .spark-schedule-row__actions {
   display: flex;
 }
 
@@ -544,7 +552,7 @@
 
 .spark-skills-library {
   width: min(676px, calc(100% - 32px));
-  margin: 48px auto 0;
+  margin: 16px auto 0;
 }
 
 .spark-skills-active-empty {
@@ -591,7 +599,8 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  background: transparent;
+  background: #1f1f1f;
+  transition: background-color 150ms ease;
 }
 
 .spark-skill-card {
@@ -605,24 +614,26 @@
   padding: 16px;
   border: 0;
   border-radius: 0;
-  background: #1f1f1f;
+  background: inherit;
   color: #e3e3e3;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 150ms ease;
+  transition: background-color 0.2s;
 }
 
 /*
- * `skill-card:hover` keeps its opaque surface and mixes the 8% state layer into it,
- * because the row below it is clipped by the container rather than transparent.
+ * `skill-card:hover` keeps its opaque surface and mixes the 8% state layer into it.
  *
  * Gemini's card and its action button are one element, so pointing at the button lights
  * the whole row. Willow has to split them, so the row drives the highlight — otherwise the
- * fill drops away the moment the pointer crosses onto the button it just revealed.
+ * fill drops away the moment the pointer crosses onto the button it just revealed. The
+ * split row owns the fill and both the card and action well inherit it, so the complete
+ * 674px surface remains one unbroken rectangle just like Gemini's single element.
  */
-.spark-skill-row:hover .spark-skill-card,
-.spark-skill-row:focus-within .spark-skill-card {
+.spark-skill-row:hover,
+.spark-skill-row:focus-within,
+.spark-skill-row:has(.spark-row-action-menu__trigger[aria-expanded="true"]) {
   background: color-mix(in srgb, #e6e6e6 8%, #1f1f1f);
 }
 
@@ -639,10 +650,12 @@
   align-items: center;
   justify-content: flex-start;
   padding-right: 16px;
+  background: inherit;
 }
 
 .spark-skill-row:hover .spark-skill-row__actions,
-.spark-skill-row:focus-within .spark-skill-row__actions {
+.spark-skill-row:focus-within .spark-skill-row__actions,
+.spark-skill-row:has(.spark-row-action-menu__trigger[aria-expanded="true"]) .spark-skill-row__actions {
   display: flex;
 }
 
@@ -743,17 +756,61 @@
 
 .spark-upload-dialog__status {
   display: flex;
-  min-height: 64px;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  margin: 0 0 16px;
-  padding: 16px 24px;
-  border-radius: 32px;
-  background: #171717;
+  gap: 16px;
+  width: 100%;
+  min-height: 20px;
+  padding: 0;
   color: #e3e3e3;
-  font-size: 17px;
-  line-height: 24px;
+  font-size: 15px;
+  line-height: 20px;
   text-align: center;
+}
+
+.spark-upload-dialog__progress {
+  position: relative;
+  width: min(280px, 100%);
+  height: 4px;
+  overflow: hidden;
+}
+
+.spark-upload-dialog__progress-track,
+.spark-upload-dialog__progress-bar {
+  position: absolute;
+  inset: 0;
+  height: 4px;
+}
+
+.spark-upload-dialog__progress-track { background: #444746; }
+.spark-upload-dialog__progress-bar {
+  background: #a8c7fa;
+  transform-origin: left center;
+}
+
+.spark-upload-dialog__progress.is-complete .spark-upload-dialog__progress-bar--primary {
+  transform: scaleX(1);
+  transition: transform 200ms linear;
+}
+.spark-upload-dialog__progress.is-complete .spark-upload-dialog__progress-bar--secondary { display: none; }
+.spark-upload-dialog__progress.is-indeterminate .spark-upload-dialog__progress-bar--primary {
+  animation: spark-upload-progress-primary 2s infinite linear;
+}
+.spark-upload-dialog__progress.is-indeterminate .spark-upload-dialog__progress-bar--secondary {
+  animation: spark-upload-progress-secondary 2s infinite linear;
+}
+
+@keyframes spark-upload-progress-primary {
+  0% { transform: translateX(-145%) scaleX(0.35); }
+  50% { transform: translateX(55%) scaleX(0.65); }
+  100% { transform: translateX(245%) scaleX(0.2); }
+}
+
+@keyframes spark-upload-progress-secondary {
+  0%, 35% { transform: translateX(-110%) scaleX(0.2); }
+  75% { transform: translateX(80%) scaleX(0.55); }
+  100% { transform: translateX(245%) scaleX(0.25); }
 }
 
 .spark-upload-dialog__error .material-symbols,
@@ -846,50 +903,113 @@
   height: 36px;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 1px 6px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 9999px;
   background: transparent;
-  color: #c4c7c5;
+  color: #e3e3e3;
+  font: 13.3333px Arial, sans-serif;
+  transition: background 0.15s;
   cursor: pointer;
 }
 
 .spark-row-action-menu__trigger:hover,
 .spark-row-action-menu__trigger[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(227, 227, 227, 0.08);
 }
 
 .spark-row-action-menu__popover {
-  position: absolute;
-  z-index: 12;
-  top: calc(100% + 4px);
-  right: 0;
-  width: 156px;
-  padding: 6px 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: #282a2c;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.36);
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px;
+  border: 0;
+  border-radius: 20px;
+  background: #1f1f1f;
+  color: #e3e3e3;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.28);
+  overflow: auto;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-stretch: 92%;
+  letter-spacing: 0;
+  will-change: transform, opacity;
+  animation: spark-row-action-menu-in 120ms cubic-bezier(0, 0, 0.2, 1);
+  transform-origin: center;
+}
+
+.spark-row-action-menu__popover,
+.spark-row-action-menu__popover * {
+  box-sizing: border-box;
+}
+
+.spark-row-action-menu__popover.is-closing {
+  animation: spark-row-action-menu-out 100ms 25ms linear forwards;
 }
 
 .spark-row-action-menu__popover button {
   display: flex;
   width: 100%;
-  height: 44px;
+  height: 36px;
+  min-height: 36px;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
+  gap: 8px;
+  padding: 8px;
   border: 0;
+  border-radius: 12px;
   background: transparent;
-  color: #f2b8b5;
+  color: #e6e6e6;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
   text-align: left;
   cursor: pointer;
 }
 
 .spark-row-action-menu__popover button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-row-action-menu__popover button:focus {
+  outline: 1.6px solid #e6e6e6;
+}
+
+.spark-row-action-menu__popover button:focus:not(:hover) {
+  background: transparent;
+}
+
+.spark-row-action-menu__popover button > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-row-action-menu__popover .google-symbols,
+.spark-row-action-menu__popover .luminous-symbols {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  line-height: 20px;
+}
+
+.spark-row-action-menu__divider {
+  width: 100%;
+  height: 0;
+  margin: 8px 0;
+  border-top: 0.8px solid rgba(255, 255, 255, 0.12);
+}
+
+@keyframes spark-row-action-menu-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes spark-row-action-menu-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .spark-customise-dialog-backdrop {

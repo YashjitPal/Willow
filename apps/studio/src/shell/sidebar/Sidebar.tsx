@@ -732,6 +732,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
   React.useEffect(() => {
     previousCollapsedRef.current = isCollapsed;
   });
+  /*
+   * ...and landing in the same commit is necessary but not sufficient, which is
+   * what the rail-opens case exposed: Projects' three rows slid down while the
+   * rail widened, every time, while closing the rail was clean.
+   *
+   * `railJustToggled` is false again on the very next render, and opening the rail
+   * schedules one before the browser has painted anything: NotebooksSection
+   * mounts, the Recents rows mount, and the effects that arrive with them set
+   * state. So the fold's inline style goes `0fr` + `none` -> `1fr` + `200ms` with
+   * no style recalculation in between, and a transition only exists as far as the
+   * browser is concerned when it can compare two recalculations. It never sees the
+   * `none`. It sees a height change with a live 200ms transition, and eases it.
+   * Closing the rail unmounts rather than mounts, so nothing re-renders in time
+   * and the suppression holds by luck — hence one direction being fine.
+   *
+   * Projects is the section that shows it because its three rows stay mounted
+   * while the rail is shut, only clipped, so the fold has a real 96px to reveal
+   * from the first frame. Recents renders no rows at all until the rail is open.
+   *
+   * The suppression therefore has to survive real frames, not renders. Two of
+   * them: the first only proves the style was recalculated, the second proves it
+   * was painted. After that, restoring the transition compares `1fr` to `1fr` and
+   * animates nothing.
+   */
+  const [railSettling, setRailSettling] = React.useState(false);
+  React.useEffect(() => {
+    setRailSettling(true);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setRailSettling(false));
+    });
+    /*
+     * A hidden tab produces no frames at all, so on its own the pair above would
+     * never fire and the folds would stay unanimated for the rest of the session —
+     * collapse the rail in a background tab, and hand-folding a section after
+     * coming back would snap. The timer is the floor. It is clamped to a second or
+     * worse while the tab is hidden, which costs nothing: there is nothing on
+     * screen to ease until it is visible again, and one frame is all it takes.
+     */
+    const backstop = setTimeout(() => setRailSettling(false), 300);
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      clearTimeout(backstop);
+    };
+  }, [isCollapsed]);
+  /*
+   * Both halves, and the order they fire in is why this is airtight. A child that
+   * sets state from a layout effect re-renders before `previousCollapsedRef` has
+   * been updated, so `railJustToggled` is still true. A child that sets state from
+   * a passive effect is batched with the `setRailSettling(true)` above, because
+   * child effects run before the parent's in the same flush. Anything later than
+   * that is past the paint and harmless.
+   */
+  const railToggling = railJustToggled || railSettling;
   const {
     chatScopeId,
     localChats, 
@@ -1387,8 +1442,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           data-tooltip-position={isCollapsed ? 'right' : 'below'}
           className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95"
         >
-          <div className={`transition-[opacity,transform] duration-200 flex items-center justify-center
-            ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : 'opacity-100 scale-100'}`}>
+          {/*
+           * `opacity-100 scale-100` are UNCONDITIONAL on purpose. They used to sit only in
+           * the expanded branch, so collapsing dropped `scale-100` and the computed
+           * transform went `matrix(1, 0, 0, 1, 0, 0)` -> `none`. That is geometrically
+           * nothing — this logo's rect measures [15, 17, 22] before and after — but it is
+           * still a transform transition, so Chrome composited the subtree for 200ms and
+           * then tore the layer down at the end.
+           *
+           * At the 1.25 device pixel ratio this display runs, `left: 15px` is 18.75 device
+           * px, so the composited raster and the repainted-on-grid version do not land in
+           * the same place. Measured: the painted logo shifted -0.311 device px at its left
+           * edge, -1.220 at its right and -0.592 at its centroid the instant the layer went
+           * away — a frame AFTER the collapse had already finished, which is exactly what
+           * made it read as a jump. None of it is visible at a ratio of 1, where the two
+           * grids coincide, so this hid from every layout-rect and 1x pixel measurement.
+           *
+           * Holding the values constant means no transform transition is created at all,
+           * and the measured shift is 0.000 on all three metrics. The hover pair below is
+           * the only transform this element ever actually needed.
+           */}
+          <div className={`transition-[opacity,transform] duration-200 flex items-center justify-center opacity-100 scale-100
+            ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : ''}`}>
             {/* 22x22, matching `.sparkle-image`. logo.png is 683x683, so squaring it
                 does not distort. */}
             <img
@@ -1598,7 +1673,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
             style={{
               opacity: isCollapsed ? 1 : 0,
               transform: isCollapsed ? 'scale(1)' : 'scale(0.72)',
-              transition: `transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? '100ms' : '150ms'} cubic-bezier(0, 0, 0, 1), background-color 150ms ease`,
+              /*
+               * Held composited for the life of the component, and not as a speculative
+               * performance hint — it is load-bearing. This button's scale transition is
+               * real and has to stay, so Chrome composites it while it runs and drops the
+               * layer when it ends. `left: 10px` is 12.5 device px at this display's 1.25
+               * ratio, so the composited raster and the repainted-on-grid version sit
+               * apart: measured, the painted icon jumped -0.355 device px at its left edge
+               * and -0.447 at its centroid on the frame the layer went away, with the
+               * layout rect identical at [10, 56, 32] either side of it. That is a jump
+               * after the motion has stopped, which is unfixable by any amount of timing
+               * work. Keeping the layer alive makes the measured shift 0.000.
+               *
+               * It also happens to look better: composited layers drop LCD subpixel
+               * antialiasing, so the icon loses the orange/blue fringing its edges pick up
+               * when painted on the normal path. The peak edge gradient falls 33.5 -> 23.1,
+               * which is grayscale antialiasing rather than blur.
+               */
+              willChange: 'transform',
+              /*
+               * Arriving, the fade runs the SAME duration and curve as the scale, and that
+               * is deliberate. It used to be 100ms against the scale's 300ms, so the button
+               * went fully solid while still at 92.5% size — and because the scale is
+               * centred, its left edge still had 1.2px to travel, which it then spent
+               * ~200ms doing. Measured frame by frame, the left edge runs 14.48 -> 10.00
+               * with no step anywhere (largest single frame 0.91px, shrinking the whole
+               * way, pinned at 10.00 from ~334ms out to 1993ms), and pixel-level the icon's
+               * leftmost lit column stops changing at ~80ms and only softens after. So
+               * nothing snapped mid-flight: it simply kept creeping after it looked
+               * arrived. This is the only element on the rail that eases into position —
+               * every other row jumps 6 -> 10 on the first frame and never scales — so it
+               * was the only one that could be caught still moving.
+               *
+               * One duration and one curve means opacity and scale progress are equal at
+               * every instant (both 0.73 at 100ms, 0.95 at 200ms), so the last pixel of
+               * travel now happens while the button is still visibly resolving rather than
+               * after it has settled.
+               *
+               * Leaving is untouched at 150ms: it goes invisible well before it finishes
+               * shrinking, which is the point of the shorter fade in that direction.
+               */
+              transition: `transform ${GEMINI_SIDEBAR_POSITION_MOTION}, opacity ${isCollapsed ? GEMINI_SIDEBAR_POSITION_MOTION : '150ms cubic-bezier(0, 0, 0, 1)'}, background-color 150ms ease`,
             }}
           >
             {/*
@@ -1832,7 +1947,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-hidden={isCollapsed || !projectsExpanded}
                 style={{
                   gridTemplateRows: !isCollapsed && projectsExpanded ? '1fr' : '0fr',
-                  transition: railJustToggled ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+                  transition: railToggling ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
                 }}
               >
                 <div className="min-h-0 overflow-hidden space-y-0">
@@ -1941,7 +2056,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     aria-hidden={isCollapsed || !recentsExpanded}
                     style={{
                       gridTemplateRows: !isCollapsed && recentsExpanded ? '1fr' : '0fr',
-                      transition: railJustToggled ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+                      transition: railToggling ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
                     }}
                   >
                     <div className="min-h-0 overflow-hidden space-y-0">

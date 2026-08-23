@@ -74,7 +74,9 @@ export interface AppendSparkTaskTurnInput {
 export type SparkTaskTurnUpdate = Partial<Omit<SparkTaskTurn, 'id' | 'createdAt'>>;
 
 export type SparkScheduleInput = Omit<SparkSchedule, 'id' | 'createdAt' | 'updatedAt'>;
-export type SparkSkillInput = Omit<SparkSkill, 'id' | 'createdAt' | 'updatedAt'>;
+export type SparkSkillInput = Omit<SparkSkill, 'id' | 'createdAt' | 'updatedAt' | 'enabled'> & {
+  enabled?: boolean;
+};
 export type SparkCustomAppInput = Pick<SparkCustomApp, 'name' | 'url'>;
 
 // New account scopes start without another user's copied demo history. Existing
@@ -1054,6 +1056,7 @@ const normalizeSkill = (value: unknown): SparkSkill | null => {
     description: asString(value.description),
     instructions: asString(value.instructions),
     source,
+    enabled: value.enabled !== false,
     fileName: asString(value.fileName) || undefined,
     createdAt: asString(value.createdAt, now),
     updatedAt: asString(value.updatedAt, now),
@@ -1086,6 +1089,43 @@ export const parseSparkSkill = (contents: string, id: string): SparkSkill | null
     return null;
   }
 };
+
+export function loadSparkCustomiseCollection(collection: 'skills', scopeId?: string): Promise<SparkSkill[]>;
+export function loadSparkCustomiseCollection(collection: 'schedules', scopeId?: string): Promise<SparkSchedule[]>;
+export function loadSparkCustomiseCollection(
+  collection: 'skills' | 'schedules',
+  scopeId?: string,
+): Promise<SparkSkill[] | SparkSchedule[]>;
+export async function loadSparkCustomiseCollection(
+  collection: 'skills' | 'schedules',
+  scopeId = activeSparkStorageScope,
+): Promise<SparkSkill[] | SparkSchedule[]> {
+  // Keep collection reads page-driven even though the agent-facing Spark store
+  // is hydrated at startup. This is an actual persisted-index read, and lets the
+  // Skills/Schedules skeleton remain until both the read and its minimum display
+  // duration have completed.
+  await Promise.resolve();
+  const normalizedScope = scopeId || 'guest';
+  try {
+    const raw = globalThis.localStorage?.getItem(getSparkStorageKey(normalizedScope));
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<PersistedSparkState>;
+      if (collection === 'skills') {
+        return (Array.isArray(saved.skills) ? saved.skills : [])
+          .map(normalizeSkill)
+          .filter((item): item is SparkSkill => Boolean(item));
+      }
+      return (Array.isArray(saved.schedules) ? saved.schedules : [])
+        .map(normalizeSchedule)
+        .filter((item): item is SparkSchedule => Boolean(item));
+    }
+  } catch {
+    // Fall through to the already-hydrated in-memory index if persistence is
+    // temporarily unavailable.
+  }
+  const current = sparkState.get();
+  return collection === 'skills' ? current.skills.slice() : current.schedules.slice();
+}
 
 const normalizeCustomApp = (value: unknown): SparkCustomApp | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.url !== 'string') return null;
@@ -1866,6 +1906,7 @@ export const createSparkSkill = (input: SparkSkillInput): SparkSkill | null => {
   const now = new Date().toISOString();
   const skill: SparkSkill = {
     ...input,
+    enabled: input.enabled !== false,
     id: createRecordId('spark-skill'),
     name,
     description: input.description.trim(),
@@ -1891,6 +1932,9 @@ export const updateSparkSkill = (skillId: string, update: Partial<SparkSkillInpu
     name: update.name === undefined ? existing.name : cleanSingleLine(update.name),
     description: update.description === undefined ? existing.description : update.description.trim(),
     instructions: update.instructions === undefined ? existing.instructions : update.instructions.trim(),
+    source: update.source === undefined ? existing.source : update.source,
+    enabled: update.enabled === undefined ? existing.enabled : update.enabled,
+    fileName: update.fileName === undefined ? existing.fileName : update.fileName,
     updatedAt: new Date().toISOString(),
   };
   if (!updated.name || !updated.instructions) return null;
@@ -1901,6 +1945,9 @@ export const updateSparkSkill = (skillId: string, update: Partial<SparkSkillInpu
   });
   return updated;
 };
+
+export const setSparkSkillEnabled = (skillId: string, enabled: boolean): SparkSkill | null =>
+  updateSparkSkill(skillId, { enabled });
 
 export const deleteSparkSkill = (skillId: string): boolean => {
   const current = sparkState.get();

@@ -159,6 +159,7 @@
  * the surface, corners and elevation belong to `Composer.tsx`. */
 .spark-task-detail__new-composer {
   position: relative;
+  min-height: 65.6px;
 }
 
 /* The follow-up box is Chat's `InputBar` now, so this is only its placement — the surface,
@@ -175,37 +176,6 @@
 .spark-task-detail__new-composer {
   width: min(660px, calc(100% - 88px));
   margin: -6px auto 0;
-}
-
-.spark-task-detail__new-composer::before {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: -1;
-  width: 800px;
-  height: 160px;
-  max-width: 792px;
-  border-radius: 9999px;
-  background: var(--spark-task-detail-accent);
-  content: "";
-  filter: blur(38px);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  animation: spark-task-detail-glow-reveal 0.6s cubic-bezier(0.05, 0.7, 0.1, 1) both;
-}
-
-@keyframes spark-task-detail-glow-reveal {
-  0% {
-    width: 200px;
-    height: 40px;
-    opacity: 0;
-  }
-
-  100% {
-    width: 600px;
-    height: 100px;
-    opacity: 1;
-  }
 }
 
 .spark-task-detail__context-chips {

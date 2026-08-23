@@ -1,9 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import { formatSparkRelativeTime, type SparkTask, type SparkTaskAttachment } from './spark-types';
-import { SparkComposer } from './SparkComposer';
+import { formatSparkRelativeTime, type SparkTask } from './spark-types';
 import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
+import './SparkTaskDetail.css';
 import './SparkAllTasks.css';
 
 type TaskFilter = 'Recent' | 'Scheduled' | 'Needs input' | 'In progress' | 'Completed';
@@ -22,36 +22,12 @@ const SYMBOL_PROPS = {
   roundness: 100,
 };
 
-const SPARK_TOOL_LABELS: Record<string, string> = {
-  images: 'Create image',
-  thinking: 'Thinking',
-  research: 'Deep research',
-  web: 'Web search',
-  learn: 'Study and learn',
-  canvas: 'Canvas',
-  github: 'GitHub',
-  quizzes: 'Quizzes',
-  spotify: 'Spotify',
-  plan: 'Plan',
-  goal: 'Goal',
-  'computer-use': 'Computer Use',
-  'create-pet': 'Create pet',
-  'create-skill': 'Create skill',
-  'sub-agents': 'Sub-agents',
-  'personal-intelligence': 'Personal Intelligence',
-};
-
 export interface SparkAllTasksProps {
   tasks: readonly SparkTask[];
-  onSubmit: (prompt: string, attachments?: SparkTaskAttachment[], tools?: string[]) => void;
   onOpenTask: (taskId: string) => void;
   onRenameTask: (taskId: string, title: string) => void;
   onTogglePin: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
-  /** Forwarded to the composer so the model picker and task execution agree. */
-  modelConfig?: any;
-  selectedModelId?: string;
-  setSelectedModelId?: (id: string) => void;
 }
 
 const matchesFilter = (task: SparkTask, filter: TaskFilter): boolean => {
@@ -71,24 +47,18 @@ const matchesFilter = (task: SparkTask, filter: TaskFilter): boolean => {
 
 export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   tasks,
-  onSubmit,
   onOpenTask,
   onRenameTask,
   onTogglePin,
   onDeleteTask,
-  modelConfig,
-  selectedModelId,
-  setSelectedModelId,
 }) => {
   const [filter, setFilter] = useState<TaskFilter>('Recent');
   const [filterOpen, setFilterOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [openTaskMenuId, setOpenTaskMenuId] = useState<string | null>(null);
   const [renameTaskId, setRenameTaskId] = useState<string | null>(null);
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const filterButtonRef = useRef<HTMLButtonElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const taskMenuRef = useRef<HTMLDivElement>(null);
   const taskMenuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -100,14 +70,12 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const taskOpenButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const taskListRef = useRef<HTMLDivElement>(null);
-  const headingId = useId();
   const filterMenuId = useId();
   const taskMenuId = useId();
   const renameTitleId = useId();
   const deleteTitleId = useId();
   const deleteDescriptionId = useId();
   const now = useSparkNow();
-
   const renameTask = renameTaskId
     ? tasks.find((task) => task.id === renameTaskId)
     : undefined;
@@ -115,19 +83,9 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
     ? tasks.find((task) => task.id === deleteTaskId)
     : undefined;
 
-  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const visibleTasks = useMemo(() => tasks.filter((task) => {
-    if (!matchesFilter(task, filter)) return false;
-    if (!normalizedSearchQuery) return true;
-    return [
-      task.title,
-      task.description,
-      task.prompt,
-      task.progressLabel,
-      task.scheduledLabel,
-      ...(task.tools ?? []).map((tool) => SPARK_TOOL_LABELS[tool] ?? tool),
-    ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearchQuery));
-  }), [filter, normalizedSearchQuery, tasks]);
+    return matchesFilter(task, filter);
+  }), [filter, tasks]);
   const windowedTasks = useSparkTaskWindow({
     items: visibleTasks,
     scrollRef: taskListRef,
@@ -332,16 +290,16 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   };
 
   return (
-    <section className="spark-all-tasks" aria-labelledby={headingId}>
+    <section className="spark-all-tasks" aria-label="Spark tasks">
       <div className="spark-all-tasks__content">
-        <h1 id={headingId}>Put Willow Spark to work for you</h1>
-
-        <div className="spark-all-tasks__composer-anchor">
-          <SparkComposer
-            onSubmitTask={onSubmit}
-            modelConfig={modelConfig}
-            selectedModelId={selectedModelId}
-            setSelectedModelId={setSelectedModelId}
+        <div
+          className="spark-task-detail__new-composer spark-all-tasks__composer-anchor"
+          data-spark-glow-anchor
+        >
+          <div
+            className="spark-all-tasks__composer-slot"
+            data-spark-new-composer-anchor
+            aria-hidden="true"
           />
         </div>
 
@@ -351,7 +309,8 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               <button
                 ref={filterButtonRef}
                 type="button"
-                className="spark-all-tasks__filter-button"
+                className="spark-task-detail__filter-button"
+                data-spark-task-filter
                 aria-label={`Filter tasks: ${filter}`}
                 aria-haspopup="menu"
                 aria-expanded={filterOpen}
@@ -372,10 +331,8 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 <MaterialSymbol
                   {...SYMBOL_PROPS}
                   name="keyboard_arrow_down"
-                  size={24}
-                  weight={300}
-                  roundness={100}
-                  opticalSize={24}
+                  size={20}
+                  opticalSize={20}
                 />
               </button>
 
@@ -412,54 +369,20 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               )}
             </div>
 
-            <div className="spark-all-tasks__search" role="search">
-              <MaterialSymbol {...SYMBOL_PROPS} name="search" size={20} opticalSize={20} />
-              <input
-                ref={searchInputRef}
-                type="search"
-                value={searchQuery}
-                aria-label="Search tasks"
-                placeholder="Search tasks"
-                autoComplete="off"
-                onFocus={() => {
-                  setFilterOpen(false);
-                  setOpenTaskMenuId(null);
-                }}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape' || !searchQuery) return;
-                  event.preventDefault();
-                  setSearchQuery('');
-                }}
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  aria-label="Clear task search"
-                  title="Clear search"
-                  onClick={() => {
-                    setSearchQuery('');
-                    searchInputRef.current?.focus();
-                  }}
-                >
-                  <MaterialSymbol {...SYMBOL_PROPS} name="close" size={18} opticalSize={18} />
-                </button>
-              )}
-            </div>
           </div>
 
           <span className="spark-all-tasks__results-status" aria-live="polite">
             {`${visibleTasks.length} ${visibleTasks.length === 1 ? 'task' : 'tasks'} shown`}
           </span>
 
-          <div ref={taskListRef} className="spark-all-tasks__list" role="list" aria-label="Task list">
+          <div ref={taskListRef} className="spark-task-detail__recent-list" role="list" aria-label="Task list">
             {windowedTasks.map((task) => {
               const menuOpen = openTaskMenuId === task.id;
               return (
-                <article
+                <div
                   key={task.id}
                   role="listitem"
-                  className={`spark-all-tasks__task-row${task.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
+                  className={`spark-task-detail__task-row${task.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
                 >
                   <button
                     ref={(node) => {
@@ -467,7 +390,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                       else taskOpenButtonRefs.current.delete(task.id);
                     }}
                     type="button"
-                    className="spark-all-tasks__task-open"
+                    className="spark-task-detail__task-open"
                     aria-label={`Open task: ${task.title}`}
                     onClick={() => {
                       setFilterOpen(false);
@@ -475,61 +398,61 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                       onOpenTask(task.id);
                     }}
                   >
-                    <span className="spark-all-tasks__task-copy">
-                      <span className="spark-all-tasks__task-title">{task.title}</span>
-                      <span className="spark-all-tasks__task-description">
+                    <span className="spark-task-detail__task-copy">
+                      <span className="spark-task-detail__task-title">{task.title}</span>
+                      <span className="spark-task-detail__task-description">
                         {task.scheduledLabel && (
                           <MaterialSymbol {...SYMBOL_PROPS} name="schedule" size={16} opticalSize={16} />
                         )}
                         <span>{task.description || task.progressLabel || 'Spark task'}</span>
                       </span>
                     </span>
-                    <span className="spark-all-tasks__task-meta">
-                    <span className="spark-all-tasks__task-time">
+                  </button>
+                  <span className="spark-task-detail__task-meta">
+                    <span className="spark-task-detail__task-time">
                       {formatSparkRelativeTime(task.updatedAt, now) || task.time}
                     </span>
-                      {task.status === 'needs-input' && (
-                        <span className="spark-all-tasks__needs-input-badge">Needs input</span>
-                      )}
-                      {task.isPinned && (
-                        <MaterialSymbol
-                          {...SYMBOL_PROPS}
-                          name="push_pin"
-                          size={16}
-                          opticalSize={16}
-                          className="spark-all-tasks__pinned-icon"
-                        />
-                      )}
-                    </span>
-                  </button>
-                  <button
-                    ref={menuOpen ? taskMenuButtonRef : undefined}
-                    type="button"
-                    className="spark-all-tasks__row-menu-button"
-                    aria-label={`Open actions for ${task.title}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen}
-                    aria-controls={menuOpen ? taskMenuId : undefined}
-                    title="Task actions"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      taskMenuButtonRef.current = event.currentTarget;
-                      setFilterOpen(false);
-                      setOpenTaskMenuId((current) => current === task.id ? null : task.id);
-                    }}
-                  >
-                    <MaterialSymbol
-                      {...SYMBOL_PROPS}
-                      name="more_vert"
-                      size={20}
-                      opticalSize={20}
-                    />
-                  </button>
+                    {task.status === 'needs-input' && (
+                      <span className="spark-task-detail__needs-input-badge">Needs input</span>
+                    )}
+                    {task.isPinned && (
+                      <MaterialSymbol
+                        {...SYMBOL_PROPS}
+                        name="push_pin"
+                        size={16}
+                        opticalSize={16}
+                        className="spark-task-detail__pinned-icon"
+                      />
+                    )}
+                    <button
+                      ref={menuOpen ? taskMenuButtonRef : undefined}
+                      type="button"
+                      className="spark-task-detail__row-menu-button"
+                      aria-label={`Open actions for ${task.title}`}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      aria-controls={menuOpen ? taskMenuId : undefined}
+                      title="Task actions"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        taskMenuButtonRef.current = event.currentTarget;
+                        setFilterOpen(false);
+                        setOpenTaskMenuId((current) => current === task.id ? null : task.id);
+                      }}
+                    >
+                      <MaterialSymbol
+                        {...SYMBOL_PROPS}
+                        name="more_vert"
+                        size={20}
+                        opticalSize={20}
+                      />
+                    </button>
+                  </span>
                   {menuOpen && (
                     <div
                       ref={taskMenuRef}
                       id={taskMenuId}
-                      className="spark-all-tasks__row-menu"
+                      className="spark-task-detail__list-task-menu"
                       role="menu"
                       aria-label={`Actions for ${task.title}`}
                       onClick={(event) => event.stopPropagation()}
@@ -576,7 +499,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                       </button>
                     </div>
                   )}
-                </article>
+                </div>
               );
             })}
             {/* Gemini's `.no-tasks-container` is a bordered card holding only a
@@ -584,23 +507,18 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
             {visibleTasks.length === 0 && (
               <div className="spark-all-tasks__empty" role="status">
                 <h2>
-                  {tasks.length === 0
-                    ? 'No tasks yet'
-                    : normalizedSearchQuery
-                      ? 'No matching tasks'
-                      : `No ${filter.toLocaleLowerCase()} tasks`}
+                    {tasks.length === 0 ? 'No tasks yet' : `No ${filter.toLocaleLowerCase()} tasks`}
                 </h2>
                 <p>
                   {tasks.length === 0
                     ? 'Describe a task above and Spark will keep it here.'
-                    : 'Try another search or switch back to Recent.'}
-                </p>
-                {tasks.length > 0 && (normalizedSearchQuery || filter !== 'Recent') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setFilter('Recent');
+                    : 'Try switching back to Recent.'}
+                  </p>
+                  {tasks.length > 0 && filter !== 'Recent' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilter('Recent');
                       window.requestAnimationFrame(() => filterButtonRef.current?.focus());
                     }}
                   >

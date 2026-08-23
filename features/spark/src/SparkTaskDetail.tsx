@@ -18,20 +18,18 @@ import {
   deleteSparkAttachmentPayloads,
   validateSparkAttachmentFiles,
 } from './attachment-storage';
-import { PlusDropdownMenu } from '@willow/chat/composer/PlusDropdownMenu';
 import { GeminiThinkingVisualizer } from '@willow/chat/GeminiThinkingVisualizer';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
-import { SparkMicPulseOverlay } from './SparkDictationWaveform';
 import { formatSparkRelativeTime } from './spark-types';
 import type { SparkSubAgentCall } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import './SparkTaskDetail.css';
-import { SYMBOL_PROPS, mergeSelectedFiles, SparkComposerContextChip, SparkAttachmentPills } from './spark-composer-chips';
+import { SYMBOL_PROPS, SparkAttachmentPills } from './spark-composer-chips';
 import workingAnimationTemplate from './gemini-working-animation/template.svg?raw';
 import workingAnimationData from './gemini-working-animation/frames.json';
 import {
@@ -63,7 +61,6 @@ export interface SparkTaskDetailProps {
   tasks: SparkTask[];
   schedule?: SparkSchedule;
   onOpenTask: (id: string) => void;
-  onCreateTask: (prompt: string, attachments?: SparkTaskAttachment[], tools?: string[]) => void;
   onBack: () => void;
   onRenameTask: (id: string, title: string) => void;
   onDeleteTask: (id: string) => void;
@@ -1540,7 +1537,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   tasks,
   schedule,
   onOpenTask,
-  onCreateTask,
   onBack,
   onRenameTask,
   onDeleteTask,
@@ -1563,17 +1559,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     || needsApproval(currentTask)
     || Boolean(currentTask.approval && currentTask.approvalDecision !== 'allowed');
   const recentTasks = tasks;
-  const [newTaskDraft, setNewTaskDraft] = useState('');
   const [followUpDraft, setFollowUpDraft] = useState('');
-  const [newTaskPlusOpen, setNewTaskPlusOpen] = useState(false);
   const [followUpPlusOpen, setFollowUpPlusOpen] = useState(false);
-  const [newTaskFiles, setNewTaskFiles] = useState<File[]>([]);
   const [followUpFiles, setFollowUpFiles] = useState<File[]>([]);
-  const [newTaskAttachmentError, setNewTaskAttachmentError] = useState('');
   const [followUpAttachmentError, setFollowUpAttachmentError] = useState('');
-  const [isNewTaskSubmitting, setIsNewTaskSubmitting] = useState(false);
   const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
-  const [newTaskTool, setNewTaskTool] = useState<string | null>(null);
   const [followUpTool, setFollowUpTool] = useState<string | null>(null);
   const [dismissedGeneratedFileIds, setDismissedGeneratedFileIds] = useState<Set<string>>(new Set());
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
@@ -1604,13 +1594,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const listTaskMenuButtonRef = useRef<HTMLButtonElement>(null);
   const taskMenuRef = useRef<HTMLDivElement>(null);
   const taskMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const newTaskPlusButtonRef = useRef<HTMLButtonElement>(null);
   const followUpPlusButtonRef = useRef<HTMLButtonElement>(null);
-  const newTaskSubmitInFlightRef = useRef(false);
   const followUpSubmitInFlightRef = useRef(false);
   const taskDetailActiveRef = useRef(true);
   const currentTaskIdRef = useRef(currentTask.id);
-  const newTaskFileInputRef = useRef<HTMLInputElement>(null);
   const followUpFileInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -1633,14 +1620,12 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   /* The remote-browser pane is open by default whenever there is one, matching Gemini,
    * and the header's monitor glyph toggles it. */
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
-  const newTaskErrorId = useId();
   const followUpErrorId = useId();
   const renameTitleId = useId();
   const deleteTitleId = useId();
   const deleteDescriptionId = useId();
   const now = useSparkNow();
   currentTaskIdRef.current = currentTask.id;
-  const newTaskDictation = useSparkDictation({ value: newTaskDraft, onChange: setNewTaskDraft });
   const followUpDictation = useSparkDictation({ value: followUpDraft, onChange: setFollowUpDraft });
   const dialogTask = recentTasks.find((candidate) => candidate.id === dialogTaskId) ?? currentTask;
 
@@ -1710,13 +1695,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   }, []);
 
   useEffect(() => {
-    newTaskDictation.stopDictation();
     followUpDictation.stopDictation();
     setFollowUpDraft('');
-    setNewTaskPlusOpen(false);
     setFollowUpPlusOpen(false);
     setFollowUpFiles([]);
-    setNewTaskAttachmentError('');
     setFollowUpAttachmentError('');
     setFollowUpTool(null);
     setDismissedGeneratedFileIds(new Set());
@@ -1737,7 +1719,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
           ? false
           : null,
     );
-  }, [currentTask.id, followUpDictation.stopDictation, newTaskDictation.stopDictation]);
+  }, [currentTask.id, followUpDictation.stopDictation]);
 
   useEffect(() => {
     setRenameDraft(currentTask.title);
@@ -1915,61 +1897,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     else items[currentIndex < 0 ? items.length - 1 : (currentIndex - 1 + items.length) % items.length].focus();
   };
 
-  const toggleNewTaskDictation = () => {
-    followUpDictation.stopDictation();
-    newTaskDictation.toggleDictation();
-  };
-
   const toggleFollowUpDictation = () => {
-    newTaskDictation.stopDictation();
     followUpDictation.toggleDictation();
-  };
-
-  /* Takes its inputs as arguments, like `submitFollowUp` — the draft lives in the
-   * composer's own state now. The scope and task guards below are unchanged. */
-  const submitNewTask = async (rawPrompt: string, files: File[], tools: string[]) => {
-    const prompt = rawPrompt.trim();
-    if (!prompt || newTaskSubmitInFlightRef.current) return;
-    newTaskSubmitInFlightRef.current = true;
-    setIsNewTaskSubmitting(true);
-    setNewTaskAttachmentError('');
-    const submissionScope = getActiveSparkStorageScope();
-    const submissionTaskId = currentTask.id;
-    let attachments: SparkTaskAttachment[] = [];
-    try {
-      validateSparkAttachmentFiles(files);
-      attachments = await createSparkTaskAttachments(files, submissionScope);
-      const accountChanged = getActiveSparkStorageScope() !== submissionScope;
-      const taskChanged = !taskDetailActiveRef.current
-        || currentTaskIdRef.current !== submissionTaskId;
-      if (accountChanged || taskChanged) {
-        await deleteSparkAttachmentPayloads(
-          attachments.map((attachment) => attachment.id),
-          submissionScope,
-        ).catch(() => undefined);
-        if (!taskChanged) {
-          setNewTaskAttachmentError('Your account changed before the task could be created. Please try again.');
-        }
-        return;
-      }
-      onCreateTask(prompt, attachments, tools);
-      // The composer clears its own draft, attachments and tool chip on submit.
-    } catch (error) {
-      if (attachments.length) {
-        await deleteSparkAttachmentPayloads(
-          attachments.map((attachment) => attachment.id),
-          submissionScope,
-        ).catch(() => undefined);
-      }
-      if (taskDetailActiveRef.current && currentTaskIdRef.current === submissionTaskId) {
-        setNewTaskAttachmentError(error instanceof Error
-          ? error.message
-          : 'One or more files could not be prepared.');
-      }
-    } finally {
-      newTaskSubmitInFlightRef.current = false;
-      if (taskDetailActiveRef.current) setIsNewTaskSubmitting(false);
-    }
   };
 
   /* Takes its inputs as arguments because the draft now lives in the composer's own state —
@@ -2192,26 +2121,19 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         inert={isLibraryCollapsed || undefined}
       >
         <div className="spark-task-detail__library-inner">
-          <div className="spark-task-detail__new-composer">
-            <SparkComposer
-              onSubmitFiles={submitNewTask}
-              disabled={isNewTaskSubmitting}
-              modelConfig={modelConfig}
-              selectedModelId={selectedModelId}
-              setSelectedModelId={setSelectedModelId}
-            />
-            {newTaskAttachmentError && (
-              <p id={newTaskErrorId} className="spark-task-detail__composer-error" role="alert">
-                {newTaskAttachmentError}
-              </p>
-            )}
-          </div>
+          <div
+            className="spark-task-detail__new-composer"
+            data-spark-new-composer-anchor
+            data-spark-glow-anchor
+            aria-hidden="true"
+          />
 
           <section className="spark-task-detail__recent" aria-label="Spark task list">
             <button
               ref={taskFilterButtonRef}
               type="button"
               className="spark-task-detail__filter-button"
+              data-spark-task-filter
               aria-haspopup="menu"
               aria-expanded={taskFilterOpen}
               aria-controls={taskFilterMenuId}
@@ -2219,7 +2141,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 setStatusOpen(false);
                 setTaskMenuOpen(false);
                 setListTaskMenuTaskId(null);
-                setNewTaskPlusOpen(false);
                 setTaskFilterOpen((open) => !open);
               }}
             >
@@ -2464,7 +2385,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     setTaskMenuOpen(false);
                     setTaskFilterOpen(false);
                     setListTaskMenuTaskId(null);
-                    setNewTaskPlusOpen(false);
                     setFollowUpPlusOpen(false);
                     setStatusOpen((open) => !open);
                   }}
@@ -2493,7 +2413,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   setStatusOpen(false);
                   setTaskFilterOpen(false);
                   setListTaskMenuTaskId(null);
-                  setNewTaskPlusOpen(false);
                   setFollowUpPlusOpen(false);
                   setTaskMenuOpen((open) => !open);
                 }}
