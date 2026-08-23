@@ -183,9 +183,7 @@
 
   ::view-transition-new(spark-task-workspace) {
     transform-origin: right center;
-    /* Let the shared view-transition group animate the opening geometry. The
-     * old clip-path reveal made the detail pane pop while it expanded. */
-    animation: none;
+    animation: spark-task-workspace-enter 450ms cubic-bezier(0.2, 0, 0, 1) both;
   }
 
   ::view-transition-old(spark-task-workspace) {
@@ -194,15 +192,23 @@
   }
 }
 
-@keyframes spark-task-workspace-exit {
+@keyframes spark-task-workspace-enter {
   from {
-    opacity: 1;
-    clip-path: inset(0 round 28px);
+    transform: translateX(calc(100% + 8px));
   }
 
   to {
-    opacity: 0;
-    clip-path: inset(0 0 0 100% round 28px);
+    transform: translateX(0);
+  }
+}
+
+@keyframes spark-task-workspace-exit {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(100% + 8px));
   }
 }
 

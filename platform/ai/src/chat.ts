@@ -275,8 +275,12 @@ const getOpenAIClient = (apiKey: string, baseUrl?: string, endpointProvider: Pro
   }
   const { url, headers } = resolveEndpointTransport(endpointProvider, baseUrl, 'v1');
   const client = new OpenAI({
-    apiKey,
+    apiKey: normalizeOpenAICompatibleApiKey(apiKey),
     baseURL: url,
+    // A relayed turn at high reasoning effort with a server-side search can run
+    // well past the SDK's 10 minute default. api.openai.com is left on the
+    // default because it is the one endpoint here that is not relay-fronted.
+    ...(endpointProvider === 'openai' ? {} : { timeout: 60 * 60 * 1000 }),
     dangerouslyAllowBrowser: true,
     ...(headers ? { defaultHeaders: headers } : {})
   });
@@ -1001,10 +1005,14 @@ const streamChatImpl: any = async (
   // choice (for example, an xAI-format model routed through an OpenAI key).
   const configuredFormat = options.apiFormat || defaultApiFormatForProvider(provider as ProviderId);
   const usesGeminiAdapter = configuredFormat === 'native-gemini';
-  const usesOpenAIAdapter = configuredFormat === 'openai-chat-completions'
-    || configuredFormat === 'openai-responses';
   const usesAnthropicAdapter = configuredFormat === 'anthropic-messages';
+  // xAI speaks OpenAI's Chat Completions wire format. The only differences are
+  // which server-side tools it accepts and which models take reasoning_effort,
+  // so it shares the OpenAI-compatible request path rather than owning one.
   const usesXaiAdapter = configuredFormat === 'xai-chat-completions';
+  const usesOpenAIAdapter = configuredFormat === 'openai-chat-completions'
+    || configuredFormat === 'openai-responses'
+    || usesXaiAdapter;
   const toolsAllowed = options.toolPolicy !== 'disabled';
   const reportUsage = (raw: any): void => {
     const usage = normalizeTokenUsage(raw);
@@ -1788,7 +1796,21 @@ Adhere to the following rules and guidelines:
         5: "max",
         6: "max"
     };
-    const reasoningEffort = options.reasoningEffort || reasoningEffortMap[options.thinkingLevel ?? 1] || "medium";
+    // xAI accepts only low/medium/high, and only on the grok-4 family; sending
+    // the field to anything else is a 400. The ceiling belongs to the wire
+    // format rather than to the provider, so a Grok model reached through an
+    // OpenAI-shaped relay is capped the same way.
+    const xaiReasoningEffortMap: Record<number, "low" | "medium" | "high"> = {
+        0: "low",
+        1: "low",
+        2: "medium",
+        3: "high",
+        4: "high",
+    };
+    const reasoningEffort = usesXaiAdapter
+      ? ((options.reasoningEffort as any) || xaiReasoningEffortMap[options.thinkingLevel ?? 3] || "high")
+      : (options.reasoningEffort || reasoningEffortMap[options.thinkingLevel ?? 1] || "medium");
+    const sendsReasoningEffort = !usesXaiAdapter || model.startsWith('grok-4');
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
@@ -1880,13 +1902,19 @@ Adhere to the following rules and guidelines:
     const openaiSearchEnabled = toolsAllowed
       && options.toolPolicy !== 'function-calling'
       && options.enableSearch !== false;
-    const openaiSearchTools = [{ type: 'web_search' }];
+    // xAI exposes two server-side search tools and needs both declared to reach
+    // X (Twitter) as well as the open web. Declaring them as client-executed
+    // `function` tools instead is what used to make Grok answer in two turns:
+    // the model has no results on the first pass, so it narrates the gap.
+    const openaiSearchTools = usesXaiAdapter
+      ? [{ type: 'web_search' }, { type: 'x_search' }]
+      : [{ type: 'web_search' }];
 
     const chatCompletionParams = {
       model,
       // @ts-ignore
       messages: [...systemMessages, ...formattedMessages],
-      reasoning_effort: reasoningEffort,
+      ...(sendsReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     } as any;
 
     const hasOpenAIFileInput = messages.some((message) => message.attachments?.some((attachment) => (
@@ -1906,7 +1934,7 @@ Adhere to the following rules and guidelines:
           model,
           input: responseInput,
           ...(systemPrompt ? { instructions: systemPrompt } : {}),
-          reasoning: { effort: reasoningEffort },
+          ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
           ...(searchEnabled ? { tools: openaiSearchTools } : {}),
           ...(model === "gpt-5.5-pro" ? { background: true } : {}),
         } as any, signal ? { signal } : undefined),
@@ -2239,298 +2267,6 @@ Adhere to the following rules and guidelines:
         }
         onToken(content);
         compatAnswerText += content;
-      }
-    }
-
-    if (compatHarvest.annotations.length || compatHarvest.sources.length) {
-      const resolved = resolveCompatCitations(compatHarvest, compatAnswerText);
-      if (resolved.sources.length) onCitations?.(resolved);
-    }
-  } else if (usesXaiAdapter) {
-    // ============ SPACEXAI / GROK DEDICATED PIPELINE ============
-    const { url: compatibleBaseUrl, headers: compatibleHeaders } =
-      resolveEndpointTransport(provider as ProviderId, options.baseUrl, 'v1');
-
-    const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);
-    const client = new OpenAI({
-      apiKey: compatibleApiKey,
-      baseURL: compatibleBaseUrl,
-      timeout: 60 * 60 * 1000,
-      dangerouslyAllowBrowser: true,
-      ...(compatibleHeaders ? { defaultHeaders: compatibleHeaders } : {}),
-    });
-
-    const grokReasoningEffortMap: Record<number, 'low' | 'medium' | 'high'> = {
-      0: 'low',
-      1: 'low',
-      2: 'medium',
-      3: 'high',
-      4: 'high',
-    };
-    const grokReasoningEffort = (options.reasoningEffort as any) || grokReasoningEffortMap[options.thinkingLevel ?? 3] || 'high';
-
-    const formattedMessages: any[] = messages.map(m => {
-      let cleanContent = m.content || '';
-      if (m.role === 'assistant' || (m.role as any) === 'model') {
-        cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
-      }
-      if (!m.attachments || m.attachments.length === 0) {
-        return { role: m.role === 'assistant' ? 'assistant' : 'user', content: cleanContent };
-      }
-      const contentParts: any[] = [{ type: 'text', text: cleanContent }];
-      m.attachments.forEach(att => {
-        if (att.type === 'image') {
-          contentParts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${att.mimeType};base64,${att.data}`
-            }
-          });
-        } else if (att.type === 'text') {
-          const label = att.name || att.mimeType;
-          contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
-        } else {
-          const label = att.name || att.mimeType;
-          contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType})]`;
-        }
-      });
-      return { role: m.role === 'assistant' ? 'assistant' : 'user', content: contentParts };
-    });
-
-    const conversationHistory: any[] = [
-      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-      ...formattedMessages,
-    ];
-
-    // Build native function tool declarations for Grok
-    const grokTools: any[] = [];
-    if (toolsAllowed && options.enableSearch !== false) {
-      grokTools.push(
-        {
-          type: 'function',
-          function: {
-            name: 'web_search',
-            description: 'Search the public web for real-time news, articles, websites, and documentation.',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Web search query' },
-              },
-              required: ['query'],
-            },
-          },
-        },
-        {
-          type: 'function',
-          function: {
-            name: 'x_search',
-            description: 'Search X (Twitter) for real-time posts, tweets, and trending community discussions.',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'X (Twitter) search query' },
-              },
-              required: ['query'],
-            },
-          },
-        }
-      );
-    }
-
-    if (options.enableMediaTools && onToolCall) {
-      grokTools.push(
-        {
-          type: 'function',
-          function: {
-            name: 'generate_image',
-            description: 'Handles text-to-image (T2I) and image generation.',
-            parameters: {
-              type: 'object',
-              properties: {
-                prompt: { type: 'string', description: 'Descriptive text prompt for generating image' },
-                aspect_ratio: { type: 'string', description: 'Aspect ratio, e.g., 16:9, 1:1, 9:16' },
-              },
-              required: ['prompt'],
-            },
-          },
-        },
-        {
-          type: 'function',
-          function: {
-            name: 'generate_video_from_text',
-            description: 'Text-to-video (T2V) generation.',
-            parameters: {
-              type: 'object',
-              properties: {
-                prompt: { type: 'string', description: 'Text description of video' },
-                aspect_ratio: { type: 'string', description: 'Target aspect ratio: 16:9, 9:16' },
-              },
-              required: ['prompt'],
-            },
-          },
-        }
-      );
-    }
-
-    let keepRunning = true;
-    let toolIterations = 0;
-    let hasEmittedText = false;
-    let hasEmittedThought = false;
-    const compatHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
-    let compatAnswerText = '';
-
-    while (keepRunning) {
-      throwIfAborted(signal);
-      if (++toolIterations > maxToolIterations) {
-        throw new Error(`Grok tool loop exceeded the ${maxToolIterations}-iteration safety limit.`);
-      }
-
-      const stream: any = await client.chat.completions.create({
-        model,
-        messages: conversationHistory,
-        ...(model === 'grok-4.6' || model === 'grok-4.5' || model.startsWith('grok-4')
-          ? { reasoning_effort: grokReasoningEffort }
-          : {}),
-        ...(grokTools.length > 0 ? { tools: grokTools } : {}),
-        stream: true,
-      } as any, signal ? { signal } : undefined);
-
-      let accumulatedContent = '';
-      let accumulatedReasoning = '';
-      const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
-
-      for await (const chunk of stream) {
-        throwIfAborted(signal);
-        harvestCompatSearchChunk(chunk, compatHarvest);
-        reportUsage(chunk?.usage);
-
-        const delta = chunk.choices?.[0]?.delta;
-        if (!delta) continue;
-
-        if (delta.reasoning_content) {
-          if (!hasEmittedThought) {
-            hasEmittedThought = true;
-            onPhase?.('thinking');
-          }
-          accumulatedReasoning += delta.reasoning_content;
-          onThought?.(delta.reasoning_content);
-        }
-
-        if (delta.content) {
-          if (!hasEmittedText) {
-            hasEmittedText = true;
-            onPhase?.('responding');
-          }
-          accumulatedContent += delta.content;
-          compatAnswerText += delta.content;
-          onToken(delta.content);
-        }
-
-        if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
-          for (const tc of delta.tool_calls) {
-            const index = tc.index ?? 0;
-            if (!toolCallsMap[index]) {
-              toolCallsMap[index] = {
-                id: tc.id || `call_${index}_${Date.now()}`,
-                name: tc.function?.name || '',
-                arguments: tc.function?.arguments || '',
-              };
-            } else {
-              if (tc.id) toolCallsMap[index].id = tc.id;
-              if (tc.function?.name) toolCallsMap[index].name += tc.function.name;
-              if (tc.function?.arguments) toolCallsMap[index].arguments += tc.function.arguments;
-            }
-          }
-        }
-      }
-
-      const toolCallsList = Object.values(toolCallsMap).filter(tc => tc.name);
-
-      if (toolCallsList.length > 0) {
-        const isSearchOnly = toolCallsList.every(tc => tc.name === 'web_search' || tc.name === 'x_search');
-        onPhase?.(isSearchOnly ? 'searching' : 'executing');
-
-        const assistantMsg: any = {
-          role: 'assistant',
-          content: accumulatedContent || null,
-          tool_calls: toolCallsList.map(tc => ({
-            id: tc.id,
-            type: 'function',
-            function: {
-              name: tc.name,
-              arguments: tc.arguments,
-            },
-          })),
-        };
-        conversationHistory.push(assistantMsg);
-
-        for (const tc of toolCallsList) {
-          throwIfAborted(signal);
-          let parsedArgs: any = {};
-          try {
-            parsedArgs = JSON.parse(tc.arguments || '{}');
-          } catch {
-            parsedArgs = { query: tc.arguments };
-          }
-
-          let toolResult: any;
-          if (tc.name === 'web_search' || tc.name === 'x_search') {
-            options.onToolCallStart?.(tc.name, parsedArgs);
-            try {
-              const queryStr = parsedArgs.query || parsedArgs.search_query || '';
-              const searchRes = await fetch(`/llm-search?q=${encodeURIComponent(queryStr)}&type=${tc.name}`);
-              if (searchRes.ok) {
-                const searchData = await searchRes.json();
-                toolResult = searchData;
-                if (Array.isArray(searchData.results)) {
-                  for (const r of searchData.results) {
-                    if (r.link) {
-                      compatHarvest.sources.push({
-                        title: r.title || r.link,
-                        url: r.link,
-                        snippet: r.snippet || '',
-                      });
-                    }
-                  }
-                }
-              } else {
-                toolResult = { error: `Search failed with status ${searchRes.status}` };
-              }
-            } catch (err: any) {
-              toolResult = { error: err.message || 'Live search execution failed' };
-            }
-          } else if (onToolCall) {
-            options.onToolCallStart?.(tc.name, parsedArgs);
-            try {
-              toolResult = await onToolCall(tc.name, parsedArgs);
-            } catch (err: any) {
-              toolResult = { error: err.message || 'Tool execution failed' };
-            }
-          } else {
-            toolResult = {
-              status: 'executed',
-              query: parsedArgs.query || parsedArgs,
-              note: `Tool "${tc.name}" executed.`,
-            };
-          }
-
-          if (toolResult && typeof toolResult === 'object') {
-            if (toolResult.media_id) {
-              onToken(`\n\n![Generated Media](media-id:${toolResult.media_id})\n\n`);
-            } else if (toolResult.url) {
-              onToken(`\n\n![Generated Media](${toolResult.url})\n\n`);
-            }
-          }
-
-          conversationHistory.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            name: tc.name,
-            content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
-          });
-        }
-      } else {
-        keepRunning = false;
       }
     }
 
