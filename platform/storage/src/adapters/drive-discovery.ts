@@ -6,7 +6,6 @@ export interface DriveProjectFolder {
 }
 
 export interface DriveProjectRegistryEntry extends ProjectRegistryEntry {
-  kind?: 'code' | 'media';
   driveFolderId?: string;
   onDrive?: boolean;
 }

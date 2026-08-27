@@ -1,9 +1,9 @@
 /**
  * Project folder contributors.
  *
- * A saved project is not owned by one feature: the Code editor writes the
- * source tree, Design writes its nodes, and future features will want their own
- * sub-folders. Rather than have the storage layer import every feature (which
+ * A saved Code project is not owned by one feature: the Code editor writes the
+ * source tree and future features may want their own sub-folders. Rather than
+ * have the storage layer import every feature (which
  * inverts the dependency arrow and makes `platform/` un-testable in isolation),
  * features *register* a writer here and the sync engine calls it.
  *
@@ -26,7 +26,7 @@ export interface ProjectFolderWriteContext {
 
 export interface ProjectFolderWriter {
   /**
-   * Sub-folder under `Code/<project>/` this contributor owns, e.g. "Designs".
+   * Sub-folder under `Code/<project>/` this contributor owns.
    * The folder is emptied before `write` runs, so the contributor always
    * produces the complete, current contents.
    */
@@ -42,7 +42,18 @@ const writers = new Map<string, ProjectFolderWriter>();
  * hot-module reload — re-importing a feature must not double-write.
  */
 export function registerProjectFolderWriter(id: string, writer: ProjectFolderWriter): void {
-  writers.set(id, writer);
+  const cleanId = id.trim();
+  const folder = writer.folder.trim();
+  if (!cleanId) throw new Error('Project folder writer id cannot be empty');
+  if (!folder || folder.includes('\\') || folder.split('/').some((segment) => !segment.trim() || segment === '.' || segment === '..')) {
+    throw new Error(`Project folder writer "${id}": folder must be a safe relative path`);
+  }
+  for (const [existingId, existing] of writers) {
+    if (existingId !== cleanId && existing.folder.toLowerCase() === folder.toLowerCase()) {
+      throw new Error(`Project folder writer folder "${folder}" is already owned by "${existingId}"`);
+    }
+  }
+  writers.set(cleanId, { ...writer, folder });
 }
 
 export function unregisterProjectFolderWriter(id: string): void {

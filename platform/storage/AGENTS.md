@@ -89,7 +89,7 @@ The reconciler (`syncProjectsFromDisk`) is **disk-authoritative**:
 
 - **`onDisk` guard**: only auto-delete a registry entry whose folder is gone if
   `onDisk === true`. Browser-only projects (never yet saved to disk) survive.
-- **Failed scan → abort**: if either the Code or Media folder scan errors, the
+- **Failed scan → abort**: if any registered project-area scan errors, the
   reconciler returns without making any change. A partial listing must never
   convert into deletions.
 - **Change-only**: no `setState` or disk write when nothing changed — prevents

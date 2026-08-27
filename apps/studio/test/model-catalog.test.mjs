@@ -130,3 +130,19 @@ it('uses the same order for Media while routing image models there', () => {
   assert.match(media, /getModelCategory\(model\) === 'image'/);
   assert.match(media, /getModelCategory\(model\) === 'video'/);
 });
+
+it('offers Gemini 3.5 Transcribe models for voice transcription and keeps them out of chat', () => {
+  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
+  const modelsTab = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'ModelsTab.tsx'), 'utf8');
+  const transcriptionSource = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'transcription.ts'), 'utf8');
+  assert.match(settings, /id:\s*'gemini-3\.5-transcribe',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe'/);
+  assert.match(settings, /id:\s*'gemini-3\.5-transcribe-live',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe Live'/);
+  assert.match(modelsTab, /'gemini-3\.5-transcribe':\s*'\$2\.00\/\$12\.00'/);
+  assert.match(modelsTab, /'gemini-3\.5-transcribe-live':\s*'\$3\.50\/\$21\.00'/);
+  assert.match(transcriptionSource, /v1beta\/interactions/);
+  assert.match(transcriptionSource, /extractInteractionTranscript/);
+  assert.equal(catalog.isChatCapableModel({ id: 'transcribe', modelId: 'gemini-3.5-transcribe', name: 'Gemini 3.5 Transcribe' }), false);
+  assert.equal(catalog.isChatCapableModel({ id: 'transcribe-live', modelId: 'gemini-3.5-transcribe-live', name: 'Gemini 3.5 Transcribe Live' }), false);
+  assert.equal(catalog.getModelCategory({ id: 'transcribe', modelId: 'gemini-3.5-transcribe', name: 'Gemini 3.5 Transcribe' }), 'audio');
+  assert.equal(catalog.getModelCategory({ id: 'transcribe-live', modelId: 'gemini-3.5-transcribe-live', name: 'Gemini 3.5 Transcribe Live' }), 'audio');
+});

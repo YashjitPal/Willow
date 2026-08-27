@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "src",
+    "outDir": "dist/types"
+  },
+  "include": [
+    "src/local-sync.ts",
+    "src/index.ts",
+    "src/synced-folders.ts",
+    "src/project-contributors.ts",
+    "src/local-fs/project-areas.ts",
+    "src/local-fs/folder-sync-engine.ts",
+    "src/local-fs/synced-folder-driver.ts"
+  ]
+}

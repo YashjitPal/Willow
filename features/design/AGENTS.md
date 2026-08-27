@@ -13,25 +13,26 @@ device dimensions. Think "Figma boards, but each frame is a running React compon
 | `src/DesignChat.tsx` | The prompt surface that generates and revises nodes. |
 | `src/ColorPickerMenu.tsx` | Colour picker for node styling. |
 | `src/design-store.ts` | Nanostore: nodes, focus, selection, viewport mode. The feature's whole state. |
-| `src/register.ts` | **Side-effect module.** Registers the `Designs/` project-folder writer. |
+| `src/register.ts` | **Side-effect module.** Keeps Design's storage registration entry point. |
 
 ## `register.ts` — the pattern worth copying
 
 `platform/storage` owns saving a project but must not know that a Design feature
-exists. So Design registers a writer for the one sub-folder it owns:
+exists. Design projects are written by the storage API to their own top-level
+workspace folder:
 
 ```ts
-registerProjectFolderWriter('design', { folder: 'Designs', async write({ writeFile }) { … } });
+saveLocalFSDesignProject(projectName, files)
 ```
 
 Importing the module *is* the registration, and it is pulled in exactly once from
 `apps/studio/src/app/register-features.ts`. This is the established way for a
 feature to extend platform machinery without inverting the dependency arrow — see
-the root `AGENTS.md` and `platform/storage/src/project-contributors.ts`.
+the root `AGENTS.md` and `platform/storage/src/local-fs/project-areas.ts`.
 
-Each node saves as a pair: `<name>.tsx` (a plain component a human can open) and
-`<name>.json` (canvas position, size, prompt, timestamp). Layout lives beside the
-code rather than inside it, deliberately.
+Design files live under `Design/<project>/`, separately from Code and Media
+projects. Each node can be saved as a pair: `<name>.tsx` (a plain component a
+human can open) and `<name>.json` (canvas position, size, prompt, timestamp).
 
 ## The dot grid
 

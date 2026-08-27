@@ -8,8 +8,8 @@
  * and the engine drives it.
  *
  * This is the top-level sibling of `./project-contributors.ts`. That registry
- * covers sub-folders INSIDE one saved project (`Code/<project>/Designs/`); this
- * one covers folders directly under the workspace root.
+ * covers independent folders directly under the workspace root; project roots
+ * such as `Design/<project>/` use the project-area registry instead.
  *
  * Registration is a module side effect, so a descriptor only exists when the app
  * actually loads that feature, and `apps/studio/src/app/register-features.ts` is

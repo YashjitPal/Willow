@@ -52,7 +52,7 @@ interface ProjectCardProps {
   isStarred?: boolean;
   hasChat?: boolean;
   isShared?: boolean;
-  kind?: 'media' | 'code';
+  kind?: 'media' | 'code' | 'design';
 }
 
 // Removed static PROJECT_DATA. It will be loaded dynamically.
@@ -412,6 +412,8 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     sessionStorage.setItem('staging-nav', 'true');
     if (project.kind === 'code') {
       navigate(`/project1?projectId=${encodeURIComponent(project.id)}`);
+    } else if (project.kind === 'design') {
+      navigate(`/design?projectId=${encodeURIComponent(project.id)}`);
     } else {
       navigate(`/media?projectId=${encodeURIComponent(project.id)}`);
     }
@@ -439,7 +441,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
               thumbnail: covers[p.id] || p.coverUrl || '',
               hasChat: true,
               isStarred: p.isStarred,
-              kind: p.kind === 'code' ? 'code' : 'media',
+              kind: p.kind === 'code' ? 'code' : p.kind === 'design' ? 'design' : 'media',
             }));
             setProjectsData(mapped);
             setStarredProjects(new Set(mapped.filter((p: any) => p.isStarred).map((p: any) => p.id)));

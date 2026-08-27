@@ -109,10 +109,17 @@ describe('compatible-provider search: reply shapes', () => {
       sources: ['https://x.example/post/1', 'https://news.example/story'],
     }, 'Some answer text.');
 
-    assert.deepEqual(resolved.citations, [], 'nothing to anchor, so no chips');
+    // The sources are the load-bearing part: they are all xAI sends, so dropping
+    // them for want of offsets would mean its search showed nothing at all.
     assert.deepEqual(resolved.sources.map((s) => s.uri), [
       'https://x.example/post/1',
       'https://news.example/story',
+    ]);
+    // With no offsets the spans are synthesised per markdown block rather than
+    // left empty, so an offset-less provider still gets inline chips. A
+    // single-block answer is one span carrying every source.
+    assert.deepEqual(resolved.citations, [
+      { startIndex: 0, endIndex: 17, sourceIndices: [0, 1] },
     ]);
     // With no title field, the host stands in — an empty card label would be
     // worse than a domain.
@@ -192,7 +199,13 @@ describe('compatible-provider search: reply shapes', () => {
 describe('compatible-provider search: what gets sent', () => {
   it('sends xAI the current tool, not the superseded search block', () => {
     const chat = CHAT();
-    assert.match(chat, /spacexai: \[\{ type: 'web_search' \}\],/);
+    // Both of xAI's server-side tools, or Grok cannot reach X (Twitter). They
+    // are keyed on the wire format rather than the provider name so a Grok
+    // model reached through a relay gets the same pair.
+    assert.match(
+      chat,
+      /usesXaiAdapter\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
+    );
     // `search_parameters` was xAI's previous shape and is no longer current.
     assert.ok(
       !/search_parameters:/.test(chat),
@@ -222,7 +235,7 @@ describe('compatible-provider search: what gets sent', () => {
 
   it('sends OpenAI the documented tool on both of its request paths', () => {
     const chat = CHAT();
-    assert.match(chat, /const openaiSearchTools = \[\{ type: 'web_search' \}\];/);
+    assert.match(chat, /: \[\{ type: 'web_search' \}\];/);
     // `web_search_preview` is the legacy spelling and is not what new
     // integrations are told to send.
     assert.ok(!/web_search_preview/.test(CHAT_CODE()));
@@ -233,10 +246,13 @@ describe('compatible-provider search: what gets sent', () => {
 
   it('gates every provider on the one toggle, never on the endpoint', () => {
     const chat = CHAT();
+    // Each gate reads the same user-facing toggle plus the profile's tool
+    // policy. What none of them may read is which host the credential points at.
     for (const line of [
-      /const openaiSearchEnabled = options\.enableSearch !== false;/,
-      /const anthropicSearchEnabled = options\.enableSearch !== false;/,
-      /const compatSearchEnabled = options\.enableSearch !== false/,
+      /const openaiSearchEnabled = toolsAllowed\b/,
+      /&& \(usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'\)\s*\r?\n\s*&& options\.enableSearch !== false;/,
+      /const anthropicSearchEnabled = toolsAllowed && options\.enableSearch !== false;/,
+      /const compatSearchEnabled = toolsAllowed && options\.enableSearch !== false/,
     ]) assert.match(chat, line);
     assert.ok(
       !/SearchEnabled[\s\S]{0,160}?isOfficialEndpoint/.test(chat),

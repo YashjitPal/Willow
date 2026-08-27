@@ -13,8 +13,11 @@
 
 import { writeFileRecursively } from '../adapters/local-disk';
 import { getProjectFolderWriters } from '../project-contributors';
+import { getProjectAreaFolder, registerProjectArea } from './project-areas';
 import { ensureProjectManifest } from './project-manifest';
 import type { DiskDeps } from './disk-deps';
+
+registerProjectArea({ id: 'code', folder: 'Code', kind: 'code', priority: 30 });
 
 /** One file in a project, addressed by its path relative to the project root. */
 export interface FileContent {
@@ -39,18 +42,16 @@ export const saveProjectFilesToDisk = async (
     const targetName = resolveCurrentProjectName(projectName);
     const workspaceName = getSanitizedWorkspaceName();
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const codeDir = await workspaceDir.getDirectoryHandle('Code', { create: true });
+    const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
     const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
 
     // Persist the stable project id alongside the code so re-discovery keeps it.
     await ensureProjectManifest(projectDir, targetName);
 
-    // Create subfolders: Codebase, Chat sessions, Designs, Agents.
-    // Designs/ is owned by a feature contributor (see below) but is created
-    // here so the on-disk layout is identical for every project.
+    // Create the Code-owned subfolders. Design projects live separately under
+    // the workspace's top-level Design/ folder.
     const codebaseDir = await projectDir.getDirectoryHandle('Codebase', { create: true });
     await projectDir.getDirectoryHandle('Chat sessions', { create: true });
-    await projectDir.getDirectoryHandle('Designs', { create: true });
     await projectDir.getDirectoryHandle('Agents', { create: true });
 
     // Write the new file set FIRST, then prune stale entries — never the other
@@ -104,7 +105,7 @@ export const saveProjectFilesToDisk = async (
       await pruneStale(codebaseDir, '');
     } catch {}
 
-    // Let feature contributors write their own sub-folders (Designs/, ...).
+    // Let feature contributors write their own Code sub-folders.
     // Each folder is emptied first so a contributor always produces the
     // complete current contents. See project-contributors.ts.
     for (const writer of getProjectFolderWriters()) {
@@ -144,7 +145,7 @@ export const saveProjectChatToDisk = async (
     const targetName = resolveCurrentProjectName(projectName);
     const workspaceName = getSanitizedWorkspaceName();
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const codeDir = await workspaceDir.getDirectoryHandle('Code', { create: true });
+    const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
     const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
     const chatSessionsDir = await projectDir.getDirectoryHandle('Chat sessions', { create: true });
     

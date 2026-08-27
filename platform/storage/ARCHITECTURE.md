@@ -80,7 +80,7 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `src/synced-folders.ts` | **The registry a feature plugs into.** A feature declares one top-level workspace folder (`Gems/`) plus how an item serializes; nothing here knows which features exist. Top-level sibling of `src/project-contributors.ts`, which covers sub-folders *inside* one project. See [§13](#13-how-to-extend-safely-recipes). |
 | `src/local-fs/folder-sync-engine.ts` | **The one reconcile algorithm**, shared by every registered folder. Pure: no React, no `FileSystemDirectoryHandle`, everything arrives through `FolderSyncPorts` — which is what makes the sync rules unit-testable instead of only reviewable. Owns revisions, tombstones, dirty flushes, conflict copies, and every delete-safety rule. |
 | `src/local-fs/synced-folder-driver.ts` | Adapter binding a registered folder to a real directory handle: supplies the engine with disk I/O, localStorage-backed sync records (`willow_synced_*` keys), and the per-item in-tab + cross-tab lock. |
-| `src/project-contributors.ts` | Registry for sub-folders *within* a saved project (`Code/<project>/Designs/`). Used by `features/design/src/register.ts`. |
+| `src/project-contributors.ts` | Registry for sub-folders *within* a saved Code project. |
 | `apps/studio/src/app/App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
 | `features/media/src/MediaHome.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
 | `features/media/src/MediaShowcase.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
@@ -185,7 +185,8 @@ Connection:
 - `disconnectLocalFolder()` — clears handle from `WillowLocalFS` and resets state.
 
 Saves (all write IndexedDB and/or disk; never heavy data to localStorage):
-- `saveLocalFSProject(projectName, files)` — writes `Code/<p>/Codebase/*` + design nodes.
+- `saveLocalFSProject(projectName, files)` — writes `Code/<p>/Codebase/*` and registered Code contributors.
+- `saveLocalFSDesignProject(projectName, files)` — writes `Design/<p>/` design files.
 - `saveLocalFSChat(chatId, messages, oldChatId?)` — committed scoped body + durable dirty revision + disk file.
 - `saveLocalFSProjectChat(projectName, chatId, messages, oldChatId?)` — per-project chat under `Code/<p>/Chat sessions/`.
 - `saveLocalFSMedia(projectName, kind, fileName, blob)` — writes blob to `Media/<p>/Images|Videos/`, returns final filename (collision-suffixed).
@@ -193,7 +194,7 @@ Saves (all write IndexedDB and/or disk; never heavy data to localStorage):
 
 Mutations:
 - `deleteLocalFSChat(chatId)` — IndexedDB body + disk file.
-- `deleteLocalFSProject(projectId, projectName)` — removes `Code/<name>` or `Media/<name>` (recursive). Pair with `deleteProjectData` for IndexedDB.
+- `deleteLocalFSProject(projectId, projectName)` — removes the matching registered project-area folder (recursive). Pair with `deleteProjectData` for IndexedDB.
 - `deleteLocalFSMediaFile(projectName, kind, fsName)` — removes one media file so the poller won't re-ingest it.
 - `renameLocalFSProject(oldName, newName)` — renames the disk folder (native `move()` → recursive copy+delete fallback). Keeps disk in lock-step with a UI rename.
 - `renameLocalFSChat(oldChatId, newChatId)` — collision-safe scoped IndexedDB + metadata + disk rename.
@@ -268,11 +269,10 @@ both are cited here as escapes so this file stays greppable.)
     │           └── <chatId>.json     // this notebook's chats, moved out of Chats/
     ├── Code/
     │   └── <projectName>/
+    ├── Design/
+    │   └── <projectName>/
     │       ├── .willow.json          // { id } — the stable project id
-    │       ├── Codebase/             // source files (wiped + rewritten each save)
-    │       ├── Chat sessions/        // per-project chat <chatId>.json
-    │       ├── Designs/              // <name>.tsx + <name>.json design nodes
-    │       └── Agents/
+    │       └── <design files>         // generated Design components and metadata
     ├── Media/
     │   └── <projectName>/
     │       ├── .willow.json          // { id }
@@ -291,13 +291,14 @@ both are cited here as escapes so this file stays greppable.)
         └── <gemId>.json               // gemId = sanitized gem name
 ```
 
-`Chats/`, `Code/`, `Media/` and `Notebooks/` are hand-wired (they predate the
-registry, or cannot be expressed by it — see [§13](#13-how-to-extend-safely-recipes)).
+`Chats/` and `Notebooks/` are hand-wired because they are not project areas.
+`Code/`, `Media/`, and feature-owned areas such as `Design/` are registered with
+`registerProjectArea`; discovery, bootstrap, rename, and deletion use that registry.
 `Gems/`, `Skills/`, `Spark/Tasks/` and `Spark/Schedules/` are driven by
 `registerSyncedFolder`; nested registered paths are created segment by segment.
 
-`kind` is decided by which parent the folder is under (`Code/` → code,
-`Media/` → media). A folder present in **both** is treated as `code`.
+`kind` is decided by which registered parent the folder is under. Areas are
+priority-ordered, so a duplicate project name is resolved deterministically.
 
 **A chat file has a location, and it moves.** `Chats/<id>.json` and
 `Notebooks/<name>/Chats/<id>.json` are the same chat in two places, never two
@@ -339,7 +340,7 @@ another notebook's sources and chats.
 ### Delete (project — three layers, all surfaces)
 ```
 deleteProjectData(id)              // IndexedDB media + cover
-deleteLocalFSProject(id, name)     // disk folder (Code/ or Media/)
+deleteLocalFSProject(id, name)     // disk folder in the matching registered area
 // remove from willow_projects_list, then:
 window.dispatchEvent(new Event('willow_projects_updated'))
 ```

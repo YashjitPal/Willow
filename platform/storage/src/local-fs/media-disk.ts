@@ -13,7 +13,10 @@
  */
 
 import { ensureProjectManifest } from './project-manifest';
+import { getProjectAreaFolder, registerProjectArea } from './project-areas';
 import type { DiskDeps } from './disk-deps';
+
+registerProjectArea({ id: 'media', folder: 'Media', kind: 'media', priority: 20 });
 
 /**
  * Save media creations locally
@@ -36,7 +39,7 @@ export const saveMediaFileToDisk = async (
     const targetName = resolveCurrentProjectName(projectName);
     const workspaceName = getSanitizedWorkspaceName();
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const mediaDir = await workspaceDir.getDirectoryHandle('Media', { create: true });
+    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
     const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });
 
     // Persist the stable project id alongside the media so re-discovery keeps it.
@@ -108,7 +111,7 @@ export const deleteMediaFileFromDisk = async (
     // Redirect through any in-flight rename so deletes chase the moved folder.
     const targetName = resolveCurrentProjectName(projectName);
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-    const mediaDir = await workspaceDir.getDirectoryHandle('Media');
+    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
     const projectDir = await mediaDir.getDirectoryHandle(targetName);
     // NOTE: audio artifacts live in Audio/ — this mapped audio to Videos/,
     // so deleting a song left its file behind (and once Audio/ became part of
@@ -150,7 +153,7 @@ export const renameMediaFileOnDisk = async (
     // Redirect through any in-flight project rename.
     const targetName = resolveCurrentProjectName(projectName);
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-    const mediaDir = await workspaceDir.getDirectoryHandle('Media');
+    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
     const projectDir = await mediaDir.getDirectoryHandle(targetName);
     const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
 
@@ -224,7 +227,7 @@ export const saveProjectCoverToDisk = async (
 
     const workspaceName = getSanitizedWorkspaceName();
     const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const mediaDir = await workspaceDir.getDirectoryHandle('Media', { create: true });
+    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
     // Redirect through any in-flight rename (see saveLocalFSMedia).
     const targetName = resolveCurrentProjectName(projectName);
     const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });

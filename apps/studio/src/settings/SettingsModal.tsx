@@ -927,6 +927,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         maxLevels: 0,
         hasNone: true,
         noneLabel: 'None'
+    },
+    { 
+        id: 'gemini-3.5-transcribe', 
+        name: 'Gemini 3.5 Transcribe', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None',
+        capabilities: ['audio']
+    },
+    { 
+        id: 'gemini-3.5-transcribe-live', 
+        name: 'Gemini 3.5 Transcribe Live', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None',
+        capabilities: ['audio']
     }
   ];
 

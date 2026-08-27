@@ -1900,7 +1900,15 @@ Adhere to the following rules and guidelines:
     // rather than a failed turn. The rejection arrives before any token, so the
     // retry cannot duplicate output.
     const openaiSearchEnabled = toolsAllowed
-      && options.toolPolicy !== 'function-calling'
+      // `function-calling` asks for provider tools to be re-declared as client
+      // function declarations, and chat mode has no executor for a search
+      // function -- so for OpenAI, whose relay may genuinely want that shape,
+      // the policy means no server-side search. xAI is exempt for the same
+      // reason Gemini and Anthropic are: search is the only tool it offers
+      // here, so honouring the policy just turns search off. Every xAI profile
+      // stored before this change still carries `function-calling` from an
+      // older default, and a stale default must not silently disable search.
+      && (usesXaiAdapter || options.toolPolicy !== 'function-calling')
       && options.enableSearch !== false;
     // xAI exposes two server-side search tools and needs both declared to reach
     // X (Twitter) as well as the open web. Declaring them as client-executed

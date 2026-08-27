@@ -304,7 +304,7 @@ export default defineConfig(() => {
      * Plugin order is middleware order here, so going first means this one gets
      * first refusal on its own path and calls `next()` for everything else.
      */
-    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), webSearchMiddleware(), codeBetaRequestLog()],
+    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), codeBetaRequestLog()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.

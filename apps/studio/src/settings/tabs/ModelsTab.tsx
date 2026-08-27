@@ -98,6 +98,8 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'veo-3.1': '$3.00/$12.00',
     'veo-3.1-lite': '$1.00/$4.00',
     'gemini-3.1-flash-live-preview': '$0.15/$0.60',
+    'gemini-3.5-transcribe': '$2.00/$12.00',
+    'gemini-3.5-transcribe-live': '$3.50/$21.00',
     // OpenAI
     'gpt-5.2-thinking': '$5.00/$25.00',
     'gpt-5.2-pro': '$5.00/$25.00',
@@ -360,7 +362,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   // can send requests to. Kimi, Grok and GLM saved models exist but no consumer
   // of a system default can call them, so they would be dead choices.
   const selectablePersonalModels = React.useMemo(() => {
-    const onlyText = /(image|banana|veo|lyria|tts|audio|speech|embedding|omni|realtime|whisper|sora)/;
+    const onlyText = /(image|banana|veo|lyria|tts|audio|speech|embedding|omni|realtime|whisper|sora|transcribe)/;
     return allSystemDefaultModels.filter(
       (model: any) =>
         Boolean(providerState?.[model.provider]?.apiKey) &&
@@ -386,6 +388,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     (model: any) => model.modelId === modelConfig.systemDefaults?.transcription,
   )?.name || (modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL
     ? CHROME_NATIVE_TRANSCRIPTION_NAME
+    : modelConfig.systemDefaults?.transcription === 'gemini-3.5-transcribe'
+    ? 'Gemini 3.5 Transcribe'
+    : modelConfig.systemDefaults?.transcription === 'gemini-3.5-transcribe-live'
+    ? 'Gemini 3.5 Transcribe Live'
     : modelConfig.systemDefaults?.transcription === 'gemini-3.5-flash-lite'
     ? 'Gemini 3.5 Flash Lite'
     : modelConfig.systemDefaults?.transcription) || 'Select model';

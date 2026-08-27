@@ -64,6 +64,7 @@ import { bumpChatSelectionEpoch } from './chat-selection-store';
 import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
 import { getSyncedFolders } from '../synced-folders';
 import { syncRegisteredFolder } from './synced-folder-driver';
+import { getProjectAreas, getProjectAreaFolder, type LocalProjectKind } from './project-areas';
 import {
   deleteMediaFileFromDisk,
   renameMediaFileOnDisk,
@@ -75,6 +76,7 @@ import {
   saveProjectFilesToDisk,
   type FileContent,
 } from './code-disk';
+import { saveDesignProjectToDisk } from './design-disk';
 import {
   dataUrlToBlob,
   deleteNotebookFolder,
@@ -118,6 +120,7 @@ interface LocalFSContextType {
   disconnectLocalFolder: () => Promise<void>;
   authorizeLocalFolder: () => Promise<boolean>;
   saveLocalFSProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
+  saveLocalFSDesignProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
   loadLocalFSProject: (projectName: string) => Promise<FileContent[] | null>;
   saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
   saveLocalFSChatAttachment: (attachment: ChatAttachment, blob: Blob) => Promise<boolean>;
@@ -476,7 +479,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // treated as "unknown" and performs no deletions, so a transient permission or
   // IO hiccup can never wipe the registry.
   const syncProjectsFromDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
-    type Reg = { id: string; name: string; hasCover?: boolean; isStarred?: boolean; kind?: 'code' | 'media'; onDisk?: boolean };
+    type Reg = { id: string; name: string; hasCover?: boolean; isStarred?: boolean; kind?: LocalProjectKind; onDisk?: boolean };
     const scopeIdAtStart = chatScopeIdRef.current;
     const generationAtStart = providerGenerationRef.current;
     const scopeIsCurrent = () => chatScopeIdRef.current === scopeIdAtStart && providerGenerationRef.current === generationAtStart;
@@ -504,10 +507,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     };
 
     try {
-      const code = await collectDirs('Code');
-      const media = await collectDirs('Media');
-      // Safety: if either scan failed, do nothing (never delete on uncertainty).
-      if (!code.ok || !media.ok || !scopeIsCurrent()) return;
+      const projectAreas = getProjectAreas();
+      const scans = await Promise.all(projectAreas.map(async (area) => ({
+        area,
+        scan: await collectDirs(area.folder),
+      })));
+      // Safety: if any scan failed, do nothing (never delete on uncertainty).
+      if (scans.some(({ scan }) => !scan.ok) || !scopeIsCurrent()) return;
 
       // Read the current registry.
       let projectsList = readProjectRegistry(scopeIdAtStart) as Reg[];
@@ -515,17 +521,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const nameToId = new Map<string, string>();
       for (const p of projectsList) if (p?.name && p?.id) nameToId.set(p.name, p.id);
 
-      // Build the disk view (name -> {kind, handle}); Code wins if a name is in both.
-      const diskByName = new Map<string, { name: string; kind: 'code' | 'media'; handle: FileSystemDirectoryHandle; id?: string }>();
-      for (const [name, handle] of media.map) diskByName.set(name, { name, kind: 'media', handle });
-      for (const [name, handle] of code.map) diskByName.set(name, { name, kind: 'code', handle });
+      // Build the disk view (name -> area). Descriptors are priority-ordered, so
+      // the established Code-over-Media precedence remains deterministic.
+      const diskByName = new Map<string, { name: string; kind: LocalProjectKind; areaId: string; handle: FileSystemDirectoryHandle; id?: string }>();
+      for (const { area, scan } of scans) {
+        for (const [name, handle] of scan.map) {
+          if (!diskByName.has(name)) diskByName.set(name, { name, kind: area.kind, areaId: area.id, handle });
+        }
+      }
 
       // Resolve a stable id for every disk folder. Prefer the manifest id; else
       // inherit the registry id for that name; else mint one. Persist it so the
       // id survives future renames/reconnects (keeps covers/media linked).
       // A name->id cache makes steady-state polls skip the per-folder file read.
       const cache = manifestIdCacheRef.current;
-      const diskById = new Map<string, { name: string; kind: 'code' | 'media' }>();
+      const diskById = new Map<string, { name: string; kind: LocalProjectKind }>();
       const mintProjectId = (): string => {
         const taken = new Set<string>(diskById.keys());
         for (const project of projectsList) if (project?.id) taken.add(project.id);
@@ -697,7 +707,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         if (existing && existing.startsWith('data:image')) continue;
 
         // Source 1: the project's disk folder (explicit cover.* or oldest file).
-        const handle = p.onDisk ? media.map.get(p.name) : undefined;
+        const handle = p.onDisk ? diskByName.get(p.name)?.handle : undefined;
         if (handle) {
           const resolved = await resolveDiskCover(handle);
           if (!scopeIsCurrent()) return;
@@ -1585,6 +1595,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       try {
         const workspaceName = getSanitizedWorkspaceName();
         const workspaceDir = await handle.getDirectoryHandle(workspaceName, { create: true });
+        // Explicitly connecting is the one place where registered areas may
+        // create their workspace folders. Read-only reconciliation never does.
+        for (const area of getProjectAreas()) {
+          if (area.ensureOnConnect) await workspaceDir.getDirectoryHandle(area.folder, { create: true });
+        }
         await syncChatsWithDisk(workspaceDir);
 
         // Recover & re-tag projects from disk (self-healing registry).
@@ -1758,6 +1773,27 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return run;
   }, [resolveCurrentProjectName, saveLocalFSProjectInner]);
 
+  const saveLocalFSDesignProject = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => {
+    const queueKey = `design:${resolveCurrentProjectName(projectName)}`;
+    const scopeId = chatScopeIdRef.current;
+    const snapshot = files.map((file) => ({ ...file }));
+    const previous = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => {
+      if (chatScopeIdRef.current !== scopeId || isProjectSaveBlocked(projectName, scopeId)) return false;
+      return saveDesignProjectToDisk(
+        { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName },
+        projectName,
+        snapshot,
+      );
+    });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) projectSaveQueuesRef.current.delete(queueKey);
+    });
+    return run;
+  }, [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+
   /**
    * Load an existing code project from disk. `null` means the folder is missing
    * or unavailable; an empty array is a valid, intentionally empty Codebase.
@@ -1775,7 +1811,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (!rootHandle || chatScopeIdRef.current !== scopeId) return null;
       try {
         const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-        const codeDir = await workspaceDir.getDirectoryHandle('Code');
+        const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'));
         const projectDir = await codeDir.getDirectoryHandle(queueKey);
         const codebaseDir = await projectDir.getDirectoryHandle('Codebase');
         const files = await readFilesRecursively(codebaseDir);
@@ -1983,7 +2019,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // instant a project is renamed.
       const targetName = resolveCurrentProjectName(projectName);
       const workspaceDir = await handle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media');
+      const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
       const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
       const fileHandle = await subDir.getFileHandle(fsName);
@@ -2395,7 +2431,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const workspaceName = getSanitizedWorkspaceName();
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
       const sourceParents: FileSystemDirectoryHandle[] = [];
-      for (const parentName of ['Code', 'Media']) {
+      for (const parentName of getProjectAreas().map((area) => area.folder)) {
         try {
           const parent = await workspaceDir.getDirectoryHandle(parentName);
           const source = await parent.getDirectoryHandle(oldName);
@@ -2790,7 +2826,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const targetName = resolveCurrentProjectName(projectName);
       if (projectSaveQueuesRef.current.has(targetName)) return await loadBaseline();
       const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle('Media');
+      const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
       if (!scopeIsCurrent()) return [];
 
@@ -3104,7 +3140,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // "deleted" project (it reappeared).
       let deletedAny = false;
       let deleteFailed = false;
-      for (const folderName of ['Media', 'Code']) {
+      for (const folderName of getProjectAreas().map((area) => area.folder)) {
         try {
           const folderDir = await workspaceDir.getDirectoryHandle(folderName, { create: false });
           await folderDir.removeEntry(projectName, { recursive: true });
@@ -3281,6 +3317,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         disconnectLocalFolder,
         authorizeLocalFolder,
         saveLocalFSProject,
+        saveLocalFSDesignProject,
         loadLocalFSProject,
         saveLocalFSChat,
         saveLocalFSChatAttachment,

@@ -1250,7 +1250,14 @@ const App: React.FC = () => {
               <div className="h-full w-full bg-[#0f0f0f]" />
             </StudioLoadingFallback>
           }>
-            <DesignView />
+            <DesignView
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              onAuthRequired={() => setIsSettingsOpen(true)}
+              isAuthenticated={!!user}
+              onWorkspaceActive={setIsSidebarHidden}
+            />
           </Suspense>
         ) : currentView === 'home' ? (
           studioExperience === 'spark' ? (

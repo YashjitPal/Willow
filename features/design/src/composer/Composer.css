@@ -1,0 +1,141 @@
+.willow-gemini-composer {
+  height: auto;
+}
+
+.willow-dictation-textarea.dictation-hidden {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+}
+
+.willow-dictation-textarea.exiting-dictation {
+  transition: opacity 250ms linear 100ms;
+  transition-behavior: allow-discrete;
+}
+
+@starting-style {
+  .willow-dictation-textarea.exiting-dictation {
+    opacity: 0;
+  }
+}
+
+@keyframes willow-transcription-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.willow-transcription-spinner {
+  animation: willow-transcription-spin 2s linear infinite;
+}
+
+/*
+ * The send button's entrance, read off Gemini's own Animation object rather
+ * than authored: `getAnimations()` on the send container the instant it mounts
+ * returns duration 250, delay 0, fill both, overall easing linear, and these
+ * three keyframes — opacity 0 at offset 0, opacity 0 again at offset 0.2 with
+ * easing cubic-bezier(0.2, 0, 0, 1), opacity 1 at offset 1.
+ *
+ * So the shape is a 50ms hold at zero and then a 200ms eased ramp, not a plain
+ * 250ms fade. Keep the hold; it is what stops the button flashing in under a
+ * fast typist's first keystroke. The per-keyframe timing function has the same
+ * meaning in CSS as in the Web Animations keyframe list — it governs the
+ * interval starting at its own keyframe — so 0.2 -> 1 gets the curve and the
+ * dead 0 -> 0.2 interval stays linear, exactly as captured.
+ *
+ * Opacity only. The 42px the mic slides left to make room is not animated in
+ * Gemini either: the captured frames show micWrap x jumping 1186 -> 1144 in a
+ * single frame with `transform: none` throughout, so the reflow is instant and
+ * only the new button fades.
+ */
+@keyframes willow-composer-send-enter {
+  0% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+  20% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.willow-composer-send-enter {
+  animation: willow-composer-send-enter 250ms linear both;
+}
+
+/*
+ * Both classes land on the same button while a dictation transcribes, and both
+ * set `animation` — equal specificity, so source order alone would decide and
+ * the spin would be dropped. Declare the pair explicitly instead: the two do
+ * not actually conflict, since the entrance drives opacity and the spinner
+ * drives transform.
+ */
+.willow-composer-send-enter.willow-transcription-spinner {
+  animation:
+    willow-composer-send-enter 250ms linear both,
+    willow-transcription-spin 2s linear infinite;
+}
+
+.willow-gemini-composer--fullscreen {
+  height: calc(100dvh - 114px);
+}
+
+@media (max-width: 959px) {
+  .willow-gemini-composer--fullscreen {
+    height: calc(100dvh - 74px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-transcription-spinner {
+    animation: none;
+  }
+}
+@keyframes willow-github-dialog-enter {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes willow-github-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.willow-github-dialog-backdrop {
+  animation: willow-github-backdrop-enter 400ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+.willow-github-dialog-surface {
+  animation: willow-github-dialog-enter 150ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+/*
+ * Gemini's plus-menu enter animation, from its authored keyframes:
+ *
+ *   @keyframes expand-in { 0% { opacity:.25; transform:scale(.5) } to { opacity:1; transform:scale(1) } }
+ *   .card-container { animation: expand-in .1s ease-in-out }
+ *
+ * It starts at HALF SCALE and QUARTER opacity rather than from zero, which is what makes
+ * it read as a quick pop instead of a fade. The same animation plays on both submenus.
+ * Transform origin is set per-instance in PlusDropdownMenu.tsx: bottom-left when the menu
+ * opens upward (which is what Gemini's own bottom-docked composer does, measured as
+ * `0px 320.8px`), top-left for the submenus (measured `0px 0px`).
+ *
+ * There is no leave animation — Gemini removes the pane outright.
+ */
+@keyframes willow-gem-menu-in {
+  0% { opacity: 0.25; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.willow-gem-menu-in {
+  animation: willow-gem-menu-in 0.1s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-gem-menu-in { animation: none; }
+}

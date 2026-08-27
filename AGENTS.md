@@ -37,7 +37,7 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | [`features/media`](features/media/AGENTS.md) | `@willow/media` | AI image and video generation |
 | [`features/agent-builder`](features/agent-builder/AGENTS.md) | `@willow/agent-builder` | React-Flow workflow canvas (frontend of the Agents app) |
 | [`features/spark`](features/spark/AGENTS.md) | `@willow/spark` | Scheduling / background-task agent |
-| [`features/design`](features/design/AGENTS.md) | `@willow/design` | Design surface; writes into the project's `Designs/` folder |
+| [`features/design`](features/design/AGENTS.md) | `@willow/design` | Design surface; writes into the workspace's `Design/<project>/` area |
 | [`features/projects`](features/projects/AGENTS.md) | `@willow/project-browser` | Project browser **UI** |
 | [`features/auth`](features/auth/AGENTS.md) | `@willow/account` | Login / account **UI** |
 | [`features/onboarding`](features/onboarding/AGENTS.md) | `@willow/onboarding` | First-run flow |

@@ -14,15 +14,58 @@
  */
 
 import {
-  type ChatSyncRecord as FolderSyncRecord,
-  readJSON,
-  validateChatList,
-  validateSyncRecords,
-  validateTimestampMap,
-} from './chat-metadata';
-import { type DiskEntry, type FolderSyncPorts, type ReconcileResult, reconcileFolder } from './folder-sync-engine';
+  type DiskEntry,
+  type FolderSyncPorts,
+  type ReconcileResult,
+  isValidItemId,
+  reconcileFolder,
+} from './folder-sync-engine';
 import type { SyncedFolderDescriptor, SyncedItem } from '../synced-folders';
-import { writeFileRecursively } from '../adapters/local-disk';
+import type { FolderSyncRecord } from './folder-sync-engine';
+
+const readJSON = <T,>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch { return fallback; }
+};
+
+const validateIds = (value: unknown): string[] => Array.isArray(value) ? Array.from(new Set(value.filter(isValidItemId))) : [];
+const validateTimestamps = (value: unknown): Record<string, number> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [id, timestamp] of Object.entries(value as Record<string, unknown>)) {
+    if (isValidItemId(id) && typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp >= 0) result[id] = timestamp;
+  }
+  return result;
+};
+const validateRecords = (value: unknown): Record<string, FolderSyncRecord> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Record<string, FolderSyncRecord> = {};
+  for (const [id, raw] of Object.entries(value as Record<string, any>)) {
+    if (!isValidItemId(id) || !raw || typeof raw !== 'object') continue;
+    result[id] = {
+      revision: Number.isFinite(raw.revision) ? Math.max(0, raw.revision) : 0,
+      diskRevision: Number.isFinite(raw.diskRevision) ? Math.max(0, raw.diskRevision) : 0,
+      diskMtime: Number.isFinite(raw.diskMtime) ? Math.max(0, raw.diskMtime) : 0,
+      dirty: raw.dirty === true, tombstone: raw.tombstone === true,
+      updatedAt: Number.isFinite(raw.updatedAt) ? Math.max(0, raw.updatedAt) : 0,
+    };
+  }
+  return result;
+};
+
+const writeTextFileRecursively = async (root: FileSystemDirectoryHandle, filePath: string, contents: string): Promise<void> => {
+  const parts = filePath.replace(/\\/g, '/').replace(/^\//, '').split('/').filter((part) => part && part !== '.');
+  if (!parts.length || parts.some((part) => part === '..')) throw new Error(`Invalid file path: ${filePath}`);
+  let dir = root;
+  for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+  const handle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+  const writable = await handle.createWritable();
+  try { await writable.write(contents); await writable.close(); }
+  catch (error) { try { await writable.abort(error); } catch {} throw error; }
+};
 
 /** localStorage keys for one folder in one scope. */
 export const syncedFolderKeys = (folder: string, scopeId: string) => {
@@ -75,7 +118,7 @@ export const lockItems = async <T,>(
   const predecessors = keys.map((key) => inTabQueues.get(key)).filter(Boolean) as Promise<unknown>[];
 
   const withCrossTabLocks = async (index = 0): Promise<T> => {
-    const locks = (navigator as any).locks;
+    const locks = (globalThis.navigator as any)?.locks;
     if (!locks?.request || index >= keys.length) return operation();
     return locks.request(`willow-synced:${keys[index]}`, () => withCrossTabLocks(index + 1));
   };
@@ -122,14 +165,30 @@ export const syncRegisteredFolder = async (
   }
 
   const keys = syncedFolderKeys(descriptor.folder, scopeId);
-  const records = validateSyncRecords(readJSON(keys.sync, {}));
-  const ids = validateChatList(readJSON(keys.ids, [] as string[]));
-  const timestamps = validateTimestampMap(readJSON(keys.timestamps, {}));
+  const records = validateRecords(readJSON(keys.sync, {}));
+  const ids = validateIds(readJSON(keys.ids, [] as string[]));
+  const timestamps = validateTimestamps(readJSON(keys.timestamps, {}));
   const hashes = readHashMap(readJSON(keys.hashes, {}));
 
   // Seed the cache from whatever the feature currently holds, so its own state
   // is what the engine diffs against disk.
-  const localItems = await descriptor.readLocal(ctx).catch((): SyncedItem[] => []);
+  let localItems: SyncedItem[];
+  try {
+    const readItems = await descriptor.readLocal(ctx);
+    // Invalid ids must never reach getFileHandle(): ids are file-name stems,
+    // so accepting path separators here would let feature data escape its
+    // registered folder. Abort the whole pass instead of filtering malformed
+    // items: filtering something that existed on the prior pass could make a
+    // temporary serializer bug look exactly like an intentional deletion.
+    if (!Array.isArray(readItems) || readItems.some(
+      (item) => !isValidItemId(item?.id) || typeof item.contents !== 'string',
+    )) return notOk;
+    localItems = [...new Map(readItems.map((item) => [item.id, item] as const)).values()];
+  } catch {
+    // A store read failure is not an empty collection. Treating it as one
+    // would turn a transient IndexedDB/state error into durable tombstones.
+    return notOk;
+  }
   const cache = new Map<string, string>(localItems.map((item) => [item.id, item.contents] as const));
   const localIds = new Set(localItems.map((item) => item.id));
   // A hydrated feature omitting an item is an intentional local deletion. Turn
@@ -160,8 +219,6 @@ export const syncRegisteredFolder = async (
           dirty: true,
           tombstone: false,
           updatedAt: Date.now(),
-          notebookId: '',
-          locationDirty: false,
         };
       }
     } else if (records[item.id] && !records[item.id].tombstone) {
@@ -207,7 +264,7 @@ export const syncRegisteredFolder = async (
     },
 
     write: async (id, contents) => {
-      await writeFileRecursively(dir, fileName(id), contents);
+      await writeTextFileRecursively(dir, fileName(id), contents);
       const file = await (await dir.getFileHandle(fileName(id))).getFile();
       return { mtime: file.lastModified };
     },
@@ -226,10 +283,19 @@ export const syncRegisteredFolder = async (
 
   for (const item of result.items) hashes[item.id] = contentHash(item.contents);
   for (const id of result.deleted) delete hashes[id];
-  persistFolderMetadata(keys, ids, timestamps, records, hashes);
-
   // Invariant 7: only touch feature state when something actually changed.
-  if (result.changed) await descriptor.applyRemote(result.items, ctx).catch(() => {});
+  // Commit metadata only after the feature accepts the result. If applying
+  // fails, retaining the previous metadata makes the next pass retry instead
+  // of considering an update delivered when it was not.
+  if (result.changed) {
+    try {
+      await descriptor.applyRemote(result.items, ctx);
+    } catch {
+      return notOk;
+    }
+  }
+
+  persistFolderMetadata(keys, ids, timestamps, records, hashes);
 
   return result;
 };
