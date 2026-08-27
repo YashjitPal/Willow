@@ -32,21 +32,26 @@
  */
 
 import type { SyncedItem } from '../synced-folders';
-import { type ChatSyncRecord as FolderSyncRecord, isValidChatId } from './chat-metadata';
 
-export type { FolderSyncRecord };
+export interface FolderSyncRecord {
+  revision: number;
+  diskRevision: number;
+  diskMtime: number;
+  dirty: boolean;
+  tombstone: boolean;
+  updatedAt: number;
+}
 
 /**
  * An id the engine will act on: valid as a stored id AND able to survive a round
  * trip through the filesystem, since the id *is* the file name stem.
  *
- * `isValidChatId` deliberately stays looser — it guards ids already persisted in
- * localStorage, and tightening it would invalidate existing data. The stricter
- * rule belongs here, at the point where an id becomes a path. Note this is the
- * same character class `saveLocalFSChat` strips when it sanitizes a title.
+ * The length and filename checks happen here, at the point where an id becomes
+ * a path, so callers can keep their own broader identifiers without risking an
+ * unsafe filesystem round trip.
  */
 export const isValidItemId = (value: unknown): value is string =>
-  isValidChatId(value) && !/[\\/:*?"<>|]/.test(value);
+  typeof value === 'string' && value.trim().length > 0 && value.length <= 240 && !/[\\/:*?"<>|]/.test(value);
 
 /** What one file on disk looks like to the engine. */
 export interface DiskEntry {
@@ -96,17 +101,6 @@ export interface ReconcileResult {
 }
 
 const EMPTY: ReconcileResult = { ok: false, items: [], changed: false, deleted: [], conflicts: [] };
-
-/**
- * The location half of a record, as it stands for every folder but chats.
- *
- * The record type is shared with chats, and chats are the only items that can be
- * in more than one directory (the global `Chats/` or a notebook's). A flat synced
- * folder is a single path segment by construction — ARCHITECTURE.md §13 — so
- * there is nothing here to track, and these constants say so once instead of at
- * each of the three places a record is built.
- */
-const FLAT_LOCATION = { notebookId: '', locationDirty: false } as const;
 
 /** Deterministic name for the copy that preserves an externally-edited file. */
 const makeConflictId = (id: string, taken: Set<string>): string => {
@@ -199,7 +193,6 @@ export const reconcileFolder = async (ports: FolderSyncPorts): Promise<Reconcile
             dirty: false,
             tombstone: false,
             updatedAt: Date.now(),
-            ...FLAT_LOCATION,
           };
           ports.timestamps[conflictId] = entry.mtime;
           ports.ids.push(conflictId);
@@ -220,7 +213,6 @@ export const reconcileFolder = async (ports: FolderSyncPorts): Promise<Reconcile
         dirty: false,
         tombstone: false,
         updatedAt: Date.now(),
-        ...FLAT_LOCATION,
       };
       ports.timestamps[id] = entry.mtime;
       if (!ports.ids.includes(id)) ports.ids.push(id);
@@ -272,7 +264,6 @@ export const reconcileFolder = async (ports: FolderSyncPorts): Promise<Reconcile
         dirty: false,
         tombstone: true,
         updatedAt: Date.now(),
-        ...FLAT_LOCATION,
       };
       ports.ids.splice(0, ports.ids.length, ...ports.ids.filter((x) => x !== id));
       delete ports.timestamps[id];
@@ -316,4 +307,3 @@ const flushDirty = async (ports: FolderSyncPorts, id: string, contents: string):
     // Keep dirty; a later watcher/focus tick retries the flush.
   }
 };
-

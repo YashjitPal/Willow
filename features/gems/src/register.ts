@@ -11,7 +11,7 @@
  * exactly once, from apps/studio/src/app/register-features.ts.
  */
 
-import { registerSyncedFolder } from '@willow/storage/synced-folders';
+import { registerSyncedFolder } from '@willow/storage/local-sync';
 import { type Gem, gemsStore } from './gems-store';
 
 /** Narrow untrusted JSON from disk; a malformed file is skipped, never thrown on. */

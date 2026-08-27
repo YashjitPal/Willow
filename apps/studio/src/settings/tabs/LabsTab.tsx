@@ -66,6 +66,21 @@ export const LabsTab: React.FC = () => {
           />
         </div>
 
+        {/* Darker Design Background */}
+        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
+          <div className="flex-1 max-w-[60%]">
+            <h3 className="text-[14px] font-bold text-white mb-1">Darker Design Background</h3>
+            <p className="text-[14px] text-zinc-400">
+              Applies a darker pitch-black background to the Design tab instead of the default dark gray.
+            </p>
+          </div>
+          <ExperimentToggle
+            id="darker-design-background"
+            enabled={experiments['darker-design-background']}
+            label="Darker Design Background"
+          />
+        </div>
+
         {/* GitHub branch switching */}
         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
           <div className="flex-1 max-w-[60%]">

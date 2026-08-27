@@ -193,12 +193,181 @@ const responseError = async (response: Response) => {
   return data?.error?.message || data?.message || `Transcription failed (${response.status}).`;
 };
 
+const extractInteractionTranscript = (data: any): string => {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return cleanTranscript(data.output_text);
+  }
+  if (typeof data?.text === 'string' && data.text.trim()) {
+    return cleanTranscript(data.text);
+  }
+  if (Array.isArray(data?.outputs) && data.outputs.length > 0) {
+    const text = data.outputs
+      .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
+      .filter(Boolean)
+      .join('\n');
+    if (text.trim()) return cleanTranscript(text);
+  }
+  if (Array.isArray(data?.steps)) {
+    for (let i = data.steps.length - 1; i >= 0; i--) {
+      const step = data.steps[i];
+      if (typeof step?.output_text === 'string' && step.output_text.trim()) {
+        return cleanTranscript(step.output_text);
+      }
+      if (typeof step?.text === 'string' && step.text.trim()) {
+        return cleanTranscript(step.text);
+      }
+      if (Array.isArray(step?.outputs)) {
+        const text = step.outputs
+          .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
+          .filter(Boolean)
+          .join('\n');
+        if (text.trim()) return cleanTranscript(text);
+      }
+    }
+  }
+  if (Array.isArray(data?.candidates?.[0]?.content?.parts)) {
+    const text = data.candidates[0].content.parts.map((part: any) => part?.text || '').join('');
+    if (text.trim()) return cleanTranscript(text);
+  }
+  return '';
+};
+
+const uploadFileToGemini = async (
+  audio: Blob,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const mimeType = (audio.type || 'audio/wav').split(';')[0].trim();
+  const size = audio.size;
+
+  const initRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(size),
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file: { display_name: 'dictation_audio' } }),
+      signal,
+    },
+  );
+
+  if (!initRes.ok) {
+    throw new Error(await responseError(initRes));
+  }
+
+  const uploadUrl = initRes.headers.get('x-goog-upload-url');
+  if (!uploadUrl) {
+    throw new Error('Gemini Files API upload URL not found in response.');
+  }
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(size),
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
+    },
+    body: audio,
+    signal,
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(await responseError(uploadRes));
+  }
+
+  const uploadData = await uploadRes.json();
+  const uri = uploadData?.file?.uri;
+  if (!uri) {
+    throw new Error('Gemini Files API did not return file URI.');
+  }
+  return uri;
+};
+
 const transcribeWithGemini = async (
   audio: Blob,
   model: ResolvedTranscriptionModel,
   signal?: AbortSignal,
 ) => {
-  const audioData = await blobToBase64(audio);
+  const wavAudio = await convertToWav(audio).catch(() => audio);
+  const mimeType = (wavAudio.type || audio.type || 'audio/wav').split(';')[0].trim();
+  const audioData = await blobToBase64(wavAudio);
+
+  // Specialized transcribe models (gemini-3.5-transcribe, etc.) use the Interactions API
+  if (model.modelId.includes('transcribe')) {
+    // 1. Try Interactions API with inline audio
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': model.apiKey,
+          },
+          signal,
+          body: JSON.stringify({
+            model: model.modelId,
+            input: [
+              {
+                type: 'audio',
+                data: audioData,
+                mime_type: mimeType,
+              },
+            ],
+          }),
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const transcript = extractInteractionTranscript(data);
+        if (transcript) return transcript;
+      }
+    } catch {
+      // Fall through to Files API
+    }
+
+    // 2. Try Interactions API via Files API upload
+    try {
+      const fileUri = await uploadFileToGemini(wavAudio, model.apiKey, signal);
+      const fileResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': model.apiKey,
+          },
+          signal,
+          body: JSON.stringify({
+            model: model.modelId,
+            input: [
+              {
+                type: 'audio',
+                uri: fileUri,
+                mime_type: mimeType,
+              },
+            ],
+          }),
+        },
+      );
+
+      if (fileResponse.ok) {
+        const data = await fileResponse.json();
+        const transcript = extractInteractionTranscript(data);
+        if (transcript) return transcript;
+      }
+    } catch {
+      // Fall through to generateContent
+    }
+  }
+
+  // Standard generateContent endpoint
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model.modelId)}:generateContent?key=${encodeURIComponent(model.apiKey)}`,
     {
@@ -214,7 +383,7 @@ const transcribeWithGemini = async (
             },
             {
               inlineData: {
-                mimeType: audio.type || 'audio/webm',
+                mimeType,
                 data: audioData,
               },
             },

@@ -3,7 +3,7 @@
  * Tasks and schedules intentionally live below Spark/, while Skills is a
  * workspace-level folder so Chat can consume the same library later.
  */
-import { registerSyncedFolder } from '@willow/storage/synced-folders';
+import { registerSyncedFolder } from '@willow/storage/local-sync';
 import {
   applySparkSyncedCollection,
   parseSparkSchedule,

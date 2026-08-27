@@ -58,12 +58,14 @@ export const getModelCategory = (model: Partial<CatalogModelEntry> | string): Mo
   }
   if (
     capabilities.includes('audio') ||
+    capabilities.includes('transcription') ||
     text.includes('lyria') ||
     text.includes('voice') ||
     text.includes('speech') ||
     text.includes('whisper') ||
     text.includes('realtime') ||
-    /(?:^|[-_\s])(?:audio|tts|live)(?:$|[-_\s])/.test(text)
+    text.includes('transcribe') ||
+    /(?:^|[-_\s])(?:audio|tts|live|transcribe)(?:$|[-_\s])/.test(text)
   ) {
     return 'audio';
   }

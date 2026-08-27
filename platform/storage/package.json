@@ -1,0 +1,53 @@
+{
+  "name": "willow-local-sync",
+  "version": "0.1.0",
+  "description": "Browser-native local folder synchronization with safe reconciliation, durable retries, and extensible storage areas.",
+  "type": "module",
+  "author": "Willow contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YashjitPal/willow-local-sync.git"
+  },
+  "homepage": "https://github.com/YashjitPal/willow-local-sync#readme",
+  "bugs": {
+    "url": "https://github.com/YashjitPal/willow-local-sync/issues"
+  },
+  "keywords": ["filesystem", "file-system-access", "sync", "offline-first", "browser", "local-first", "web-locks"],
+  "module": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/index.js && tsc -p tsconfig.publish.json",
+    "typecheck": "tsc -p tsconfig.publish.json --noEmit",
+    "prepublishOnly": "npm run build && npm test",
+    "test": "node --test test/*.test.mjs",
+    "test:package": "npm run build && npm test",
+    "pack:check": "npm run test:package && npm pack --dry-run"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.5",
+    "typescript": "~5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -9,9 +9,21 @@ const LEGACY_CODE_SESSION_OWNER_PREFIX = 'willow_code_sessions:legacy-owner:v2:'
 
 export const PROJECTS_UPDATED_EVENT = 'willow_projects_updated';
 
+/**
+ * Stable built-in project kinds plus extension kinds owned by features.
+ *
+ * The registry persists this value and does not need to know every future
+ * surface. Keeping the type open lets a feature register a new local project
+ * area without changing this shared package first; consumers that only know
+ * built-in surfaces should continue to narrow with explicit comparisons.
+ */
+export type ProjectKind = 'code' | 'media' | 'design' | (string & {});
+
 export interface ProjectRegistryEntry {
   id: string;
   name: string;
+  /** Surface that owns the project. Older entries may omit this field. */
+  kind?: ProjectKind;
   [key: string]: unknown;
 }
 

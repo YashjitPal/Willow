@@ -11,14 +11,14 @@ const chat = fs.readFileSync(
 
 const geminiStart = chat.indexOf('if (usesGeminiAdapter)');
 const openaiStart = chat.indexOf('} else if (usesOpenAIAdapter)', geminiStart);
-const grokStart = chat.indexOf('} else if (usesXaiAdapter)', openaiStart);
+const anthropicStart = chat.indexOf('} else if (usesAnthropicAdapter)', openaiStart);
 
 assert.ok(geminiStart >= 0, 'Gemini provider branch must exist');
 assert.ok(openaiStart > geminiStart, 'Gemini branch must end before OpenAI');
-assert.ok(grokStart > openaiStart, 'Grok must have a dedicated provider branch');
+assert.ok(anthropicStart > openaiStart, 'OpenAI branch must end before Anthropic');
 
 const geminiBranch = chat.slice(geminiStart, openaiStart);
-const grokBranch = chat.slice(grokStart);
+const openaiBranch = chat.slice(openaiStart, anthropicStart);
 
 describe('Gemini and Grok tool isolation', () => {
   it('keeps Gemini server-side built-in tools compatible with function calling', () => {
@@ -48,9 +48,49 @@ describe('Gemini and Grok tool isolation', () => {
     assert.doesNotMatch(geminiBranch, /functionCall\.name\.toLowerCase\(\)\.includes\('search'\)/);
   });
 
-  it('keeps Grok search functions inside the dedicated Grok branch', () => {
-    assert.doesNotMatch(geminiBranch, /name:\s*'web_search'|name:\s*'x_search'/);
-    assert.match(grokBranch, /name:\s*'web_search'/);
-    assert.match(grokBranch, /name:\s*'x_search'/);
+  it('gives Grok the shared chat harness instead of a dedicated agentic one', () => {
+    // Grok used to own a branch that declared web_search/x_search as client
+    // functions and looped: round one had no results, so the model narrated
+    // ("Okay, I will search this") and that preamble was saved into the turn.
+    // Chat mode has no client-side search executor, so the tools have to be the
+    // provider's own -- one request, answer only.
+    assert.doesNotMatch(
+      chat,
+      /\} else if \(usesXaiAdapter\)/,
+      'Grok must not have a provider branch of its own',
+    );
+    assert.match(
+      chat,
+      /const usesOpenAIAdapter = [^;]*\|\|\s*usesXaiAdapter/,
+      'the xAI wire format must resolve to the shared OpenAI-compatible branch',
+    );
+    // Anthropic's server-side tool legitimately carries both a type and a name
+    // (`{ type: 'web_search_20250305', name: 'web_search' }`), so this looks for
+    // the client-function shape specifically: a `function:` block with a search
+    // name inside it.
+    assert.doesNotMatch(
+      chat,
+      /function:\s*\{\s*\r?\n\s*name:\s*'(?:web|x)_search'/,
+      'search must never be declared as a client-executed function tool',
+    );
+    assert.doesNotMatch(chat, /\/llm-search/, 'the client-side search fetch must be gone');
+    assert.match(
+      openaiBranch,
+      /usesXaiAdapter\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
+      'xAI needs both server-side search tools declared',
+    );
+  });
+
+  it('does not let a stale function-calling policy silence Grok search', () => {
+    // Profiles stored before this change carry `toolPolicy: 'function-calling'`
+    // from the old xAI default. Gemini and Anthropic both ignore that policy for
+    // search, so xAI has to as well or every existing install loses search.
+    assert.match(
+      openaiBranch,
+      /&& \(usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'\)/,
+    );
+    // `disabled` must still disable, for xAI as for everything else.
+    assert.match(chat, /const toolsAllowed = options\.toolPolicy !== 'disabled';/);
+    assert.match(openaiBranch, /const openaiSearchEnabled = toolsAllowed/);
   });
 });

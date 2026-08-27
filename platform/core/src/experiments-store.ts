@@ -17,7 +17,7 @@ import { atom } from 'nanostores';
  * driven by the vendored Codex harness rather than Willow's own. It ships dark
  * so the shipped Code tab is untouched for anyone who never opens Labs.
  */
-export type ExperimentId = 'code-beta';
+export type ExperimentId = 'code-beta' | 'darker-design-background';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -25,6 +25,7 @@ const STORAGE_KEY = 'willow:experiments';
 
 export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'code-beta': false,
+  'darker-design-background': false,
 };
 
 /**

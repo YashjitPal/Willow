@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { forwardRef, useState, useRef, useEffect, useCallback, useImperativeHandle } from 'react';
 import { flushSync } from 'react-dom';
 import { ArrowUp, AudioLines, Lightbulb, Copy, X } from 'lucide-react';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
@@ -6,10 +6,19 @@ import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '@willow
 import { addDesignNode, designNodesStore, selectedDesignNodeIds } from './design-store';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-interface DesignChatProps {
+export interface DesignChatProps {
   modelConfig: any;
   selectedModelId: string | null;
+  initialPrompt?: string;
+  hideComposer?: boolean;
+}
+
+export interface DesignChatHandle {
+  submit: (prompt: string) => void;
+  focus: () => void;
 }
 
 interface ChatMessage {
@@ -20,7 +29,7 @@ interface ChatMessage {
   timestamp: number;
 }
 
-export const DesignChat: React.FC<DesignChatProps> = ({ modelConfig, selectedModelId }) => {
+export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ modelConfig, selectedModelId, initialPrompt, hideComposer = false }, ref) => {
   // Build a tiny HTML preview for the squircle thumbnails
   const buildMiniPreview = useCallback((rawCode: string) => {
     const cleaned = (rawCode || '')
@@ -201,17 +210,45 @@ Return your generated code inside a single \`\`\`tsx code block. It will be rend
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    submit: (prompt: string) => { void handleSendMessage(prompt); },
+    focus: () => textareaRef.current?.focus(),
+  }), [handleSendMessage]);
+
+  // The landing composer hands its first request into the full canvas view.
+  // Consume it once per value so reopening the canvas never duplicates a request.
+  const consumedInitialPrompt = useRef<string | null>(null);
+  useEffect(() => {
+    const prompt = initialPrompt?.trim();
+    if (!prompt || consumedInitialPrompt.current === prompt) return;
+    consumedInitialPrompt.current = prompt;
+    setPromptValue(prompt);
+    void handleSendMessage(prompt);
+  }, [initialPrompt]);
+
   return (
-    <div className="flex flex-col h-full bg-[#141414]" style={{ contain: 'strict' }}>
+    <div
+      className={`flex h-full flex-col ${hideComposer ? 'bg-transparent' : 'bg-[#141414]'}`}
+      style={{ contain: 'strict' }}
+    >
       {/* Scrollable Messages Area */}
       <div 
         ref={chatScrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
-        style={{ paddingBottom: '120px' }} // Account for fixed footer
+        style={{ paddingBottom: hideComposer ? '0px' : '120px' }} // Account for fixed footer
       >
-        <div className="p-[14px] space-y-12 max-w-full">
+        <div className={`${hideComposer ? 'px-4 pb-4 pt-8' : 'p-[14px]'} space-y-8 max-w-full`}>
+            {hideComposer && (
+              <div className="mb-9 flex h-5 w-12 items-center justify-center rounded-full bg-[#f5f5f5] text-[13px] font-bold tracking-[3px] text-[#1a1a1c]">
+                ...
+              </div>
+            )}
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
+              hideComposer ? (
+                <div className="flex h-full min-h-[240px] items-center justify-center px-6 text-center text-[14px] leading-6 text-[#8f9398]">
+                  Your prompt and Stitch's response will appear here.
+                </div>
+              ) : <div className="flex flex-col items-center justify-center text-center mt-12 mb-8">
                 <div className="w-12 h-12 rounded-full overflow-hidden bg-[#27272a] flex items-center justify-center mb-6">
                    <div className="text-gray-400">🎨</div>
                 </div>
@@ -227,28 +264,38 @@ Return your generated code inside a single \`\`\`tsx code block. It will be rend
             {messages.map((msg) => (
               <div key={msg.id} className="space-y-8 max-w-full overflow-hidden">
                 {msg.role === 'user' ? (
-                  <div className="flex justify-end -mr-[6px]">
-                    <div className="flex flex-col items-end gap-2 max-w-[85%] break-words">
-                        <div className="bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm">
-                           {msg.content}
-                        </div>
+                  <div className={hideComposer ? 'w-full' : 'flex justify-end -mr-[6px]'}>
+                    <div className={hideComposer
+                      ? 'flex h-[58px] w-full min-w-0 items-center gap-2 rounded-[20px] border border-[#37383c] px-3.5 text-[15px] text-[#aeb1b5]'
+                      : 'flex flex-col items-end gap-2 max-w-[85%] break-words'}>
+                        {hideComposer && (
+                          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d708e,#8d6a87)] text-[10px] text-white">*</div>
+                        )}
+                        <span className={hideComposer ? 'min-w-0 flex-1 truncate' : 'bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm'}>
+                          {msg.content}
+                        </span>
+                        {hideComposer && (
+                          <>
+                            <Copy size={16} className="shrink-0 text-[#7f8388]" />
+                            <span className="shrink-0 text-lg leading-none text-[#7f8388]">⌄</span>
+                          </>
+                        )}
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-4 max-w-[95%]">
-                    <div className="text-gray-300 text-[15px] leading-[1.65] prose prose-invert overflow-x-auto whitespace-pre-wrap">
-                      {/* Very basic renderer for chat response */}
-                      {msg.content}
+                    <div className="text-[#e2e3e5] text-[15px] leading-[1.6] prose prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-white overflow-x-auto">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                     </div>
                     {/* Action buttons */}
-                    <div className="flex items-center gap-3 pt-4 border-t border-white/5 flex-wrap shrink-0">
+                    {!hideComposer && <div className="flex items-center gap-3 pt-4 border-t border-white/5 flex-wrap shrink-0">
                         <button 
                           onClick={() => navigator.clipboard.writeText(msg.content)}
                           className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
                         >
                           <Copy size={14} />
                         </button>
-                    </div>
+                    </div>}
                   </div>
                 )}
               </div>
@@ -274,7 +321,7 @@ Return your generated code inside a single \`\`\`tsx code block. It will be rend
       </div>
 
       {/* Input Footer Area */}
-      <div ref={footerRef} className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
+      {!hideComposer && <div ref={footerRef} className="absolute bottom-0 left-0 w-full z-30 pointer-events-none">
         <div className="h-8 w-full bg-gradient-to-t from-[#141414]/90 to-transparent pointer-events-none" />
         <div className="bg-[#141414] pointer-events-auto px-[14px] pb-4 pt-4">
             <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
@@ -356,7 +403,9 @@ Return your generated code inside a single \`\`\`tsx code block. It will be rend
                </div>
             </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
-};
+});
+
+DesignChat.displayName = 'DesignChat';
