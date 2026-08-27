@@ -6,6 +6,7 @@ import { AuthProvider } from '@willow/auth/AuthContext';
 import { GlobalTooltips } from '@willow/ui/Tooltip';
 import { GlobalCopyToast } from '@willow/ui/CopyToast';
 import { configureImageProxy } from '@willow/ui/image-source';
+import { startDevicePixelRatioSync } from '@willow/ui/device-pixel-ratio';
 import { handleSpotifyCallback } from '@willow/personal';
 // Side-effect import: lets features register with platform machinery before
 // anything renders. Must stay above the render call.
@@ -32,6 +33,12 @@ const isOAuthPopup = handleSpotifyCallback();
 // to `/api/image` on Vercel to route them through `api/image.js`, which also
 // requires `IMAGE_PROXY_HOSTS`. See platform/ui/src/image-source.ts.
 configureImageProxy(import.meta.env.VITE_IMAGE_PROXY);
+
+// Publishes `--dpr` on `<html>` so CSS can size a hairline in device pixels
+// instead of CSS pixels. Started before the first render: any rule reading it
+// mid-layout would otherwise fall back to 1 for one frame. Never torn down — it
+// lives as long as the document does. See platform/ui/src/device-pixel-ratio.ts.
+startDevicePixelRatioSync();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

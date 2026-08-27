@@ -806,9 +806,21 @@
   background: var(--spark-panel-surface);
 }
 
-/* Gemini mounts the plan panel as a sibling of the chat pane and transitions its
+/*
+ * Gemini mounts the plan panel as a sibling of the chat pane and transitions its
  * flex basis from zero to 18.75rem. The discrete display transition removes the
- * otherwise-empty flex gap after the close animation finishes. */
+ * otherwise-empty flex gap after the close animation finishes.
+ *
+ * The flex basis is the ONLY motion here, and that is deliberate. This panel is
+ * the last item in `…__workspace`, so its right edge is pinned to the window
+ * while the basis animation sweeps its left edge across; the fixed-width slab
+ * inside (see `…-scroll`) is carried along by that edge and clipped against the
+ * pinned one. That already reads as a slide. A `translateX` on top — which this
+ * rule used to carry — was a second motion in the same direction: the panel
+ * covered its whole 300px in half the time and sat off-screen for the remaining
+ * 225ms while the library was still expanding. Opening had the mirror problem,
+ * popping in only after the halfway point.
+ */
 .spark-task-detail__progress-panel {
   --spark-progress-panel-width: 300px;
   position: relative;
@@ -823,13 +835,11 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  will-change: flex, opacity, transform;
-  transform: translateX(var(--spark-progress-panel-width));
+  will-change: flex, opacity;
   transition:
     flex 450ms cubic-bezier(0.2, 0, 0, 1),
     opacity 450ms cubic-bezier(0.2, 0, 0, 1),
-    visibility 450ms cubic-bezier(0.2, 0, 0, 1),
-    transform 450ms cubic-bezier(0.2, 0, 0, 1);
+    visibility 450ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .spark-task-detail__progress-panel.is-open {
@@ -837,20 +847,32 @@
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transform: translateX(0);
 }
 
 @starting-style {
   .spark-task-detail__progress-panel.is-open {
     flex: 0 0 0%;
     opacity: 0;
-    transform: translateX(var(--spark-progress-panel-width));
   }
 }
 
+/*
+ * Fixed width, not `100%` — this is what stops the panel's contents being
+ * crushed as it closes.
+ *
+ * At `100%` every frame of the 450ms basis animation re-laid out this subtree at
+ * a narrower width, so each plan step re-wrapped continuously: one line, two,
+ * three, then squeezed into nothing. Pinning the slab to the panel's open width
+ * freezes that layout. The box it lives in still narrows, but a fixed-width
+ * child of a shrinking `overflow: hidden` box keeps its left edge on the
+ * container's, so the whole slab travels rightwards as one piece and is clipped
+ * against the pinned right edge — line endings go first, the text never reflows,
+ * and the reverse plays on open. It also means the panel's text is no longer
+ * laid out at all during the transition; only the box itself is.
+ */
 .spark-task-detail__progress-panel-scroll {
   display: flex;
-  width: 100%;
+  width: var(--spark-progress-panel-width);
   min-width: 0;
   min-height: 0;
   flex: 1 1 0;
@@ -1491,9 +1513,44 @@
  * computes `cursor: default` — the chevron is the affordance, not the pointer.
  */
 .spark-task-detail__processing-state {
+  /*
+   * One source of truth for the timeline rail. Every connector reads these — the
+   * per-row segments, the subagent branch, and the single rail the collapsed
+   * timeline draws instead of them — so no state can drift to another weight.
+   * They live up here rather than on `…__processing-details` because that rail
+   * hangs off `…__processing-details-inner`, an ANCESTOR of the declaration it
+   * was reading: it silently fell through to a hard-coded fallback instead.
+   *
+   * Drawn as a border, never as a filled box. Chrome snaps border widths to
+   * whole device pixels before paint, so a border paints the same ink at every
+   * sub-pixel phase. A `width: 1px` background does not — it covers one device
+   * pixel or smears across two depending on where its box falls, which is how
+   * the collapsed rail and the per-row segments rendered at visibly different
+   * weights while declaring the same 1px. The two sit in different paint
+   * ancestors (`…-inner` vs `…-cap`, whose rows also retain a `translateY(0)`
+   * from their entrance animation), so their phases were never guaranteed to
+   * agree, and which one you got moved with the pane width.
+   */
+  --spark-processing-connector-color: rgb(122, 122, 122);
+  --spark-processing-connector-width: 1px;
+
   display: flex;
   flex-direction: column;
   padding: 0 8px 8px;
+}
+
+/*
+ * A 1px border is a single device pixel — correct at 1x, but on a fractional or
+ * hi-dpi display it reads thinner than the design, since everything around it
+ * is scaled up. Ask for two device pixels there instead. `--dpr` is published on
+ * `<html>` by platform/ui/src/device-pixel-ratio.ts; the query is what keeps a
+ * plain 1x display on one pixel rather than doubling it to a 2px line. The
+ * `-webkit-` half is for engines that never shipped `resolution` in dppx.
+ */
+@media (min-resolution: 1.25dppx), (-webkit-min-device-pixel-ratio: 1.25) {
+  .spark-task-detail__processing-state {
+    --spark-processing-connector-width: calc(2px / var(--dpr, 1));
+  }
 }
 
 .spark-task-detail__pending-dots {
@@ -1549,8 +1606,6 @@
 .spark-task-detail__subagent-group {
   position: relative;
   align-self: flex-start;
-  --spark-processing-connector-color: rgb(122, 122, 122);
-  --spark-processing-connector-width: 1px;
   animation:
     spark-processing-expand-height 50ms linear forwards,
     spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -1565,8 +1620,8 @@
   top: 24px;
   bottom: calc(-1 * var(--spark-processing-group-gap));
   left: 12px;
-  width: var(--spark-processing-connector-width);
-  background-color: var(--spark-processing-connector-color);
+  width: 0;
+  border-left: var(--spark-processing-connector-width) solid var(--spark-processing-connector-color);
   content: '';
 }
 
@@ -1970,8 +2025,8 @@
   bottom: 0;
   left: 12px;
   z-index: 0;
-  width: var(--spark-processing-connector-width, 1px);
-  background: var(--spark-processing-connector-color, rgb(122, 122, 122));
+  width: 0;
+  border-left: var(--spark-processing-connector-width) solid var(--spark-processing-connector-color);
   content: '';
   pointer-events: none;
 }
@@ -2030,8 +2085,6 @@
 
 .spark-task-detail__processing-details {
   --spark-processing-group-gap: 16px;
-  --spark-processing-connector-color: rgb(122, 122, 122);
-  --spark-processing-connector-width: 1px;
 
   display: flex;
   min-height: 0;
@@ -2067,8 +2120,8 @@
   top: 24px;
   bottom: calc(-1 * var(--spark-processing-group-gap));
   left: 12px;
-  width: var(--spark-processing-connector-width);
-  background-color: var(--spark-processing-connector-color);
+  width: 0;
+  border-left: var(--spark-processing-connector-width) solid var(--spark-processing-connector-color);
   content: '';
 }
 
@@ -2124,8 +2177,8 @@
 .spark-task-detail__processing-step.is-continuation .spark-task-detail__processing-node::before {
   position: absolute;
   inset: 0 auto 0 12px;
-  width: var(--spark-processing-connector-width);
-  background-color: var(--spark-processing-connector-color);
+  width: 0;
+  border-left: var(--spark-processing-connector-width) solid var(--spark-processing-connector-color);
   content: '';
 }
 
@@ -2193,8 +2246,8 @@
   top: 24px;
   bottom: calc(-1 * var(--spark-processing-group-gap));
   left: 12px;
-  width: var(--spark-processing-connector-width);
-  background-color: var(--spark-processing-connector-color);
+  width: 0;
+  border-left: var(--spark-processing-connector-width) solid var(--spark-processing-connector-color);
   content: '';
 }
 
@@ -2271,9 +2324,9 @@
     spark-processing-fade-slide-up 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-/* Continue the existing main-agent connector through the Show all row. This
- * lives on the row that follows the clipped cap, so it cannot overlap the
- * per-item connectors or create a second rail over the icons. */
+/* The rail through this row is drawn by `…__processing-details-inner::before`,
+ * not here — a connector of its own would have been a second box at the same x
+ * and a visible seam where the two met. */
 .spark-task-detail__processing-show-more:hover {
   color: #e6e6e6;
 }
