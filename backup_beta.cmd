@@ -3,7 +3,11 @@ cd /d "%~dp0"
 SETLOCAL EnableDelayedExpansion
 
 echo ===================================================
-echo              WILLOW CODE GITHUB BACKUP (BETA)     
+echo              WILLOW GITHUB BACKUP (BETA)
+echo ===================================================
+echo  Remote: origin (github.com/YashjitPal/Willow)
+echo  This repository is PUBLIC. Everything committed
+echo  here becomes world-readable and permanent.
 echo ===================================================
 
 :: Check if git is installed and directory is a repo
@@ -31,10 +35,35 @@ if defined HAS_UNCOMMITTED (
         set "COMMIT_MSG=Automatic backup on %date% at %time%"
     )
     echo.
-    echo [1/4] Staging all changes...
+    echo [1/5] Staging all changes...
     git add -A
 
-    echo [2/4] Creating backup checkpoint...
+    echo [2/5] Checking staged files for secrets and personal data...
+    where node >nul 2>&1
+    if !ERRORLEVEL! neq 0 (
+        echo.
+        echo [ERROR] Node.js was not found, so the pre-publish check cannot run.
+        echo         This repository is PUBLIC - refusing to commit unchecked.
+        echo         Install Node 20 or newer and run this again.
+        echo.
+        pause
+        ENDLOCAL
+        exit /b 1
+    )
+    node "tools\scripts\backup-guard.mjs"
+    if !ERRORLEVEL! neq 0 (
+        echo ===================================================
+        echo  ABORTED: nothing was committed, nothing was pushed.
+        echo  Your changes are still staged. Fix what is listed
+        echo  above, then run this again.
+        echo ===================================================
+        echo.
+        pause
+        ENDLOCAL
+        exit /b 1
+    )
+
+    echo [3/5] Creating backup checkpoint...
     git commit -m "!COMMIT_MSG!"
 ) else (
     echo.
@@ -42,7 +71,7 @@ if defined HAS_UNCOMMITTED (
 )
 
 :: Fetch and integrate remote changes before pushing
-echo [3/4] Syncing with remote repository (%BRANCH%)...
+echo [4/5] Syncing with remote repository (%BRANCH%)...
 git fetch origin %BRANCH% >nul 2>&1
 git pull --rebase origin %BRANCH% >nul 2>&1
 if %ERRORLEVEL% neq 0 (
@@ -76,7 +105,7 @@ if not defined HAS_UNCOMMITTED (
     )
 )
 
-echo [4/4] Uploading safely to GitHub (%BRANCH%)...
+echo [5/5] Uploading safely to GitHub (%BRANCH%)...
 git push origin HEAD:%BRANCH%
 
 echo.
