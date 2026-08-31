@@ -45,27 +45,6 @@ export const LabsTab: React.FC = () => {
       </div>
 
       <div className="space-y-0 pb-10">
-        {/*
-          * Code Beta. The only wired experiment on this tab — the three below
-          * are still static mock-ups.
-          */}
-        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Code Beta</h3>
-            <p className="text-[14px] text-zinc-400">
-              A rebuilt Code surface running the open-source Codex harness. Adds a
-              separate <span className="text-zinc-300">Code Beta</span> entry to the
-              sidebar; your existing Code projects and the Code tab itself are
-              untouched.
-            </p>
-          </div>
-          <ExperimentToggle
-            id="code-beta"
-            enabled={experiments['code-beta']}
-            label="Code Beta"
-          />
-        </div>
-
         {/* Darker Design Background */}
         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
           <div className="flex-1 max-w-[60%]">

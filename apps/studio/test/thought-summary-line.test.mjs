@@ -231,10 +231,14 @@ it('sets the row gap to Gemini\'s 12px only when the summary is showing', () => 
 it('falls back to the shimmer only for a provider that cannot section', () => {
   const view = codeOnly(VIEW());
 
-  // The summary is only attempted while actually thinking...
+  // The summary is only attempted while actually thinking — plus `tooling`,
+  // which is a declared function running (Canvas, personalization). That phase
+  // has no app-written label of its own, so without it here the row would drop
+  // to bare dots for the seconds a document takes to write. `executing` and
+  // `searching` are excluded because they DO have labels, and those win.
   assert.match(
     view,
-    /const thoughtHeading = active && thinkingPhase === 'thinking'\s*\?\s*latestThoughtHeading\(msg\.thinkingText \|\| ''\)\s*:\s*null;/,
+    /const thoughtHeading = active && \(thinkingPhase === 'thinking' \|\| thinkingPhase === 'tooling'\)\s*\?\s*latestThoughtHeading\(msg\.thinkingText \|\| ''\)\s*:\s*null;/,
   );
   // ...and a null heading falls through to TextShimmer, not to a blank row —
   // but only once `suppressLabel` has had its say.

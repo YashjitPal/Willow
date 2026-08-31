@@ -5,6 +5,8 @@ import type { CodeExecution } from '@willow/ai/code-execution';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
 import { runPersonalTool } from '@willow/personal';
 import { declaredToolNames } from './personal-tools';
+import { createCanvasToolExecutor, type CanvasToolHost } from './canvas/canvas-runtime';
+import { isCanvasToolCall } from './canvas/canvas-tools';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   formatUpstreamError,
@@ -73,6 +75,23 @@ export interface ChatTurnRunnerDeps {
    * `personalize` value.
    */
   personalTools: { functionDeclarations: any[] }[];
+  /**
+   * Canvas tool declarations, empty unless the user attached the Canvas chip.
+   *
+   * Kept separate from `personalTools` rather than concatenated, because the two
+   * are gated by different things and executed by different code: the
+   * personalization gate is a settings switch, this one is a per-message choice,
+   * and `declaredToolNames(personalTools)` is what decides whether a call reaches
+   * `runPersonalTool`. Merging them would have let a canvas call fall through to
+   * the personal executor and come back "not available".
+   */
+  canvasTools?: { functionDeclarations: any[] }[];
+  /**
+   * Everything the Canvas executor needs except the two things only the runner
+   * knows: how much reply text has been written, and where to put a new
+   * revision. Absent when Canvas is off for this turn.
+   */
+  canvasHost?: Omit<CanvasToolHost, 'contentLength' | 'publish'>;
   /** Wire-format history, already built (it needs attachment bytes, which only
    *  the component can resolve). */
   history: AiChatMessage[];
@@ -99,6 +118,7 @@ const buildAssistantMessage = (record: ChatTurnRecord, content: string, wasStopp
   wasStopped,
   citations: record.citations,
   codeExecutions: record.codeExecutions?.length ? record.codeExecutions : undefined,
+  canvasRefs: record.canvasRefs?.length ? record.canvasRefs : undefined,
 });
 
 const buildThread = (record: ChatTurnRecord, assistant: ChatMsg): any[] =>
@@ -189,14 +209,43 @@ export const runChatTurn = async (
     record.isThinking = false;
   };
 
+  /*
+   * The Canvas executor is rebuilt per attempt, not per turn.
+   *
+   * It carries this-attempt state (the revisions made so far, which
+   * `update_canvas` reads to find the document's current text), so reusing one
+   * across an upstream retry would leave the second attempt editing a document
+   * the user never saw a first version of — and `record.canvasRefs` is cleared on
+   * retry, so the two would then disagree about what exists.
+   */
+  const makeCanvasExecutor = () => {
+    const host = deps.canvasHost;
+    if (!host) return null;
+    return createCanvasToolExecutor({
+      ...host,
+      contentLength: () => record.content.length,
+      publish: (ref) => {
+        record.canvasRefs = [...(record.canvasRefs ?? []), ref];
+        // Like code executions and unlike citations, this is visible the instant
+        // it lands, so the view has to be told rather than picking it up at
+        // settle time.
+        record.listener?.onPhase(record);
+        void checkpoint(record, deps);
+      },
+    });
+  };
+  let runCanvasTool = makeCanvasExecutor();
+
   const resetForRetry = () => {
     record.content = '';
     record.thinkingText = '';
     record.citations = undefined;
     record.codeExecutions = undefined;
+    record.canvasRefs = undefined;
     record.phase = 'thinking';
     record.isThinking = true;
     record.thinkStartedAt = Date.now();
+    runCanvasTool = makeCanvasExecutor();
     record.listener?.onText('');
     record.listener?.onThinking(record);
     record.listener?.onPhase(record);
@@ -230,6 +279,7 @@ export const runChatTurn = async (
       enableSearch: true,
       enableCodeExecution: true,
       personalTools: deps.personalTools,
+      toolDeclarations: deps.canvasTools,
       baseUrl: options.baseUrl,
       apiFormat: options.apiFormat,
       toolPolicy: options.toolPolicy,
@@ -255,6 +305,22 @@ export const runChatTurn = async (
       record.listener?.onPhase(record);
     },
     async (name: string, args: any) => {
+      /*
+       * Canvas first, and gated on the executor rather than on the name.
+       *
+       * `runCanvasTool` is null exactly when the declarations were not sent, so
+       * one check covers both halves: a model that remembers `create_canvas` from
+       * three turns ago and calls it on a turn where Canvas is off falls through
+       * to the refusal below instead of quietly writing a document into a message
+       * whose thread has no panel open.
+       */
+      if (runCanvasTool && isCanvasToolCall(name)) {
+        if (!isCurrent(record, deps)) {
+          return { status: 'error', error: 'This conversation is no longer active.' };
+        }
+        return runCanvasTool(name, args);
+      }
+
       /*
        * Refuse anything this turn did not declare, before it can run.
        *
@@ -322,7 +388,8 @@ export const runChatTurn = async (
           record.content = '';
           record.thinkingText = '';
           record.citations = undefined;
-    record.codeExecutions = undefined;
+          record.codeExecutions = undefined;
+          record.canvasRefs = undefined;
           record.listener?.onText('');
           record.finalContent = friendlyChatErrorFor(record.historyBefore);
           break;
@@ -340,6 +407,10 @@ export const runChatTurn = async (
       record.isError = true;
       record.errorDetail = formatUpstreamError(error);
       record.content = '';
+      // An error turn renders the friendly message and nothing else, so a canvas
+      // card left attached here would sit under an apology pointing at a document
+      // the user was never shown.
+      record.canvasRefs = undefined;
       record.listener?.onText('');
       record.finalContent = friendlyChatErrorFor(record.historyBefore);
     }

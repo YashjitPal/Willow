@@ -1515,7 +1515,21 @@ export const updateSparkTaskThinkingTransient = (
   return updated;
 };
 
-export const loadSparkTaskBody = async (taskId: string): Promise<SparkTask | null> => {
+/*
+ * Synchronous on purpose. The read below is `localStorage` plus a `JSON.parse`;
+ * nothing here ever awaited anything, and only the async wrapper underneath made
+ * it look otherwise.
+ *
+ * Callers that are about to navigate need the synchronous form. A task whose
+ * body lands one microtask late renders `SparkWorkspace`'s "Loading task…"
+ * placeholder for a frame or two, and that placeholder carries no
+ * `[data-spark-new-composer-anchor]` — which strands the shared prompt box in a
+ * subtree React has just unmounted, at exactly the moment the open animation
+ * measures it. See `transitionTaskNavigation`.
+ *
+ * Idempotent: a task already carrying its body returns untouched.
+ */
+export const ensureSparkTaskBodyLoaded = (taskId: string): SparkTask | null => {
   const current = sparkState.get().tasks.find((task) => task.id === taskId);
   if (!current) return null;
   if (current.bodyLoaded !== false) return current;
@@ -1533,6 +1547,9 @@ export const loadSparkTaskBody = async (taskId: string): Promise<SparkTask | nul
     return current;
   }
 };
+
+export const loadSparkTaskBody = async (taskId: string): Promise<SparkTask | null> =>
+  ensureSparkTaskBodyLoaded(taskId);
 
 export const loadSparkTaskRecordsForSync = async (
   summaries: readonly SparkTask[],

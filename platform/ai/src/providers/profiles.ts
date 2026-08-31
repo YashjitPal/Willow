@@ -60,7 +60,28 @@ export interface ProviderProfile {
 export interface ProviderProfileState {
   profiles: ProviderProfile[];
   resources: WillowResource[];
+  /** See `PROFILE_SCHEMA_VERSION`. Absent on anything written before it existed. */
+  schemaVersion?: number;
 }
+
+/**
+ * Bumped when a stored profile has to be re-read rather than merely defaulted.
+ *
+ * 1 — the tool policy became uniform across providers. Two stored defaults meant
+ *     something the selector no longer says: xAI carried `function-calling` from an
+ *     older default (which now means "no server-side search", costing Grok the X
+ *     search that is the reason to use it), and Moonshot carried `disabled` (which
+ *     now also withholds Canvas). Both are rewritten to the current default ONCE.
+ *     A user who picks either value by hand after this keeps it — the migration
+ *     runs on the version, not on the value.
+ */
+export const PROFILE_SCHEMA_VERSION = 1;
+
+/** The stale defaults version 1 exists to clear, per provider. */
+const MIGRATED_TOOL_POLICIES: Partial<Record<ProviderId, ProviderToolPolicy>> = {
+  spacexai: 'function-calling',
+  moonshot: 'disabled',
+};
 
 export const DEFAULT_PROFILE_IDS: Record<ProviderId, string> = {
   gemini: 'gemini-default',
@@ -82,14 +103,47 @@ const DEFAULT_API_FORMATS: Record<ProviderId, ProviderApiFormat> = {
 
 export const defaultApiFormatForProvider = (provider: ProviderId): ProviderApiFormat => DEFAULT_API_FORMATS[provider];
 
-// xAI runs web_search and x_search inside its own inference, exactly like the
-// other providers here. Declaring them as client-executed functions instead
-// turns one chat turn into two round trips, and the model narrates the gap.
+/**
+ * Which provider's server-side tools a format can carry.
+ *
+ * Built-in tools are part of the wire format, not of the credential: an endpoint
+ * addressed with Chat Completions cannot be asked for `googleSearch` however
+ * Google-shaped the key is. Adapters read this so a profile that switches format
+ * switches tool vocabulary with it.
+ */
+export const nativeToolFormatForProvider = (
+  provider: ProviderId,
+  format: ProviderApiFormat,
+): ProviderId | null => {
+  if (format === 'native-gemini') return 'gemini';
+  if (format === 'anthropic-messages') return 'anthropic';
+  if (format === 'xai-chat-completions') return 'spacexai';
+  /* The two OpenAI formats are shared by four providers, and their search tools
+     differ — OpenAI's flat `web_search`, Zhipu's nested config, Moonshot's
+     unverified builtin (which is why it has none here). So the provider decides. */
+  return provider === 'moonshot' ? null : provider;
+};
+
+/*
+ * `provider-native` everywhere, including the two that used to opt out.
+ *
+ * The policy means one thing on every provider now — `provider-native` sends the
+ * endpoint's own built-in tools alongside Willow's function declarations,
+ * `function-calling` sends the declarations alone, `disabled` sends nothing — so a
+ * per-provider default that quietly meant something else was the reason the
+ * selector did not behave the same way twice.
+ *
+ * Moonshot was `disabled`, which was written when `disabled` was the only way to
+ * withhold a search tool whose shape could not be verified. It also withheld
+ * Canvas and the personalization tools, so Kimi could not write a document at all.
+ * It is `function-calling` now: no server-side search (there is still no verified
+ * shape for it), every client tool present.
+ */
 const DEFAULT_TOOL_POLICIES: Record<ProviderId, ProviderToolPolicy> = {
   gemini: 'provider-native',
   openai: 'provider-native',
   anthropic: 'provider-native',
-  moonshot: 'disabled',
+  moonshot: 'function-calling',
   spacexai: 'provider-native',
   zhipuai: 'provider-native',
 };
@@ -128,12 +182,18 @@ export const normalizeProviderProfileState = (
 ): ProviderProfileState => {
   const input = value && typeof value === 'object' ? value as Partial<ProviderProfileState> : {};
   const defaults = createDefaultProviderProfiles(baseUrls);
+  const storedVersion = Number(input.schemaVersion) || 0;
   const rawProfiles = Array.isArray(input.profiles) ? input.profiles : [];
   const profiles = rawProfiles
     .filter((profile): profile is ProviderProfile => Boolean(profile && typeof profile === 'object'))
     .map((profile) => {
       const transportProvider = isProvider(profile.transportProvider) ? profile.transportProvider : 'openai';
       const fallback = defaults.find((candidate) => candidate.id === DEFAULT_PROFILE_IDS[transportProvider])!;
+      /* See `PROFILE_SCHEMA_VERSION`: a stale default is replaced once, and only
+         while the stored state predates the version that redefined it. */
+      const stale = storedVersion < 1
+        && isToolPolicy(profile.toolPolicy)
+        && MIGRATED_TOOL_POLICIES[transportProvider] === profile.toolPolicy;
       return {
         ...fallback,
         ...profile,
@@ -145,7 +205,7 @@ export const normalizeProviderProfileState = (
         apiFormat: isApiFormat(profile.apiFormat) ? profile.apiFormat : fallback.apiFormat,
         baseUrl: typeof profile.baseUrl === 'string' ? profile.baseUrl : fallback.baseUrl,
         apiKeyId: typeof profile.apiKeyId === 'string' && profile.apiKeyId.trim() ? profile.apiKeyId : transportProvider,
-        toolPolicy: isToolPolicy(profile.toolPolicy) ? profile.toolPolicy : fallback.toolPolicy,
+        toolPolicy: !stale && isToolPolicy(profile.toolPolicy) ? profile.toolPolicy : fallback.toolPolicy,
         enabled: profile.enabled !== false,
         modelIds: Array.isArray(profile.modelIds) ? profile.modelIds.filter((id): id is string => typeof id === 'string') : [],
         createdAt: Number(profile.createdAt) || fallback.createdAt,
@@ -166,7 +226,7 @@ export const normalizeProviderProfileState = (
       }))
     : [];
 
-  return { profiles, resources };
+  return { profiles, resources, schemaVersion: PROFILE_SCHEMA_VERSION };
 };
 
 // Model configuration historically exposed these profiles as `providerProfiles`,

@@ -684,6 +684,22 @@ export type PromptContext = {
    * together or not at all.
    */
   personalTool?: boolean;
+  /**
+   * Whether this turn is a Canvas turn.
+   *
+   * It drops the bento-cards section, and that is the whole reason it exists: the
+   * two instructions answer the same question differently. `CARD_SYSTEM_PROMPT`
+   * invites the model to reply with a set of parallel tiles; a Canvas turn wants a
+   * sentence and a tool call, with the substance in the document. Shipping both
+   * left ~1.8k of text arguing for the wrong shape, and — worse — used the word
+   * "card" for a bento tile in one section and for the document chip in the other.
+   * A strong model resolves that from the more specific instruction; a small one
+   * splits the difference and puts the content in the reply.
+   *
+   * The cost is real and accepted: a question asked inside a canvas thread that
+   * would have made a nice tile set answers as prose instead.
+   */
+  canvas?: boolean;
 };
 
 /**
@@ -760,7 +776,9 @@ const withTurnContext = (prompt: string, context: PromptContext): string => {
  */
 export const chatSystemPromptFor = (provider: ChatProvider, context: PromptContext = {}): string =>
   withTurnContext(
-    supportsCards(provider) ? CHAT_SYSTEM_PROMPT + CARD_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT,
+    supportsCards(provider) && !context.canvas
+      ? CHAT_SYSTEM_PROMPT + CARD_SYSTEM_PROMPT
+      : CHAT_SYSTEM_PROMPT,
     context,
   );
 

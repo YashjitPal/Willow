@@ -2,6 +2,7 @@ import { atom } from 'nanostores';
 import type { StreamPhase } from '@willow/ai/chat';
 import type { MessageCitations } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
+import type { CanvasRef } from './canvas/canvas-store';
 import type { ChatMsg } from './chat-message';
 
 /**
@@ -71,6 +72,10 @@ export interface ChatTurnRecord {
   citations?: MessageCitations;
   /** Code-execution panels, republished whole on every change by the stream. */
   codeExecutions?: CodeExecution[];
+  /** Canvas revisions this turn wrote, in call order. Appended by the tool
+   *  executor mid-stream, which is why they accumulate here rather than being
+   *  republished whole like `codeExecutions`. */
+  canvasRefs?: CanvasRef[];
 
   // ── thinking row (was thinkTimer / thinkStart / thinkSecondsRef) ────────────
   phase: StreamPhase;

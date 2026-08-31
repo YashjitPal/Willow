@@ -243,6 +243,7 @@ const TileContent = React.memo(({
         if (modelId === 'veo-3.1') return 55000;
         if (modelId === 'veo-3.1-lite') return 30000;
         if (modelId === 'omni-flash') return 18000;
+        if (modelId === 'omni-flash-1.1') return 18000;
         return 35000;
       }
     };

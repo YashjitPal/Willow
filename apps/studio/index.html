@@ -76,7 +76,7 @@
       onload="this.media='all'"
     />
     <link
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
@@ -103,7 +103,7 @@
         rel="stylesheet"
       />
       <link
-        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
         rel="stylesheet"
       />
       <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji" rel="stylesheet" />
@@ -183,6 +183,34 @@
       .material-symbols-rounded {
         font-family: "Material Symbols Rounded";
         font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "opsz" 24;
+      }
+
+      /*
+        THE LIGATURE FLASH, and why only this family has it.
+        Reported as "that icon when it first appears, it appears as a ligature or
+        corrupted icon for a few seconds until it's fixed" — `code_blocks` on the
+        Canvas card, and the dictation spinner.
+
+        "Luminous Symbols" and "Google Symbols" are declared as inline @font-face
+        rules above, with `font-display: block`, so their faces EXIST at first paint
+        and the block period keeps the ligature name invisible until the glyph
+        arrives. "Material Symbols Rounded" comes from a Google Fonts stylesheet
+        that is deliberately non-blocking (`media="print"`, flipped on load), so for
+        the first stretch of the page the family is not defined at all — the name
+        falls through to the body font and paints as its own letters, which no
+        `font-display` can prevent because there is no face yet to apply it to.
+
+        So the text is transparent until a real face reports itself loaded. The
+        glyph box is already fixed (`width`/`height` on every MaterialSymbol), so
+        nothing moves when it lands; the icon fades up in place. `!important`
+        because every call site sets its own colour, and this has to win until the
+        script below says otherwise.
+      */
+      html:not(.willow-icons-ready) .material-symbols-rounded {
+        color: transparent !important;
+      }
+      .material-symbols-rounded {
+        transition: color 120ms linear;
       }
 
       .luminous-symbols {
@@ -297,6 +325,47 @@
         #willow-boot { transition: none; }
       }
     </style>
+    <script>
+      /*
+       * Lifts the icon gate above once "Material Symbols Rounded" can actually
+       * draw. See the CSS note for why that family, and only that family, needs it.
+       *
+       * `document.fonts.check()` is NOT the test: for a family with no @font-face
+       * it reports true, because an undefined family is simply skipped and the
+       * fallback "can render" the text. And `document.fonts.load()` on the same
+       * undefined family resolves immediately with an empty list. Both would report
+       * ready during exactly the window this exists to cover — so the real test is
+       * whether a FontFace for the family is in the set yet, polled until the
+       * deferred stylesheet has added one, then loaded explicitly.
+       *
+       * Loading it explicitly matters: the glyph text is transparent while we wait,
+       * and Chrome will happily start the fetch for transparent text, but driving
+       * it from here means the gate cannot deadlock on a paint that never happens.
+       *
+       * The deadline is a fallback, not the plan: a stylesheet that never arrives
+       * leaves the ligature names showing, which is what the app did before this.
+       */
+      (function () {
+        var root = document.documentElement;
+        var open = function () { root.classList.add('willow-icons-ready'); };
+        if (!document.fonts || !document.fonts.forEach) { open(); return; }
+        var FAMILY = 'Material Symbols Rounded';
+        var deadline = Date.now() + 10000;
+        var tick = function () {
+          var faces = [];
+          document.fonts.forEach(function (face) { if (face.family === FAMILY) faces.push(face); });
+          if (faces.length) {
+            Promise.all(faces.map(function (face) {
+              return face.status === 'loaded' ? null : face.load().catch(function () {});
+            })).then(open, open);
+            return;
+          }
+          if (Date.now() > deadline) { open(); return; }
+          setTimeout(tick, 50);
+        };
+        tick();
+      })();
+    </script>
     <script>
       /*
        * Held on our own global, then assigned to `tailwind.config` at the end of

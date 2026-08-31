@@ -881,7 +881,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     },
     { 
         id: 'omni-flash', 
-        name: 'Gemini Omni Flash', 
+        name: 'Gemini Omni Flash 1', 
+        maxLevels: 0,
+        hasNone: true,
+        noneLabel: 'None'
+    },
+    { 
+        id: 'omni-flash-1.1', 
+        name: 'Gemini Omni Flash 1.1', 
         maxLevels: 0,
         hasNone: true,
         noneLabel: 'None'

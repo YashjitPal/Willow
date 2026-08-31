@@ -12,7 +12,7 @@ wsl -u root bash -c "pkill -f sub2api_linux 2>/dev/null; true"
 
 echo.
 echo Starting Sub2API Server in background...
-start "Sub2API Server" cmd /k "wsl -u root bash /mnt/c/Users/'user'/Workspace/Sub2API/backend/start_backend.sh"
+start "Sub2API Server" cmd /k "wsl -u root bash /mnt/c/Users/'%USERNAME%'/Workspace/Sub2API/backend/start_backend.sh"
 
 echo.
 echo Opening Dashboards in browser...

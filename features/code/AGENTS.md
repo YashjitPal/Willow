@@ -44,6 +44,51 @@ largest feature in the repo.
 | `src/visual-editing/view-code.ts` | Element → source jump, incl. the end-line estimate heuristic. |
 | `src/local-companion.ts` | Client for the optional `services/local-companion` daemon. |
 | `src/use-auto-save.ts` | Debounced project autosave. |
+| `src/agent/` | **The Agent tool.** The vendored Codex harness, its UI, and the seam to the workbench. See below. |
+
+## The Agent tool
+
+An optional *second* generation path, selected as **Agent** in the composer's
+Tools menu. With it off — the default — the Code tab runs `startAiGeneration`
+exactly as it always has: the bolt system prompt, whole-file artifacts, the
+streaming `parseAIResponse` parser. With it on, `startCodexGeneration` runs the
+turn on a vendored [Codex](https://github.com/openai/codex) harness instead,
+which writes its own prompt, sends a file manifest rather than the whole
+codebase, and applies edits as V4A patches.
+
+This began life as `features/code-beta`, a full clone of this feature behind a
+Labs flag. The clone is gone; only the harness survived, as `src/agent/`.
+
+| Path | Role |
+| --- | --- |
+| `src/agent/agent-store.ts` | Tool calls and sub-agents per turn, plus the `agentEngaged` / `ultraEngaged` flags. |
+| `src/agent/harness-bridge.ts` | The seam: file-map ↔ sandpack store, plus the `run_command` and `computer_use` tools. |
+| `src/agent/harness/` | The turn loop, V4A patcher, text protocol, and the vendored upstream prompt. |
+| `src/agent/ui/` | The transcript timeline: tool cards, diffs, terminal output, sub-agent chips. |
+| `src/agent/model-binding.ts` | Resolves the selected model to a provider binding, clamping effort. |
+| `src/agent/slash-commands.ts` | `/`-triggered composer templates. |
+| `src/agent/agent.css` | Design tokens, all scoped under `.cb-root`. |
+
+**`agentEngaged` is the only switch.** Three things read it, and all three are
+inert when it is false: the send routing in `handleSendMessage`, the slash-command
+matcher, and the model menu's `extraEfforts` (the Ultra rung). It lives in a store
+rather than component state because `CodeHome` and `WorkbenchSidebar` keep
+separate `selectedToolId`, and a pick made on the landing screen has to decide how
+the *opening* turn runs.
+
+Two things to know before editing here:
+
+- **The `cb-` class prefix is historical** — it stood for Code Beta. Left alone
+  deliberately: renaming it is 373 occurrences across 13 files for no behavioural
+  gain. Every rule is scoped under `.cb-root`, which is why `agent.css` can be
+  imported unconditionally.
+- **`harness/upstream/` is byte-checked.** `npm run codex:check` hashes it against
+  `MANIFEST.json`; never hand-edit those files. Willow's changes live in
+  `harness/overlay/` and are applied at runtime.
+
+Unlike the rest of this directory, this subsystem *is* covered:
+`apps/studio/test/agent-*.test.mjs` is 112 tests over the patcher, effort ladder,
+turn loop, timeline, and prompt composition.
 
 ## The runtime
 
@@ -93,10 +138,10 @@ Two rules for anyone continuing this:
 - **`src/visual-editing/` is LF**, while `src/workbench/` is CRLF. Check before
   you write, or the diff will show every line as changed.
 
-Note the test suite does **not** cover this subsystem — the 5 tests in
-`apps/studio/test/` are Agent Builder smoke tests. `tsc` plus a diff against the
-pre-change file is the only real safety net here, so prefer extractions you can
-prove byte-identical over ones that reshape call sites.
+Note the test suite covers only `src/agent/` (see **The Agent tool** above) — the
+sandbox, visual editing and the sidebar itself are untested. `tsc` plus a diff
+against the pre-change file is the only real safety net there, so prefer
+extractions you can prove byte-identical over ones that reshape call sites.
 
 ## Workbench sidebar split
 
@@ -108,12 +153,12 @@ above. Each one was a leaf — it closed over nothing in the component — so ev
 move was a relocation, not a rewrite.
 
 What is left is deliberately left. The sidebar still holds the chat thread, the
-file tree, the diff viewer, and the LLM request loop, and the big blocks inside it
-(`persistSessions` ~297 lines, `startAiGeneration` ~266, `startTestGeneration`
-~251, `renderFormattedContent`, `handleSendMessage`) are not
-leaves: they read and write hook state and refs declared above them. Extracting
-one means designing a props or hook contract for it, which is its own change with
-its own review — not a side effect of something else.
+file tree, the diff viewer, and both LLM request loops, and the big blocks inside
+it (`persistSessions` ~297 lines, `startAiGeneration` ~266, `startTestGeneration`
+~251, `startCodexGeneration` ~135, `renderFormattedContent`, `handleSendMessage`)
+are not leaves: they read and write hook state and refs declared above them.
+Extracting one means designing a props or hook contract for it, which is its own
+change with its own review — not a side effect of something else.
 
 Two rules, learned the hard way, that `tsc` cannot check for you:
 

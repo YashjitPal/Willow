@@ -1,0 +1,327 @@
+/*
+ * The Agent tool's design tokens.
+ *
+ * Everything is scoped under `.cb-root`. Willow styles itself with the Tailwind
+ * Play CDN and a runtime config in `apps/studio/index.html`; extending that
+ * shared config would push this palette onto every other surface. Scoping the
+ * variables here and referencing them through Tailwind's arbitrary-value syntax
+ * (`bg-[hsl(var(--cb-surface))]`) keeps the token system without touching a
+ * single global.
+ *
+ * That scoping is also why this file is imported unconditionally by the
+ * workbench sidebar even though the Agent tool is off by default: no rule here
+ * matches anything until a `.cb-root` node exists, and only the harness's own
+ * components render one.
+ *
+ * The `cb-` prefix is historical — it stood for Code Beta, the Labs fork this
+ * harness was built in before it became a tool in the Code tab. Left alone
+ * deliberately: renaming it is 373 occurrences across 13 files for no
+ * behavioural gain.
+ *
+ * The rule that follows from the scoping: no component in this folder may use a
+ * bare colour utility like `bg-zinc-900`. Colour comes from a token, always, so
+ * the palette is changeable in one place.
+ */
+
+.cb-root {
+  /* Surfaces, darkest to lightest. */
+  --cb-canvas: 240 8% 7%;
+  --cb-surface: 240 7% 9.8%;
+  --cb-raised: 240 7% 12.4%;
+  --cb-sunken: 240 9% 8.2%;
+  --cb-inset: 240 10% 5.8%;
+  --cb-overlay: 240 8% 13.2%;
+
+  /* Hairlines. */
+  --cb-line: 240 6% 18.5%;
+  --cb-line-strong: 240 6% 26%;
+  --cb-line-subtle: 240 6% 14.5%;
+
+  /* Text, most to least prominent. */
+  --cb-ink: 240 12% 96%;
+  --cb-ink-muted: 240 6% 66%;
+  --cb-ink-faint: 240 5% 51%;
+  --cb-ink-ghost: 240 5% 39%;
+
+  /* Accent and status. */
+  --cb-accent: 253 92% 72%;
+  --cb-accent-soft: 253 40% 20%;
+  --cb-positive: 152 58% 56%;
+  --cb-positive-soft: 152 40% 15%;
+  --cb-negative: 356 84% 68%;
+  --cb-negative-soft: 356 45% 17%;
+  --cb-warning: 38 92% 62%;
+  --cb-warning-soft: 38 45% 15%;
+
+  /* Diff. */
+  --cb-diff-add: 152 45% 13%;
+  --cb-diff-add-ink: 152 60% 68%;
+  --cb-diff-del: 356 45% 14%;
+  --cb-diff-del-ink: 356 70% 72%;
+
+  --cb-shadow: 240 60% 2%;
+
+  font-feature-settings: 'cv05' 1, 'cv08' 1, 'ss01' 1;
+}
+
+/*
+ * `.cb-root` declares tokens. It does not paint.
+ *
+ * It used to set `background-color: var(--cb-canvas)` and a text colour, which
+ * made it unusable as an inline wrapper: anything nested inside it — the
+ * assistant's own answer, for instance — picked up a near-black block behind
+ * the text of the surrounding transcript. Every call site was already passing
+ * `bg-transparent` to undo it, which is the tell that the paint belonged to a
+ * component and not to the token layer.
+ *
+ * A surface that genuinely wants the canvas asks for it:
+ * `bg-[hsl(var(--cb-canvas))]`.
+ */
+
+.cb-root ::selection {
+  background-color: hsl(var(--cb-accent) / 0.28);
+}
+
+/* Tabular figures for anything that ticks: timers, counters, line numbers. */
+.cb-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Scrollbars                                                              */
+/* ---------------------------------------------------------------------- */
+
+.cb-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cb-scroll:hover,
+.cb-scroll:focus-within {
+  scrollbar-color: hsl(var(--cb-ink) / 0.2) transparent;
+}
+
+.cb-scroll::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.cb-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cb-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  border: 2.5px solid transparent;
+  background-clip: content-box;
+  transition: background-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cb-scroll:hover::-webkit-scrollbar-thumb,
+.cb-scroll:focus-within::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--cb-ink) / 0.18);
+}
+
+.cb-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--cb-ink) / 0.3);
+}
+
+.cb-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Motion                                                                  */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Text that reads as actively generating.
+ *
+ * A bright band travelling through the glyphs, rather than a pulsing opacity:
+ * pulsing the whole label makes it briefly unreadable, while the sweep keeps
+ * every character legible throughout.
+ */
+@keyframes cb-shimmer {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
+}
+
+.cb-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    hsl(var(--cb-ink-faint)) 0%,
+    hsl(var(--cb-ink-faint)) 38%,
+    hsl(var(--cb-ink)) 50%,
+    hsl(var(--cb-ink-faint)) 62%,
+    hsl(var(--cb-ink-faint)) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cb-shimmer 2.4s linear infinite;
+}
+
+@keyframes cb-breathe {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.cb-breathe {
+  animation: cb-breathe 2.1s cubic-bezier(0.76, 0, 0.24, 1) infinite;
+}
+
+@keyframes cb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cb-spin {
+  animation: cb-spin 1.4s linear infinite;
+}
+
+@keyframes cb-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.cb-caret {
+  animation: cb-caret 1.05s steps(1, end) infinite;
+}
+
+@keyframes cb-pulse-ring {
+  0% {
+    transform: scale(0.82);
+    opacity: 0.65;
+  }
+  70%,
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.cb-pulse-ring {
+  animation: cb-pulse-ring 1.9s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+/* The busy hairline along the top edge of a running tool card. */
+@keyframes cb-stripes {
+  to {
+    background-position: 22px 0;
+  }
+}
+
+.cb-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    hsl(var(--cb-accent) / 0.18) 0 6px,
+    transparent 6px 11px
+  );
+  background-size: 22px 22px;
+  animation: cb-stripes 620ms linear infinite;
+}
+
+/* Slow chromatic drift, used only for the top model tier. */
+@keyframes cb-iridescent {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.cb-iridescent {
+  background-size: 320% 320%;
+  animation: cb-iridescent 7s ease-in-out infinite;
+}
+
+/* A pass of light across a frame, for the image-read card. */
+@keyframes cb-sheen {
+  0% {
+    transform: translateX(-120%) skewX(-14deg);
+  }
+  100% {
+    transform: translateX(320%) skewX(-14deg);
+  }
+}
+
+.cb-sheen {
+  animation: cb-sheen 1.5s cubic-bezier(0.76, 0, 0.24, 1) infinite;
+}
+
+/* ---------------------------------------------------------------------- */
+/* The turn timeline                                                       */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Narration and tool cards share one column, in the order they happened.
+ *
+ * Spacing only. Type size, weight and family are inherited from the transcript
+ * so a harness turn and an ordinary message read identically — the timeline
+ * changes the order things appear in, never how the text looks.
+ *
+ * Prose sits closer to the card it introduces than to the next run of prose,
+ * which is what makes "I'll create the entry point" read as belonging to the
+ * card underneath it rather than floating between two.
+ */
+.cb-timeline > * + * {
+  margin-top: 0.5rem;
+}
+
+.cb-timeline > .cb-prose + * {
+  margin-top: 0.375rem;
+}
+
+.cb-timeline > * + .cb-prose {
+  margin-top: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Reduced motion                                                          */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Decorative loops stop; state changes stay legible. The shimmer needs an
+ * explicit fallback because its text colour is transparent — killing the
+ * animation alone would leave the label invisible.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .cb-root *,
+  .cb-root *::before,
+  .cb-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .cb-shimmer {
+    background-image: none;
+    color: hsl(var(--cb-ink-muted));
+    -webkit-text-fill-color: currentColor;
+  }
+
+  .cb-iridescent {
+    animation: none;
+  }
+}

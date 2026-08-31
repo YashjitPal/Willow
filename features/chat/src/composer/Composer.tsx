@@ -22,6 +22,10 @@ import {
 } from "lucide-react";
 
 export type Attachment = ComposerAttachment;
+/** Re-exported so hosts outside this feature can type an `onSubmit` handler
+ *  without reaching past `composer/Composer` — every other consumer already
+ *  imports `Attachment` and `ComposerHandle` from here. */
+export type { ToolId } from './composer-options';
 import { useBackground } from "@willow/studio/shell/BackgroundContext";
 import { DictationWaveform } from './DictationWaveform';
 import { ModelIcon } from './composer-icons';
@@ -445,7 +449,21 @@ export const InputBar: React.FC<{
           if (attachment.url) URL.revokeObjectURL(attachment.url);
         }
       }, 0);
-      setSelectedTool(null);
+      /*
+       * The tool chip SURVIVES the send. It is not cleared here on purpose.
+       *
+       * Gemini keeps the selected tool attached after the message goes: pick
+       * Canvas, send, and the pill is still in the box for the next turn — which is
+       * why it carries its own "Deselect <tool>" X. Willow used to clear it here, so
+       * every follow-up silently dropped back to a plain chat turn and the user had
+       * to re-attach Canvas to say "make it shorter".
+       *
+       * Nothing downstream needs the reset: `handleSend` reads `tool` per message,
+       * and the Canvas gate is `tool === 'canvas' || canvasDocs.size > 0`, so a
+       * sticky chip and a thread that already has a document agree rather than
+       * fight. The chip is cleared by the user (its own X), by picking another tool,
+       * or by importing a repo — all explicit acts.
+       */
       setIsComposerMaximized(false);
       setCanMaximizeComposer(false);
     }
@@ -465,6 +483,13 @@ export const InputBar: React.FC<{
    *   content           display flex, gap 4px, align centre
    *   glyph             16px Luminous Symbols, "FILL" 0 "GRAD" 0 "ROND" 100 "opsz" 16 "wght" 330
    *   label             .gds-body-s, 13px/17px, weight 400, "wdth" 92
+   *
+   * These small values are the ones that ship, and they are deliberate. A later
+   * re-measure of the live app read the chip as 36px tall with a 24px glyph and a
+   * 15/20 label, and that reading was briefly implemented — the result was visibly
+   * too big for Willow's prompt box and was reverted on sight. Do not "fix" the
+   * numbers below against a fresh Gemini measurement without checking the rendered
+   * composer first.
    *
    * Two behaviours that are easy to get wrong and are both measured, not assumed:
    *

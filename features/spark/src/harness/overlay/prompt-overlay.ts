@@ -310,7 +310,7 @@ export function buildOverlay({
       // prompt — parses as nested underneath it. Cascading the drop removes
       // most of the agent's behaviour and leaves a prompt that still reads
       // plausibly, which is the worst kind of regression. Pinned by
-      // `code-beta-harness.test.mjs`.
+      // `agent-harness.test.mjs`.
       withDescendants: false,
       required: false,
       because:
@@ -414,12 +414,12 @@ export function composePrompt(
 
   if (missing.length > 0) {
     throw new OverlayAnchorError(
-      'The Code Beta prompt overlay could not find required anchors in the ' +
+      'The Spark prompt overlay could not find required anchors in the ' +
         `vendored Codex prompt: ${missing.join(', ')}.\n\n` +
         'Upstream almost certainly reorganised these sections. Open ' +
-        'features/code-beta/src/harness/upstream/prompt_with_apply_patch_instructions.md, ' +
+        'features/spark/src/harness/upstream/prompt_with_apply_patch_instructions.md, ' +
         'find where the guidance moved, and update the selectors in ' +
-        'features/code-beta/src/harness/overlay/prompt-overlay.ts.\n\n' +
+        'features/spark/src/harness/overlay/prompt-overlay.ts.\n\n' +
         'This is deliberately fatal: without these edits the prompt tells the ' +
         'model it has a shell, which it does not.',
       missing,

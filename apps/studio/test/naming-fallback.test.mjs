@@ -84,7 +84,7 @@ test('the naming call still reports failure as an empty string', () => {
   assert.match(chatTitle, /return '';\s*\};?\s*$/);
 });
 
-for (const fork of ['code', 'code-beta']) {
+for (const fork of ['code']) {
   const sidebar = read(`features/${fork}/src/workbench/WorkbenchSidebar.tsx`);
   const home = read(`features/${fork}/src/CodeHome.tsx`);
   const workbench = read(`features/${fork}/src/WorkbenchView.tsx`);

@@ -44,6 +44,7 @@ import {
   isSparkScheduleRunClaimCurrent,
   loadSparkCustomiseCollection,
   loadSparkTaskBody,
+  ensureSparkTaskBodyLoaded,
   renameSparkTask,
   replaceSparkLocation,
   restoreSparkLocation,
@@ -1594,32 +1595,64 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       return;
     }
 
+    /*
+     * Both rects have to be real for the delta to mean anything. An element
+     * that is missing, or sitting in a subtree React has just unmounted,
+     * measures 0×0 at the origin — which would set the translate to the
+     * element's entire old offset and, for the composer, animate its inline
+     * width down to zero. Skipping the animation is the correct fallback:
+     * whatever the new route renders simply appears in place.
+     */
+    const isMeasurable = (rect: DOMRect | undefined): rect is DOMRect => (
+      rect !== undefined && rect.width > 0 && rect.height > 0
+    );
+
     const liveMove = (
       element: HTMLElement | null,
       from: DOMRect | undefined,
       moveY = true,
     ) => {
-      if (!element || !from) return;
+      if (!element || !element.isConnected || !isMeasurable(from)) return;
       const to = element.getBoundingClientRect();
+      if (!isMeasurable(to)) return;
       const dx = from.left - to.left;
       const dy = moveY ? from.top - to.top : 0;
-      const fromWidth = from.width;
-      const toWidth = to.width;
+      const dw = from.width - to.width;
       element.style.setProperty('--spark-live-dx', `${dx}px`);
       element.style.setProperty('--spark-live-dy', `${dy}px`);
-      if (element === sharedComposerHost) element.style.width = `${fromWidth}px`;
+      /*
+       * A DELTA, not a pixel width — for the same reason `dx` is one.
+       *
+       * `to` is measured in the commit that renders the task route, and the
+       * layout is not final at that point: `App` collapses the global sidebar
+       * when a task opens, and that rail animates 276px → 52px over 300ms, so
+       * the workspace keeps widening for the whole first half of this
+       * animation. A pinned `width: ${toWidth}px` freezes the composer at the
+       * pre-collapse size — 98px too narrow at 1600px — and the 470ms cleanup
+       * then snaps it out to its real width. That was the visible glitch, and
+       * it only showed on the first open of a session because every later one
+       * measured an already-collapsed rail.
+       *
+       * `calc(100% + var(--spark-live-dw))` sidesteps the stale measurement
+       * instead of trying to predict it: `100%` tracks the anchor live while
+       * the delta decays to zero, so the start is exactly the old width, the
+       * end is exactly whatever the settled layout says, and nothing has to be
+       * measured a second time. The transform already worked this way, which is
+       * why the slide was right while the resize was wrong.
+       */
+      if (element === sharedComposerHost) element.style.setProperty('--spark-live-dw', `${dw}px`);
       void element.offsetWidth;
       requestAnimationFrame(() => {
-        element.style.transition = 'transform 450ms cubic-bezier(0.2, 0, 0, 1), width 450ms cubic-bezier(0.2, 0, 0, 1)';
+        element.style.transition = 'transform 450ms cubic-bezier(0.2, 0, 0, 1), --spark-live-dw 450ms cubic-bezier(0.2, 0, 0, 1)';
         element.style.setProperty('--spark-live-dx', '0px');
         element.style.setProperty('--spark-live-dy', '0px');
-        if (element === sharedComposerHost) element.style.width = `${toWidth}px`;
+        if (element === sharedComposerHost) element.style.setProperty('--spark-live-dw', '0px');
       });
       window.setTimeout(() => {
         element.style.transition = '';
         element.style.removeProperty('--spark-live-dx');
         element.style.removeProperty('--spark-live-dy');
-        if (element === sharedComposerHost) element.style.width = '';
+        if (element === sharedComposerHost) element.style.removeProperty('--spark-live-dw');
       }, 470);
     };
 
@@ -1665,7 +1698,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       goToSparkTask(taskId);
       return;
     }
-    transitionTaskNavigation(() => goToSparkTask(taskId));
+    /*
+     * The body read happens inside the same `flushSync` as the navigation, so
+     * the detail route renders in one pass. Left to its own effect it resolves a
+     * microtask later, and the frame in between renders the "Loading task…"
+     * branch below — a tree with no composer anchor, which detaches the shared
+     * prompt box exactly when `liveMove` measures its destination. That is why a
+     * task's first open used to animate the prompt box toward a zero width and
+     * then snap; every later open skipped the branch and looked right.
+     */
+    transitionTaskNavigation(() => {
+      ensureSparkTaskBodyLoaded(taskId);
+      goToSparkTask(taskId);
+    });
   };
 
   const closeTaskWithTransition = () => {

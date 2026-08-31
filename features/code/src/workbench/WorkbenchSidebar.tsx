@@ -87,6 +87,34 @@ import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';
 import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 
+// ── The Agent tool ───────────────────────────────────────────────────────
+// An optional second generation path: the vendored Codex harness, reached by
+// selecting "Agent" in the Tools menu. Everything below is inert while
+// `agentEngaged` is false — the legacy loop above is untouched and still runs
+// every turn by default. See features/code/src/agent/harness/AGENTS.md.
+import { runCodexTurn, type WorkbenchFiles } from '../agent/harness-bridge';
+import {
+  agentEngaged,
+  effectiveEffort,
+  nextTurnId,
+  setAgentEngaged,
+  setUltraEngaged,
+  turnCalls,
+  ultraEngaged,
+} from '../agent/agent-store';
+import type { Message } from '../agent/harness/runtime/protocol';
+import { LiveTurnActivity, SettledTurnActivity } from '../agent/ui/TurnActivity';
+import {
+  expandCommand,
+  matchSlashCommands,
+  type SlashCommand,
+} from '../agent/slash-commands';
+import { EFFORT_LABEL } from '../agent/harness/overlay/effort';
+// Every rule in here is scoped under `.cb-root`, which only the harness's own
+// components render — so importing it unconditionally changes nothing when the
+// Agent tool is off.
+import '../agent/agent.css';
+
 
 import { GeminiLogo, AnnotateIcon, VisualEditsIcon } from './sidebar-icons';
 import { CollapsibleFileIndicator, CollapsibleTestIndicator } from './collapsible-indicators';
@@ -120,11 +148,32 @@ interface SidebarProps {
 }
 
 
+/**
+ * The empty slash-command result, hoisted so its identity is stable.
+ *
+ * `matchSlashCommands` is skipped entirely when the Agent tool is off, and a
+ * fresh `[]` there would be a new array on every keystroke.
+ */
+const EMPTY_SLASH_MATCHES: SlashCommand[] = [];
+
+
 const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
+  /*
+   * The Agent tool's master switch.
+   *
+   * Declared up here because almost everything harness-related reads it — the
+   * slash menu, the send routing, the model menu's Ultra rung — and they are
+   * spread the length of this component.
+   *
+   * Read from the store rather than compared against `selectedToolId` so a pick
+   * made on the landing composer, where the first prompt is usually typed, is
+   * authoritative on the very first render here.
+   */
+  const isAgent = useStore(agentEngaged);
   const [sidebarView, setSidebarViewRaw] = useState<'chat' | 'visual-edit'>('chat');
   const hasUnsaved = useStore(hasUnsavedChanges);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -160,6 +209,41 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
 
   const [promptValue, setPromptValue] = useState('');
+
+  /*
+   * Agent tool: slash commands.
+   *
+   * They expand into the composer rather than doing anything themselves, so the
+   * user can edit before sending and the harness stays the only thing deciding
+   * what runs. `/clear` is the one action.
+   *
+   * Gated on the Agent tool. With it off `slashMatches` is always empty, which
+   * makes both the menu and the keydown interception below dead code — typing a
+   * `/` in the legacy composer behaves exactly as it always has.
+   */
+  const slashMatches = isAgent ? matchSlashCommands(promptValue) : EMPTY_SLASH_MATCHES;
+  const [slashIndex, setSlashIndex] = useState(0);
+  useEffect(() => setSlashIndex(0), [promptValue]);
+
+  const applySlashCommand = useCallback((command: SlashCommand) => {
+    if (command.action === 'clear') {
+      setPromptValue('');
+      handleNewChat();
+      return;
+    }
+
+    const { text, caret } = expandCommand(command);
+    setPromptValue(text);
+
+    // The caret goes where the user has to type next; without this it lands at
+    // the end and they have to click back into the middle of the template.
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(caret, caret);
+    });
+  }, []);
 
   // Visual edit queue subscription
   const editQueue = useStore(visualEditQueue);
@@ -238,7 +322,25 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const selectedEls = useStore(selectedElements);
   
   // Selected tool state (independent from tabs)
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  //
+  // Seeded from the Agent store so a pick made on the landing composer — which
+  // is where the first prompt is usually typed — is still selected once the
+  // workbench takes over. Any other tool starts unselected, as before.
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(
+    () => (agentEngaged.get() ? 'agent' : null),
+  );
+
+  /*
+   * ...and kept in step with it afterwards, for the same reason the landing
+   * composer is: the two hold separate tool state, so whichever one the user did
+   * not touch would otherwise show a pill that disagrees with what actually runs.
+   */
+  useEffect(() => {
+    setSelectedToolId((current) => {
+      if (isAgent) return 'agent';
+      return current === 'agent' ? null : current;
+    });
+  }, [isAgent]);
   const [globalErrors, setGlobalErrors] = useState<{id: string; message: string; isClosing: boolean; action?: 'set-api-key'}[]>([]);
 
   const addGlobalError = useCallback((message: string, action?: 'set-api-key') => {
@@ -413,6 +515,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     isThinking?: boolean;
     hasCodeChanges?: boolean;
     filesSnapshot?: Record<string, string>; // State of codebase immediately after this message
+    /**
+     * Agent tool only: the Codex harness turn that produced this message.
+     *
+     * The harness keeps its tool calls and sub-agents in `agent-store` rather
+     * than on the message, because they stream in while the message body is
+     * still empty. This id is the join between the two. Absent on every message
+     * the legacy loop produced, which is what makes the timeline components
+     * fall back to plain rendering.
+     */
+    codexTurnId?: string;
 
     timestamp: number;
     attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
@@ -420,6 +532,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   }
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentStreamingResponse, setCurrentStreamingResponse] = useState('');
+  /**
+   * The Codex turn in flight, or null when the Agent tool is not driving.
+   *
+   * Held separately from `messages` because the assistant message is only
+   * appended once the turn settles, while its tool cards need to render from
+   * the first patch onward.
+   */
+  const [activeCodexTurn, setActiveCodexTurn] = useState<string | null>(null);
 
   // Design mode (canvas-screens) — separate chat state
   const [designMessages, setDesignMessages] = useState<ChatMessage[]>([]);
@@ -1684,7 +1804,24 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           }
         }
 
-        startAiGeneration(prompt, [], true, processedAttachments); // true = UI already started
+        /*
+         * The opening turn takes the same fork as every later one.
+         *
+         * This is the handoff from the landing composer, and it does not go
+         * through `handleSendMessage`, so the routing there does not cover it.
+         * Missing this is invisible in the worst way: the Agent tool reads as
+         * selected, and the first prompt — the one that builds the project —
+         * quietly runs the legacy loop instead.
+         *
+         * Read from the store rather than the `isAgent` render value: this fires
+         * from an effect whose deps do not include it, so the closure could be
+         * a render behind.
+         */
+        if (agentEngaged.get()) {
+          startCodexGeneration(prompt, []);
+        } else {
+          startAiGeneration(prompt, [], true, processedAttachments); // true = UI already started
+        }
       };
 
       fireInitialGeneration();
@@ -1809,6 +1946,15 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     } else if (selectedToolId === 'test' || isTestMode) {
       // In test mode, run the test
       await startTestGeneration(text);
+    } else if (isAgent) {
+      /*
+       * Agent tool: the Codex harness runs this turn instead of the loop below.
+       *
+       * The only place the two paths diverge. Everything before this point —
+       * the user message, the attachments, the thinking timer — is shared, and
+       * with the tool off this branch is skipped entirely.
+       */
+      await startCodexGeneration(text, imageAssetPaths);
     } else {
       // Normal code generation - Trigger generation with history
       const history: AiChatMessage[] = messages.map(m => ({
@@ -1817,6 +1963,150 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       }));
       // Pass processedAttachments for the NEW message
       await startAiGeneration(text, history, true, processedAttachments, imageAssetPaths);
+    }
+  };
+
+  /**
+   * Runs one turn on the Codex harness — the Agent tool's generation path.
+   *
+   * A sibling of `startAiGeneration`, not a replacement for it. Everything the
+   * legacy loop does here — the bolt system prompt, the codebase context block,
+   * the streaming artifact parser — belongs to that loop and is deliberately
+   * absent: the harness builds its own prompt from the vendored Codex text,
+   * sends a file manifest rather than the whole codebase, and applies edits as
+   * V4A patches instead of whole-file rewrites.
+   *
+   * Attachments are not forwarded. `runCodexTurn` has no channel for them, so a
+   * turn started with images attached sends the prose only. Images the user
+   * dropped are still written into the project as assets below, exactly as in
+   * the legacy path.
+   *
+   * See features/code/src/agent/harness/AGENTS.md.
+   */
+  const startCodexGeneration = async (
+    text: string,
+    imageAssetPaths: { name: string; path: string; dataUrl: string }[] = [],
+  ) => {
+    generationAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    generationAbortControllerRef.current = abortController;
+    const runId = ++generationRunIdRef.current;
+    const isCurrentRun = () => generationRunIdRef.current === runId;
+
+    const turnId = nextTurnId();
+    setActiveCodexTurn(turnId);
+
+    let responseText = '';
+    const assistantId = Math.random().toString(36).substring(7);
+
+    workbenchStore.isGenerating.set(true);
+
+    // The harness owns the turn; the sidebar owns the message body. Prose
+    // arrives through `onText` and everything else lands in the activity store.
+    const harnessHistory: Message[] = messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      blocks: [{ type: 'text' as const, id: message.id, content: message.content }],
+      createdAt: message.timestamp,
+    }));
+
+    await runCodexTurn({
+      turnId,
+      prompt: text,
+      history: harnessHistory,
+      workbench: workbenchStore as unknown as WorkbenchFiles,
+      modelConfig,
+      selectedModelId,
+      apiKeys,
+      effort: codexEffort,
+      signal: abortController.signal,
+      onText: (chunk) => {
+        if (abortController.signal.aborted || !isCurrentRun()) return;
+
+        // The first token ends the thinking phase, exactly as in the legacy loop.
+        if (isCurrentlyThinkingRef.current) {
+          const elapsedMs = thinkingStartTimeRef.current
+            ? Date.now() - thinkingStartTimeRef.current
+            : 0;
+          thinkingTimeRef.current = Math.ceil(elapsedMs / 1000);
+          setCurrentThinkingTime(thinkingTimeRef.current);
+          isCurrentlyThinkingRef.current = false;
+          setIsCurrentlyThinking(false);
+          if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+        }
+
+        responseText += chunk;
+        setCurrentStreamingResponse(responseText);
+      },
+      onDone: ({ reason, error, text: finalText }) => {
+        if (!isCurrentRun()) return;
+
+        // The harness's cleaned transcript, not the raw stream: file contents
+        // the model wrote as prose have been re-sent as a patch, and the
+        // original block is replaced so the message does not show the same file
+        // twice.
+        responseText = finalText || responseText;
+
+        if (reason === 'cancelled') {
+          setCurrentStreamingResponse('');
+          setIsCurrentlyGenerating(false);
+          setIsCurrentlyThinking(false);
+          setActiveCodexTurn(null);
+          if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
+          workbenchStore.isGenerating.set(false);
+          return;
+        }
+
+        if (reason === 'error' && error) {
+          const isApiKeyError = /api.?key/i.test(error) && /missing|not configured/i.test(error);
+          addGlobalError(error, isApiKeyError ? 'set-api-key' : undefined);
+        }
+
+        // A turn changed code if the harness emitted an edit, which is more
+        // reliable than pattern-matching the prose for artifact tags.
+        const edits = turnCalls(turnId).filter(
+          (call) => call.kind === 'edit' || call.kind === 'create' || call.kind === 'delete',
+        );
+
+        const assistantMessage: ChatMessage = {
+          id: assistantId,
+          role: 'assistant',
+          content: responseText,
+          thinkingTime: thinkingTimeRef.current,
+          hasCodeChanges: edits.length > 0,
+          codexTurnId: turnId,
+          timestamp: Date.now(),
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+        setCurrentStreamingResponse('');
+        setCurrentThinkingTime(0);
+        setIsCurrentlyGenerating(false);
+        setIsCurrentlyThinking(false);
+        setActiveCodexTurn(null);
+
+        // Only keep images the model actually referenced.
+        for (const img of imageAssetPaths) {
+          if (responseText.includes(img.path)) workbenchStore.setFile(img.path, img.dataUrl);
+        }
+
+        if (assistantMessage.hasCodeChanges) {
+          const snapshot: Record<string, string> = {};
+          Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
+            snapshot[path] = file.content;
+          });
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === assistantId ? { ...msg, filesSnapshot: snapshot } : msg)),
+          );
+          workbenchStore.activeSnapshotId.set(assistantId);
+        }
+
+        workbenchStore.isGenerating.set(false);
+      },
+    });
+
+    if (generationAbortControllerRef.current === abortController) {
+      generationAbortControllerRef.current = null;
     }
   };
 
@@ -2727,11 +3017,32 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
 
+  /*
+   * Agent tool: reasoning effort on Codex's own ladder.
+   *
+   * Effort is part of the harness — upstream carries it as
+   * `model_reasoning_effort` — and its ladder ends one rung past Willow's, at
+   * Ultra. The numeric levels are still chosen through the shared model menu;
+   * the menu's `extraEfforts` prop adds the Ultra row.
+   *
+   * Only the Ultra flag is stored — the numeric levels already live on the
+   * selected model — and it is stored rather than held locally because the
+   * landing composer offers the same choice. Both are `&& isAgent`: with the
+   * tool off there is no Codex ladder, so the row is hidden and the pill shows
+   * whatever it always showed.
+   */
+  const isUltra = useStore(ultraEngaged) && isAgent;
+  const codexEffort = effectiveEffort(isUltra, activeModel?.thinkingLevel);
+
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
-  const activeEffortDisplayLabel = activeModel && !isNonThinkingEffort(activeModel)
-    ? getThinkingEffortLabel(activeModel)
-    : '';
+  // Ultra is not a level on `activeModel`, so it is named here instead; without
+  // this the pill would keep showing whichever level Ultra was chosen over.
+  const activeEffortDisplayLabel = isUltra
+    ? EFFORT_LABEL.ultra
+    : activeModel && !isNonThinkingEffort(activeModel)
+      ? getThinkingEffortLabel(activeModel)
+      : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
     .join(' ');
@@ -2786,7 +3097,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     { id: 'design', label: 'Design', icon: Palette },
     { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
     { id: 'prototype', label: 'Visual Edits', icon: VisualEditsIcon },
-    { id: 'test', label: 'Test', icon: FlaskConical }
+    { id: 'test', label: 'Test', icon: FlaskConical },
+    /*
+     * The Codex harness.
+     *
+     * Selecting it swaps this turn's generation path — `startCodexGeneration`
+     * instead of `startAiGeneration` — and turns on the composer affordances
+     * that only mean something to the harness: slash commands and the Ultra
+     * effort rung. Tools are single-select, so picking Agent clears Test, and
+     * clearing Agent puts the composer back exactly as it was.
+     */
+    { id: 'agent', label: 'Agent', icon: AgentIcon }
   ];
 
   const currentTool = selectedToolId ? TOOLS.find(t => t.id === selectedToolId) : null;
@@ -2794,6 +3115,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const handleToolSelect = (toolId: string) => {
     console.log('[Sidebar] handleToolSelect called with:', toolId);
     setSelectedToolId(toolId);
+    // Mirror into the store the harness and the landing composer both read.
+    setAgentEngaged(toolId === 'agent');
     setIsToolsMenuOpen(false);
     // Note: Tools are now independent from tabs - no onTabChange calls
     // Design and Prototype still change tabs since they have dedicated panels
@@ -2810,6 +3133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       testStore.cancelTest(); // This sets isCancelled flag and exits test mode
     }
     setSelectedToolId(null);
+    setAgentEngaged(false);
     // Don't change tabs - tools are independent from tabs
   };
 
@@ -3523,9 +3847,33 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                       </div>
                     ) : null}
 
-                    <div className="text-gray-300 text-[15px] leading-[1.65]">
-                      {renderFormattedContent(msg.content, msg.isGenerating)}
-                    </div>
+                    {/*
+                      * The turn's timeline, for messages the Agent tool produced.
+                      *
+                      * The narration and the cards it refers to collapse
+                      * together, leaving the closing paragraph — which is the
+                      * answer — on its own.
+                      *
+                      * `fallback` is the whole stored message, used for every
+                      * message the legacy loop produced (no `codexTurnId`) and
+                      * for harness turns no longer in the session store, e.g.
+                      * after a reload where only the message text survives. So
+                      * this renders byte-identically to what it replaced
+                      * whenever the Agent tool was not involved.
+                      */}
+                    <SettledTurnActivity
+                      turnId={msg.codexTurnId}
+                      renderText={(text, streaming) => (
+                        <div className="text-gray-300 text-[15px] leading-[1.65]">
+                          {renderFormattedContent(text, streaming)}
+                        </div>
+                      )}
+                      fallback={
+                        <div className="text-gray-300 text-[15px] leading-[1.65]">
+                          {renderFormattedContent(msg.content, msg.isGenerating)}
+                        </div>
+                      }
+                    />
 
                     {/* Design Indicator - clickable design card for design mode messages */}
                     {msg.designNodeId && !msg.isGenerating && (
@@ -3680,7 +4028,26 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   )}
                 </div>
 
-                {(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
+                {/*
+                  * The live timeline — the narration and every tool call, in
+                  * the order they happened. Renders nothing at all unless a
+                  * Codex turn is in flight, so the legacy streaming block below
+                  * is the only thing on screen when the Agent tool is off.
+                  */}
+                <LiveTurnActivity
+                  turnId={activeCodexTurn}
+                  onStop={() => generationAbortControllerRef.current?.abort()}
+                  renderText={(text, streaming) => (
+                    <div className="text-gray-300 text-[15px] leading-[1.65]">
+                      {renderFormattedContent(text, streaming)}
+                    </div>
+                  )}
+                />
+
+                {/* Suppressed for harness turns only: the timeline above already
+                  * renders the prose, so leaving this on would show it twice. */}
+                {!activeCodexTurn
+                  && (activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
                     {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true)}
                   </div>
@@ -3963,6 +4330,42 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  </div>
                </div>
 
+               {/*
+                 * The Agent tool's slash-command menu.
+                 *
+                 * Anchored above the composer and only ever open while the
+                 * draft is a bare `/word`, so it cannot appear mid-sentence.
+                 * `slashMatches` is hard-empty unless the tool is selected, so
+                 * this renders nothing at all otherwise.
+                 */}
+               {slashMatches.length > 0 && (
+                 <div className="cb-root absolute bottom-full left-0 right-0 z-50 mb-2">
+                   <div
+                     className="overflow-hidden rounded-xl border border-[hsl(var(--cb-line))] bg-[hsl(var(--cb-overlay))] p-1"
+                     style={{ boxShadow: '0 18px 44px -12px rgba(0,0,0,0.7)' }}
+                   >
+                     {slashMatches.map((command, index) => (
+                       <button
+                         key={command.name}
+                         type="button"
+                         onMouseEnter={() => setSlashIndex(index)}
+                         onClick={() => applySlashCommand(command)}
+                         className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors duration-100 ${
+                           index === slashIndex ? 'bg-[hsl(var(--cb-ink)/0.07)]' : ''
+                         }`}
+                       >
+                         <span className="font-mono text-[12.5px] font-medium text-[hsl(var(--cb-ink))]">
+                           {command.name}
+                         </span>
+                         <span className="min-w-0 flex-1 truncate text-[11.5px] text-[hsl(var(--cb-ink-faint))]">
+                           {command.hint}
+                         </span>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               )}
+
                <textarea
                   ref={textareaRef}
                   placeholder={hasUnsaved ? "Save or discard changes first..." : "Ask Willow..."}
@@ -3971,6 +4374,34 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
                   onKeyDown={(e) => {
+                    // The slash menu claims the arrow keys, Tab and Enter while
+                    // it is open, so a command can be picked without the message
+                    // being sent underneath it. Never entered with the Agent
+                    // tool off — `slashMatches` is empty then.
+                    if (slashMatches.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setSlashIndex((index) => (index + 1) % slashMatches.length);
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setSlashIndex((index) => (index - 1 + slashMatches.length) % slashMatches.length);
+                        return;
+                      }
+                      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                        e.preventDefault();
+                        const picked = slashMatches[slashIndex];
+                        if (picked) applySlashCommand(picked);
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setPromptValue('');
+                        return;
+                      }
+                    }
+
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSendMessage(promptValue);
@@ -4112,7 +4543,33 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
+                            /*
+                              * Ultra, appended to the thinking-effort list for
+                              * every model — but only while the Agent tool is on.
+                              *
+                              * It is not one of Willow's numeric levels: upstream
+                              * lowers it to the model's own ceiling on the wire and
+                              * uses it to turn on proactive sub-agent delegation. So
+                              * it is held in the Agent store rather than written into
+                              * `selectedModelId` — a non-model id there would leave
+                              * the Code tab unable to resolve the selection — and it
+                              * means nothing to the legacy loop, which is why the row
+                              * is absent when the tool is off.
+                              */
+                            extraEfforts={isAgent ? [
+                              {
+                                id: 'codex-ultra',
+                                label: EFFORT_LABEL.ultra,
+                                badge: 'Sub-agents',
+                                selected: isUltra,
+                                onSelect: () => setUltraEngaged(true),
+                              },
+                            ] : undefined}
                             onSelect={(id) => {
+                              // Picking a level clears Ultra: the two are one radio
+                              // group, so leaving it on would keep delegating after
+                              // the user asked for something else.
+                              setUltraEngaged(false);
                               setSelectedModelId(id);
                               const sel = ALL_MODELS.find(m => m.id === id);
                               if (sel) {

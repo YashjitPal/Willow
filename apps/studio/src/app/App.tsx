@@ -181,16 +181,6 @@ const CodeWorkspace = React.lazy(() =>
 const AgentBuilderContent = React.lazy(() =>
   import('@willow/agent-builder/AgentsWorkspace').then((module) => ({ default: module.AgentsWorkspace }))
 );
-// Labs: the Code Beta surface. A fork of the Code tab above, running the
-// vendored Codex harness. Lazy like every other sub-app, which also means its
-// chunk — workbench, harness, vendored prompt — never ships to anyone who has
-// not enabled the experiment.
-const CodeBetaWorkspace = React.lazy(() =>
-  import('@willow/code-beta/CodeHome').then(async (m) => {
-    await m.preloadIdleImages();
-    return { default: m.CodeWorkspace };
-  })
-);
 
 const StudioLoadingFallback: React.FC<{
   reason: string;
@@ -1372,29 +1362,6 @@ const App: React.FC = () => {
               />
             </Suspense>
           )
-        ) : currentView === 'code-beta' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="code-beta-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <CodeWorkspaceSkeleton />
-            </StudioLoadingFallback>
-          }>
-            <CodeBetaWorkspace
-              key={`code-beta-${chatResetKey}`}
-              chatResetKey={chatResetKey}
-              modelConfig={modelConfig}
-              setModelConfig={setModelConfig}
-              selectedModelId={selectedModelId}
-              setSelectedModelId={setSelectedModelId}
-              isAuthenticated={!!user}
-              onAuthRequired={!user ? () => navigate('/login') : undefined}
-              onSettingsClick={(tab) => {
-                if (tab) setSettingsInitialTab(tab as any);
-                setIsSettingsOpen(true);
-              }}
-              isSidebarCollapsed={isSidebarCollapsed}
-              onWorkspaceActive={setIsSidebarHidden}
-            />
-          </Suspense>
         ) : currentView === 'personal-intelligence' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>

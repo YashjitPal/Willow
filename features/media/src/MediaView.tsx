@@ -2299,7 +2299,8 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', apiId: 'veo-3.1-fast-generate-preview' },
     { id: 'veo-3.1', name: 'Veo 3.1', apiId: 'veo-3.1-generate-preview' },
     { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', apiId: 'veo-3.0-fast-generate-001' },
-    { id: 'omni-flash', name: 'Gemini Omni Flash', apiId: 'gemini-omni-flash-preview' },
+    { id: 'omni-flash', name: 'Gemini Omni Flash 1', apiId: 'gemini-omni-flash-preview' },
+    { id: 'omni-flash-1.1', name: 'Gemini Omni Flash 1.1', apiId: 'gemini-omni-flash-1.1-preview' },
   ];
 
   const availableVideoModels = React.useMemo(() => {
@@ -3032,7 +3033,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
       const firstImagePart = inlineParts[0]?.inlineData;
 
-      if (videoModelKey === 'omni-flash') {
+      if (videoModelKey === 'omni-flash' || videoModelKey === 'omni-flash-1.1') {
         const interactionsInput = [
           { 
             type: 'text', 
@@ -3732,7 +3733,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 status: 'generating',
                 prompt: args.prompt || 'Agent Generated Video',
                 modelId: modelToUse,
-                modelName: modelToUse === 'omni-flash' ? 'Omni Flash' : 'Veo 3.1 Fast',
+                modelName: modelToUse === 'omni-flash' ? 'Omni Flash 1' : modelToUse === 'omni-flash-1.1' ? 'Omni Flash 1.1' : 'Veo 3.1 Fast',
                 ratio: ratioToUse,
                 timestamp: batchTimestamps[i]
               };
@@ -3749,7 +3750,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   const durationSec = parseInt(durationToUse.replace('s', ''), 10) || 8;
                   const inlineParts = await Promise.all(validAttachments.map(getGeminiInlinePart));
                   
-                  if (modelToUse === 'omni-flash') {
+                  if (modelToUse === 'omni-flash' || modelToUse === 'omni-flash-1.1') {
                     const interactionsInput = [
                       { 
                         type: 'text', 
@@ -5608,9 +5609,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               <div className="shadow-2xl overflow-hidden preview-fade-in relative rounded-[18px] border-[5px] border-[#444c57] bg-[#121214]">
                 <img 
                   src={hoveredAttachmentUrl} 
-                  className={`max-h-[320px] max-w-[400px] object-contain block ${hoveredAttachmentIsEndFrame && videoModel === 'omni-flash' ? 'grayscale' : ''}`} 
+                  className={`max-h-[320px] max-w-[400px] object-contain block ${hoveredAttachmentIsEndFrame && (videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1') ? 'grayscale' : ''}`} 
                 />
-                {hoveredAttachmentIsEndFrame && videoModel === 'omni-flash' && (
+                {hoveredAttachmentIsEndFrame && (videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1') && (
                   <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center p-4 gap-2 text-center select-none">
                     <div className="w-8 h-8 flex items-center justify-center text-white">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-8 h-8">
@@ -5713,13 +5714,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[1].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
                       <div className="relative">
-                        <div className={`w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e] relative ${videoModel === 'omni-flash' ? 'grayscale' : ''}`}>
+                        <div className={`w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e] relative ${videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1' ? 'grayscale' : ''}`}>
                           {attachments[1].kind === 'video' ? (
                             <video src={attachments[1].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
                           ) : (
                             <img src={attachments[1].url} alt={attachments[1].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
                           )}
-                          {videoModel === 'omni-flash' && (
+                          {(videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1') && (
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-500">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
                                 <circle cx="12" cy="12" r="10" />
@@ -7383,7 +7384,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                 { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast' },
                                 { id: 'veo-3.1', name: 'Veo 3.1' },
                                 { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite' },
-                                { id: 'omni-flash', name: 'Omni Flash' },
+                                { id: 'omni-flash', name: 'Omni Flash 1' },
+                                { id: 'omni-flash-1.1', name: 'Omni Flash 1.1' },
                               ].map(modelOpt => (
                                 <button
                                   key={modelOpt.id}

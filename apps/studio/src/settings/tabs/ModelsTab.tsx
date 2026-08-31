@@ -92,6 +92,7 @@ export const getModelPricing = (modelId: string, provider: string): string => {
     'gemini-3.1-flash-image-preview': '$0.15/$0.60',
     'gemini-3.1-flash-lite-image': '$0.075/$0.30',
     'omni-flash': '$0.15/$0.60',
+    'omni-flash-1.1': '$0.15/$0.60',
     'lyria-3-pro': '$1.00/$4.00',
     'lyria-3': '$0.50/$2.00',
     'veo-3.1-fast': '$2.00/$8.00',
@@ -694,7 +695,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       m => m.modelId === selectedModel.id
                     );
                   })()}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {modelConfig.gemini.savedModels.some(m => m.modelId === modelConfig.gemini.model) ? 'Already Added' : 'Add to Models'}
                 </button>
@@ -806,7 +807,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     }));
                   }}
                   disabled={modelConfig.openai.savedModels.some((m: any) => m.modelId === modelConfig.openai.model)}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {modelConfig.openai.savedModels.some((m: any) => m.modelId === modelConfig.openai.model) ? 'Already Added' : 'Add to Models'}
                 </button>
@@ -915,7 +916,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     }));
                   }}
                   disabled={modelConfig.anthropic.savedModels.some((m: any) => m.modelId === modelConfig.anthropic.model)}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {modelConfig.anthropic.savedModels.some((m: any) => m.modelId === modelConfig.anthropic.model) ? 'Already Added' : 'Add to Models'}
                 </button>
@@ -992,7 +993,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     }));
                   }}
                   disabled={(modelConfig.moonshot?.savedModels || []).some((m: any) => m.modelId === modelConfig.moonshot.model)}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {(modelConfig.moonshot?.savedModels || []).some((m: any) => m.modelId === modelConfig.moonshot.model) ? 'Already Added' : 'Add to Models'}
                 </button>
@@ -1069,7 +1070,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     }));
                   }}
                   disabled={(modelConfig.spacexai?.savedModels || []).some((m: any) => m.modelId === modelConfig.spacexai.model)}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {(modelConfig.spacexai?.savedModels || []).some((m: any) => m.modelId === modelConfig.spacexai.model) ? 'Already Added' : 'Add to Models'}
                 </button>
@@ -1156,7 +1157,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                     }));
                   }}
                   disabled={(modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === modelConfig.zhipuai.model)}
-                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full py-3 bg-white text-black font-semibold text-[13px] rounded-xl hover:bg-zinc-100 transition-[transform,background-color] duration-150 ease-out active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {(modelConfig.zhipuai?.savedModels || []).some((m: any) => m.modelId === modelConfig.zhipuai.model) ? 'Already Added' : 'Add to Models'}
                 </button>

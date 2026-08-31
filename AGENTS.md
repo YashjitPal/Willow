@@ -31,8 +31,7 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | Package | Alias | What it is |
 | --- | --- | --- |
 | [`apps/studio`](apps/studio/AGENTS.md) | — | The host shell: routing, sidebar, settings, Vite config |
-| [`features/code`](features/code/AGENTS.md) | `@willow/code` | The Workbench — Sandpack sandbox, visual editing |
-| [`features/code-beta`](features/code-beta/AGENTS.md) | `@willow/code-beta` | **Labs.** A fork of Code running a vendored Codex harness |
+| [`features/code`](features/code/AGENTS.md) | `@willow/code` | The Workbench — Sandpack sandbox, visual editing, and the Agent tool's Codex harness |
 | [`features/chat`](features/chat/AGENTS.md) | `@willow/chat` | Standalone chat surface |
 | [`features/media`](features/media/AGENTS.md) | `@willow/media` | AI image and video generation |
 | [`features/agent-builder`](features/agent-builder/AGENTS.md) | `@willow/agent-builder` | React-Flow workflow canvas (frontend of the Agents app) |
@@ -57,11 +56,6 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 Two alias pairs are easy to confuse — both are documented in the feature docs:
 `@willow/account` (UI) vs `@willow/auth` (Firebase), and `@willow/project-browser`
 (UI) vs `@willow/projects` (data).
-
-A third pair needs care for a different reason: `@willow/code-beta` is a prefix
-collision with `@willow/code`. In `apps/studio/vite.config.ts` the longer alias
-**must** be listed first, because Vite takes the first match — see *Import
-conventions*.
 
 ## Where new work goes
 
@@ -219,9 +213,8 @@ keep `@willow/project-browser` above `@willow/projects`.
 | `npm run dev` | Studio on :3000, with the Agent Builder API mounted same-origin |
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-checks all browser-side code in one pass |
-| `npm run codex:check` | Verifies Code Beta's vendored Codex files, and reports newer releases |
-| `npm run codex:update` | Moves the Codex pin. See [`features/code-beta`](features/code-beta/src/harness/AGENTS.md) |
-| `node tools/scripts/code-beta-fork-status.mjs` | How far Code Beta has diverged from the Code tab it forked from |
+| `npm run codex:check` | Verifies the Agent harness's vendored Codex files, and reports newer releases |
+| `npm run codex:update` | Moves the Codex pin. See [the harness docs](features/code/src/agent/harness/AGENTS.md) |
 | `npm test` | Studio tests |
 | `npm run agent-builder:test` | Backend suite (542 tests) |
 | `npm run agent-builder:typecheck` | Backend types (separate tsconfig, Node target) |

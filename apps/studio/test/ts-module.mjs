@@ -78,6 +78,21 @@ let aliasCache = null;
  */
 const ANY_IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*)(['"])([^'"]+)\2/g;
 
+/**
+ * `import type { X } from './y'` — a statement esbuild erases outright.
+ *
+ * Following one is not merely wasted work: it invents import cycles that do not
+ * exist at runtime. `canvas-store.ts` takes `ChatMsg` from `chat-message.ts`,
+ * which takes `CanvasRef` back from `canvas-store.ts`, and both are type-only —
+ * the transpiled modules do not reference each other at all, but walking the
+ * specifiers as if they were values throws `import cycle` and makes the whole
+ * subsystem untestable.
+ *
+ * Bounded on `[^;]` so it cannot run past the end of one statement into the
+ * `from` of a later import.
+ */
+const TYPE_ONLY_IMPORT = /\bimport\s+type\s+[^;]*?\bfrom\s*(['"])([^'"]+)\1/g;
+
 const isBuiltin = (specifier) => specifier.startsWith('node:');
 
 const isBare = (specifier) =>
@@ -87,7 +102,7 @@ const isBare = (specifier) =>
  * Vite query suffixes this understands.
  *
  * `?raw` hands back the file's text as the default export — the repo imports
- * shaders and, in `features/code-beta`, vendored prompt files that way. `?url`
+ * shaders and, in the Code tab's Agent harness, vendored prompt files that way. `?url`
  * hands back a path string, matching the asset stub below.
  *
  * The suffix is stripped before resolution and remembered, because the file on
@@ -108,14 +123,28 @@ const requireFromRepo = createRequire(path.join(REPO_ROOT, 'package.json'));
  * this lands on the file the app would load. Unresolvable specifiers are left
  * alone: the import then fails naming the package, which is the right error for
  * something genuinely not installed.
+ *
+ * A package's own stylesheet is the exception. `import 'katex/dist/katex.min.css'`
+ * is a side effect Vite performs and a test can never observe, but handing the
+ * `.css` file to Node fails the whole import with `Unknown file extension ".css"`
+ * — naming a stylesheet, from a test that only wanted a helper function three
+ * modules away. It stubs to an empty module. A bare specifier landing on an
+ * image or a font gets the same URL-string stub a relative one would.
  */
 const resolveBare = (specifier) => {
+  let resolved;
   try {
-    return pathToFileURL(requireFromRepo.resolve(specifier)).href;
+    resolved = requireFromRepo.resolve(specifier);
   } catch {
     return null;
   }
+  if (STYLE_EXTENSIONS.has(path.extname(resolved).toLowerCase())) return toDataUrl('');
+  if (isAsset(resolved)) return toDataUrl(`export default ${JSON.stringify(resolved)};`);
+  return pathToFileURL(resolved).href;
 };
+
+/** Extensions Vite injects as a stylesheet rather than evaluating as a module. */
+const STYLE_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.styl']);
 
 const EXTENSIONS = ['.ts', '.tsx', '.mts', '/index.ts', '/index.tsx'];
 
@@ -206,6 +235,14 @@ const buildModule = async (file, cache, pending, query = '') => {
     return url;
   }
 
+  // A stylesheet is a side effect Vite performs; esbuild's `ts` loader would try to
+  // parse the CSS as TypeScript and fail on the first selector.
+  if (STYLE_EXTENSIONS.has(path.extname(absolute).toLowerCase())) {
+    const url = toDataUrl('');
+    cache.set(key, url);
+    return url;
+  }
+
   // JSON is a module whose default export is the parsed value. esbuild's `ts`
   // loader would read it as a statement and produce nonsense.
   if (absolute.endsWith('.json')) {
@@ -216,9 +253,20 @@ const buildModule = async (file, cache, pending, query = '') => {
 
   const source = fs.readFileSync(absolute, 'utf8');
   const specifiers = new Map();
+  // Ranges of the type-only imports, so their specifiers can be left where they
+  // are. A path imported both as a type and as a value still gets walked: the
+  // value occurrence falls outside every range.
+  const typeRanges = [...source.matchAll(TYPE_ONLY_IMPORT)]
+    .map((match) => [match.index, match.index + match[0].length]);
+  const valueOccurrence = (at) => !typeRanges.some(([from, to]) => at >= from && at < to);
+  const walkable = new Set();
+  for (const match of source.matchAll(ANY_IMPORT_SPECIFIER)) {
+    if (valueOccurrence(match.index)) walkable.add(match[3]);
+  }
   for (const [, , , specifier] of source.matchAll(ANY_IMPORT_SPECIFIER)) {
     if (specifiers.has(specifier)) continue;
     if (isBuiltin(specifier)) continue;
+    if (!walkable.has(specifier)) continue;
     if (isBare(specifier)) {
       const url = resolveBare(specifier);
       if (url) specifiers.set(specifier, url);

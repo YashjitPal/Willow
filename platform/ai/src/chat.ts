@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
-import { defaultApiFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
+import { defaultApiFormatForProvider, nativeToolFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
 import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type MessageCitations } from "./grounding";
 import type { CodeExecution } from "./code-execution";
 
@@ -27,8 +27,17 @@ export interface ChatMessage {
   isError?: boolean;
 }
 
-// StreamPhase specifies life cycle phases
-export type StreamPhase = 'thinking' | 'searching' | 'executing' | 'responding';
+/**
+ * Life-cycle phases of one streamed turn.
+ *
+ * `executing` means the *code execution* tool specifically — the UI labels it
+ * "Running code", so anything else routed through it lies about what is
+ * happening. `tooling` is every other tool call: a declared function the app
+ * executes itself (Canvas, personalization). It carries no app-written label,
+ * because Gemini's own label for a custom tool was never captured and inventing
+ * one is worse than the row it already has.
+ */
+export type StreamPhase = 'thinking' | 'searching' | 'executing' | 'tooling' | 'responding';
 
 /** Provider-reported usage for a single model response/request. */
 export interface TokenUsage {
@@ -179,6 +188,26 @@ const namesSearchToolRejection = (error: any): boolean => {
 };
 
 /**
+ * Does this error name a particular request parameter?
+ *
+ * The narrow sibling of `namesSearchToolRejection`, for the same reason it exists:
+ * this app is routinely pointed at a relay, and a relay implements whatever subset
+ * of the API it feels like. Rather than gate an optional parameter on endpoint
+ * identity — which tests who is answering rather than what they support — each one
+ * is sent once and dropped if it comes back named in the rejection.
+ */
+const namesRejectedParameter = (error: any, parameter: RegExp): boolean => {
+  const parts = [
+    error?.message,
+    error?.error?.message,
+    error?.error?.param,
+    error?.error?.code,
+    error?.response?.data?.error?.message,
+  ].filter((part) => typeof part === 'string');
+  return parts.length ? parameter.test(parts.join(' ')) : false;
+};
+
+/**
  * Runs a streaming request with server-side search attached, and once more
  * without it if the endpoint rejects the search parameter.
  *
@@ -253,9 +282,9 @@ const harvestCompatSearchChunk = (chunk: any, harvest: CompatSearchHarvest): voi
 // so callers merge this into the `requestOptions` argument of
 // `getGenerativeModel`. Returns `{}` for the official endpoint so the SDK keeps
 // its own default.
-export const getGeminiRequestOptions = (baseUrl?: string): Record<string, unknown> => {
-  if (isOfficialEndpoint('gemini', baseUrl)) return {};
-  const { url, headers } = resolveEndpointTransport('gemini', baseUrl, 'origin');
+export const getGeminiRequestOptions = (baseUrl?: string, endpointProvider: ProviderId = 'gemini'): Record<string, unknown> => {
+  if (isOfficialEndpoint(endpointProvider, baseUrl)) return {};
+  const { url, headers } = resolveEndpointTransport(endpointProvider, baseUrl, 'origin');
   return { baseUrl: url, ...(headers ? { customHeaders: headers } : {}) };
 };
 
@@ -288,13 +317,21 @@ const getOpenAIClient = (apiKey: string, baseUrl?: string, endpointProvider: Pro
   return client;
 };
 
-const getAnthropicClient = (apiKey: string, baseUrl?: string): Anthropic => {
-  const cacheKey = `${apiKey}::${baseUrl || ''}`;
+const getAnthropicClient = (
+  apiKey: string,
+  baseUrl?: string,
+  endpointProvider: ProviderId = 'anthropic',
+): Anthropic => {
+  const cacheKey = `${endpointProvider}::${apiKey}::${baseUrl || ''}`;
   if (clientCache.anthropic?.key === cacheKey) {
     return clientCache.anthropic.client;
   }
-  // The SDK appends `/v1/messages` itself, so hand it a bare origin.
-  const { url, headers } = resolveEndpointTransport('anthropic', baseUrl, 'origin');
+  /* The SDK appends `/v1/messages` itself, so hand it a bare origin.
+   *
+   * `endpointProvider` is the profile's transport, NOT the format's own provider:
+   * a Zhipu or Moonshot profile switched to `anthropic-messages` must fall back to
+   * that provider's base URL, not to api.anthropic.com with a key it will reject. */
+  const { url, headers } = resolveEndpointTransport(endpointProvider, baseUrl, 'origin');
   const client = new Anthropic({
     apiKey,
     baseURL: url,
@@ -715,6 +752,109 @@ const interactionFunctionTools = (
       : []),
 );
 
+/**
+ * The same declarations, in Anthropic's shape.
+ *
+ * Callers write ONE tool list, in Gemini's `functionDeclarations` form, and every
+ * adapter translates. Until this existed the Anthropic branch sent `tools` for web
+ * search and nothing else, so a model selected from the Models tab was told about
+ * Canvas in the system prompt and given no way to call it — reported as "I tried
+ * changing the model and asked claude opus 5 to do another change, and I noticed
+ * that instead of doing the change, it started outputting html code". That is
+ * exactly what a model does when it has been asked to write a document, told a tool
+ * exists, and handed no tool: it writes the document into the reply.
+ *
+ * `input_schema` rather than `parameters`, and the schema goes through
+ * `interactionJsonSchema` because Gemini spells its types in caps (`OBJECT`,
+ * `STRING`) and JSON Schema does not. A declaration with no `parameters` still
+ * needs a schema — Anthropic rejects a tool without one — so it gets the empty
+ * object.
+ */
+const anthropicFunctionTools = (
+  blocks: { functionDeclarations: any[] }[] | undefined,
+): any[] => (blocks ?? []).flatMap((block) =>
+  (block?.functionDeclarations ?? []).flatMap((declaration: any) =>
+    typeof declaration?.name === 'string'
+      ? [{
+          name: declaration.name,
+          ...(typeof declaration.description === 'string' ? { description: declaration.description } : {}),
+          input_schema: declaration.parameters
+            ? interactionJsonSchema(declaration.parameters)
+            : { type: 'object', properties: {} },
+        }]
+      : []),
+);
+
+/**
+ * The same declarations again, in the two OpenAI shapes.
+ *
+ * Chat Completions nests the function under a `function` key; the Responses API
+ * flattened it. Both lowercase their JSON Schema types, so both go through
+ * `interactionJsonSchema` — a Gemini-shaped `OBJECT` reaches OpenAI as a 400.
+ *
+ * Same gap this fixes as `anthropicFunctionTools`: these branches sent server-side
+ * search and nothing else, so Canvas and the personalization tools were declared in
+ * the system prompt and unavailable in the request. A model in that position writes
+ * the document into the reply.
+ */
+const openAIChatFunctionTools = (
+  blocks: { functionDeclarations: any[] }[] | undefined,
+): any[] => (blocks ?? []).flatMap((block) =>
+  (block?.functionDeclarations ?? []).flatMap((declaration: any) =>
+    typeof declaration?.name === 'string'
+      ? [{
+          type: 'function',
+          function: {
+            name: declaration.name,
+            ...(typeof declaration.description === 'string' ? { description: declaration.description } : {}),
+            parameters: declaration.parameters
+              ? interactionJsonSchema(declaration.parameters)
+              : { type: 'object', properties: {} },
+          },
+        }]
+      : []),
+);
+
+const openAIResponsesFunctionTools = (
+  blocks: { functionDeclarations: any[] }[] | undefined,
+): any[] => (blocks ?? []).flatMap((block) =>
+  (block?.functionDeclarations ?? []).flatMap((declaration: any) =>
+    typeof declaration?.name === 'string'
+      ? [{
+          type: 'function',
+          name: declaration.name,
+          ...(typeof declaration.description === 'string' ? { description: declaration.description } : {}),
+          parameters: declaration.parameters
+            ? interactionJsonSchema(declaration.parameters)
+            : { type: 'object', properties: {} },
+        }]
+      : []),
+);
+
+/**
+ * `{}` rather than a throw.
+ *
+ * `input_json_delta` fragments are concatenated as they arrive, so a stream cut
+ * mid-object leaves invalid JSON. An empty object reaches the executor, which
+ * answers with the error it already has for a call it cannot satisfy — the turn
+ * survives and the model is told, which is strictly better than the turn dying on
+ * a `SyntaxError` the user sees as a failed request.
+ */
+const safeParseToolInput = (json: string): any => {
+  if (!json || !json.trim()) return {};
+  try {
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+/** What a tool hands back, as the wire wants it: text, not an object. */
+const toolResultText = (result: any): string => (
+  typeof result === 'string' ? result : JSON.stringify(result ?? { status: 'ok' })
+);
+
 const streamGeminiInteractions = async ({
   apiKey,
   model,
@@ -769,7 +909,22 @@ const streamGeminiInteractions = async ({
   let interactionId = '';
   let interactionStatus = '';
   let latestUsage: TokenUsage | null = null;
-  let functionCalls = new Map<number, { id: string; name: string; arguments: string }>();
+  /*
+   * Two argument buffers per call, deliberately never merged.
+   *
+   * `deltas` is the concatenation of `arguments_delta` fragments — a JSON
+   * document being streamed in pieces, meaningless until the last piece lands.
+   * `whole` is a complete value absorbed off a step or delta that carried one.
+   *
+   * Holding both in one string is a bug with a very quiet failure: a
+   * `function_call` step opens with a placeholder `arguments: {}`, so the buffer
+   * starts as the two characters `{}`, and the fragments then append to it —
+   * producing `{}{"content":"…"}`, which does not parse. The call reaches the
+   * executor with `{}` and Canvas rejects it for having no content, which is
+   * exactly the error the model reported back. Kept apart, each buffer is parsed
+   * on its own and the better of the two wins.
+   */
+  let functionCalls = new Map<number, { id: string; name: string; deltas: string; whole: string }>();
   // Interactions streams may repeat a step delta while a server-side tool is
   // being assembled. Keep the UI event one-per-search-step; a real second
   // search still gets through when Gemini gives it a different step id/index.
@@ -790,6 +945,130 @@ const streamGeminiInteractions = async ({
     onToolCallStart?.('web_search', query ? { query } : undefined);
   };
 
+  /*
+   * Function-call arguments arrive in more than one shape.
+   *
+   * The documented one is a `function_call` step opened by `step.start` and
+   * filled by a run of `arguments_delta` events. But the same stream also
+   * carries them complete — as an object or a pre-serialised string — on the
+   * step itself, on `step.start` for a short call and on `step.done` for any
+   * call whose deltas were coalesced upstream. Reading only the deltas is how a
+   * tool gets invoked with `{}`: the executor then rejects it for a missing
+   * required field, and the turn ends looking like the model simply stopped.
+   *
+   * So a complete value is *absorbed* into `whole`, and only when it is at least
+   * as long as what is already there — a later placeholder `arguments: {}` must
+   * not erase a set that already arrived in full.
+   */
+  const absorbCallArguments = (index: number, step: any): void => {
+    const call = functionCalls.get(index);
+    if (!call || !step) return;
+    if (!call.name && typeof step.name === 'string') call.name = step.name;
+    if (!call.id && typeof step.id === 'string') call.id = step.id;
+    const raw = step.arguments ?? step.args ?? step.input;
+    if (raw === undefined || raw === null) return;
+    let text = '';
+    if (typeof raw === 'string') text = raw;
+    else if (typeof raw === 'object') {
+      try { text = JSON.stringify(raw); } catch { text = ''; }
+    }
+    if (text.length > call.whole.length) call.whole = text;
+  };
+
+  /*
+   * The arguments, as an object, from whichever buffer actually holds them.
+   *
+   * Both are tried and the richer parse wins, measured by key count: a streamed
+   * `deltas` run is normally the complete set and a `whole` absorbed from the
+   * opening step is normally the empty placeholder, but a coalesced stream
+   * inverts that — it sends no deltas at all and puts everything on `step.done`.
+   * Neither buffer can be trusted to be the good one, and an unparseable buffer
+   * (a fragment run cut short by an abort) simply loses to the other.
+   */
+  const callArguments = (call: { deltas: string; whole: string }): any => {
+    const parse = (text: string): any => {
+      const trimmed = (text || '').trim();
+      if (!trimmed) return null;
+      try {
+        const value = JSON.parse(trimmed);
+        return value && typeof value === 'object' ? value : null;
+      } catch { return null; }
+    };
+    const fromDeltas = parse(call.deltas);
+    const fromWhole = parse(call.whole);
+    if (!fromDeltas) return fromWhole ?? {};
+    if (!fromWhole) return fromDeltas;
+    return Object.keys(fromDeltas).length >= Object.keys(fromWhole).length ? fromDeltas : fromWhole;
+  };
+
+  /*
+   * `function_call` is the name this API uses; `tool_call` is the name every
+   * neighbouring API uses. Accepting both costs nothing and means a rename
+   * upstream degrades into "the tool ran" rather than "the turn stopped".
+   */
+  const isFunctionCallStep = (step: any): boolean =>
+    !!step && (step.type === 'function_call' || step.type === 'tool_call');
+
+  /** Open a call if this is the first event for it, then absorb its arguments. */
+  const registerCall = (index: number, step: any): void => {
+    if (!functionCalls.has(index)) {
+      functionCalls.set(index, {
+        id: typeof step?.id === 'string' ? step.id : '',
+        name: typeof step?.name === 'string' ? step.name : '',
+        deltas: '',
+        whole: '',
+      });
+    }
+    absorbCallArguments(index, step);
+  };
+
+  /*
+   * Last net under the step events: the interaction object itself.
+   *
+   * `requires_action` means the model is blocked on a tool result, so the calls
+   * it is waiting on are listed on the interaction — and a deployment that
+   * coalesces its stream can deliver them there and nowhere else. Reading them
+   * is what stops the "one sentence of preamble and no document" turn: without
+   * it, an unrecognised step shape ends the turn silently.
+   *
+   * Keyed at a 1000 offset so a repeated terminal event lands in the same slot
+   * (`absorbCallArguments` only ever widens) and never collides with an SSE
+   * index. A call the steps already gave us in full is not duplicated.
+   */
+  const sweepInteractionCalls = (interaction: any): void => {
+    if (!interaction) return;
+    const lists = [interaction.output, interaction.steps, interaction.required_action?.function_calls];
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      list.forEach((entry: any, position: number) => {
+        const call = entry?.function_call || entry?.tool_call || entry;
+        if (!call || typeof call.name !== 'string' || !call.name) return;
+        /*
+         * A nested `function_call` / `tool_call` field, or a matching `type`, is
+         * proof. A bare `{ name, arguments }` — which is the shape
+         * `required_action.function_calls` uses — carries no type at all, so it
+         * is accepted on the absence of a *contradicting* one; a `thought` or
+         * `text` step naming itself would otherwise be mistaken for a call.
+         */
+        const nested = !!(entry?.function_call || entry?.tool_call);
+        const typed = isFunctionCallStep(entry) || isFunctionCallStep(call);
+        const untyped = typeof entry?.type !== 'string' && typeof call?.type !== 'string';
+        if (!nested && !typed && !untyped) return;
+        const slot = 1000 + position;
+        if (functionCalls.has(slot)) { absorbCallArguments(slot, call); return; }
+        const raw = call.arguments ?? call.args ?? call.input;
+        const length = typeof raw === 'string'
+          ? raw.length
+          : (raw && typeof raw === 'object' ? JSON.stringify(raw).length : 0);
+        for (const seen of functionCalls.values()) {
+          const held = Math.max(seen.deltas.length, seen.whole.length);
+          if (seen.name === call.name && held >= length) return;
+        }
+        registerCall(slot, call);
+      });
+    }
+  };
+
   const handleEvent = (name: string, raw: string): boolean => {
     if (!raw || raw === '[DONE]') return false;
     let event: any;
@@ -800,6 +1079,7 @@ const streamGeminiInteractions = async ({
     if (type === 'error') throw new Error(event.error?.message || 'Gemini Interactions request failed.');
     if (event.interaction?.id) interactionId = event.interaction.id;
     if (event.interaction?.status) interactionStatus = event.interaction.status;
+    if (event.interaction) sweepInteractionCalls(event.interaction);
     latestUsage = normalizeTokenUsage(
       event.usage_metadata ?? event.usage ?? event.interaction?.usage_metadata ?? event.interaction?.usage,
     ) ?? latestUsage;
@@ -817,14 +1097,21 @@ const streamGeminiInteractions = async ({
         return true;
       } else if (step?.type === 'thought') {
         onPhase?.('thinking');
-      } else if (step?.type === 'function_call') {
-        onPhase?.('executing');
-        functionCalls.set(Number(event.index) || 0, {
-          id: typeof step.id === 'string' ? step.id : '',
-          name: typeof step.name === 'string' ? step.name : '',
-          arguments: '',
-        });
+      } else if (isFunctionCallStep(step)) {
+        onPhase?.('tooling');
+        // A short call can arrive complete on the opening event, with no deltas.
+        registerCall(Number(event.index) || 0, step);
       }
+    }
+
+    /*
+     * `step.done` closes a call. It repeats the step, and for a coalesced stream
+     * it is the ONLY event carrying the arguments — so it is read even though
+     * nothing else here needs it. A done event for a call we never saw open is
+     * still registered: losing the call entirely is worse than a missing phase.
+     */
+    if (type === 'step.done' || type === 'content.done') {
+      if (isFunctionCallStep(step)) registerCall(Number(event.index) || 0, step);
     }
 
     const delta = event.delta;
@@ -882,8 +1169,24 @@ const streamGeminiInteractions = async ({
         }
       } else if (delta.type === 'arguments_delta') {
         const index = Number(event.index) || 0;
+        /*
+         * Registered on first sight rather than looked up: a stream that opens
+         * the call with a bare `step.start` we did not recognise would otherwise
+         * drop every fragment, and the name still arrives on `step.done`.
+         */
+        if (!functionCalls.has(index)) registerCall(index, { id: '', name: '' });
         const call = functionCalls.get(index);
-        if (call && typeof delta.arguments === 'string') call.arguments += delta.arguments;
+        if (call && typeof delta.arguments === 'string') call.deltas += delta.arguments;
+        // A delta that carries the whole object rather than a JSON fragment goes
+        // to the other buffer — appending it would corrupt the fragment run.
+        else if (call && delta.arguments && typeof delta.arguments === 'object') {
+          absorbCallArguments(index, delta);
+        }
+      } else if (isFunctionCallStep(delta)) {
+        // Some deployments deliver the call itself as a delta, complete.
+        const index = Number(event.index) || 0;
+        if (!functionCalls.has(index)) onPhase?.('tooling');
+        registerCall(index, delta);
       }
     }
     return false;
@@ -958,10 +1261,61 @@ const streamGeminiInteractions = async ({
     if (latestUsage) onUsage?.(latestUsage);
 
     const calls = [...functionCalls.values()].filter((call) => call.name);
-    if (interactionStatus !== 'requires_action' || !calls.length || !interactionId || !onFunctionCall) break;
+
+    /*
+     * One rescue before the calls are run: an index mismatch.
+     *
+     * `event.index` is what ties a fragment run to the call it belongs to, and a
+     * stream that omits it on one event kind and sets it on another splits a
+     * single call across two slots — the name in one, the arguments in the
+     * other. The named half then executes with `{}` while the half holding the
+     * document is thrown away for having no name, which is indistinguishable
+     * from the model calling the tool wrongly.
+     *
+     * Only the unambiguous case is repaired: exactly one named call with nothing
+     * in either buffer, and exactly one nameless entry that has something. With
+     * two of either there is no way to say which belongs to which, and guessing
+     * would write one document's text into another's call.
+     */
+    const starved = calls.filter((call) => !call.deltas && !call.whole);
+    const orphans = [...functionCalls.values()].filter((call) => !call.name && (call.deltas || call.whole));
+    if (starved.length === 1 && orphans.length === 1) {
+      starved[0].deltas = orphans[0].deltas;
+      starved[0].whole = orphans[0].whole;
+    }
+
+    /*
+     * A call the stream showed us is RUN even when the interaction did not end in
+     * `requires_action`.
+     *
+     * The documented handshake is: status `requires_action`, we execute, we post
+     * the results back with `previous_interaction_id`. When any part of that is
+     * missing — a terminal status we do not recognise, a deployment that omits
+     * the interaction id — the old code broke out of the loop and dropped the
+     * call on the floor. For a side-effecting tool that is the worst possible
+     * outcome: the model announced what it was about to do, the tool never ran,
+     * and the turn ended looking like the model simply stopped mid-thought. That
+     * is exactly how a Canvas turn failed — one sentence of preamble and no
+     * document anywhere.
+     *
+     * So the results are only fed back when the handshake is complete; the calls
+     * themselves run either way. Executing without a feedback round means the
+     * model never learns the outcome, which is the lesser cost — its turn is over
+     * by then, and every executor here already reports into the UI itself.
+     */
+    const canFeedResultsBack = interactionStatus === 'requires_action' && !!interactionId;
+    if (!calls.length || !onFunctionCall) break;
+    if (!canFeedResultsBack) {
+      for (const call of calls) {
+        const args = callArguments(call);
+        onToolCallStart?.(call.name, args);
+        await onFunctionCall(call.name, args);
+      }
+      break;
+    }
+
     nextInput = await Promise.all(calls.map(async (call) => {
-      let args: any = {};
-      try { args = JSON.parse(call.arguments || '{}'); } catch { args = {}; }
+      const args = callArguments(call);
       onToolCallStart?.(call.name, args);
       const result = await onFunctionCall(call.name, args);
       return {
@@ -1014,6 +1368,18 @@ const streamChatImpl: any = async (
     || configuredFormat === 'openai-responses'
     || usesXaiAdapter;
   const toolsAllowed = options.toolPolicy !== 'disabled';
+  /*
+   * Server-side built-ins — search, code execution, x_search — as opposed to
+   * Willow's own function declarations.
+   *
+   * `function-calling` is the Tool translation setting for an endpoint that speaks
+   * plain function calling and nothing else: a relay that would 400 on
+   * `googleSearch` or reject Anthropic's `web_search` tool type. It means one thing
+   * on every provider now. It used to mean nothing at all on Gemini and Anthropic,
+   * and on OpenAI it was read as "no search" with xAI exempted — three behaviours
+   * from one dropdown.
+   */
+  const nativeToolsAllowed = toolsAllowed && options.toolPolicy !== 'function-calling';
   const reportUsage = (raw: any): void => {
     const usage = normalizeTokenUsage(raw);
     if (usage) onUsage?.(usage);
@@ -1056,8 +1422,10 @@ const streamChatImpl: any = async (
     }
     console.log(`[AI] Gemini model: ${model}, thinkingLevel: ${options.thinkingLevel} -> "${geminiThinkingLevel}"`);
 
-    const searchEnabled = toolsAllowed && options.enableSearch !== false;
-    const codeExecEnabled = toolsAllowed && options.enableCodeExecution === true;
+    /* Built-ins, so the Tool translation setting governs them — see
+       `nativeToolsAllowed`. The function declarations below are separate. */
+    const searchEnabled = nativeToolsAllowed && options.enableSearch !== false;
+    const codeExecEnabled = nativeToolsAllowed && options.enableCodeExecution === true;
     const tools: any[] = [];
     if (searchEnabled) {
       tools.push(model.includes('1.5') ? { googleSearchRetrieval: {} } : { googleSearch: {} });
@@ -1370,7 +1738,7 @@ Adhere to the following rules and guidelines:
           includeThoughts: options.includeThoughts === true,
         }
       }
-    } as any, getGeminiRequestOptions(options.baseUrl) as any);
+    } as any, getGeminiRequestOptions(options.baseUrl, provider as ProviderId) as any);
 
     // Reconstruct the full conversation history as a list of raw Content objects manually (bypasses SDK history-stripping bugs)
     let historyContents: any[] = [];
@@ -1695,7 +2063,8 @@ Adhere to the following rules and guidelines:
 
       // Execute and feed back custom tool results (including the required thought_signature)
       if (pendingFunctionCalls.length > 0) {
-        setPhase('executing');
+        // A declared function, not the code sandbox — see `StreamPhase`.
+        setPhase('tooling');
         const emittedMedia = new Set<string>();
 
         const responseParts = await Promise.all(
@@ -1807,10 +2176,35 @@ Adhere to the following rules and guidelines:
         3: "high",
         4: "high",
     };
+    /*
+     * Kimi and GLM take this field too, but not the whole vocabulary: `xhigh` is
+     * OpenAI's own and 400s there. They were served by a dedicated branch that
+     * could never run — both default to `openai-chat-completions`, which is handled
+     * here — so their request shape came here with them rather than being lost.
+     */
+    const compatReasoningEffortMap: Record<number, "none" | "low" | "medium" | "high" | "max"> = {
+        0: "none",
+        1: "low",
+        2: "medium",
+        3: "high",
+        4: "max",
+        5: "max",
+        6: "max"
+    };
+    const isCompatProvider = provider === 'moonshot' || provider === 'zhipuai';
     const reasoningEffort = usesXaiAdapter
       ? ((options.reasoningEffort as any) || xaiReasoningEffortMap[options.thinkingLevel ?? 3] || "high")
-      : (options.reasoningEffort || reasoningEffortMap[options.thinkingLevel ?? 1] || "medium");
-    const sendsReasoningEffort = !usesXaiAdapter || model.startsWith('grok-4');
+      : isCompatProvider
+        ? ((options.reasoningEffort as any) || compatReasoningEffortMap[options.thinkingLevel ?? 1] || "medium")
+        : (options.reasoningEffort || reasoningEffortMap[options.thinkingLevel ?? 1] || "medium");
+    /* GLM takes it on its reasoning model only; every other GLM 400s on the field. */
+    const sendsReasoningEffort = usesXaiAdapter
+      ? model.startsWith('grok-4')
+      : provider === 'zhipuai'
+        ? model === 'glm-5.3'
+        : true;
+    /* GLM's reasoning switch is separate from the effort, and it is its own field. */
+    const sendsGlmThinking = provider === 'zhipuai' && model === 'glm-5.3' && (options.thinkingLevel ?? 0) > 0;
 
     const formattedMessages = messages.map(m => {
         let cleanContent = m.content || '';
@@ -1899,30 +2293,45 @@ Adhere to the following rules and guidelines:
     // and `createWithSearchFallback` turns the rejection into one wasted request
     // rather than a failed turn. The rejection arrives before any token, so the
     // retry cannot duplicate output.
-    const openaiSearchEnabled = toolsAllowed
-      // `function-calling` asks for provider tools to be re-declared as client
-      // function declarations, and chat mode has no executor for a search
-      // function -- so for OpenAI, whose relay may genuinely want that shape,
-      // the policy means no server-side search. xAI is exempt for the same
-      // reason Gemini and Anthropic are: search is the only tool it offers
-      // here, so honouring the policy just turns search off. Every xAI profile
-      // stored before this change still carries `function-calling` from an
-      // older default, and a stale default must not silently disable search.
-      && (usesXaiAdapter || options.toolPolicy !== 'function-calling')
-      && options.enableSearch !== false;
-    // xAI exposes two server-side search tools and needs both declared to reach
-    // X (Twitter) as well as the open web. Declaring them as client-executed
-    // `function` tools instead is what used to make Grok answer in two turns:
-    // the model has no results on the first pass, so it narrates the gap.
+    const openaiSearchEnabled = nativeToolsAllowed
+      && options.enableSearch !== false
+      /* Moonshot is the one provider with no search tool here: its `$web_search`
+         builtin could not be verified against current docs, and a guessed schema
+         sent to a relay turns a working turn into a 400. Its replies are still
+         read for sources. */
+      && !!nativeToolFormatForProvider(provider as ProviderId, configuredFormat);
+    /*
+     * The built-ins each format understands.
+     *
+     * xAI exposes two and needs both declared to reach X (Twitter) as well as the
+     * open web. Declaring them as client-executed `function` tools instead is what
+     * used to make Grok answer in two turns: the model has no results on the first
+     * pass, so it narrates the gap.
+     *
+     * Zhipu nests its configuration and needs `search_result` before results come
+     * back at all — and those strings really are `'True'`, not booleans. This used
+     * to live in a provider branch that could never run (both compat providers
+     * default to `openai-chat-completions`, which is served above), so GLM search
+     * silently degraded to OpenAI's flat shape.
+     */
     const openaiSearchTools = usesXaiAdapter
       ? [{ type: 'web_search' }, { type: 'x_search' }]
-      : [{ type: 'web_search' }];
+      : provider === 'zhipuai'
+        ? [{ type: 'web_search', web_search: { enable: 'True', search_result: 'True' } }]
+        : [{ type: 'web_search' }];
+
+    /* Canvas and the personalization tools, in both OpenAI shapes. Same executor
+       as every other provider — `onToolCall` knows nothing about wire formats. */
+    const openaiDeclarations = toolsAllowed
+      ? [...(options.personalTools ?? []), ...(options.toolDeclarations ?? [])]
+      : [];
+    const openaiChatFunctions = openAIChatFunctionTools(openaiDeclarations);
+    const openaiResponsesFunctions = openAIResponsesFunctionTools(openaiDeclarations);
 
     const chatCompletionParams = {
       model,
-      // @ts-ignore
-      messages: [...systemMessages, ...formattedMessages],
       ...(sendsReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(sendsGlmThinking ? { thinking: { type: 'enabled' } } : {}),
     } as any;
 
     const hasOpenAIFileInput = messages.some((message) => message.attachments?.some((attachment) => (
@@ -1937,89 +2346,310 @@ Adhere to the following rules and guidelines:
     let openaiAnswerText = '';
 
     if (configuredFormat === 'openai-responses' || model === "gpt-5.5-pro" || hasOpenAIFileInput) {
-      let response = await createWithSearchFallback(
-        (searchEnabled) => openai.responses.create({
-          model,
-          input: responseInput,
-          ...(systemPrompt ? { instructions: systemPrompt } : {}),
-          ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-          ...(searchEnabled ? { tools: openaiSearchTools } : {}),
-          ...(model === "gpt-5.5-pro" ? { background: true } : {}),
-        } as any, signal ? { signal } : undefined),
-        openaiSearchEnabled,
-        signal,
-      );
+      /*
+       * The Responses path, in two modes and one loop.
+       *
+       * `background: true` is gpt-5.5-pro's own requirement and it cannot stream — the
+       * response is polled until it completes. Everything else STREAMS now: it used to
+       * await the whole response and emit `output_text` in one `onToken`, so a long
+       * answer sat on a blank screen and then appeared at once, while the Chat
+       * Completions path beside it streamed token by token. Same API, same app, two
+       * different feelings.
+       *
+       * The loop is the tool handshake: this API continues a turn by appending the
+       * model's own `function_call` item and a `function_call_output` carrying the
+       * result, keyed by `call_id`.
+       */
+      const background = model === 'gpt-5.5-pro';
+      const responsesInput: any[] = Array.isArray(responseInput) ? [...responseInput] : responseInput;
 
-      const startedAt = Date.now();
-      const maxWaitMs = 10 * 60 * 1000;
-      while (response.status === "queued" || response.status === "in_progress") {
-        throwIfAborted(signal);
-        if (Date.now() - startedAt > maxWaitMs) {
-          throw new Error(`${model} file response timed out.`);
+      for (let round = 0; ; round += 1) {
+        const pendingCalls: { id: string; callId: string; name: string; args: string }[] = [];
+        let response: any = null;
+
+        if (background) {
+          response = await createWithSearchFallback(
+            (searchEnabled) => openai.responses.create({
+              model,
+              input: responsesInput,
+              ...(systemPrompt ? { instructions: systemPrompt } : {}),
+              ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+              ...((searchEnabled ? openaiSearchTools : []).concat(openaiResponsesFunctions).length
+                ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiResponsesFunctions] }
+                : {}),
+              background: true,
+            } as any, signal ? { signal } : undefined),
+            openaiSearchEnabled,
+            signal,
+          );
+
+          const startedAt = Date.now();
+          const maxWaitMs = 10 * 60 * 1000;
+          while (response.status === "queued" || response.status === "in_progress") {
+            throwIfAborted(signal);
+            if (Date.now() - startedAt > maxWaitMs) {
+              throw new Error(`${model} file response timed out.`);
+            }
+
+            await waitWithAbort(2000, signal);
+            response = await openai.responses.retrieve(response.id, undefined, signal ? { signal } : undefined);
+          }
+
+          if (response.status !== "completed") {
+            const message = response.error?.message || response.incomplete_details?.reason || response.status;
+            throw new Error(`${model} response did not complete: ${message}`);
+          }
+
+          const content = response.output_text || "";
+          if (content) {
+            onPhase?.('responding');
+            onToken(content);
+            openaiAnswerText += content;
+          }
+        } else {
+          const stream = await createWithSearchFallback(
+            (searchEnabled) => openai.responses.create({
+              model,
+              input: responsesInput,
+              ...(systemPrompt ? { instructions: systemPrompt } : {}),
+              ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+              ...((searchEnabled ? openaiSearchTools : []).concat(openaiResponsesFunctions).length
+                ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiResponsesFunctions] }
+                : {}),
+              stream: true,
+            } as any, signal ? { signal } : undefined),
+            openaiSearchEnabled,
+            signal,
+          );
+
+          let hasEmittedResponseText = false;
+          for await (const rawEvent of stream as any) {
+            throwIfAborted(signal);
+            const event = rawEvent as any;
+            const type = String(event?.type ?? '');
+            if (type === 'response.output_text.delta') {
+              const delta = typeof event.delta === 'string' ? event.delta : '';
+              if (!delta) continue;
+              if (!hasEmittedResponseText) {
+                hasEmittedResponseText = true;
+                onPhase?.('responding');
+              }
+              onToken(delta);
+              openaiAnswerText += delta;
+            } else if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
+              /* The only reasoning this API exposes is its summary; a model that
+                 emits none simply never sends these. */
+              if (typeof event.delta === 'string' && event.delta) {
+                onPhase?.('thinking');
+                onThought?.(event.delta);
+              }
+            } else if (type === 'response.output_item.added' && event.item?.type === 'web_search_call') {
+              onPhase?.('searching');
+            } else if (type === 'response.output_item.done' && event.item?.type === 'function_call') {
+              onPhase?.('tooling');
+              pendingCalls.push({
+                id: String(event.item.id ?? ''),
+                callId: String(event.item.call_id ?? ''),
+                name: String(event.item.name ?? ''),
+                args: typeof event.item.arguments === 'string' ? event.item.arguments : '',
+              });
+            } else if (type === 'response.completed' || type === 'response.incomplete') {
+              response = event.response;
+            } else if (type === 'error') {
+              throw new Error(String(event.message || event.error?.message || 'The response stream failed.'));
+            }
+          }
         }
 
-        await waitWithAbort(2000, signal);
-        response = await openai.responses.retrieve(response.id, undefined, signal ? { signal } : undefined);
-      }
+        if (response) {
+          reportUsage(response.usage);
+          // On the Responses API the citations hang off each `output_text` part
+          // rather than off the response, so the annotations have to be gathered
+          // from the output tree. `web_search_call` items are skipped: they record
+          // that a search happened, not what it found.
+          for (const item of Array.isArray(response.output) ? response.output : []) {
+            for (const part of Array.isArray(item?.content) ? item.content : []) {
+              if (Array.isArray(part?.annotations)) openaiHarvest.annotations.push(...part.annotations);
+            }
+            /* The polled path never saw `output_item.done`, so its calls are read
+               off the finished response instead. */
+            if (background && item?.type === 'function_call') {
+              pendingCalls.push({
+                id: String(item.id ?? ''),
+                callId: String(item.call_id ?? ''),
+                name: String(item.name ?? ''),
+                args: typeof item.arguments === 'string' ? item.arguments : '',
+              });
+            }
+          }
+        }
 
-      if (response.status !== "completed") {
-        const message = response.error?.message || response.incomplete_details?.reason || response.status;
-        throw new Error(`${model} response did not complete: ${message}`);
-      }
+        if (!pendingCalls.length || !onToolCall || round >= maxToolIterations - 1) {
+          if (pendingCalls.length && onToolCall) {
+            for (const call of pendingCalls) {
+              const args = safeParseToolInput(call.args);
+              options.onToolCallStart?.(call.name, args);
+              await onToolCall(call.name, args);
+            }
+          }
+          break;
+        }
 
-      reportUsage((response as any).usage);
-
-      const content = response.output_text || "";
-      if (content) onToken(content);
-      openaiAnswerText = content;
-      // On the Responses API the citations hang off each `output_text` part
-      // rather than off the response, so the annotations have to be gathered
-      // from the output tree. `web_search_call` items are skipped: they record
-      // that a search happened, not what it found.
-      for (const item of Array.isArray((response as any).output) ? (response as any).output : []) {
-        for (const part of Array.isArray(item?.content) ? item.content : []) {
-          if (Array.isArray(part?.annotations)) openaiHarvest.annotations.push(...part.annotations);
+        for (const call of pendingCalls) {
+          const args = safeParseToolInput(call.args);
+          options.onToolCallStart?.(call.name, args);
+          const result = await onToolCall(call.name, args);
+          /* Both halves go back: the call as the model made it, then its output.
+             `call_id` is what pairs them — `id` identifies the item, not the call. */
+          responsesInput.push({
+            type: 'function_call',
+            call_id: call.callId,
+            name: call.name,
+            arguments: JSON.stringify(args),
+          });
+          responsesInput.push({
+            type: 'function_call_output',
+            call_id: call.callId,
+            output: toolResultText(result),
+          });
         }
       }
     } else {
-      const stream = await createWithSearchFallback(
-        (searchEnabled) => openai.chat.completions.create({
-          ...chatCompletionParams,
-          ...(searchEnabled ? { tools: openaiSearchTools } : {}),
-          stream: true,
-        } as any, signal ? { signal } : undefined),
-        openaiSearchEnabled,
-        signal,
-      );
+      /*
+       * Chat Completions, with the same tool loop the other adapters have.
+       *
+       * The protocol here is the oldest of the three and the fiddliest to stream: a
+       * call arrives as `delta.tool_calls`, an array of PARTIAL entries keyed by
+       * `index`, whose `function.arguments` is a fragment to concatenate. The name
+       * can arrive on the first fragment only, and the id with it — so entries are
+       * merged by index rather than pushed.
+       */
+      const chatMessages: any[] = [...systemMessages, ...formattedMessages];
+      /*
+       * Chat Completions sends NO usage on a streamed response unless it is asked to,
+       * so the token counts this app shows were absent on every OpenAI and Grok turn
+       * while Gemini and Anthropic reported theirs.
+       *
+       * Asked for on EVERY endpoint and dropped if one names it in a rejection — the
+       * same rule the search tool follows, and for the reason stated there: gating on
+       * `!options.baseUrl` tests who is answering rather than what they support, and
+       * a relay that does implement the field would lose its token counts for
+       * nothing. The cost of being wrong is one retried request before a token has
+       * been emitted.
+       */
+      let sendsStreamOptions = true;
 
-      let hasEmittedText = false;
-      let hasEmittedThought = false;
-
-      for await (const chunk of stream as any) {
-        throwIfAborted(signal);
-        harvestCompatSearchChunk(chunk, openaiHarvest);
-        reportUsage(chunk?.usage);
-        const delta = chunk.choices[0]?.delta;
-        if (!delta) continue;
-
-        const reasoningContent = delta.reasoning_content;
-        if (reasoningContent) {
-          if (!hasEmittedThought) {
-            hasEmittedThought = true;
+      for (let round = 0; ; round += 1) {
+        const openChatStream = async (): Promise<any> => {
+          try {
+            return await createWithSearchFallback(
+              (searchEnabled) => openai.chat.completions.create({
+                ...chatCompletionParams,
+                messages: chatMessages,
+                ...((searchEnabled ? openaiSearchTools : []).concat(openaiChatFunctions).length
+                  ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiChatFunctions] }
+                  : {}),
+                stream: true,
+                ...(sendsStreamOptions ? { stream_options: { include_usage: true } } : {}),
+              } as any, signal ? { signal } : undefined),
+              openaiSearchEnabled,
+              signal,
+            );
+          } catch (error: any) {
+            throwIfAborted(signal);
+            if (!sendsStreamOptions || isAbortError(error)) throw error;
+            if (!namesRejectedParameter(error, /stream_options|include_usage/i)) throw error;
+            sendsStreamOptions = false;
+            return openChatStream();
           }
-          onThought?.(reasoningContent);
+        };
+        const stream = await openChatStream();
+
+        let hasEmittedText = false;
+        let hasEmittedThought = false;
+        let roundText = '';
+        const calls = new Map<number, { id: string; name: string; args: string }>();
+
+        for await (const chunk of stream as any) {
+          throwIfAborted(signal);
+          harvestCompatSearchChunk(chunk, openaiHarvest);
+          reportUsage(chunk?.usage);
+          const delta = chunk.choices?.[0]?.delta;
+          if (!delta) continue;
+
+          const reasoningContent = delta.reasoning_content;
+          if (reasoningContent) {
+            if (!hasEmittedThought) {
+              hasEmittedThought = true;
+              onPhase?.('thinking');
+            }
+            onThought?.(reasoningContent);
+          }
+
+          if (Array.isArray(delta.tool_calls)) {
+            for (const part of delta.tool_calls) {
+              const index = Number(part?.index) || 0;
+              const existing = calls.get(index) ?? { id: '', name: '', args: '' };
+              if (typeof part?.id === 'string' && part.id) existing.id = part.id;
+              if (typeof part?.function?.name === 'string' && part.function.name) {
+                if (!existing.name) onPhase?.('tooling');
+                existing.name = part.function.name;
+              }
+              if (typeof part?.function?.arguments === 'string') existing.args += part.function.arguments;
+              calls.set(index, existing);
+            }
+          }
+
+          const content = delta.content || "";
+          if (content) {
+            if (!hasEmittedText) {
+              hasEmittedText = true;
+              onPhase?.('responding');
+            }
+            onToken(content);
+            roundText += content;
+            // Accumulated because the annotation offsets index into the answer,
+            // and they arrive at the end of the stream when the text is complete.
+            openaiAnswerText += content;
+          }
         }
 
-        const content = delta.content || "";
-        if (content) {
-          if (!hasEmittedText) {
-            hasEmittedText = true;
-            onPhase?.('responding');
+        const pendingCalls = [...calls.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([, call]) => call)
+          .filter((call) => call.name);
+
+        if (!pendingCalls.length || !onToolCall || round >= maxToolIterations - 1) {
+          if (pendingCalls.length && onToolCall) {
+            for (const call of pendingCalls) {
+              const args = safeParseToolInput(call.args);
+              options.onToolCallStart?.(call.name, args);
+              await onToolCall(call.name, args);
+            }
           }
-          onToken(content);
-          // Accumulated because the annotation offsets index into the answer,
-          // and they arrive at the end of the stream when the text is complete.
-          openaiAnswerText += content;
+          break;
+        }
+
+        /* `content: null`, not `''`: an empty string is a message the model did not
+           send, and some endpoints reject one alongside `tool_calls`. */
+        chatMessages.push({
+          role: 'assistant',
+          content: roundText || null,
+          tool_calls: pendingCalls.map((call) => ({
+            id: call.id,
+            type: 'function',
+            function: { name: call.name, arguments: JSON.stringify(safeParseToolInput(call.args)) },
+          })),
+        });
+        for (const call of pendingCalls) {
+          const args = safeParseToolInput(call.args);
+          options.onToolCallStart?.(call.name, args);
+          const result = await onToolCall(call.name, args);
+          chatMessages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: toolResultText(result),
+          });
         }
       }
     }
@@ -2031,7 +2661,7 @@ Adhere to the following rules and guidelines:
   } else if (usesAnthropicAdapter) {
     // Both native Anthropic and custom gateways speak the Messages API; the
     // client resolves whether to call upstream directly or via the dev proxy.
-    const anthropic = getAnthropicClient(apiKey, options.baseUrl);
+    const anthropic = getAnthropicClient(apiKey, options.baseUrl, provider as ProviderId);
 
     const formattedMessages = messages.map(m => {
         if (!m.attachments || m.attachments.length === 0) {
@@ -2091,73 +2721,296 @@ Adhere to the following rules and guidelines:
     // echoes the prompt, every turn renders as the same message with no error. If
     // replies through a gateway ever look templated and identical, turn search off
     // before looking anywhere else.
-    const anthropicSearchEnabled = toolsAllowed && options.enableSearch !== false;
-    const anthropicTools = anthropicSearchEnabled
-      ? [{ type: 'web_search_20250305', name: 'web_search' }]
-      : [];
+    const anthropicSearchEnabled = nativeToolsAllowed && options.enableSearch !== false;
+    const anthropicTools = [
+      ...(anthropicSearchEnabled ? [{ type: 'web_search_20250305', name: 'web_search' }] : []),
+      /* Personal tools AND the canvas tools: both arrive as Gemini-shaped
+         declarations and both are executed by the same provider-agnostic
+         `onFunctionCall`, so there is nothing provider-specific left to gate on. */
+      ...(toolsAllowed ? anthropicFunctionTools([
+        ...(options.personalTools ?? []),
+        ...(options.toolDeclarations ?? []),
+      ]) : []),
+    ];
 
-    const stream = await anthropic.messages.create({
-      model,
-      max_tokens: 4096,
-      ...(systemPrompt ? { system: systemPrompt } : {}),
-      // @ts-ignore
-      messages: formattedMessages,
-      ...(anthropicTools.length ? { tools: anthropicTools as any } : {}),
-      stream: true,
-    }, signal ? { signal } : undefined);
-
-    // Citations arrive per content block and carry no offsets into the answer,
-    // so the span each block occupies has to be tracked as it streams. See
-    // `AnthropicCitedBlock`.
+    /* Citations accumulate across every round of the tool loop below, because the
+       offsets they carry index the answer the user ends up reading — which is the
+       concatenation of the text from all of them. */
     const anthropicSearchResults: any[] = [];
     const anthropicBlocks: AnthropicCitedBlock[] = [];
     let anthropicTextLength = 0;
     let currentBlock: AnthropicCitedBlock | null = null;
+    let hasEmittedAnthropicText = false;
 
-    for await (const messageStreamEvent of stream) {
-      throwIfAborted(signal);
-      const event = messageStreamEvent as any;
-      reportUsage(event.usage ?? event.message?.usage ?? event.delta?.usage);
-
-      if (event.type === 'content_block_start') {
-        const block = event.content_block;
-        if (block?.type === 'text') {
-          currentBlock = { start: anthropicTextLength, end: anthropicTextLength, citations: [] };
-          // A non-streaming path can deliver a whole block's citations here
-          // rather than as deltas.
-          if (Array.isArray(block.citations)) currentBlock.citations.push(...block.citations);
-        } else if (namesWebSearch(block?.type) || namesWebSearch(block?.name)) {
-          // `content` is the result list on success and a single error object
-          // when the search failed (rate limits, `max_uses_exceeded`); the API
-          // still returns HTTP 200 either way, so the shape is the only signal.
-          //
-          // The block is matched by `namesWebSearch` rather than against the
-          // literal `web_search_tool_result` so that an endpoint spelling its own
-          // search tool differently (`Web_Search`, `WebSearch`, `websearch`) still
-          // lands here with nothing configured. `name` is checked alongside `type`
-          // because a relay can put the tool's name in either field. The array
-          // guard is what keeps the matching invocation block -- `server_tool_use`
-          // named `web_search`, which carries `input`, not `content` -- from
-          // being read as though it were a result.
-          if (Array.isArray(block.content)) anthropicSearchResults.push(...block.content);
+    /*
+     * The tool loop.
+     *
+     * Anthropic's protocol is: the model stops with `stop_reason: 'tool_use'`, the
+     * caller runs the tools, and the conversation continues with the assistant's own
+     * content blocks followed by a user turn of `tool_result`s. The assistant turn
+     * has to be echoed back VERBATIM — the `tool_use` blocks in it are what the
+     * results are matched against by id — so the blocks are rebuilt as they stream.
+     */
+    const conversation: any[] = [...formattedMessages];
+    /*
+     * ## The request, and the three things it degrades
+     *
+     * `max_tokens` is REQUIRED by the Messages API and is a hard ceiling on the whole
+     * turn, tool arguments included. 4096 was the old value and it is a canvas-sized
+     * problem: `update_canvas` sends the WHOLE document as its input, so a 20KB app
+     * cannot fit — the stream is cut mid-argument, the JSON never closes, and the
+     * executor is handed nothing, which is indistinguishable from the model refusing
+     * to work.
+     *
+     * `thinking` is how the UI's thinking slider reaches Claude at all. Without it
+     * `thinkingLevel` was simply dropped on this provider: the app offered a control
+     * that did nothing, and the thoughts panel stayed empty on every Claude turn
+     * while Gemini filled it. Budget is a floor-and-ceiling calculation rather than a
+     * table lookup because the API requires `budget_tokens < max_tokens`, and
+     * `max_tokens` is itself degradable.
+     *
+     * `cache_control` on the system prompt is the cheap professional win. Willow's
+     * system prompt is long — the Canvas instructions alone run to thousands of
+     * tokens — and it is byte-identical on every turn of a chat, so marking it
+     * ephemeral turns those input tokens into a cache read for five minutes.
+     *
+     * All three are DEGRADED RATHER THAN ASSUMED, because this provider is commonly
+     * pointed at a gateway and an older model can be typed into the Models tab by
+     * hand. Each retry drops exactly the feature the error names, keeping everything
+     * else, and a 400 nobody recognises is re-thrown untouched.
+     */
+    let anthropicMaxTokens = 32000;
+    let anthropicThinking = (options.thinkingLevel ?? 0) > 0 && options.includeThoughts !== false;
+    let anthropicCacheSystem = !!systemPrompt;
+    const anthropicThinkingBudget = () => {
+      const wanted = { 1: 4000, 2: 10000, 3: 16000, 4: 24000, 5: 32000, 6: 32000 }[
+        Math.min(6, Math.max(1, options.thinkingLevel ?? 1))
+      ] ?? 10000;
+      /* The API requires room for an answer after the thinking budget, so this is a
+         share of `max_tokens` rather than an absolute — and at the 4096 fallback
+         there is no room worth having, which `openAnthropicStream` reads as off. */
+      return Math.min(wanted, anthropicMaxTokens - 8000);
+    };
+    const openAnthropicStream = async (): Promise<any> => {
+      for (let attempt = 0; ; attempt += 1) {
+        const budget = anthropicThinkingBudget();
+        const thinking = anthropicThinking && budget >= 1024;
+        const body = {
+          model,
+          max_tokens: anthropicMaxTokens,
+          ...(systemPrompt
+            ? {
+              system: anthropicCacheSystem
+                ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+                : systemPrompt,
+            }
+            : {}),
+          // @ts-ignore
+          messages: conversation,
+          ...(anthropicTools.length ? { tools: anthropicTools as any } : {}),
+          ...(thinking ? { thinking: { type: 'enabled', budget_tokens: budget } } : {}),
+          stream: true as const,
+        };
+        try {
+          return await anthropic.messages.create(body as any, signal ? { signal } : undefined);
+        } catch (error: any) {
+          const message = String(error?.message ?? '');
+          /* Only a request the endpoint rejected as malformed is worth degrading; a
+             401, a 429 or a network failure means try nothing different. */
+          const status = Number(error?.status ?? 0);
+          const malformed = status === 400 || status === 422;
+          let dropped = '';
+          if (malformed && attempt < 3) {
+            if (anthropicCacheSystem && /cache|ephemeral|system/i.test(message)) {
+              anthropicCacheSystem = false;
+              dropped = 'prompt caching';
+            } else if (thinking && /thinking|budget|reasoning/i.test(message)) {
+              anthropicThinking = false;
+              dropped = 'extended thinking';
+            } else if (anthropicMaxTokens > 4096 && /max_tokens|token/i.test(message)) {
+              anthropicMaxTokens = 4096;
+              dropped = 'the 32k output ceiling';
+            }
+          }
+          if (!dropped) throw error;
+          console.warn(`[AI] Anthropic endpoint rejected ${dropped}; retrying without it. ${message}`);
         }
-      } else if (event.type === 'content_block_delta') {
-        const delta = event.delta;
-        if (delta?.type === 'text_delta') {
-          onToken(delta.text);
-          anthropicTextLength += delta.text.length;
-          if (currentBlock) currentBlock.end = anthropicTextLength;
-        } else if (delta?.type === 'thinking_delta') {
-          onThought?.(delta.thinking);
-        } else if (delta?.type === 'citations_delta' && delta.citation) {
-          if (currentBlock) currentBlock.citations.push(delta.citation);
-        }
-      } else if (event.type === 'content_block_stop') {
-        if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
-        currentBlock = null;
       }
+    };
+
+    for (let round = 0; ; round += 1) {
+      const stream = await openAnthropicStream();
+
+      /*
+       * This round's assistant turn, rebuilt block by block as it streams.
+       *
+       * VERBATIM matters: continuing a turn means posting the assistant's own
+       * content back, and Anthropic matches tool results to the `tool_use` blocks
+       * inside it by id. Server-side blocks (`server_tool_use`, the search results)
+       * are kept too — a paused turn is resumed by echoing the whole thing, so
+       * dropping them loses the search the model already ran.
+       */
+      const assistantBlocks: any[] = [];
+      const blocksByIndex = new Map<number, any>();
+      const argumentJson = new Map<number, string>();
+      const toolUses: { index: number; id: string; name: string }[] = [];
+      let stopReason: string | null = null;
+      let textBlock: { type: 'text'; text: string } | null = null;
+
+      for await (const messageStreamEvent of stream) {
+        throwIfAborted(signal);
+        const event = messageStreamEvent as any;
+        reportUsage(event.usage ?? event.message?.usage ?? event.delta?.usage);
+
+        if (event.type === 'content_block_start') {
+          const block = event.content_block;
+          const index = Number(event.index) || 0;
+          if (block && typeof block === 'object') {
+            const copy = { ...block };
+            assistantBlocks.push(copy);
+            blocksByIndex.set(index, copy);
+          }
+          if (block?.type === 'text') {
+            textBlock = blocksByIndex.get(index);
+            if (textBlock) textBlock.text = '';
+            currentBlock = { start: anthropicTextLength, end: anthropicTextLength, citations: [] };
+            // A non-streaming path can deliver a whole block's citations here
+            // rather than as deltas.
+            if (Array.isArray(block.citations)) currentBlock.citations.push(...block.citations);
+          } else if (block?.type === 'tool_use') {
+            /* A DECLARED tool, not the server-side search: `server_tool_use` is
+               Anthropic's own and is answered by Anthropic. This one is ours to run.
+               `input` arrives as `input_json_delta` fragments, so the block is held
+               open and parsed at `content_block_stop`. */
+            toolUses.push({ index, id: String(block.id ?? ''), name: String(block.name ?? '') });
+            argumentJson.set(index, '');
+            onPhase?.('tooling');
+          } else if (block?.type === 'server_tool_use') {
+            /* Anthropic runs this one. The fragments are still collected, because a
+               paused turn is resumed by posting the block back with its input. */
+            argumentJson.set(index, '');
+          } else if (namesWebSearch(block?.type) || namesWebSearch(block?.name)) {
+            // `content` is the result list on success and a single error object
+            // when the search failed (rate limits, `max_uses_exceeded`); the API
+            // still returns HTTP 200 either way, so the shape is the only signal.
+            //
+            // The block is matched by `namesWebSearch` rather than against the
+            // literal `web_search_tool_result` so that an endpoint spelling its own
+            // search tool differently (`Web_Search`, `WebSearch`, `websearch`) still
+            // lands here with nothing configured. `name` is checked alongside `type`
+            // because a relay can put the tool's name in either field. The array
+            // guard is what keeps the matching invocation block -- `server_tool_use`
+            // named `web_search`, which carries `input`, not `content` -- from
+            // being read as though it were a result.
+            if (Array.isArray(block.content)) anthropicSearchResults.push(...block.content);
+          }
+        } else if (event.type === 'content_block_delta') {
+          const delta = event.delta;
+          if (delta?.type === 'text_delta') {
+            if (!hasEmittedAnthropicText && delta.text) {
+              hasEmittedAnthropicText = true;
+              onPhase?.('responding');
+            }
+            onToken(delta.text);
+            if (textBlock) textBlock.text += delta.text;
+            anthropicTextLength += delta.text.length;
+            if (currentBlock) currentBlock.end = anthropicTextLength;
+          } else if (delta?.type === 'thinking_delta') {
+            if (!hasEmittedAnthropicText) onPhase?.('thinking');
+            onThought?.(delta.thinking);
+            const block = blocksByIndex.get(Number(event.index) || 0);
+            if (block && typeof delta.thinking === 'string') {
+              block.thinking = `${block.thinking ?? ''}${delta.thinking}`;
+            }
+          } else if (delta?.type === 'signature_delta') {
+            /* Extended thinking is not requested on this path, but a gateway can
+               send one anyway — and a thinking block echoed back without its
+               signature is rejected, so it rides along if it arrives. */
+            const block = blocksByIndex.get(Number(event.index) || 0);
+            if (block && typeof delta.signature === 'string') block.signature = delta.signature;
+          } else if (delta?.type === 'input_json_delta') {
+            const index = Number(event.index) || 0;
+            if (argumentJson.has(index) && typeof delta.partial_json === 'string') {
+              argumentJson.set(index, `${argumentJson.get(index)}${delta.partial_json}`);
+            }
+          } else if (delta?.type === 'citations_delta' && delta.citation) {
+            if (currentBlock) currentBlock.citations.push(delta.citation);
+          }
+        } else if (event.type === 'content_block_stop') {
+          /* The fragments are the input now: parsing here rather than at use means a
+             block echoed back to the API always carries valid JSON. */
+          const index = Number(event.index) || 0;
+          const block = blocksByIndex.get(index);
+          if (block && argumentJson.has(index)) block.input = safeParseToolInput(argumentJson.get(index) as string);
+          if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
+          currentBlock = null;
+          textBlock = null;
+        } else if (event.type === 'message_delta') {
+          if (typeof event.delta?.stop_reason === 'string') stopReason = event.delta.stop_reason;
+        }
+      }
+      if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
+      currentBlock = null;
+
+      const toolInput = (call: { index: number }) => {
+        const block = blocksByIndex.get(call.index);
+        return block && block.input && typeof block.input === 'object' ? block.input : {};
+      };
+
+      /*
+       * A PAUSED turn is resumed, not ended.
+       *
+       * Anthropic pauses a long server-tool sequence with `stop_reason: 'pause_turn'`
+       * and expects the conversation to continue with the partial assistant turn
+       * posted back — no results to add, because the tool it is running is its own.
+       * Without this, a search-heavy question ends wherever the pause landed, which
+       * reads as the model stopping mid-sentence. Bounded by the same iteration
+       * limit as the tool loop, so a pause that never resolves cannot spin.
+       */
+      if (stopReason === 'pause_turn' && !toolUses.length && assistantBlocks.length && round < maxToolIterations - 1) {
+        conversation.push({ role: 'assistant', content: assistantBlocks });
+        continue;
+      }
+
+      /*
+       * Run them whatever the stop reason says.
+       *
+       * `tool_use` is the documented one, and a gateway that reports something else
+       * — or nothing — while still emitting the blocks is the case that used to lose
+       * the call silently. The Gemini adapter learned the same lesson the same way
+       * (see the note at `canFeedResultsBack`): the blocks arriving is the fact, the
+       * stop reason is a claim about it.
+       */
+      if (!toolUses.length || !onToolCall || round >= maxToolIterations - 1) {
+        if (toolUses.length && onToolCall) {
+          for (const call of toolUses) {
+            const args = toolInput(call);
+            options.onToolCallStart?.(call.name, args);
+            await onToolCall(call.name, args);
+          }
+        }
+        break;
+      }
+
+      const results = await Promise.all(toolUses.map(async (call) => {
+        const args = toolInput(call);
+        options.onToolCallStart?.(call.name, args);
+        const result = await onToolCall(call.name, args);
+        return {
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: [{
+            type: 'text',
+            text: typeof result === 'string' ? result : JSON.stringify(result),
+          }],
+        };
+      }));
+
+      /* `assistantBlocks` already holds every block in arrival order, each with its
+         parsed `input` — including the `tool_use` blocks these results answer. */
+      conversation.push({ role: 'assistant', content: assistantBlocks });
+      conversation.push({ role: 'user', content: results });
     }
-    if (currentBlock && currentBlock.citations.length) anthropicBlocks.push(currentBlock);
 
     if (anthropicBlocks.length || anthropicSearchResults.length) {
       const resolved = resolveAnthropicCitations(anthropicSearchResults, anthropicBlocks);
@@ -2165,121 +3018,6 @@ Adhere to the following rules and guidelines:
       // `web_search_tool_result` blocks and no `citations_delta` -- measured on a
       // relay -- still has sources worth showing; it gets the sources panel and
       // no inline chips instead of losing the search entirely.
-      if (resolved.sources.length) onCitations?.(resolved);
-    }
-  } else if (provider === 'moonshot' || provider === 'zhipuai') {
-    // OpenAI-compatible providers (Moonshot/Kimi, Zhipu AI/GLM)
-    const { url: compatibleBaseUrl, headers: compatibleHeaders } =
-      resolveEndpointTransport(provider, options.baseUrl, 'v1');
-
-    const compatibleApiKey = normalizeOpenAICompatibleApiKey(apiKey);
-    const client = new OpenAI({
-        apiKey: compatibleApiKey,
-        baseURL: compatibleBaseUrl,
-        timeout: 60 * 60 * 1000,
-        dangerouslyAllowBrowser: true,
-        ...(compatibleHeaders ? { defaultHeaders: compatibleHeaders } : {})
-    });
-
-    const compatibleReasoningEffortMap: Record<number, 'none' | 'low' | 'medium' | 'high' | 'max'> = {
-      0: 'none',
-      1: 'low',
-      2: 'medium',
-      3: 'high',
-      4: 'max',
-    };
-    const reasoningEffort = (options.reasoningEffort as any) || compatibleReasoningEffortMap[options.thinkingLevel ?? 0] || 'medium';
-
-    const formattedMessages = messages.map(m => {
-        let cleanContent = m.content || '';
-        if (m.role === 'assistant' || (m.role as any) === 'model') {
-            cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
-        }
-        if (!m.attachments || m.attachments.length === 0) {
-            return { role: m.role, content: cleanContent };
-        }
-        const contentParts: any[] = [{ type: "text", text: cleanContent }];
-        m.attachments.forEach(att => {
-            if (att.type === 'image') {
-                contentParts.push({
-                    type: "image_url",
-                    image_url: {
-                        url: `data:${att.mimeType};base64,${att.data}`
-                    }
-                });
-            } else if (att.type === 'text') {
-                const label = att.name || att.mimeType;
-                contentParts[0].text += `\n\n[Contents of ${label}]\n${att.data}`;
-            } else {
-                const label = att.name || att.mimeType;
-                contentParts[0].text += `\n\n[Attached file: ${label} (${att.mimeType}). This compatible chat endpoint cannot directly inspect the binary contents.]`;
-            }
-        });
-        return { role: m.role, content: contentParts };
-    });
-
-    const systemMessages = systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : [];
-
-    const compatSearchTools: Record<string, any[]> = {
-      zhipuai: [{
-        type: 'web_search',
-        web_search: { enable: 'True', search_result: 'True' },
-      }],
-    };
-    const compatSearchEnabled = toolsAllowed && options.enableSearch !== false
-      && !!compatSearchTools[provider];
-
-    const stream = await createWithSearchFallback<any>(
-      (searchEnabled) => client.chat.completions.create({
-        model,
-        // @ts-ignore
-        messages: [...systemMessages, ...formattedMessages],
-        ...(provider === 'moonshot' || (provider === 'zhipuai' && model === 'glm-5.3')
-          ? { reasoning_effort: reasoningEffort }
-          : {}),
-        ...(provider === 'zhipuai' && model === 'glm-5.3'
-          ? { thinking: { type: 'enabled' } }
-          : {}),
-        ...(searchEnabled ? { tools: compatSearchTools[provider] } : {}),
-        stream: true,
-      } as any, signal ? { signal } : undefined) as any,
-      compatSearchEnabled,
-      signal,
-    );
-
-    let hasEmittedText = false;
-    let hasEmittedThought = false;
-    const compatHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
-    let compatAnswerText = '';
-
-    for await (const chunk of stream) {
-      throwIfAborted(signal);
-      harvestCompatSearchChunk(chunk, compatHarvest);
-      reportUsage(chunk?.usage);
-      const delta = chunk.choices?.[0]?.delta;
-      if (!delta) continue;
-
-      const reasoningContent = delta.reasoning_content;
-      if (reasoningContent) {
-        if (!hasEmittedThought) {
-          hasEmittedThought = true;
-        }
-        onThought?.(reasoningContent);
-      }
-
-      const content = delta.content;
-      if (content) {
-        if (!hasEmittedText) {
-          hasEmittedText = true;
-          onPhase?.('responding');
-        }
-        onToken(content);
-        compatAnswerText += content;
-      }
-    }
-
-    if (compatHarvest.annotations.length || compatHarvest.sources.length) {
-      const resolved = resolveCompatCitations(compatHarvest, compatAnswerText);
       if (resolved.sources.length) onCitations?.(resolved);
     }
   }

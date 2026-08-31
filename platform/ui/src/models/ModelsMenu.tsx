@@ -76,7 +76,7 @@ export const ModelsMenu: React.FC<{
    * Extra rows appended to the thinking-effort submenu.
    *
    * Opt-in and empty by default, so every existing caller renders exactly what
-   * it did before. It exists for `features/code-beta`, whose harness adds an
+   * it did before. It exists for the Code tab's Agent tool, whose harness adds an
    * effort — Ultra — that is not one of Willow's numeric levels and must not
    * appear anywhere else: upstream Codex treats it as a product-level selection
    * that turns on proactive sub-agent delegation rather than a value any

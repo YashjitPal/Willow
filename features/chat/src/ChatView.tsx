@@ -2,6 +2,25 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion, useAnimationControls } from 'framer-motion';
 import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
+import type { ToolId } from './composer/composer-options';
+import {
+  $expandedCanvasCards,
+  $openCanvas,
+  applyCanvasEdit,
+  buildCanvasDocs,
+  canvasCardKey,
+  canvasSliceCitations,
+  canvasSplitOffset,
+  collapseCanvasCardsFor,
+  collapseCanvasToCard,
+  setCanvasCardExpanded,
+  toggleCanvasCard,
+  type CanvasRef,
+} from './canvas/canvas-store';
+import { decodeCanvasHistory, encodeCanvasHistory } from './canvas/canvas-diff';
+import { CanvasCard } from './canvas/CanvasCard';
+import { CanvasPanel } from './canvas/CanvasPanel';
+import { CANVAS_INSTRUCTIONS, canvasChatTools, canvasContextBlock } from './canvas/canvas-tools';
 import {
   $chatNotebookId,
   $notebookHandoff,
@@ -42,7 +61,7 @@ import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-lo
 import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
 import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
-import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
+import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCanvasRefs, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
 import {
   attachChatTurnListener,
   countRunningChatTurns,
@@ -640,7 +659,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // which is why the notice vanished mid-conversation rather than only
             // on refresh. `chat-message.ts` owns which flags are runtime-only;
             // the load path has to agree with it.
-            const sanitized: ChatMsg[] = (await Promise.all(msgs
+            // `decodeCanvasHistory` first, and it has to be first: a canvas
+            // document's older revisions are stored as reverse patches against the
+            // newest one, and `sanitizeSavedCanvasRefs` drops any ref with no
+            // `content` — which every patch-only ref is until this has run.
+            const withCanvasHistory = decodeCanvasHistory(msgs);
+            const sanitized: ChatMsg[] = (await Promise.all(withCanvasHistory
               .map(async (m: any) => ({
                 id: m.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
                 role: m.role,
@@ -658,6 +682,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 wasStopped: m.wasStopped,
                 citations: sanitizeSavedCitations(m.citations),
                 codeExecutions: sanitizeSavedCodeExecutions(m.codeExecutions, (m.content || '').length),
+                canvasRefs: sanitizeSavedCanvasRefs(m.canvasRefs, (m.content || '').length),
               })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             // Attachment hydration awaits one IndexedDB read per attachment, so
@@ -842,9 +867,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const source = runningTurn?.status === 'running'
             ? [...runningTurn.historyBefore, runningTurn.userMessage]
             : snapshot;
-          const latest = source
+          const latest = encodeCanvasHistory(source
             .map(serializeChatMessage)
-            .filter((message) => hasSavedMessageContent(message));
+            .filter((message) => hasSavedMessageContent(message)));
           if (latest.length > 0) {
             const saved = await saveLocalFSChat(uniqueTitle, latest, chatSessionId);
             if (saved) {
@@ -1073,6 +1098,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
   }, [panelIsOpen]);
   const [openResource, setOpenResource] = useState<RichResource | null>(null);
+  /*
+   * The open canvas is in a STORE, not in this component's state, because the
+   * canvas runtime (canvas-runtime.ts) opens one the moment a document is created,
+   * from inside the turn runner — nowhere near this tree. `collapseCanvasToCard`
+   * likewise reaches in from the panel. Reading it back here with `useStore` keeps
+   * that single writer while still driving the layout below.
+   */
+  const openCanvas = useStore($openCanvas);
+  const expandedCanvasCards = useStore($expandedCanvasCards);
+  /* Every canvas in this chat, folded out of the message log — a document is the
+   * sum of every ref naming its id, so this is also the version history. */
+  const canvasDocsInChat = useMemo(() => buildCanvasDocs(messages), [messages]);
+  const openCanvasDoc = openCanvas ? canvasDocsInChat.get(openCanvas.docId) : undefined;
   const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
@@ -1110,6 +1148,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setOpenThinkingMessageId(null);
     setOpenSourcesMessageId(null);
     setOpenResource(null);
+    /* The canvas store outlives this component, so switching chats has to clear it
+     * explicitly or chat B opens showing chat A's document. The expanded-card set is
+     * keyed by `messageId:docId` and is therefore already chat-scoped. */
+    $openCanvas.set(null);
+    canvasRefCountRef.current = null;
   }, [activeChatId]);
 
   // The three right-hand panels share one slot, so opening any one closes the
@@ -1159,7 +1202,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * declared below those effects, which is the same reason the note up there gives for
    * not using `contextSidebarOpen`.
    */
-  const anyRightPanelOpen = panelIsOpen || !!openResource;
+  const anyRightPanelOpen = panelIsOpen || !!openResource || !!openCanvasDoc;
   useEffect(() => {
     $chatPanelOpen.set(anyRightPanelOpen);
     return () => { $chatPanelOpen.set(false); };
@@ -1178,15 +1221,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * Comparing against the previous value is immune to that: two invocations with the
    * same state are a no-op however many times they run, and it also stops a chat
    * switch that clears an already-closed panel from animating.
+   *
+   * The canvas shares the same slot and the same grid, so it shares this: what the
+   * effect tracks is whether the RIGHT-HAND COLUMN is occupied, not which component
+   * occupies it. Swapping a resource for a canvas while both are open moves nothing
+   * and correctly animates nothing.
    */
-  const prevOpenResourceRef = useRef<RichResource | null>(null);
+  const prevImmersiveOpenRef = useRef(false);
+  const immersiveOpen = !!openResource || !!openCanvasDoc;
   useEffect(() => {
-    const wasOpen = !!prevOpenResourceRef.current;
-    const isOpen = !!openResource;
-    prevOpenResourceRef.current = openResource;
-    if (wasOpen === isOpen) return;
+    const wasOpen = prevImmersiveOpenRef.current;
+    prevImmersiveOpenRef.current = immersiveOpen;
+    if (wasOpen === immersiveOpen) return;
     if (typeof window === 'undefined' || window.innerWidth < 960) return;
-    immersiveControls.set({ x: openResource ? '80%' : '-20%', opacity: 0 });
+    immersiveControls.set({ x: immersiveOpen ? '80%' : '-20%', opacity: 0 });
     void immersiveControls.start({
       x: 0,
       opacity: 1,
@@ -1195,26 +1243,151 @@ export const ChatView: React.FC<ChatViewProps> = ({
         opacity: { duration: 0.2, ease: 'linear' },
       },
     });
-  }, [openResource, immersiveControls]);
+  }, [immersiveOpen, immersiveControls]);
 
   const handleOpenResource = useCallback((resource: RichResource) => {
     if (!isSidebarCollapsed) onCollapseSidebar?.();
     setOpenThinkingMessageId(null);
     setOpenSourcesMessageId(null);
+    $openCanvas.set(null);
     setOpenResource(resource);
   }, [isSidebarCollapsed, onCollapseSidebar]);
 
+  /*
+   * Open a document in the full-bleed panel — the `Open` pill and `expand_content`
+   * on a card.
+   *
+   * AT THE CARD'S OWN VERSION when it names one. Every chip in the thread is a
+   * snapshot of the turn that wrote it, and pressing Open on an old one used to
+   * land on the newest text: "if I scroll through the session and open any of the
+   * past version of the code via the open button, then i noticed that it still
+   * opens the latest version". The version nav still walks the whole history from
+   * wherever it lands, so nothing is unreachable — it just starts where the user
+   * pressed. Absent (a call with no version) still means the newest.
+   */
+  const handleOpenCanvas = useCallback((docId: string, version?: number) => {
+    if (!isSidebarCollapsed) onCollapseSidebar?.();
+    setOpenThinkingMessageId(null);
+    setOpenSourcesMessageId(null);
+    setOpenResource(null);
+    /*
+     * Clear any card for THIS document that a previous `collapse_content` left
+     * marked expanded.
+     *
+     * The bug this fixes, reported as "the preview appears in the sidebar and also
+     * within the response": collapsing the panel sets the card expanded and opening
+     * the panel again never unset it, so the same document rendered twice — once in
+     * the panel, once as a full expanded card mid-reply. The card block also skips
+     * the open document entirely (see the thread body), and both are needed: this
+     * one stops the stale flag surviving the next close.
+     */
+    collapseCanvasCardsFor(docId);
+    const doc = canvasDocsInChat.get(docId);
+    const newest = doc ? doc.versions.length - 1 : 0;
+    $openCanvas.set({
+      docId,
+      version: Number.isFinite(version) ? Math.max(0, Math.min(version, newest)) : newest,
+    });
+  }, [isSidebarCollapsed, onCollapseSidebar, canvasDocsInChat]);
+
   const handleOpenThinking = useCallback((messageId: string) => {
     setOpenResource(null);
+    $openCanvas.set(null);
     setOpenSourcesMessageId(null);
     setOpenThinkingMessageId(messageId);
   }, []);
 
   const handleOpenSources = useCallback((messageId: string) => {
     setOpenResource(null);
+    $openCanvas.set(null);
     setOpenThinkingMessageId(null);
     setOpenSourcesMessageId(messageId);
   }, []);
+
+  /*
+   * Write an edit back into the message log.
+   *
+   * The document IS its `CanvasRef`s, so editing is a message-log rewrite and
+   * needs no store of its own: `applyCanvasEdit` rewrites the newest ref for the
+   * document, `setMessages` re-renders the panel and every card off the same fold,
+   * and the existing autosave effect (below) persists it — which is the "stored
+   * locally in realtime" half of the request, with no new save path.
+   *
+   * Undefined WHILE GENERATING, which is what makes the panel and cards read-only
+   * for the duration: the turn runner owns `messages` then and holds its own
+   * `canvasRefs` array for the in-flight turn, so an edit committed mid-turn would
+   * be overwritten at settle without warning.
+   */
+  const handleCanvasEdit = useCallback((docId: string, content: string) => {
+    setMessages((prev) => applyCanvasEdit(prev, docId, content));
+  }, []);
+  const canvasEdit = isGenerating ? undefined : handleCanvasEdit;
+
+  /*
+   * A viewer parked on the newest version STAYS on the newest version.
+   *
+   * Two things insert a version under an open panel: a follow-up turn rewriting
+   * the document, and the first hand edit of a revision — which moves the model's
+   * text into its own version behind the user's (see `applyCanvasEdit`). Both
+   * would otherwise leave `$openCanvas.version` pointing at the entry that used to
+   * be last, so the panel would scrub back a version while the user typed.
+   *
+   * Only when it WAS last. A panel deliberately opened at an old version — which
+   * pressing Open on an old chip now does — must stay where it was put.
+   */
+  const canvasVersionCountsRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const before = canvasVersionCountsRef.current;
+    const after: Record<string, number> = {};
+    canvasDocsInChat.forEach((doc, docId) => { after[docId] = doc.versions.length; });
+    canvasVersionCountsRef.current = after;
+    const open = $openCanvas.get();
+    if (!open) return;
+    const was = before[open.docId];
+    const now = after[open.docId];
+    if (!was || !now || now <= was || open.version !== was - 1) return;
+    $openCanvas.set({ docId: open.docId, version: now - 1 });
+  }, [canvasDocsInChat]);
+
+  /*
+   * A turn that writes a canvas OPENS it — AS AN INLINE CARD.
+   *
+   * Two halves of one request, and they were misread as one on the first pass. The
+   * document must not be left behind a chip the user has to find ("it should open
+   * automatically"), and it must not arrive as the right-hand panel either ("when it
+   * opens, it should open in the inline response form rather than fixed sidebar
+   * right side way"). So the new revision's own card expands in place, inside the
+   * reply that wrote it, at the offset the model put it at — and `$openCanvas`, the
+   * panel, stays something only a press reaches.
+   *
+   * Gated on a LIVE turn. The refs are folded out of the whole message log, so
+   * loading a saved chat also grows the count from zero; the first pass after a chat
+   * switch adopts the count silently (`null` sentinel, reset beside the other panel
+   * state above) or every reload would expand a card in an old thread.
+   *
+   * A LAYOUT effect, and that is the whole of the reported flash: "it still flashes
+   * the card before showing the opened view for a bit". A card's first commit is its
+   * collapsed chip — expansion is store state, and the store cannot be written
+   * during render — so flipping it in a passive effect lets the browser paint the
+   * chip once before the expanded card replaces it. `useLayoutEffect` runs in the
+   * same commit, before that paint, so the chip is never on screen at all.
+   */
+  const canvasRefCountRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    let count = 0;
+    let newest: { messageId: string; docId: string } | null = null;
+    for (const message of messages) {
+      for (const ref of message.canvasRefs ?? []) {
+        count += 1;
+        newest = { messageId: message.id, docId: ref.docId };
+      }
+    }
+    const seen = canvasRefCountRef.current;
+    canvasRefCountRef.current = count;
+    if (seen === null || count <= seen || !newest) return;
+    if (!isGenerating) return;
+    setCanvasCardExpanded(newest.messageId, newest.docId, true);
+  }, [messages, isGenerating]);
 
   // Auto-save chat history locally in real-time when messages change.
   // Skip saving while generating — partial messages have empty content that
@@ -1241,8 +1414,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     if (isLocalFolderConnected && messages.length > 0 && !isGenerating && !initialLoadRef.current) {
       const activeId = chatTitle || chatSessionId;
-      // Strip runtime flags before persisting
-      const toSave = messages.map(serializeChatMessage).filter(hasSavedMessageContent);
+      // Strip runtime flags before persisting, then squeeze the canvas history:
+      // older revisions are written as reverse patches against the newest text, so
+      // a seven-revision document costs one copy plus six diffs instead of seven
+      // copies. Encoding LAST is what keeps the chain honest — it runs over exactly
+      // the messages being written, after `hasSavedMessageContent` has dropped any.
+      const toSave = encodeCanvasHistory(messages.map(serializeChatMessage).filter(hasSavedMessageContent));
       const attempted = messages;
       // Dedup marker, set synchronously so a re-render for an unrelated dep
       // (chatTitle landing, say) cannot stack a second write for the same
@@ -2058,11 +2235,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     citations?: MessageCitations,
     errorDetail?: string,
     codeExecutions?: CodeExecution[],
+    /*
+     * Passed explicitly rather than left to the mid-stream mirror below.
+     *
+     * Every field here is assigned unconditionally, so omitting one does NOT
+     * preserve it — `{ ...m, canvasRefs: undefined }` is what an omitted
+     * parameter means. That is correct on the error path (the runner clears its
+     * own refs there) and it is why the successful path has to hand them back.
+     */
+    canvasRefs?: CanvasRef[],
   ) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail, codeExecutions }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail, codeExecutions, canvasRefs }
           : m
       )
     );
@@ -2122,6 +2308,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
             : prev
         ));
       }
+      /*
+       * Canvas revisions ride the same channel, for the same reason: the runner
+       * publishes a ref the instant the tool call executes, mid-stream, and the
+       * card is supposed to appear then — a turn that wrote a document and shows
+       * nothing until it settles reads as a turn that failed.
+       *
+       * `publish` replaces the array rather than mutating it, so identity is a
+       * sound change test and the once-a-second phase ticks bail out.
+       */
+      const refs = record.canvasRefs;
+      if (refs) {
+        setMessages((prev) => (
+          prev.some((m) => m.id === record.assistantId && m.canvasRefs !== refs)
+            ? prev.map((m) => (m.id === record.assistantId ? { ...m, canvasRefs: refs } : m))
+            : prev
+        ));
+      }
     },
     onSettled: (record) => {
       if (attachedTurnIdRef.current !== turnId) return;
@@ -2146,6 +2349,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           record.citations,
           record.errorDetail,
           record.codeExecutions,
+          record.canvasRefs,
         );
         setRevealingResponseId(record.finalContent ? record.assistantId : null);
         setAttachedTurnId(null);
@@ -2185,6 +2389,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       text: string,
       historyOverride?: ChatMsg[],
       attachmentSources: Array<ComposerAttachment | ChatAttachment> = [],
+      tool?: ToolId | null,
     ) => {
       const trimmed = text.trim();
       // Re-entrancy is per chat, not per component: a turn may still be running
@@ -2367,6 +2572,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // that text without the declaration produces a model that keeps trying.
       const personalTools = personalChatTools({ personalize: !isIncognito });
 
+      /*
+       * Canvas is declared when the user attached the chip — OR when this
+       * conversation already holds a document.
+       *
+       * The second half is not a convenience. "Make it shorter" is the most
+       * common canvas follow-up and nobody re-attaches the chip to send it, so
+       * gating purely on the chip would answer it in the chat and leave the panel
+       * showing the old text. It also makes Retry and Edit-and-resend behave: the
+       * tool selection is per-message and is not stored on a saved message, so a
+       * regenerated canvas turn has no chip to read and would otherwise silently
+       * lose the feature.
+       *
+       * Both halves are safe against unwanted cards because the tools are only
+       * offered, never forced, and the instruction block spends most of its length
+       * on when NOT to call them.
+       */
+      const canvasDocs = buildCanvasDocs(prevMessages);
+      const canvasEnabled = tool === 'canvas' || canvasDocs.size > 0;
+      const canvasTools = canvasChatTools(canvasEnabled);
+      const canvasInventory = [...canvasDocs.values()]
+        .sort((a, b) => a.lastTouchedIndex - b.lastTouchedIndex);
+
       await runChatTurn(record, {
         options: {
           provider,
@@ -2385,6 +2612,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           chatSystemPromptFor(provider, {
             personalize: !isIncognito,
             personalTool: personalTools.length > 0,
+            /* Drops the bento-cards section for this turn — see the flag's note.
+               Two instructions for "how do I present a set of things" is one too
+               many, and the canvas rules are the specific ones. */
+            canvas: canvasEnabled,
           }),
           (modelConfig.resources || []).length > 0
             ? `Configured user resources:\n${(modelConfig.resources || []).map((resource: any) => `- ${resource.name}: ${resource.uri || resource.content || ''}`).join('\n')}`
@@ -2399,8 +2630,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
            * added mid-conversation reaches the next one and nothing is displayed.
            */
           notebookGrounding,
+          canvasEnabled ? CANVAS_INSTRUCTIONS : '',
+          canvasEnabled ? canvasContextBlock(canvasInventory) : '',
         ].filter(Boolean).join('\n\n'),
         personalTools,
+        canvasTools,
+        canvasHost: canvasEnabled ? { chatKey, priorDocs: canvasDocs } : undefined,
         history,
         attachmentPersistence,
         currentScopeId: () => chatScopeIdRef.current,
@@ -3147,7 +3382,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
        * have fixed it, because the problem was that text reflow was being animated.
        */
       className={`relative grid h-full min-h-0 w-full overflow-hidden grid-cols-[minmax(0,1fr)] ${
-        openResource
+        immersiveOpen
           ? 'min-[960px]:grid-cols-[minmax(0,1.03fr)_minmax(0,1.97fr)] min-[960px]:gap-x-6'
           : 'min-[960px]:grid-cols-[minmax(0,1fr)_0fr] min-[960px]:gap-x-0'
       }`}
@@ -3190,7 +3425,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <HeroSection
                 initialMode="chat"
                 pinnedComposer
-                onPromptSubmit={(prompt, _mode, attachments) => handleSend(prompt, undefined, attachments)}
+                onPromptSubmit={(prompt, _mode, attachments, tool) => handleSend(prompt, undefined, attachments, tool)}
                 onStartLive={handleStartLive}
                 modelConfig={modelConfig}
                 selectedModelId={selectedModelId}
@@ -3270,7 +3505,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
            * block for any fixed-position descendant).
            */
           className={`mx-auto flex w-full max-w-[760px] flex-col border-l-transparent pl-7 pr-7 pt-[72px] pb-[20px] ${
-            openResource
+            immersiveOpen
               ? 'min-[960px]:border-l-[24px]'
               : 'transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
           } ${contextSidebarOpen ? 'min-[1024px]:pl-9' : ''}`}
@@ -3564,7 +3799,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     else if (lastAssistantContentRef.current === el) lastAssistantContentRef.current = null;
                     measureMessageRef(msg.id)(el);
                   }}
-                  className={`w-full space-y-3 ${openResource ? 'ml-auto max-w-[476px]' : ''}`}
+                  className={`w-full space-y-3 ${immersiveOpen ? 'ml-auto max-w-[476px]' : ''}`}
                 >
                 {/* Code-execution toggle. Gemini puts this in the response
                     header, right-aligned above the body, and it appears only
@@ -3589,12 +3824,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 {showThinkingRow && !isFirstTurnEntranceActive && (() => {
                   const active = generating && isThinking;
+                  /* `executing` is the code sandbox and nothing else. A Canvas or
+                     personalization call runs on `tooling`, which has no
+                     app-written label — claiming "Running code" for a document
+                     write is simply false, and Gemini's own label for a custom
+                     tool was never captured. */
                   const statusHeading = active
                     ? thinkingPhase === 'searching' ? 'Searching the web'
                       : thinkingPhase === 'executing' ? 'Running code'
                       : null
                     : null;
-                  const thoughtHeading = active && thinkingPhase === 'thinking'
+                  /* `tooling` reads the heading too, so the row holds the last
+                     thought heading while the tool runs rather than falling back
+                     to bare dots for the seconds a document takes to write. */
+                  const thoughtHeading = active && (thinkingPhase === 'thinking' || thinkingPhase === 'tooling')
                     ? latestThoughtHeading(msg.thinkingText || '')
                     : null;
                   // Gemini replaces the label with the newest section heading of
@@ -3686,27 +3929,201 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 )}
 
-                {bodyText && (
-                  <StreamingMarkdown
-                    text={bodyText}
-                    isStreaming={generating}
-                    animate={generating || (!!msg.isError && !!msg.isNew)}
-                    reveal={generating || (!!msg.isError && !!msg.isNew)}
-                    revealAsSingleChunk={!!msg.isError && !!msg.isNew}
-                    onRevealComplete={() => {
-                      setResponseRevealComplete((current) => (
-                        current[msg.id] === true
-                          ? current
-                          : { ...current, [msg.id]: true }
-                      ));
-                      setRevealingResponseId((current) => (
-                        current === msg.id ? null : current
-                      ));
-                    }}
-                    onOpenResource={handleOpenResource}
-                    citations={msg.citations}
-                  />
-                )}
+                {/* Body text and Canvas cards, INTERLEAVED.
+                    A card renders where the model put it — at the character offset
+                    the runtime captured when the tool call ran — so a turn that
+                    writes two paragraphs, a document, then a closing line shows
+                    exactly that. Appending them all after the body was the old
+                    behaviour and the user filed it: "it should appear in whichever
+                    paragraph the ai puts it in… instead of making it appear at the
+                    end."
+
+                    THE SPLIT IS ONLY TAKEN ON A SETTLED TURN. Slicing `bodyText`
+                    into several StreamingMarkdown instances mid-reveal would restart
+                    the reveal state machine per slice and the offsets move on every
+                    token, so while generating (or while a fresh reply is still
+                    revealing) this falls back to one body followed by the cards, and
+                    they slot into place on the frame the turn settles.
+
+                    Citations are re-based per slice: their indices are offsets into
+                    the turn's text, so a slice starting at 400 needs every chip
+                    moved back 400. `canvasSliceCitations` keeps the WHOLE `sources`
+                    array on each slice — `sourceIndices` index into it, so trimming
+                    it would repoint every chip in the turn. */}
+                {(() => {
+                  const refs = msg.canvasRefs || [];
+                  /*
+                   * A card is skipped entirely while its own document is open in the
+                   * panel: the panel and the card are two views of one document, and
+                   * showing both is what the user filed as "the preview appears in the
+                   * sidebar and also within the response… this is a serious bug",
+                   * along with "the canvas card should not even appear when it is in
+                   * the sidebar". `handleOpenCanvas` clears the stale expanded flag a
+                   * previous collapse left behind; this hides the chip as well, so the
+                   * open document has exactly one view on screen.
+                   */
+                  const visible = refs
+                    .map((ref, refIndex) => ({ ref, refIndex }))
+                    .filter((entry) => !openCanvas || entry.ref.docId !== openCanvas.docId);
+                  /* Gemini appends a chip per TURN, frozen at the version that turn
+                     wrote — a 2-document / 7-edit thread held nine of them — so this
+                     maps refs, not documents. */
+                  const renderCard = (entry: { ref: CanvasRef; refIndex: number }) => {
+                    const { ref, refIndex } = entry;
+                    const doc = canvasDocsInChat.get(ref.docId);
+                    if (!doc) return null;
+                    /* Which version THIS ref is. The fold stamps every version with
+                     * the ref that produced it, so this is a lookup rather than a
+                     * count — and the LAST match is the one wanted, because a
+                     * hand-edited ref produces two versions and the card belongs on
+                     * the user's, not on the model's text it replaced. */
+                    let version = doc.versions.length - 1;
+                    doc.versions.forEach((snapshot, index) => {
+                      if (snapshot.messageId === msg.id && snapshot.refIndex === refIndex) version = index;
+                    });
+                    const cardKey = canvasCardKey(msg.id, ref.docId);
+                    return (
+                      <CanvasCard
+                        key={cardKey}
+                        doc={doc}
+                        version={version}
+                        expanded={expandedCanvasCards.has(cardKey)}
+                        onToggleExpanded={() => toggleCanvasCard(msg.id, ref.docId)}
+                        onOpen={() => handleOpenCanvas(ref.docId, version)}
+                        /* Read-only while a turn is in flight — see `canvasEdit`. */
+                        onEditContent={
+                          canvasEdit ? (content: string) => canvasEdit(ref.docId, content) : undefined
+                        }
+                        /* The overhang is only safe in a full-width thread. With a
+                         * panel open the column is 476px, so a 949px card would switch
+                         * on horizontal scrolling across the shell — the exact failure
+                         * that broke the grid twice. */
+                        bleed={!immersiveOpen}
+                      />
+                    );
+                  };
+                  /*
+                   * WHERE THE CARD SITS, WHILE THE TURN IS STILL WRITING.
+                   *
+                   * The card belongs at the offset the tool call happened at, and it
+                   * used to get there only once the turn settled: "while generating
+                   * response, it would generate the first paragraph normally and the
+                   * canvas would appear but for the last paragraph it would start
+                   * appearing above the canvas shifting it down and once response
+                   * generation is done, the third paragraph moves below the canvas".
+                   * One split, deferred, and the card visibly jumped at the end.
+                   *
+                   * It can be done live because `ref.index` is captured when the call
+                   * runs and never moves afterwards, so the only thing that shifts is
+                   * where `canvasSplitOffset` snaps it to — forward to the next line
+                   * break, or past an unclosed fence. Both resolve as soon as the text
+                   * that resolves them arrives, and then stay put. The reveal survives
+                   * it because only the LAST slice streams: the head is text that has
+                   * already been revealed, so it renders settled and looks identical,
+                   * and the tail is a token or two old at the moment of the split.
+                   *
+                   * The live guard is that a split needs SOMETHING under it. A cut the
+                   * snap clamped to the end of the text is a card at the end, which the
+                   * unsplit branch below already draws — and splitting there would hand
+                   * the streaming instance an empty tail, which is worse than cosmetic:
+                   * `onRevealComplete` lives on that instance, and it is what clears
+                   * `revealingResponseId` and lets `actionsReady` ever become true.
+                   */
+                  const cuts = bodyText
+                    ? visible
+                      .map((entry) => ({ entry, at: canvasSplitOffset(bodyText, entry.ref.index) }))
+                      .filter(({ at }) => actionsReady || bodyText.slice(at).trim().length > 0)
+                      .sort((a, b) => a.at - b.at)
+                    : [];
+
+                  if (!cuts.length) {
+                    return (
+                      <>
+                        {bodyText && (
+                          <StreamingMarkdown
+                            text={bodyText}
+                            isStreaming={generating}
+                            animate={generating || (!!msg.isError && !!msg.isNew)}
+                            reveal={generating || (!!msg.isError && !!msg.isNew)}
+                            revealAsSingleChunk={!!msg.isError && !!msg.isNew}
+                            onRevealComplete={() => {
+                              setResponseRevealComplete((current) => (
+                                current[msg.id] === true
+                                  ? current
+                                  : { ...current, [msg.id]: true }
+                              ));
+                              setRevealingResponseId((current) => (
+                                current === msg.id ? null : current
+                              ));
+                            }}
+                            onOpenResource={handleOpenResource}
+                            citations={msg.citations}
+                          />
+                        )}
+                        {visible.length > 0 && (
+                          <div className="space-y-3">{visible.map(renderCard)}</div>
+                        )}
+                      </>
+                    );
+                  }
+                  /* One `space-y-3` wrapper around the whole sequence rather than
+                     letting the slices be direct children of the turn: the turn's own
+                     `space-y-3` would then put its 12px between a paragraph and the
+                     card that follows it, which is the same 12px — but the wrapper
+                     keeps the turn's child count stable whether or not a card is
+                     present, and the reveal/entrance code above reads that tree. */
+                  const blocks: React.ReactNode[] = [];
+                  let cursor = 0;
+                  /*
+                   * `live` marks the one slice that is still being written — the tail.
+                   * It carries every streaming prop the unsplit branch above uses,
+                   * including `onRevealComplete`, and the head slices carry none: text
+                   * that has already been revealed must not re-animate when a card
+                   * lands in front of it.
+                   */
+                  const slice = (start: number, end: number, live: boolean) => {
+                    const text = bodyText.slice(start, end);
+                    if (!text.trim()) return;
+                    const streaming = live && generating;
+                    blocks.push(
+                      <StreamingMarkdown
+                        key={`body-${start}`}
+                        text={text}
+                        isStreaming={streaming}
+                        animate={streaming || (!!msg.isError && !!msg.isNew)}
+                        reveal={streaming || (!!msg.isError && !!msg.isNew)}
+                        revealAsSingleChunk={!!msg.isError && !!msg.isNew}
+                        onRevealComplete={() => {
+                          setResponseRevealComplete((current) => (
+                            current[msg.id] === true
+                              ? current
+                              : { ...current, [msg.id]: true }
+                          ));
+                          setRevealingResponseId((current) => (
+                            current === msg.id ? null : current
+                          ));
+                        }}
+                        onOpenResource={handleOpenResource}
+                        citations={canvasSliceCitations(msg.citations, start, end)}
+                      />,
+                    );
+                  };
+                  cuts.forEach(({ entry, at }) => {
+                    const end = Math.max(cursor, Math.min(at, bodyText.length));
+                    slice(cursor, end, false);
+                    cursor = end;
+                    blocks.push(renderCard(entry));
+                  });
+                  slice(cursor, bodyText.length, true);
+                  /* A card whose cut was held back — the snap has not found a line
+                     break after the call yet — still has to be on screen. It goes
+                     where it went before any of this: after the body. */
+                  const split = new Set(cuts.map(({ entry }) => entry));
+                  visible
+                    .filter((entry) => !split.has(entry))
+                    .forEach((entry) => blocks.push(renderCard(entry)));
+                  return <div className="space-y-3">{blocks}</div>;
+                })()}
 
                 {/* Stopped turn: Gemini inserts the notice between the body and
                     the action row. Measured on both stopped turns in the live
@@ -3946,11 +4363,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
               showDisclaimer={showComposerDisclaimer}
               currentMode="chat"
               onModeChange={() => {}}
-              onSubmit={(prompt, _mode, attachments) => {
+              onSubmit={(prompt, _mode, attachments, tool) => {
                 // Typing + Enter while live implicitly ends the voice session and
                 // falls back to the regular typed path.
                 if (isLive) handleStopLive();
-                handleSend(prompt, undefined, attachments);
+                handleSend(prompt, undefined, attachments, tool);
               }}
               liveActive={isLive}
               onStartLive={handleStartLive}
@@ -4014,6 +4431,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
             key="willow-rich-resource-panel"
             resource={openResource}
             onClose={() => setOpenResource(null)}
+          />
+        ) : openCanvasDoc && openCanvas ? (
+          /* Keyed by document, so opening a SECOND canvas replays the enter
+             animation instead of silently swapping the contents — the same reason
+             the keys above are kind-prefixed. */
+          <CanvasPanel
+            key={`canvas-${openCanvasDoc.docId}`}
+            doc={openCanvasDoc}
+            version={openCanvas.version}
+            onVersionChange={(version) => $openCanvas.set({ docId: openCanvasDoc.docId, version })}
+            onCollapse={() => {
+              /* The card that gets expanded is the NEWEST turn that wrote this
+                 document — the one whose chip sits at the bottom of the thread,
+                 which is where the user's eye already is. */
+              const versions = openCanvasDoc.versions;
+              const last = versions[versions.length - 1];
+              if (last) collapseCanvasToCard(last.messageId, openCanvasDoc.docId);
+              else $openCanvas.set(null);
+            }}
+            onPrompt={(text) => { void handleSend(text, undefined, [], 'canvas'); }}
+            /* The cross: dismiss and leave the thread holding CHIPS, not an expanded
+               card. `collapseCanvasCardsFor` is what makes that true — without it the
+               flag a previous collapse set would still be there. */
+            onClose={() => {
+              collapseCanvasCardsFor(openCanvasDoc.docId);
+              $openCanvas.set(null);
+            }}
+            onEditContent={
+              canvasEdit ? (content) => canvasEdit(openCanvasDoc.docId, content) : undefined
+            }
           />
         ) : null}
       </AnimatePresence>

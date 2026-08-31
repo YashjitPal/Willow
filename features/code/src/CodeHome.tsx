@@ -16,6 +16,9 @@ import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/regi
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { AgentIcon } from '@willow/ui/AgentIcon';
+import { EFFORT_LABEL } from './agent/harness/overlay/effort';
+import { agentEngaged, setAgentEngaged, setUltraEngaged, ultraEngaged } from './agent/agent-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import logoG from '@willow/assets/brand/logo-glyph.png';
@@ -369,7 +372,16 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     { id: 'design', label: 'Design', icon: Palette },
     { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
     { id: 'prototype', label: 'Visual Edits', icon: VisualEditsIcon },
-    { id: 'test', label: 'Test', icon: FlaskConical }
+    { id: 'test', label: 'Test', icon: FlaskConical },
+    /*
+     * The Codex harness, offered here as well as in the workbench composer.
+     *
+     * The first prompt is usually typed on this screen, so offering it only
+     * after the session had started would mean the opening turn could never run
+     * on the harness. The choice is mirrored into `agentEngaged`, which both
+     * composers read, so it holds across the handover.
+     */
+    { id: 'agent', label: 'Agent', icon: AgentIcon }
   ];
   
   const currentTool = selectedToolId ? TOOLS.find(t => t.id === selectedToolId) : null;
@@ -401,14 +413,40 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
   }
 
+  // Mirrors the Tools-menu pick so the workbench composer and the harness agree
+  // on whether this turn runs on the Agent. Ultra is a rung on the harness's own
+  // effort ladder, so it is only meaningful — and only shown — alongside it.
+  const isAgent = useStore(agentEngaged);
+  const isUltra = useStore(ultraEngaged) && isAgent;
+
+  /*
+   * Keep this composer's pill in step with the shared flag.
+   *
+   * The workbench composer can turn Agent on or off long after this component
+   * mounted, and the two keep separate `selectedToolId`. Without this, coming
+   * back to the landing screen would show a plain "Tools" pill while the store
+   * still said Agent — and the next prompt would run on the harness with nothing
+   * on screen saying so.
+   */
+  useEffect(() => {
+    setSelectedToolId((current) => {
+      if (isAgent) return 'agent';
+      return current === 'agent' ? null : current;
+    });
+  }, [isAgent]);
+
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
   const activeEffortRecord = activeModel
     ? { ...activeModel, thinkingLevel: currentThinkingLevel }
     : undefined;
-  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
-    ? getThinkingEffortLabel(activeEffortRecord, true)
-    : '';
+  // Ultra is not a numeric level, so it is named here; without this the pill
+  // would keep showing whichever level Ultra was chosen over.
+  const activeEffortDisplayLabel = isUltra
+    ? EFFORT_LABEL.ultra
+    : activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+      ? getThinkingEffortLabel(activeEffortRecord, true)
+      : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
     .join(' ');
@@ -1217,7 +1255,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             {TOOLS.map((tool) => (
                               <button 
                                 key={tool.id}
-                                onClick={() => { setSelectedToolId(tool.id); setIsToolsMenuOpen(false); }}
+                                onClick={() => { setSelectedToolId(tool.id); setAgentEngaged(tool.id === 'agent'); setIsToolsMenuOpen(false); }}
                                 className="flex items-center gap-2.5 w-full px-3 py-2.5 hover:bg-[#27272a] text-gray-300 hover:text-white transition-colors text-[13px] font-medium text-left"
                               >
                                 <tool.icon size={16} className={tool.id === 'design' || tool.id === 'prototype' ? 'text-gray-400' : ''} />
@@ -1242,7 +1280,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                                 <span>{currentTool.label}</span>
                               </div>
                               <div
-                                onClick={(e) => { e.stopPropagation(); setSelectedToolId(null); }}
+                                onClick={(e) => { e.stopPropagation(); setSelectedToolId(null); setAgentEngaged(false); }}
                                 className="p-0.5 hover:bg-[#3b82f6]/30 rounded-full transition-colors cursor-pointer flex items-center justify-center"
                               >
                                 <X size={12} />
@@ -1290,7 +1328,31 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
+                            /*
+                              * Ultra, offered on every model — but only while the
+                              * Agent tool is selected.
+                              *
+                              * It is not one of Willow's numeric levels: upstream
+                              * lowers it to the model's own ceiling on the wire and
+                              * uses it to turn on proactive sub-agent delegation, so
+                              * it means nothing to the legacy generation loop. With
+                              * Agent off the row is absent and the menu is exactly
+                              * what it was.
+                              */
+                            extraEfforts={isAgent ? [
+                              {
+                                id: 'codex-ultra',
+                                label: EFFORT_LABEL.ultra,
+                                badge: 'Sub-agents',
+                                selected: isUltra,
+                                onSelect: () => setUltraEngaged(true),
+                              },
+                            ] : undefined}
                             onSelect={(id) => {
+                              // Picking a level clears Ultra: the two are one radio
+                              // group, so leaving it on would keep delegating after
+                              // the user asked for something else.
+                              setUltraEngaged(false);
                               setSelectedModelId(id);
                               const sel = ALL_MODELS.find(m => m.id === id);
                               if (sel) {

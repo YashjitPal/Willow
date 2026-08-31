@@ -107,9 +107,10 @@ it('clears the other panels when sources opens', () => {
 
 it('swaps the right-hand panels one at a time, not over each other', () => {
   /*
-   * All three panels — thinking, sources, resource preview — occupy the same
-   * corner and animate along the same axis, sliding in from x:424 and back out
-   * to x:424.
+   * All four panels — thinking, sources, resource preview, canvas — occupy the
+   * same corner and animate along the same axis, sliding in from x:424 and back
+   * out to x:424. (The canvas is the exception on that last point: it scales in
+   * like Gemini's immersive panel. It still shares the slot.)
    *
    * Given an AnimatePresence each, swapping one for another ran both
    * animations at once: the outgoing panel slid right while the incoming one
@@ -123,11 +124,14 @@ it('swaps the right-hand panels one at a time, not over each other', () => {
    */
   const view = CHAT_VIEW();
 
-  assert.match(
-    view,
-    /<AnimatePresence mode="wait">[\s\S]{0,1400}?RichResourcePanel[\s\S]{0,200}?<\/AnimatePresence>/,
-    'the three panels must share one presence, in wait mode',
-  );
+  const presence = /<AnimatePresence mode="wait">([\s\S]*?)<\/AnimatePresence>/.exec(view);
+  assert.ok(presence, 'the right-hand panels must share one presence, in wait mode');
+  for (const panel of ['ThinkingStepsSidebar', 'SourcesSidebar', 'RichResourcePanel', 'CanvasPanel']) {
+    assert.ok(
+      presence[1].includes(`<${panel}`),
+      `${panel} must be inside the shared presence, not in one of its own`,
+    );
+  }
 
   // Prefixed keys: two different panels can belong to the same message id, and
   // an unchanged key would swap the contents without animating at all.
