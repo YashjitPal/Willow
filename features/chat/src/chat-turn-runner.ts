@@ -1,12 +1,13 @@
 import { streamChat, isAbortError, type StreamPhase } from '@willow/ai/chat';
 import type { ProviderApiFormat, ProviderToolPolicy } from '@willow/ai/providers/profiles';
-import type { MessageCitations } from '@willow/ai/grounding';
+import type { MessageCitations, GroundingSource } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
 import { runPersonalTool } from '@willow/personal';
 import { declaredToolNames } from './personal-tools';
 import { createCanvasToolExecutor, type CanvasToolHost } from './canvas/canvas-runtime';
 import { isCanvasToolCall } from './canvas/canvas-tools';
+import { WEB_SEARCH_TOOL_NAME, formatWebSearchResult } from '@willow/ai/web-search-tool';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   formatUpstreamError,
@@ -92,6 +93,18 @@ export interface ChatTurnRunnerDeps {
    * revision. Absent when Canvas is off for this turn.
    */
   canvasHost?: Omit<CanvasToolHost, 'contentLength' | 'publish'>;
+  /**
+   * Willow's OWN web search, declared as a client tool.
+   *
+   * Present only when the endpoint cannot search for itself — see
+   * `webSearchToolDeclaration`. The runner does not decide that: the component
+   * knows the profile's Tool translation setting and whether a Gemini key exists
+   * to answer with, and both have to agree with the declaration or the model calls
+   * a tool nothing can run.
+   */
+  webSearchTools?: { functionDeclarations: any[] }[];
+  /** Answers `web_search`. Absent exactly when `webSearchTools` is. */
+  runWebSearch?: (query: string) => Promise<{ text: string; sources: GroundingSource[] }>;
   /** Wire-format history, already built (it needs attachment bytes, which only
    *  the component can resolve). */
   history: AiChatMessage[];
@@ -279,7 +292,10 @@ export const runChatTurn = async (
       enableSearch: true,
       enableCodeExecution: true,
       personalTools: deps.personalTools,
-      toolDeclarations: deps.canvasTools,
+      /* Canvas plus Willow's own search, when this endpoint needs one supplied.
+         Both are client function declarations and both are answered below, so they
+         travel together — the adapters know nothing about which is which. */
+      toolDeclarations: [...(deps.canvasTools ?? []), ...(deps.webSearchTools ?? [])],
       baseUrl: options.baseUrl,
       apiFormat: options.apiFormat,
       toolPolicy: options.toolPolicy,
@@ -319,6 +335,35 @@ export const runChatTurn = async (
           return { status: 'error', error: 'This conversation is no longer active.' };
         }
         return runCanvasTool(name, args);
+      }
+
+      /*
+       * Willow's own web search, gated on the executor for the same reason.
+       *
+       * The sources are merged onto the turn as well as returned to the model, so a
+       * searched answer gets the same source cards a provider-native search would —
+       * the panel reads `record.citations`, and it does not care which tool filled
+       * it. Spans are not synthesised: these offsets index a document the calling
+       * model never saw, so the sources render as cards and not as inline chips.
+       */
+      if (deps.runWebSearch && name === WEB_SEARCH_TOOL_NAME) {
+        if (!isCurrent(record, deps)) {
+          return { status: 'error', error: 'This conversation is no longer active.' };
+        }
+        const query = typeof args?.query === 'string' ? args.query.trim() : '';
+        if (!query) {
+          return { status: 'error', error: 'No query was provided. Call again with a `query` string.' };
+        }
+        const found = await deps.runWebSearch(query);
+        if (found.sources.length && isCurrent(record, deps)) {
+          const existing = record.citations?.sources ?? [];
+          const seen = new Set(existing.map((source) => source.uri));
+          const merged = [...existing, ...found.sources.filter((source) => !seen.has(source.uri))];
+          record.citations = { sources: merged, citations: record.citations?.citations ?? [] };
+          record.listener?.onPhase(record);
+          void checkpoint(record, deps);
+        }
+        return { status: 'ok', result: formatWebSearchResult(found) };
       }
 
       /*

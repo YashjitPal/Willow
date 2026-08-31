@@ -23,7 +23,7 @@
  * (`bleed`) AND behind `min-[1200px]:`, so the card is column-width until there is
  * provably room for the overhang.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   CanvasCodeView,
@@ -54,10 +54,9 @@ export interface CanvasCardProps {
   /** `Open` / the panel: hands the document to `$openCanvas`. */
   onOpen: () => void;
   /**
-   * Write an edit back to the document. Absent = read-only, which is also what a
-   * card showing an OLD version is: the edit lands on the newest revision (see
-   * `applyCanvasEdit`), so offering a caret while scrubbed back would silently
-   * write somewhere the user is not looking.
+   * Write an edit back to the document. Absent = read-only, which is what a turn in
+   * flight is: the runner owns `messages` for its duration. Present for every
+   * version, including an older one — see `editContent` in the body.
    */
   onEditContent?: (content: string) => void;
   /**
@@ -109,9 +108,29 @@ export function CanvasCard({
     if (!previewable) setTab('code');
   }, [previewable]);
 
-  /* Only the newest revision is writable — an edit rewrites the current text, so a
-   * caret on an older one would look like editing history and would not be. */
-  const editContent = shown === doc.versions.length - 1 ? onEditContent : undefined;
+  /*
+   * EVERY version is writable, including one scrubbed back to.
+   *
+   * The edit always lands on the document's current text — `applyCanvasEdit` writes
+   * the newest ref — so typing into an older revision means "carry this text
+   * forward", not "rewrite history". What would be wrong is leaving the view behind
+   * on the old index afterwards, because the user's own keystroke would appear to
+   * vanish into a version they are not looking at. So an edit this card originated
+   * pulls it to the end, where its text now is.
+   */
+  const followEditRef = useRef(false);
+  const versionCount = doc.versions.length;
+  useEffect(() => {
+    if (!followEditRef.current) return;
+    followEditRef.current = false;
+    setShownVersion(versionCount - 1);
+  }, [versionCount]);
+  const editContent = onEditContent
+    ? (next: string) => {
+      followEditRef.current = true;
+      onEditContent(next);
+    }
+    : undefined;
 
   const exportItems = useMemo(() => canvasExportItems(doc, content), [doc, content]);
   const kind = KIND_ICON[doc.kind];

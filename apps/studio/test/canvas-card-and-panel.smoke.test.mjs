@@ -611,16 +611,23 @@ it('makes prose editable without a button', () => {
   }
 });
 
-it('leaves a read-only document with no caret at all', () => {
-  for (const name of ['expandedProse', 'oldVersionProse']) {
-    const html = surfaces[name];
-    assert.ok(!html.includes('role="textbox"'), `${name} has nowhere to save to`);
-    assert.ok(!html.includes('tabindex="0"'), `${name} must not offer a caret it cannot honour`);
-  }
-  assert.ok(
-    !surfaces.oldVersionProse.includes('role="textbox"'),
-    'an edit rewrites the NEWEST revision, so a caret while scrubbed back would save out of sight',
+/*
+ * An OLDER revision is editable too. The edit lands on the document's current text,
+ * so typing into one carries that text forward rather than rewriting history — and
+ * the view follows to the end afterwards, or the keystroke appears to vanish into a
+ * version the user is not looking at.
+ *
+ * The only thing that is read-only is a turn in flight, because the runner owns
+ * `messages` for its duration and would overwrite the edit at settle.
+ */
+it('keeps an older revision editable, and only a live turn read-only', () => {
+  assert.match(
+    surfaces.oldVersionProse,
+    /role="textbox"[^>]*aria-label="Document"/,
+    'scrubbing back must not take the caret away',
   );
+  assert.ok(!surfaces.expandedProse.includes('role="textbox"'), 'no sink, no caret');
+  assert.ok(!surfaces.expandedProse.includes('tabindex="0"'), 'and no tab stop it cannot honour');
 });
 
 /*
