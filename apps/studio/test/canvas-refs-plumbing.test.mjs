@@ -164,32 +164,39 @@ it('clears a stale expanded card when the panel opens', () => {
 });
 
 /*
- * Every chip is a snapshot of the turn that wrote it, so pressing Open on an old
- * one must land on that revision — "if I scroll through the session and open any of
- * the past version of the code via the open button, then i noticed that it still
- * opens the latest version".
+ * ONE CARD PER DOCUMENT, showing the document's CURRENT text.
+ *
+ * Gemini appends a chip per turn; copying that is what the user filed — "every time
+ * it makes the code changes, I notice that the document reappears, but it should
+ * not… it should just change in the first place where it appeared". So a revision
+ * has no card of its own, and the one card that exists is a live view.
  */
-it('opens a card at its own version, not at the newest', () => {
+it('renders one card per document, at the turn that first wrote it', () => {
   const view = CHAT_VIEW();
   assert.match(
     view,
+    /const home = canvasCardHomes\.get\(ref\.docId\);\r?\n\s*return !!home && home\.messageId === msg\.id && home\.refIndex === refIndex;/,
+    'a revision must not add a second card',
+  );
+  assert.match(
+    view,
+    /const canvasCardHomes = useMemo\(\(\) => \{/,
+    'the first appearance has to be computed across the whole thread, not per message',
+  );
+  assert.match(
+    view,
+    /if \(!homes\.has\(ref\.docId\)\) homes\.set\(ref\.docId, \{ messageId: message\.id, refIndex \}\);/,
+    'FIRST appearance — a later ref must not move the card, or its expanded key changes and it collapses',
+  );
+  assert.match(
+    view,
+    /const version = doc\.versions\.length - 1;/,
+    'the card shows the current text, so an edit changes it in place',
+  );
+  assert.match(
+    view,
     /onOpen=\{\(\) => handleOpenCanvas\(ref\.docId, version\)\}/,
-    'the card knows its version; the opener has to be told it',
-  );
-  assert.match(
-    view,
-    /const handleOpenCanvas = useCallback\(\(docId: string, version\?: number\) => \{/,
-    'and the opener has to take it',
-  );
-  assert.match(
-    view,
-    /version: Number\.isFinite\(version\) \? Math\.max\(0, Math\.min\(version, newest\)\) : newest,/,
-    'a stale index must clamp, and an absent one must still mean the newest',
-  );
-  assert.match(
-    view,
-    /if \(snapshot\.messageId === msg\.id && snapshot\.refIndex === refIndex\) version = index;/,
-    'the version is looked up by ref, and the LAST match wins — a hand-edited ref has two',
+    'and Open lands on exactly what the card is showing',
   );
 });
 
@@ -197,17 +204,32 @@ it('opens a card at its own version, not at the newest', () => {
  * Two things insert a version under an open panel: a follow-up turn, and the first
  * hand edit of a revision. Both would leave the panel's index pointing one entry
  * behind, which mid-typing reads as the editor scrubbing back to the AI's text.
+ *
+ * The user's OWN edit follows unconditionally — they were looking at whatever they
+ * typed, and after the commit that text is the newest version, wherever they were
+ * parked before. A model revision only follows a panel that sat at the end, so a
+ * version deliberately opened from an old chip stays put.
  */
-it('follows a version inserted under an open panel, but only from the end', () => {
+it('follows a version inserted under an open panel', () => {
   const view = CHAT_VIEW();
-  const effect = view.match(/const canvasVersionCountsRef = useRef<Record<string, number>>\(\{\}\);([\s\S]{0,900}?)\n {2}\}, \[canvasDocsInChat\]\);/);
+  const effect = view.match(/const canvasVersionCountsRef = useRef<Record<string, number>>\(\{\}\);([\s\S]{0,1600}?)\n {2}\}, \[canvasDocsInChat\]\);/);
   assert.ok(effect, 'could not locate the stick-to-the-end effect');
   assert.match(
     effect[1],
-    /if \(!was \|\| !now \|\| now <= was \|\| open\.version !== was - 1\) return;/,
-    'a panel opened at an old version on purpose must stay there',
+    /if \(edited === open\.docId\) \{/,
+    'a hand edit wins over the parked-at-the-end rule',
+  );
+  assert.match(
+    effect[1],
+    /if \(!was \|\| now <= was \|\| open\.version !== was - 1\) return;/,
+    'a panel opened at an old version on purpose must not follow a MODEL revision',
   );
   assert.match(effect[1], /\$openCanvas\.set\(\{ docId: open\.docId, version: now - 1 \}\);/);
+  assert.match(
+    view,
+    /canvasEditedDocRef\.current = docId;/,
+    'the edit handler is what flags the follow — the effect cannot tell who caused the change',
+  );
 });
 
 /*
@@ -291,24 +313,31 @@ it('keeps the 949px bleed out of a panelled thread', () => {
 });
 
 /*
- * A new document opens ITSELF, INLINE. Two requirements that were briefly read as
- * one: it must not sit behind a chip the user has to find, and it must not arrive as
- * the right-hand panel either — "when it opens, it should open in the inline
- * response form rather than fixed sidebar right side way". So the effect expands the
- * card, and the panel stays something only a press reaches.
+ * A new document opens ITSELF — inline when nothing is open, and IN THE PANEL when
+ * the panel is already the surface the user is working in: "if the user is viewing
+ * the canvas in the right sidebar fixed mode… it should show the new one in place of
+ * the old one… and it should open". Only a NEW document does either; a revision of
+ * the one on screen needs neither, because the card is a live view and the panel
+ * follows the version.
  */
-it('expands the new card inline, and never opens the panel by itself', () => {
+it('expands a new card inline, or swaps the panel when one is open', () => {
   const view = CHAT_VIEW();
-  const effect = view.match(/const canvasRefCountRef = useRef<number \| null>\(null\);([\s\S]{0,900}?)\n {2}\}, \[messages, isGenerating\]\);/);
+  const effect = view.match(/const canvasRefCountRef = useRef<number \| null>\(null\);([\s\S]{0,1400}?)\n {2}\}, \[messages, isGenerating, canvasCardHomes, handleOpenCanvas\]\);/);
   assert.ok(effect, 'could not locate the canvas auto-expand effect');
   assert.match(
     effect[1],
-    /setCanvasCardExpanded\(newest\.messageId, newest\.docId, true\);/,
-    'the card in the reply is what opens — not `$openCanvas`, which is the panel',
+    /const home = canvasCardHomes\.get\(newest\.docId\);/,
+    'the card lives at the document\'s first turn, so that is the key to expand',
   );
-  assert.ok(
-    !/\$openCanvas\.set/.test(effect[1]),
-    'a panel thrown over the thread is the thing the user asked not to have',
+  assert.match(
+    effect[1],
+    /setCanvasCardExpanded\(home \? home\.messageId : newest\.messageId, newest\.docId, true\);/,
+    'the card in the reply is what opens when no panel is up',
+  );
+  assert.match(
+    effect[1],
+    /if \(open\.docId !== newest\.docId\) handleOpenCanvas\(newest\.docId\);/,
+    'with the panel open, a NEW document replaces the one in it',
   );
   assert.match(
     effect[1],
@@ -333,8 +362,13 @@ it('expands the new card inline, and never opens the panel by itself', () => {
   );
   const calls = view.match(/(?<!const )handleOpenCanvas\(/g) || [];
   const presses = view.match(/onOpen=\{\(\) => handleOpenCanvas\(/g) || [];
-  assert.ok(calls.length > 0, 'the opener must still be reachable');
-  assert.equal(calls.length, presses.length, 'every PANEL open must come from a press, never from an effect');
+  const swaps = view.match(/if \(open\.docId !== newest\.docId\) handleOpenCanvas\(newest\.docId\);/g) || [];
+  assert.ok(presses.length > 0, 'the opener must still be reachable by a press');
+  assert.equal(
+    calls.length,
+    presses.length + swaps.length,
+    'the panel opens on a press, or swaps to a NEW document when it is already open — nothing else',
+  );
   const handler = view.match(/const handleOpenCanvas = useCallback\(\(docId: string, version\?: number\) => \{[\s\S]{0,1400}?\n {2}\}, \[/);
   assert.ok(handler, 'and it is still the press-driven one');
 });

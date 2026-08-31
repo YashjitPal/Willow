@@ -47,7 +47,7 @@
  * 8px sideways, and the grid half of that has failed twice — see the notes at the
  * grid in ChatView.tsx and at RichResourcePanel.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   CanvasCodeView,
@@ -83,9 +83,9 @@ export interface CanvasPanelProps {
   /** Sends an ordinary follow-up turn; the quick actions are prompts, not edits. */
   onPrompt: (text: string) => void;
   /**
-   * Write an edit back to the document. Absent = read-only, and so is any view of
-   * an OLD version: `applyCanvasEdit` rewrites the newest revision, so a caret
-   * while scrubbed back would save somewhere the user is not looking.
+   * Write an edit back to the document. Absent = read-only, which is what a turn in
+   * flight is: the runner owns `messages` for its duration. Present for every
+   * version, including an older one — see `editContent` in the body.
    */
   onEditContent?: (content: string) => void;
 }
@@ -119,8 +119,14 @@ export function CanvasPanel({
    * snapshot's title, so scrubbing back shows what the document was called then. */
   const title = (snapshot && snapshot.title) || doc.title;
 
-  /* Only the newest revision is writable — see the prop's note. */
-  const editContent = shown === doc.versions.length - 1 ? onEditContent : undefined;
+  /*
+   * EVERY version is writable, including one scrubbed back to — see the note on
+   * `CanvasCard`. The edit lands on the document's current text, so typing into an
+   * older revision carries that text forward rather than rewriting history, and
+   * ChatView pulls `$openCanvas` to the newest version afterwards so the keystroke
+   * does not appear to vanish.
+   */
+  const editContent = onEditContent;
 
   const previewable = doc.kind === 'code' && isPreviewable(doc);
   const [tab, setTab] = useState<CanvasTab>(previewable ? 'preview' : 'code');

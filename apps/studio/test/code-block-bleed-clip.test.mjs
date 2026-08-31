@@ -92,8 +92,29 @@ it('stands containment down for the whole thread while a turn is in flight', () 
   // geometry; the panel toggle this optimisation is for happens when idle.
   assert.match(
     CHAT_VIEW(),
-    /!isLastAssistant && !generating && !isGenerating,/,
+    /!isLastAssistant && !generating && !isGenerating && !canvasCardMessageIds\.has\(msg\.id\),/,
     'the thread-wide isGenerating gate is what keeps the send entrance measuring true geometry',
+  );
+});
+
+/*
+ * A canvas card bleeds 122.8px per side — the compensation above is 16px, sized for
+ * a code block. Containment therefore clipped ~107px off each side of an expanded
+ * document, reported as "why does the left side and right side of it disappear".
+ * Widening the compensation would move every assistant turn's padding box and every
+ * cached intrinsic height with it, so the turn holding a document opts out instead.
+ */
+it('never contains a turn that draws a canvas card', () => {
+  const view = CHAT_VIEW();
+  assert.match(
+    view,
+    /!canvasCardMessageIds\.has\(msg\.id\)/,
+    'a turn with a document in it must not take paint containment',
+  );
+  assert.match(
+    view,
+    /const canvasCardMessageIds = useMemo\(\s*\n?\s*\(\) => new Set\(\[\.\.\.canvasCardHomes\.values\(\)\]\.map\(\(home\) => home\.messageId\)\),/,
+    'and the set has to come from where the cards are placed, or the two can disagree',
   );
 });
 

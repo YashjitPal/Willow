@@ -1319,6 +1319,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * be overwritten at settle without warning.
    */
   const handleCanvasEdit = useCallback((docId: string, content: string) => {
+    /* A hand edit always lands on the document's CURRENT text, so an edit made while
+       scrubbed back to an older revision carries that text forward. The panel has to
+       follow it to the end or the user's own keystroke appears to vanish into a
+       version they are not looking at — see the effect below. */
+    canvasEditedDocRef.current = docId;
     setMessages((prev) => applyCanvasEdit(prev, docId, content));
   }, []);
   const canvasEdit = isGenerating ? undefined : handleCanvasEdit;
@@ -1336,18 +1341,55 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * pressing Open on an old chip now does — must stay where it was put.
    */
   const canvasVersionCountsRef = useRef<Record<string, number>>({});
+  const canvasEditedDocRef = useRef<string | null>(null);
   useEffect(() => {
     const before = canvasVersionCountsRef.current;
     const after: Record<string, number> = {};
     canvasDocsInChat.forEach((doc, docId) => { after[docId] = doc.versions.length; });
     canvasVersionCountsRef.current = after;
+    const edited = canvasEditedDocRef.current;
+    canvasEditedDocRef.current = null;
     const open = $openCanvas.get();
     if (!open) return;
     const was = before[open.docId];
     const now = after[open.docId];
-    if (!was || !now || now <= was || open.version !== was - 1) return;
+    if (!now) return;
+    /* An edit the user just made wins over the parked-at-the-end rule: they were
+       looking at whatever they typed, and after the commit that text is the newest
+       version. Anything else scrubs the panel out from under the caret. */
+    if (edited === open.docId) {
+      if (open.version !== now - 1) $openCanvas.set({ docId: open.docId, version: now - 1 });
+      return;
+    }
+    if (!was || now <= was || open.version !== was - 1) return;
     $openCanvas.set({ docId: open.docId, version: now - 1 });
   }, [canvasDocsInChat]);
+
+  /*
+   * Where each document's ONE card lives: the turn that first wrote it.
+   *
+   * A revision does not get a card of its own ("every time it makes the code changes,
+   * I notice that the document reappears, but it should not"), and the card stays at
+   * the first appearance rather than moving to the newest turn — the expanded set is
+   * keyed `messageId:docId`, so a card that moved would be a new key and would
+   * collapse itself on every edit.
+   */
+  const canvasCardHomes = useMemo(() => {
+    const homes = new Map<string, { messageId: string; refIndex: number }>();
+    for (const message of messages) {
+      (message.canvasRefs ?? []).forEach((ref, refIndex) => {
+        if (!homes.has(ref.docId)) homes.set(ref.docId, { messageId: message.id, refIndex });
+      });
+    }
+    return homes;
+  }, [messages]);
+
+  /* Which turns draw a card. Read where paint containment is decided — an expanded
+   * card bleeds far past the compensation there, so a turn holding one opts out. */
+  const canvasCardMessageIds = useMemo(
+    () => new Set([...canvasCardHomes.values()].map((home) => home.messageId)),
+    [canvasCardHomes],
+  );
 
   /*
    * A turn that writes a canvas OPENS it — AS AN INLINE CARD.
@@ -1371,6 +1413,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * during render — so flipping it in a passive effect lets the browser paint the
    * chip once before the expanded card replaces it. `useLayoutEffect` runs in the
    * same commit, before that paint, so the chip is never on screen at all.
+   *
+   * WITH THE PANEL OPEN it swaps the panel instead, which is the other half of the
+   * request: "if the user is viewing the canvas in the right sidebar fixed mode…
+   * it should show the new one in place of the old one… and it should open". The
+   * document that was in the panel then reappears in the thread as its chip, because
+   * only the OPEN document's card is hidden and `handleOpenCanvas` clears the
+   * expanded flag of the one it opens.
+   *
+   * A revision of the document already on screen needs neither: its card is a live
+   * view (one card per document) and the panel follows the version in the effect
+   * above, so there is nothing to expand or swap.
    */
   const canvasRefCountRef = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -1386,8 +1439,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     canvasRefCountRef.current = count;
     if (seen === null || count <= seen || !newest) return;
     if (!isGenerating) return;
-    setCanvasCardExpanded(newest.messageId, newest.docId, true);
-  }, [messages, isGenerating]);
+    const open = $openCanvas.get();
+    if (open) {
+      if (open.docId !== newest.docId) handleOpenCanvas(newest.docId);
+      return;
+    }
+    /* The card lives at the document's FIRST turn, so that is the key to expand —
+       expanding the newest turn's would mark a card that no longer renders. */
+    const home = canvasCardHomes.get(newest.docId);
+    setCanvasCardExpanded(home ? home.messageId : newest.messageId, newest.docId, true);
+  }, [messages, isGenerating, canvasCardHomes, handleOpenCanvas]);
 
   // Auto-save chat history locally in real-time when messages change.
   // Skip saving while generating — partial messages have empty content that
@@ -3714,8 +3775,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // Containment is suppressed for the whole thread while a turn is in
             // flight, not just on the generating message.
             //
-            // Two measured facts make the send path hostile to flipping this on:
-            // applying `content-visibility` to an already-laid-out element makes
+            // Two measured facts make the send path hostile to flipping this on: applying `content-visibility` to an already-laid-out element makes
             // the FIRST layout after the flip report its intrinsic size, not its
             // real one (measured: 1152px -> 240px, recovering the next frame);
             // and a send is exactly when the previous reply stops being
@@ -3727,9 +3787,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
             //
             // The panel toggle this optimisation exists for happens when the
             // thread is idle, so nothing is given up by standing down here.
+            //
+            // A TURN HOLDING A CANVAS CARD IS EXCLUDED OUTRIGHT, and that is the
+            // reported "why does the left side and right side of it disappear".
+            // `content-visibility` implies paint containment, which clips to this
+            // element's padding box; the expanded card deliberately bleeds 122.8px
+            // past the column on each side, and the compensation below is 16px —
+            // enough for a code block, ~107px short for this. The card came back
+            // from the clip with its text cut mid-word and its 40px corners
+            // chiselled square. Widening the compensation to the canvas bleed was
+            // the alternative and it is worse: it would move the padding box of
+            // every assistant turn, and every cached intrinsic height with it.
+            // A turn with a document in it is one the user is reading, so the
+            // layout skip is the cheaper thing to give up.
             const skip = messageSkipStyle(
               msg.id,
-              !isLastAssistant && !generating && !isGenerating,
+              !isLastAssistant && !generating && !isGenerating && !canvasCardMessageIds.has(msg.id),
             );
 
             return (
@@ -3964,23 +4037,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
                    */
                   const visible = refs
                     .map((ref, refIndex) => ({ ref, refIndex }))
+                    /*
+                     * ONE CARD PER DOCUMENT, at the turn that first wrote it.
+                     *
+                     * Gemini appends a chip per turn — a 2-document / 7-edit thread
+                     * held nine — and copying that is what the user filed: "every
+                     * time it makes the code changes, I notice that the document
+                     * reappears, but it should not… it should just change in the
+                     * first place where it appeared". So a revision has no card of
+                     * its own; the document's one card shows the current text (see
+                     * `version` below), and only a NEW document adds a card.
+                     *
+                     * Keeping the card where the document STARTED is what makes an
+                     * expanded card survive a revision: the expanded set is keyed
+                     * `messageId:docId`, so a card that moved to the newest turn
+                     * would be a different key and would collapse on every edit.
+                     */
+                    .filter(({ ref, refIndex }) => {
+                      const home = canvasCardHomes.get(ref.docId);
+                      return !!home && home.messageId === msg.id && home.refIndex === refIndex;
+                    })
                     .filter((entry) => !openCanvas || entry.ref.docId !== openCanvas.docId);
-                  /* Gemini appends a chip per TURN, frozen at the version that turn
-                     wrote — a 2-document / 7-edit thread held nine of them — so this
-                     maps refs, not documents. */
+                  /* Gemini appends a chip per TURN. Willow appends one per DOCUMENT —
+                     see the filter above for why. */
                   const renderCard = (entry: { ref: CanvasRef; refIndex: number }) => {
-                    const { ref, refIndex } = entry;
+                    const { ref } = entry;
                     const doc = canvasDocsInChat.get(ref.docId);
                     if (!doc) return null;
-                    /* Which version THIS ref is. The fold stamps every version with
-                     * the ref that produced it, so this is a lookup rather than a
-                     * count — and the LAST match is the one wanted, because a
-                     * hand-edited ref produces two versions and the card belongs on
-                     * the user's, not on the model's text it replaced. */
-                    let version = doc.versions.length - 1;
-                    doc.versions.forEach((snapshot, index) => {
-                      if (snapshot.messageId === msg.id && snapshot.refIndex === refIndex) version = index;
-                    });
+                    /*
+                     * The CURRENT text, not the text this turn wrote.
+                     *
+                     * One card per document means the card is a live view of it, so a
+                     * revision changes what the existing card shows instead of adding
+                     * a second one. The card's own Undo/Redo still walks the whole
+                     * history from here — see `CanvasCard`, which re-seeds its local
+                     * index whenever this prop moves.
+                     */
+                    const version = doc.versions.length - 1;
                     const cardKey = canvasCardKey(msg.id, ref.docId);
                     return (
                       <CanvasCard
