@@ -12,19 +12,13 @@
 
 import { atom } from 'nanostores';
 
-/**
- * `code-beta` gates the Code Beta surface: a second, fully isolated coding app
- * driven by the vendored Codex harness rather than Willow's own. It ships dark
- * so the shipped Code tab is untouched for anyone who never opens Labs.
- */
-export type ExperimentId = 'code-beta' | 'darker-design-background';
+export type ExperimentId = 'darker-design-background';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
 const STORAGE_KEY = 'willow:experiments';
 
 export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
-  'code-beta': false,
   'darker-design-background': false,
 };
 

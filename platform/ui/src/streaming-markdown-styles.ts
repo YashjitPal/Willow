@@ -388,15 +388,23 @@ const STYLE_CSS = [
   '  line-height: 21px;',
   '  tab-size: 4;',
   '}',
-  '.smd-code-block .hljs { color: rgb(255, 255, 255); background: transparent; }',
-  '.smd-code-block .hljs-comment, .smd-code-block .hljs-quote { color: rgb(128, 128, 128); }',
-  '.smd-code-block .hljs-keyword, .smd-code-block .hljs-selector-id, .smd-code-block .hljs-selector-class { color: rgb(150, 157, 255); }',
-  '.smd-code-block .hljs-string, .smd-code-block .hljs-regexp, .smd-code-block .hljs-addition, .smd-code-block .hljs-template-tag { color: rgb(96, 214, 115); }',
-  '.smd-code-block .hljs-number, .smd-code-block .hljs-literal, .smd-code-block .hljs-attr, .smd-code-block .hljs-variable, .smd-code-block .hljs-template-variable { color: rgb(255, 150, 218); }',
-  '.smd-code-block .hljs-title, .smd-code-block .hljs-title.function_, .smd-code-block .hljs-section { color: rgb(255, 219, 15); }',
-  '.smd-code-block .hljs-name, .smd-code-block .hljs-selector-tag { color: rgb(79, 160, 255); }',
-  '.smd-code-block .hljs-meta, .smd-code-block .hljs-built_in, .smd-code-block .hljs-builtin-name, .smd-code-block .hljs-deletion { color: rgb(255, 90, 89); }',
-  '.smd-code-block .hljs-meta .hljs-keyword { color: rgb(255, 90, 89); font-weight: 700; }',
+  // ── hljs token palette ────────────────────────────────────────────────────
+  // Two entry points, and `.smd-code-tokens` is the reason the pair exists: the
+  // Canvas code body wants this palette and NONE of the block chrome above.
+  // Putting `.smd-code-block` on its scroller used to be how it got the colours,
+  // and it also got `overflow: clip` (so the document could not be scrolled at
+  // all, in either axis), a -16px full-bleed margin, a 40px radius and 32px of
+  // extra padding. `:is()` rather than `:where()` so the specificity stays (0,2,0)
+  // — exactly what these selectors carried when they were written.
+  ':is(.smd-code-block, .smd-code-tokens) .hljs { color: rgb(255, 255, 255); background: transparent; }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-comment, :is(.smd-code-block, .smd-code-tokens) .hljs-quote { color: rgb(128, 128, 128); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-keyword, :is(.smd-code-block, .smd-code-tokens) .hljs-selector-id, :is(.smd-code-block, .smd-code-tokens) .hljs-selector-class { color: rgb(150, 157, 255); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-string, :is(.smd-code-block, .smd-code-tokens) .hljs-regexp, :is(.smd-code-block, .smd-code-tokens) .hljs-addition, :is(.smd-code-block, .smd-code-tokens) .hljs-template-tag { color: rgb(96, 214, 115); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-number, :is(.smd-code-block, .smd-code-tokens) .hljs-literal, :is(.smd-code-block, .smd-code-tokens) .hljs-attr, :is(.smd-code-block, .smd-code-tokens) .hljs-variable, :is(.smd-code-block, .smd-code-tokens) .hljs-template-variable { color: rgb(255, 150, 218); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-title, :is(.smd-code-block, .smd-code-tokens) .hljs-title.function_, :is(.smd-code-block, .smd-code-tokens) .hljs-section { color: rgb(255, 219, 15); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-name, :is(.smd-code-block, .smd-code-tokens) .hljs-selector-tag { color: rgb(79, 160, 255); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-meta, :is(.smd-code-block, .smd-code-tokens) .hljs-built_in, :is(.smd-code-block, .smd-code-tokens) .hljs-builtin-name, :is(.smd-code-block, .smd-code-tokens) .hljs-deletion { color: rgb(255, 90, 89); }',
+  ':is(.smd-code-block, .smd-code-tokens) .hljs-meta .hljs-keyword { color: rgb(255, 90, 89); font-weight: 700; }',
   // ── Code-execution panel ──────────────────────────────────────────────────
   // Shares the code-block chrome above, but splits it across two elements the
   // markdown block keeps as one: the reveal wrapper owns the full-bleed negative

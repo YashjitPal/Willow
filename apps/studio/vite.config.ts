@@ -132,7 +132,7 @@ function sourceFetchEndpoint(): Plugin {
 }
 
 /*
- * Writes Code Beta's model-request log to disk during dev.
+ * Writes the Agent tool's model-request log to disk during dev.
  *
  * The log is gathered in the browser, where a turn's timings actually happen,
  * but that is also where it is hardest to look at — a long turn is dozens of
@@ -145,16 +145,16 @@ function sourceFetchEndpoint(): Plugin {
  * Dev only. There is no production equivalent and there should not be — this
  * writes to the developer's own working tree.
  */
-function codeBetaRequestLog(): Plugin {
-  const dir = path.resolve(ROOT, '.code-beta');
+function agentRequestLog(): Plugin {
+  const dir = path.resolve(ROOT, '.agent');
   const file = path.resolve(dir, 'requests.jsonl');
 
   return {
-    name: 'code-beta-request-log',
+    name: 'agent-request-log',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith('/__code-beta/log')) return next();
+        if (!req.url?.startsWith('/__agent/log')) return next();
 
         const { mkdir, appendFile, writeFile } = await import('fs/promises');
 
@@ -193,7 +193,7 @@ function codeBetaRequestLog(): Plugin {
       });
 
       server.config.logger.info(
-        `  \x1b[32m➜\x1b[0m  Code Beta request log: \x1b[36m.code-beta/requests.jsonl\x1b[0m`,
+        `  \x1b[32m➜\x1b[0m  Agent request log: \x1b[36m.agent/requests.jsonl\x1b[0m`,
       );
     },
   };
@@ -304,7 +304,7 @@ export default defineConfig(() => {
      * Plugin order is middleware order here, so going first means this one gets
      * first refusal on its own path and calls `next()` for everything else.
      */
-    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), codeBetaRequestLog()],
+    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), agentRequestLog()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.
@@ -329,9 +329,6 @@ export default defineConfig(() => {
         { find: "@willow/media", replacement: path.resolve(ROOT, "features/media/src") },
         { find: "@willow/spark", replacement: path.resolve(ROOT, "features/spark/src") },
         { find: "@willow/chat", replacement: path.resolve(ROOT, "features/chat/src") },
-        // Must precede "@willow/code": Vite takes the first match, so the
-        // shorter prefix would otherwise swallow every code-beta import.
-        { find: "@willow/code-beta", replacement: path.resolve(ROOT, "features/code-beta/src") },
         { find: "@willow/code", replacement: path.resolve(ROOT, "features/code/src") },
         { find: "@willow/gems", replacement: path.resolve(ROOT, "features/gems/src") },
         { find: "@willow/notebooks", replacement: path.resolve(ROOT, "features/notebooks/src") },

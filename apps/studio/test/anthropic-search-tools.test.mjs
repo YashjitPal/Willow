@@ -141,9 +141,12 @@ describe('anthropic search tools', () => {
 
   it('sends search to a custom endpoint, gated on the toggle alone', () => {
     const chat = CHAT();
+    // `nativeToolsAllowed` rides in front of the toggle — that is the profile's
+    // Tool translation setting, which applies to every built-in on every provider.
+    // What must NOT appear is the endpoint.
     assert.match(
       chat,
-      /const anthropicSearchEnabled = options\.enableSearch !== false;/,
+      /const anthropicSearchEnabled = (nativeToolsAllowed && )?options\.enableSearch !== false;/,
       'a custom base URL is taken to supply the tool natively — no endpoint gate',
     );
     assert.ok(

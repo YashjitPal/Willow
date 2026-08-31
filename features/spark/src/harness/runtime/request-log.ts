@@ -80,11 +80,14 @@ const STORAGE_KEY = 'willow:code-beta:requests';
 /**
  * Where finished entries are appended during dev.
  *
- * Served by `codeBetaRequestLog` in the Vite config, which writes to
- * `.code-beta/requests.jsonl`. In the browser a long turn is dozens of console
+ * Served by `agentRequestLog` in the Vite config, which writes to
+ * `.agent/requests.jsonl`. In the browser a long turn is dozens of console
  * groups and a reload loses all of them; a file can just be read afterwards.
+ *
+ * Shared with the Code tab's Agent harness, which posts to the same endpoint.
+ * Both must name it identically or one of them silently stops logging.
  */
-const SINK_URL = '/__code-beta/log';
+const SINK_URL = '/__agent/log';
 
 function loadStored(): LogEntry[] {
   try {

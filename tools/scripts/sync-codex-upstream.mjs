@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Vendoring tool for the Codex harness used by features/code-beta.
+ * Vendoring tool for the Codex harness behind the Code tab's Agent tool.
  *
- * The Code Beta harness tracks a pinned commit of openai/codex (Apache-2.0).
- * Upstream's prompts and tool grammars are copied byte-for-byte into
- * `features/code-beta/src/harness/upstream/` and are never hand-edited —
+ * The harness tracks a pinned commit of openai/codex (Apache-2.0). Upstream's
+ * prompts and tool grammars are copied byte-for-byte into
+ * `features/code/src/agent/harness/upstream/` and are never hand-edited —
  * everything Willow changes lives in `../overlay/` and is applied at runtime.
  * That split is what makes an upgrade mechanical: re-run this script, read the
  * diff, and adjust the overlay only if an anchor it depends on moved.
@@ -28,15 +28,16 @@ const REPO_ROOT = path.resolve(HERE, '..', '..');
 const UPSTREAM_DIR = path.join(
   REPO_ROOT,
   'features',
-  'code-beta',
+  'code',
   'src',
+  'agent',
   'harness',
   'upstream'
 );
 const MANIFEST_PATH = path.join(UPSTREAM_DIR, 'MANIFEST.json');
 
 const GITHUB_REPO = 'openai/codex';
-const UA = { 'User-Agent': 'willow-code-beta-sync' };
+const UA = { 'User-Agent': 'willow-codex-sync' };
 
 /**
  * The set of upstream artifacts the harness depends on.
@@ -176,7 +177,7 @@ async function update() {
   console.log(`\nWrote ${path.relative(REPO_ROOT, MANIFEST_PATH)}`);
   console.log(
     '\nNext: run `npm run codex:check`, then review overlay anchors in\n' +
-      'features/code-beta/src/harness/overlay/prompt-overlay.ts.'
+      'features/code/src/agent/harness/overlay/prompt-overlay.ts.'
   );
 }
 

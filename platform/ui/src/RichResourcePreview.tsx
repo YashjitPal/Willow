@@ -366,21 +366,30 @@ export const RichResourcePanel: React.FC<{
        * transform-origin is the panel's own centre (470.669px 388.8px on a 941x778
        * box). Scaling from a corner is a different animation.
        *
-       * THE EXIT IS A DELIBERATE DEPARTURE, and it is measured too: Gemini has no
-       * leave animation whatsoever. Closing removes the node in 47ms, verified from a
-       * fully settled panel (`opacity: 1, transform: none`) so it is not an artefact
-       * of interrupting the enter. That reads fine there because Gemini snaps its
-       * grid back and slides its chat column in from `translateX(-20%)`, so the space
-       * is refilled in the same frame. Willow instead animates `grid-template-columns`
-       * over 500ms, so vanishing the panel instantly would leave a visibly collapsing
-       * empty gap. Until the chat-column slide is adopted too, the exit is the
-       * measured 200ms opacity alone — no scale-down, which is what made closing look
-       * like the panel was being sucked away.
+       * THE EXIT IS GEMINI'S: there is none. Closing removes the node in 47ms,
+       * verified from a fully settled panel (`opacity: 1, transform: none`) so it is
+       * not an artefact of interrupting the enter.
+       *
+       * A 200ms opacity fade sat here until ChatView adopted the chat-column slide,
+       * which was the condition this comment used to name: the fade existed because
+       * ChatView animated `grid-template-columns` over 500ms, so an instantly removed
+       * panel left a visibly collapsing gap. ChatView now snaps the grid and slides
+       * the column in from `translateX(-20%)`, so the space is refilled in the same
+       * frame the panel goes.
+       *
+       * Leaving the fade in place after that was what made closing feel like it
+       * stuck — reported for this panel and the canvas alike, and for neither on the
+       * way in. The grid snaps to `minmax(0,1fr) 0fr` in the same commit the exit
+       * starts, and the exiting panel is still the item in that second track, so it
+       * spent the fade being re-laid-out at zero width — embedded document included,
+       * since an iframe resized to 0 runs the guest's own reflow. The unmount then
+       * landed 200ms into a 500ms slide, putting the frame teardown in the middle of
+       * the motion. A panel crushed to zero width in frame one has nothing left to
+       * fade, so the fade was not even buying the gap it was written for.
        */
       initial={{ opacity: 0, scale: 0.6 }}
       animate={{ opacity: 1, scale: 1 }}
       onAnimationComplete={() => setEmbedReady(true)}
-      exit={{ opacity: 0, transition: { duration: 0.2, ease: 'linear' } }}
       transition={{
         scale: { duration: 0.5, ease: [0.2, 0, 0, 1] },
         opacity: { duration: 0.2, ease: 'linear' },

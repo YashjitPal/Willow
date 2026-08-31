@@ -24,30 +24,36 @@ export const CodexPetIcon = CircleUserRound;
 export const CodexSideChatIcon = MessageCirclePlus;
 
 /**
- * Codex's Goal icon, copied from its extracted `goal-*.js` Lucide module.
- * Keeping the path data here avoids substituting Willow's potentially different
- * lucide-react package version for the glyph Codex actually ships.
+ * Codex's Goal icon, copied from its extracted `expandedTopTray` module (`WMc`).
+ * Renders the target bullseye struck by a dart/arrow.
  */
 export const CodexGoalIcon = React.forwardRef<SVGSVGElement, React.SVGProps<SVGSVGElement> & {
   size?: number | string;
   strokeWidth?: number | string;
-}>(({ size = 24, strokeWidth = 2, ...props }, ref) => (
+}>(({ size = 20, strokeWidth = 2, ...props }, ref) => (
   <svg
     ref={ref}
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
-    viewBox="0 0 24 24"
+    viewBox="0 0 20 20"
     fill="none"
-    stroke="currentColor"
-    strokeWidth={strokeWidth}
-    strokeLinecap="round"
-    strokeLinejoin="round"
     {...props}
   >
-    <path d="M12 13V2l8 4-8 4" />
-    <path d="M20.561 10.222a9 9 0 1 1-12.55-5.29" />
-    <path d="M8.002 9.997a5 5 0 1 0 8.9 2.02" />
+    <path
+      d="M9.96861 1.91681C10.3002 1.91681 10.569 2.18564 10.569 2.51722C10.5688 2.84865 10.3001 3.11764 9.96861 3.11764C6.14529 3.11779 3.04595 6.21713 3.04579 10.0404C3.04597 13.8637 6.14531 16.964 9.96861 16.9641C13.792 16.9641 16.8921 13.8638 16.8923 10.0404C16.8925 9.709 17.1612 9.44003 17.4927 9.44003C17.8241 9.44019 18.093 9.7091 18.0931 10.0404C18.0929 14.527 14.4552 18.165 9.96861 18.165C5.48215 18.1648 1.84515 14.5269 1.84497 10.0404C1.84513 5.55398 5.48214 1.91697 9.96861 1.91681Z"
+      fill="currentColor"
+    />
+    <path
+      d="M8.73428 5.4417C9.05275 5.34987 9.38553 5.53321 9.47752 5.85167C9.56932 6.17 9.38575 6.50275 9.06755 6.59491C7.60672 7.01688 6.53899 8.36477 6.53894 9.96021C6.53907 11.8943 8.10685 13.4629 10.0409 13.4631C11.6106 13.463 12.9407 12.429 13.385 11.0041C13.4838 10.6877 13.8206 10.5114 14.1371 10.61C14.4536 10.7087 14.6308 11.0455 14.5321 11.3621C13.9357 13.2742 12.1509 14.663 10.0409 14.663C7.44369 14.6628 5.33824 12.5574 5.33812 9.96021C5.33816 7.81571 6.77345 6.00809 8.73428 5.4417Z"
+      fill="currentColor"
+    />
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M13.8656 1.99087C14.3948 1.60393 15.1805 1.97721 15.1739 2.67063L15.1528 4.83776L17.319 4.8166L17.4539 4.82541C18.1023 4.92002 18.4014 5.73603 17.9115 6.22638L15.5046 8.63331C15.3075 8.83039 15.04 8.94171 14.7613 8.94189H12.2063L10.3936 10.7555C10.1591 10.9899 9.77811 10.9899 9.54364 10.7555C9.30989 10.521 9.30952 10.1407 9.54364 9.90643L11.0486 8.40144V5.22922C11.0486 4.95027 11.1591 4.68234 11.3563 4.48509L13.7633 2.07816L13.8656 1.99087ZM12.2495 5.29005V7.74107H14.6978L16.4136 6.02536L13.9414 6.05004L13.9643 3.57434L12.2495 5.29005Z"
+      fill="currentColor"
+    />
   </svg>
 ));
 CodexGoalIcon.displayName = 'CodexGoalIcon';

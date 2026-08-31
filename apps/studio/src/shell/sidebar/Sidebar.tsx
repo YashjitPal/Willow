@@ -14,7 +14,6 @@ import {
   LogIn,
   Terminal,
   Palette,
-  FlaskConical,
   Github,
 } from 'lucide-react';
 import { DiscordIcon } from './SidebarIcons';
@@ -25,7 +24,6 @@ import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
-import { experimentsStore } from '@willow/core/experiments-store';
 import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import {
   STUDIO_SIDEBAR_COLLAPSED_WIDTH,
@@ -599,7 +597,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'code-beta';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -710,9 +708,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading } = useAuth();
   const currentSparkLocation = useStore(sparkLocation);
-  // Labs flags. Only `code-beta` is read here; the row it gates is the last
-  // entry in the modes block below.
-  const experiments = useStore(experimentsStore);
   /*
    * True only on the render in which the rail opens or closes.
    *
@@ -1907,22 +1902,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               active={currentView === 'design'}
               onClick={() => onViewChange('design')}
             />
-            {/*
-              * Labs only. `experiments['code-beta']` defaults to false, so this
-              * row does not exist for anyone who has not opted in — which is
-              * what keeps the shipped Code tab the only coding surface by
-              * default.
-              */}
-            {experiments['code-beta'] && (
-              <SidebarItem
-                flushRight
-                icon={FlaskConical}
-                label="Code Beta"
-                isCollapsed={isCollapsed}
-                active={currentView === 'code-beta'}
-                onClick={() => onViewChange('code-beta')}
-              />
-            )}
           </div>
 
           {(user || isLocalFolderConnected) && (

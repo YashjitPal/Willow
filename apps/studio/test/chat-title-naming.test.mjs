@@ -137,7 +137,9 @@ test('the title save credits the exact array it wrote', () => {
   // newer array as saved and the autosave effect would dedup away the write
   // carrying the reply.
   assert.match(titleEffect, /const snapshot = messagesRef\.current;/);
-  assert.match(titleEffect, /const latest = source[\s\S]{0,80}?\.map\(serializeChatMessage\)/);
+  // `encodeCanvasHistory` wraps this now — canvas revisions are written as reverse
+  // patches — but what it wraps still has to be `source`, not a re-read of the ref.
+  assert.match(titleEffect, /const latest = (encodeCanvasHistory\()?source[\s\S]{0,80}?\.map\(serializeChatMessage\)/);
   assert.match(titleEffect, /if \(!runningTurn\) lastSavedMessagesRef\.current = snapshot;/);
   assert.ok(
     !titleEffectCode.includes('lastSavedMessagesRef.current = messagesRef.current'),

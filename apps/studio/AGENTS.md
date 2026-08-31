@@ -33,14 +33,19 @@ top-level import defeats the code-splitting and inflates the initial bundle.
 
 ### Gating one behind Labs
 
-`Code Beta` is the worked example. Four pieces, and the lazy import is what makes
-the gate meaningful rather than cosmetic:
+No sub-app is currently gated this way — `Code Beta` was the worked example, and
+it has since been folded into the Code tab as the **Agent** tool, which is a
+Tools-menu entry rather than a Labs surface. `darker-design-background` is the
+only wired flag left, and it toggles a style rather than a route.
+
+The pattern is still the one to follow. Four pieces, and the lazy import is what
+makes the gate meaningful rather than cosmetic:
 
 1. A flag id in `ExperimentId` and a `false` default in
    [`platform/core/src/experiments-store.ts`](../../platform/core/src/experiments-store.ts).
 2. A row in `src/settings/tabs/LabsTab.tsx` using the `ExperimentToggle` already
-   defined there. (The other three toggles on that tab are still static
-   mock-ups — only wire the ones backed by a flag.)
+   defined there. (The other toggles on that tab are still static mock-ups —
+   only wire the ones backed by a flag.)
 3. A `ViewType` member plus a sidebar row wrapped in `experiments['<id>'] && (…)`.
    The Sidebar reads `experimentsStore` through `useStore`.
 4. A `React.lazy` route in `App.tsx`.
@@ -48,6 +53,11 @@ the gate meaningful rather than cosmetic:
 Because the route is lazy, a user who never enables the flag never downloads the
 chunk — the experiment costs nothing to ship. Doing step 3 without step 4 would
 leave the feature's code in the initial bundle for everyone.
+
+Note the counter-example: the Agent tool is *not* lazy. It is a tool inside a
+sub-app that is already lazy, so its harness rides in the Code chunk that a user
+opening the Code tab downloads anyway. A tool that only some users select is a
+different shape from a surface only some users can reach.
 
 ## View swaps are transitions — do not make them urgent again
 
@@ -306,8 +316,7 @@ while a human drives, and clicks nothing itself.
 - [`features/agent-builder`](../../features/agent-builder/AGENTS.md) — the Agents workflow canvas
 - [`features/auth`](../../features/auth/AGENTS.md) — login / account UI
 - [`features/chat`](../../features/chat/AGENTS.md) — the standalone chat surface
-- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox and visual editing
-- [`features/code-beta`](../../features/code-beta/AGENTS.md) — Labs: a second coding app on a vendored Codex harness
+- [`features/code`](../../features/code/AGENTS.md) — the Workbench: sandbox, visual editing, and the Agent tool's Codex harness
 - [`features/design`](../../features/design/AGENTS.md) — the design surface
 - [`features/media`](../../features/media/AGENTS.md) — AI image and video generation
 - [`features/onboarding`](../../features/onboarding/AGENTS.md) — first-run flow

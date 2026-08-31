@@ -21,6 +21,8 @@ import { readProjectRegistry, writeProjectRegistry } from "@willow/projects/regi
 
 // Import cursor image from cursor folder
 import cursorImage from "@willow/assets/cursors/arrow.cur";
+// Lets the Agent tool's `computer_use` reach the preview frame.
+import { setPreviewFrame } from "../agent/agent-store";
 
 // Visual cursor overlay for Computer Use testing
 const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = React.memo(({ iframeRef }) => {
@@ -476,6 +478,23 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const [bundlerReady, setBundlerReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const previousUrlRef = useRef<string | null>(null);
+
+  /*
+   * Publish the preview frame so the Agent tool's `computer_use` can screenshot
+   * and drive it.
+   *
+   * A store rather than a prop because the tool runs inside the harness, far
+   * from this component's tree. Cleared on unmount so the tool reports "the
+   * preview is not open" instead of holding a detached node.
+   *
+   * Unconditional, not gated on the Agent tool: registering the frame is inert
+   * while nothing reads it, and gating it would leave the frame missing on the
+   * turn where the tool is first switched on.
+   */
+  useEffect(() => {
+    setPreviewFrame(iframeRef.current);
+    return () => setPreviewFrame(null);
+  }, [previewUrl]);
   // ✨ Tracks the latest blob URL for "Open Externally" after hot updates
   // Hot updates don't change previewUrl (to avoid iframe reload), so this ref
   // holds the up-to-date blob URL for external opens

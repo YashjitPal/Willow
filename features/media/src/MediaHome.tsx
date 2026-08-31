@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { InputBar, type Attachment } from '@willow/chat/composer/Composer';
+import { InputBar, type Attachment, type ToolId } from '@willow/chat/composer/Composer';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { loadAllProjectCovers, deleteProjectData, getMediaIndex, PROJECT_COVERS_UPDATED_EVENT } from '@willow/storage/media-storage';
@@ -247,7 +247,12 @@ const isCoverVideo = (url: string): boolean => {
 };
 
 export const HeroSection: React.FC<{
-  onPromptSubmit?: (prompt: string, mode: string, attachments?: Attachment[]) => void;
+  /**
+   * `tool` is the composer's per-message tool chip (Canvas, Deep Research, …).
+   * Forwarded rather than dropped because this hero composer is what sends the
+   * FIRST message of a chat — the one that turns Canvas on for the thread.
+   */
+  onPromptSubmit?: (prompt: string, mode: string, attachments?: Attachment[], tool?: ToolId | null) => void;
   onProjectSelect?: (projectId: string, tempName?: string) => void;
   modelConfig: any;
   selectedModelId: string;

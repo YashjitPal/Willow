@@ -11,6 +11,7 @@ import {
 } from '@willow/core/attachments';
 import type { MessageCitations } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
+import type { CanvasKind, CanvasRef } from './canvas/canvas-store';
 
 export interface ChatMsg {
   id: string;
@@ -47,6 +48,10 @@ export interface ChatMsg {
   /** Code the model ran and what it printed, indexed against `content` like
    *  citations are, driving the "Show code" panels. */
   codeExecutions?: CodeExecution[];
+  /** Canvas documents this turn wrote, each a full snapshot at the character
+   *  offset where its card renders. The version history IS this, folded over the
+   *  thread — see `canvas/canvas-store.ts`. */
+  canvasRefs?: CanvasRef[];
 }
 
 /**
@@ -61,14 +66,21 @@ export interface ChatMsg {
  * A code-execution panel counts for exactly the same reason: a model that runs
  * code and answers entirely through its output leaves `content` empty, and the
  * panel is then the only thing the turn has to show.
+ *
+ * A canvas ref counts, and here it is not merely about rendering: the ref
+ * carries the document's only copy. Dropping the turn would delete the document
+ * and every version after it, since the history is the fold over surviving
+ * messages.
  */
 export const hasSavedMessageContent = (
-  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped' | 'codeExecutions'>,
+  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped' | 'codeExecutions' | 'canvasRefs'>,
 ): boolean =>
   message.content.trim().length > 0
   || !!message.attachments?.length
   || !!message.wasStopped
-  || !!message.codeExecutions?.length;
+  || !!message.codeExecutions?.length
+  || !!message.canvasRefs?.length;
+
 
 /** Strip the runtime-only flags so a reloaded chat never resumes mid-generation. */
 export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerating' | 'isTranscribing' | 'isLive' | 'isNew' | 'errorDetail'> => {
@@ -181,6 +193,84 @@ export const sanitizeSavedCodeExecutions = (
       return execution;
     });
   return executions.length ? executions : undefined;
+};
+
+/**
+ * Read Canvas documents back off disk.
+ *
+ * The salvage rule is the opposite of `sanitizeSavedCitations` and stricter than
+ * `sanitizeSavedCodeExecutions`, in both directions, and the reason is that this
+ * field is the document rather than a pointer to it.
+ *
+ * A ref with no `content` is dropped: there is nothing to show, and keeping it
+ * would put an empty card in the thread and an empty version in the history.
+ * A ref with a bad `index` is kept and clamped, like a code panel — a card in
+ * slightly the wrong place still opens the right document, and dropping it would
+ * destroy the user's writing over a cosmetic offset.
+ *
+ * `docId` is required and never synthesised. Minting one here would look like it
+ * worked and then quietly fork the version history: the fold groups by id, so a
+ * fresh id on load turns one document's six revisions into six documents.
+ */
+export const sanitizeSavedCanvasRefs = (
+  value: any,
+  contentLength = Number.MAX_SAFE_INTEGER,
+): CanvasRef[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const refs = value
+    .filter((entry: any) =>
+      entry
+      && typeof entry === 'object'
+      && typeof entry.docId === 'string'
+      && entry.docId.length > 0
+      && typeof entry.content === 'string'
+      && entry.content.length > 0)
+    .map((entry: any) => {
+      const kind: CanvasKind = entry.kind === 'code' ? 'code' : 'text';
+      const ref: CanvasRef = {
+        docId: entry.docId,
+        kind,
+        // The title is what the panel header and the download filename read, so
+        // an absent one gets a placeholder rather than being left undefined.
+        title: typeof entry.title === 'string' && entry.title.trim()
+          ? entry.title
+          : (kind === 'code' ? 'Untitled code' : 'Untitled document'),
+        index: Number.isFinite(entry.index)
+          ? Math.min(Math.max(0, Math.floor(Number(entry.index))), contentLength)
+          : 0,
+        content: entry.content,
+      };
+      if (kind === 'code' && typeof entry.language === 'string' && entry.language) {
+        ref.language = entry.language;
+      }
+      // A timestamp is cosmetic (the chip's second line), so a bad one is
+      // dropped rather than repaired: `CanvasCard` already has to render refs
+      // written before the field existed, and that fallback is the right home
+      // for "no usable date" too. Rejecting zero and negatives keeps a
+      // stringified empty value from reading as 1 Jan 1970.
+      if (Number.isFinite(entry.createdAt) && Number(entry.createdAt) > 0) {
+        ref.createdAt = Math.floor(Number(entry.createdAt));
+      }
+      /*
+       * `originalContent` is the model's own text on a ref the user has since
+       * edited by hand, and it is the ONLY reason that hand edit is a version of
+       * its own rather than an overwrite. It is dropped when it matches `content`
+       * — a pair of identical versions is worse than none, and that is exactly
+       * what an edit typed back to the original leaves behind.
+       */
+      if (
+        typeof entry.originalContent === 'string'
+        && entry.originalContent.length > 0
+        && entry.originalContent !== ref.content
+      ) {
+        ref.originalContent = entry.originalContent;
+        if (Number.isFinite(entry.editedAt) && Number(entry.editedAt) > 0) {
+          ref.editedAt = Math.floor(Number(entry.editedAt));
+        }
+      }
+      return ref;
+    });
+  return refs.length ? refs : undefined;
 };
 
 /**

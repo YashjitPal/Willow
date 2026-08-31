@@ -1191,7 +1191,8 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                           { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast' },
                           { id: 'veo-3.1', name: 'Veo 3.1' },
                           { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite' },
-                          { id: 'omni-flash', name: 'Omni Flash' }
+                          { id: 'omni-flash', name: 'Omni Flash 1' },
+                          { id: 'omni-flash-1.1', name: 'Omni Flash 1.1' }
                         ].map((modelOpt) => (
                           <button 
                             key={modelOpt.id}

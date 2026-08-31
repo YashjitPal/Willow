@@ -215,7 +215,10 @@ describe('compatible-provider search: what gets sent', () => {
 
   it('sends Zhipu the nested config that makes results come back', () => {
     const chat = CHAT();
-    assert.match(chat, /zhipuai: \[\{[\s\S]{0,200}?type: 'web_search',/);
+    // In the OpenAI branch, not a branch of its own: both compatible providers
+    // default to `openai-chat-completions`, so a dedicated `provider === 'zhipuai'`
+    // branch after it could never run and this config was silently lost.
+    assert.match(chat, /provider === 'zhipuai'\s*\r?\n\s*\? \[\{ type: 'web_search',/);
     // Without `search_result` the model searches and returns nothing citable,
     // which reads exactly like search being broken.
     assert.match(chat, /web_search: \{ enable: 'True', search_result: 'True' \}/);
@@ -223,14 +226,17 @@ describe('compatible-provider search: what gets sent', () => {
 
   it('leaves Moonshot out rather than guessing its schema', () => {
     const chat = CHAT();
-    assert.ok(
-      !/moonshot: \[\{ type: 'web_search'/.test(chat),
-      'Kimi $web_search is unverified — a guessed schema 400s the turn',
-    );
     assert.ok(!/\$web_search/.test(CHAT_CODE()), 'named in a comment as rejected, never sent');
+    // The withholding is expressed once, as a capability lookup, so the gate and
+    // the tool list cannot disagree about who has search.
+    assert.match(
+      chat,
+      /&& !!nativeToolFormatForProvider\(provider as ProviderId, configuredFormat\);/,
+      'the search gate asks whether this provider HAS a built-in, rather than naming it',
+    );
     // It must still be read, so a relay that searches on its own initiative
     // still fills the panel.
-    assert.match(chat, /harvestCompatSearchChunk\(chunk, compatHarvest\);/);
+    assert.match(chat, /harvestCompatSearchChunk\(chunk, openaiHarvest\);/);
   });
 
   it('sends OpenAI the documented tool on both of its request paths', () => {
@@ -239,24 +245,39 @@ describe('compatible-provider search: what gets sent', () => {
     // `web_search_preview` is the legacy spelling and is not what new
     // integrations are told to send.
     assert.ok(!/web_search_preview/.test(CHAT_CODE()));
-    // The Responses path and the streaming Chat Completions path both attach it.
-    const attachments = chat.match(/\.\.\.\(searchEnabled \? \{ tools: openaiSearchTools \} : \{\}\),/g) || [];
-    assert.equal(attachments.length, 2, 'both OpenAI request paths, or the file path silently loses search');
+    // Every OpenAI request path attaches it, and search now shares the `tools`
+    // array with the declared functions rather than owning it — so the assertion
+    // is that search is still spread in wherever functions are, on all three
+    // sites (background Responses, streaming Responses, Chat Completions).
+    const attachments = chat.match(
+      /\{ tools: \[\.\.\.\(searchEnabled \? openaiSearchTools : \[\]\), \.\.\.openai(Responses|Chat)Functions\] \}/g,
+    ) || [];
+    assert.equal(attachments.length, 3, 'every OpenAI request path, or one of them silently loses search');
+    assert.ok(
+      !/\{ tools: openaiSearchTools \}/.test(chat),
+      'a path that sends search ALONE cannot call a function — that was the Gemini-only tools bug',
+    );
   });
 
   it('gates every provider on the one toggle, never on the endpoint', () => {
     const chat = CHAT();
-    // Each gate reads the same user-facing toggle plus the profile's tool
-    // policy. What none of them may read is which host the credential points at.
+    // Each gate reads the same user-facing toggle plus the profile's tool policy —
+    // and reads the policy through ONE derived value, so the setting cannot mean
+    // three different things on three adapters the way it used to. What none of
+    // them may read is which host the credential points at.
     for (const line of [
-      /const openaiSearchEnabled = toolsAllowed\b/,
-      /&& \(usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'\)\s*\r?\n\s*&& options\.enableSearch !== false;/,
-      /const anthropicSearchEnabled = toolsAllowed && options\.enableSearch !== false;/,
-      /const compatSearchEnabled = toolsAllowed && options\.enableSearch !== false/,
+      /const nativeToolsAllowed = toolsAllowed && options\.toolPolicy !== 'function-calling';/,
+      /const searchEnabled = nativeToolsAllowed && options\.enableSearch !== false;/,
+      /const openaiSearchEnabled = nativeToolsAllowed\b/,
+      /const anthropicSearchEnabled = nativeToolsAllowed && options\.enableSearch !== false;/,
     ]) assert.match(chat, line);
     assert.ok(
       !/SearchEnabled[\s\S]{0,160}?isOfficialEndpoint/.test(chat),
       'endpoint identity is not capability',
+    );
+    assert.ok(
+      !/usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'/.test(chat),
+      'the xAI exemption is gone — a stale stored default is a migration, not an adapter branch',
     );
   });
 
@@ -269,7 +290,7 @@ describe('compatible-provider search: what gets sent', () => {
     assert.match(chat, /return attempt\(false\);/);
     // The retry is only safe because it wraps `create`, which resolves on the
     // response head — retrying after tokens had been emitted would double them.
-    assert.match(chat, /const stream = await createWithSearchFallback<any>\(/);
+    assert.match(chat, /await createWithSearchFallback\(/);
     // An abort is the user pressing stop, not an unsupported parameter.
     assert.match(chat, /if \(isAbortError\(error\) \|\| !namesSearchToolRejection\(error\)\) throw error;/);
   });
@@ -289,7 +310,11 @@ describe('compatible-provider search: what gets sent', () => {
     // results with zero `citations_delta`. Requiring citations here meant those
     // searches ran, were paid for, and showed nothing.
     const guards = chat.match(/if \(resolved\.sources\.length\) onCitations\?\.\(resolved\);/g) || [];
-    assert.equal(guards.length, 3, 'openai, anthropic and the compatible providers');
+    assert.equal(
+      guards.length,
+      2,
+      'the OpenAI branch (which serves xAI, Kimi and GLM too) and the Anthropic one',
+    );
   });
 });
 

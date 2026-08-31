@@ -82,15 +82,19 @@ describe('Gemini and Grok tool isolation', () => {
   });
 
   it('does not let a stale function-calling policy silence Grok search', () => {
-    // Profiles stored before this change carry `toolPolicy: 'function-calling'`
-    // from the old xAI default. Gemini and Anthropic both ignore that policy for
-    // search, so xAI has to as well or every existing install loses search.
-    assert.match(
-      openaiBranch,
-      /&& \(usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'\)/,
+    // Profiles stored before the policy became uniform carry
+    // `toolPolicy: 'function-calling'` from the old xAI default, and that value now
+    // means "no server-side built-ins" — which would cost Grok the X search that is
+    // the reason to use it. The fix is a one-time migration of the stored value
+    // (`PROFILE_SCHEMA_VERSION` in providers/profiles.ts), NOT an adapter that
+    // ignores the setting for one provider: the dropdown has to mean the same thing
+    // everywhere it is offered.
+    assert.ok(
+      !/usesXaiAdapter \|\| options\.toolPolicy !== 'function-calling'/.test(openaiBranch),
+      'the exemption belongs in the migration, not here',
     );
-    // `disabled` must still disable, for xAI as for everything else.
     assert.match(chat, /const toolsAllowed = options\.toolPolicy !== 'disabled';/);
-    assert.match(openaiBranch, /const openaiSearchEnabled = toolsAllowed/);
+    assert.match(chat, /const nativeToolsAllowed = toolsAllowed && options\.toolPolicy !== 'function-calling';/);
+    assert.match(openaiBranch, /const openaiSearchEnabled = nativeToolsAllowed/);
   });
 });

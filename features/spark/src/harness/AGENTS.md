@@ -1,6 +1,6 @@
 # The Codex harness
 
-Code Beta's agent loop is a port of [openai/codex](https://github.com/openai/codex)
+The Agent tool's loop is a port of [openai/codex](https://github.com/openai/codex)
 (Apache-2.0). This folder is that port.
 
 The organising idea is one sentence: **upstream files are vendored verbatim and
@@ -58,13 +58,13 @@ and the diff you review is upstream's own diff, not a merge conflict.
    npm test
    ```
 
-   `code-beta-harness.test.mjs` is the gate. It fails loudly if a required
+   `agent-harness.test.mjs` is the gate. It fails loudly if a required
    overlay anchor no longer exists, if the composed prompt stops denying a
    shell, or if a vendored file does not match its checksum.
 
 4. **Fix anchors, if any.** See below.
 
-5. **Read the composed prompt.** Code Beta → Harness → Prompt. It is the actual
+5. **Read the composed prompt.** Code → Harness → Prompt. It is the actual
    string sent to the model; a five-minute read catches things a test cannot,
    like upstream adding a section about a tool we do not implement.
 
@@ -126,7 +126,7 @@ Two reasons, the second being the one that decided it:
 
 1. `platform/ai` only wires `functionDeclarations` for the Gemini adapter. The
    OpenAI, Anthropic and compat branches accept search tools and nothing else,
-   so native calling would pin Code Beta to one provider.
+   so native calling would pin the harness to one provider.
 
 2. **Upstream's own `apply_patch` is a freeform tool** — the model emits raw
    text matching a Lark grammar, not a JSON argument object

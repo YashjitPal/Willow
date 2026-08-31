@@ -78,10 +78,28 @@
   min-height: 0;
 }
 
+/*
+ * Registered so it can be transitioned. An unregistered custom property has no
+ * type, so Chrome swaps it discretely and the composer would jump rather than
+ * resize. `<length>` makes it interpolable, which is the whole point.
+ */
+@property --spark-live-dw {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
 .spark-connected-composer {
   position: relative;
   display: block;
-  width: 100%;
+  /*
+   * The route-change resize is expressed as a delta on top of a live `100%`,
+   * not as a measured pixel width. The anchor keeps moving after the route
+   * commits — `App` collapses the global sidebar on entering a task and that
+   * rail animates for 300ms — so any width captured at commit time is stale
+   * before the animation is half done. See `liveMove` in SparkWorkspace.tsx.
+   */
+  width: calc(100% + var(--spark-live-dw, 0px));
   min-height: 65.6px;
   transform: translate(var(--spark-live-dx, 0px), var(--spark-live-dy, 0px));
 }

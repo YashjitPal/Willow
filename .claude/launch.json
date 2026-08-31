@@ -3,7 +3,9 @@
   "configurations": [
     {
       "name": "studio",
-      "url": "http://localhost:3000",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "autoPort": false,
       "port": 3000
     }
   ]

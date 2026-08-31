@@ -75,7 +75,15 @@ export const resolveEndpointTransport = (
 
   if (pathStyle === 'origin') {
     resolved = resolved.replace(/\/v1(beta)?$/, '');
-  } else if (pathStyle === 'v1' && !/\/v1$/.test(resolved)) {
+  } else if (pathStyle === 'v1' && !/\/v\d+(beta)?$/.test(resolved)) {
+    /*
+     * ANY version segment counts, not just `/v1`.
+     *
+     * Zhipu's OpenAI-compatible base is `https://open.bigmodel.cn/api/paas/v4`, and
+     * a `/v1$` test does not see the `v4` — so every GLM request went to
+     * `/api/paas/v4/v1/chat/completions`, which is a 404. Measured by driving the
+     * real adapter: the provider was unusable, not merely unpolished.
+     */
     resolved = `${resolved}/v1`;
   }
 
