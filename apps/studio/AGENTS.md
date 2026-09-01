@@ -33,13 +33,13 @@ top-level import defeats the code-splitting and inflates the initial bundle.
 
 ### Gating one behind Labs
 
-No sub-app is currently gated this way — `Code Beta` was the worked example, and
-it has since been folded into the Code tab as the **Agent** tool, which is a
-Tools-menu entry rather than a Labs surface. `darker-design-background` is the
-only wired flag left, and it toggles a style rather than a route.
+**Agents and Design are both gated this way** — they are unfinished, so the alpha
+ships them off by default behind `agents-surface` and `design-surface` rather
+than putting a half-built surface in the rail. `darker-design-background` is the
+third flag, and it toggles a style rather than a route.
 
-The pattern is still the one to follow. Four pieces, and the lazy import is what
-makes the gate meaningful rather than cosmetic:
+Four pieces, and the lazy import is what makes the gate meaningful rather than
+cosmetic:
 
 1. A flag id in `ExperimentId` and a `false` default in
    [`platform/core/src/experiments-store.ts`](../../platform/core/src/experiments-store.ts).
@@ -49,6 +49,16 @@ makes the gate meaningful rather than cosmetic:
 3. A `ViewType` member plus a sidebar row wrapped in `experiments['<id>'] && (…)`.
    The Sidebar reads `experimentsStore` through `useStore`.
 4. A `React.lazy` route in `App.tsx`.
+
+**Hiding the sidebar row is not the gate.** A surface with a URL keeps that URL
+whether or not anything links to it, so each flag is read in four more places in
+`App.tsx`: the `currentView` initialiser, the early return in `handleViewChange`,
+the pathname/`searchParams` sync effects, and a redirect effect that bounces off
+a gated URL. That last one is also what unsticks a user who turns a flag *off*
+while sitting on the surface — the sync effects only decline to *enter* a view,
+which would otherwise leave Home rendering under a `/design` address bar.
+Agents exits through the existing `agentBuilderDraftFlush` path, so switching the
+flag off mid-edit still gets the draft-save prompt.
 
 Because the route is lazy, a user who never enables the flag never downloads the
 chunk — the experiment costs nothing to ship. Doing step 3 without step 4 would

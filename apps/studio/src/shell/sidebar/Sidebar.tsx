@@ -21,6 +21,7 @@ import logo from '@willow/assets/brand/logo.png';
 import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { experimentsStore } from '@willow/core/experiments-store';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
@@ -1175,6 +1176,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     hydrateNotebooks();
     return subscribeToNotebookWrites();
   }, []);
+
+  // Gates the Agents and Design rows in the lower nav. See the comment there.
+  const experiments = useStore(experimentsStore);
   const notebookChatIds = useMemo(() => {
     const owned = new Set<string>();
     for (const notebook of notebooks) for (const chatId of notebook.chatIds) owned.add(chatId);
@@ -1886,22 +1890,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onModeChange?.('media');
               }}
             />
-            <SidebarItem
-              flushRight
-              icon={AgentIcon}
-              label="Agents"
-              isCollapsed={isCollapsed}
-              active={currentView === 'agents'}
-              onClick={() => onViewChange('agents')}
-            />
-            <SidebarItem
-              flushRight
-              icon={Palette}
-              label="Design"
-              isCollapsed={isCollapsed}
-              active={currentView === 'design'}
-              onClick={() => onViewChange('design')}
-            />
+            {/*
+              * Agents and Design are unfinished, so they ship hidden behind
+              * Settings > Labs rather than sitting in the rail half-built. The
+              * routes in App.tsx read the same flags — hiding the row alone
+              * would still leave the URLs reachable.
+              */}
+            {experiments['agents-surface'] && (
+              <SidebarItem
+                flushRight
+                icon={AgentIcon}
+                label="Agents"
+                isCollapsed={isCollapsed}
+                active={currentView === 'agents'}
+                onClick={() => onViewChange('agents')}
+              />
+            )}
+            {experiments['design-surface'] && (
+              <SidebarItem
+                flushRight
+                icon={Palette}
+                label="Design"
+                isCollapsed={isCollapsed}
+                active={currentView === 'design'}
+                onClick={() => onViewChange('design')}
+              />
+            )}
           </div>
 
           {(user || isLocalFolderConnected) && (

@@ -40,11 +40,44 @@ export const LabsTab: React.FC = () => {
 
       <div className="pb-6 border-b border-white/5 mb-0">
         <p className="text-[14px] text-zinc-400">
-          These are experimental features, that might be modified or removed.
+          These are experimental features, that might be modified or removed. Willow is an
+          alpha release — anything switched on here is unfinished and may not behave as intended.
         </p>
       </div>
 
       <div className="space-y-0 pb-10">
+        {/* Design surface */}
+        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
+          <div className="flex-1 max-w-[60%]">
+            <h3 className="text-[14px] font-bold text-white mb-1">Design</h3>
+            <p className="text-[14px] text-zinc-400">
+              Shows the Design tab in the sidebar. An in-progress canvas for generating UI designs
+              from text or sketches — the surface is explorable but not finished.
+            </p>
+          </div>
+          <ExperimentToggle
+            id="design-surface"
+            enabled={experiments['design-surface']}
+            label="Design"
+          />
+        </div>
+
+        {/* Agents surface */}
+        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
+          <div className="flex-1 max-w-[60%]">
+            <h3 className="text-[14px] font-bold text-white mb-1">Agents</h3>
+            <p className="text-[14px] text-zinc-400">
+              Shows the Agents tab in the sidebar. A node-based canvas for wiring visual workflow
+              pipelines — the surface is explorable but not finished.
+            </p>
+          </div>
+          <ExperimentToggle
+            id="agents-surface"
+            enabled={experiments['agents-surface']}
+            label="Agents"
+          />
+        </div>
+
         {/* Darker Design Background */}
         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
           <div className="flex-1 max-w-[60%]">
@@ -76,17 +109,6 @@ export const LabsTab: React.FC = () => {
           <div className="flex-1 max-w-[60%]">
             <h3 className="text-[14px] font-bold text-white mb-1">Prototyping</h3>
             <p className="text-[14px] text-zinc-400">Build and share AI-powered mini-apps using natural language prompts.</p>
-          </div>
-           <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-            <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-          </div>
-        </div>
-
-         {/* Designing */}
-         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Designing</h3>
-            <p className="text-[14px] text-zinc-400">Generate production-ready UI designs and code from text or sketches.</p>
           </div>
            <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
             <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
