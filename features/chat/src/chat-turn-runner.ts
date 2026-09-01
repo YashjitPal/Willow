@@ -2,12 +2,12 @@ import { streamChat, isAbortError, type StreamPhase } from '@willow/ai/chat';
 import type { ProviderApiFormat, ProviderToolPolicy } from '@willow/ai/providers/profiles';
 import type { MessageCitations, GroundingSource } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
+import { WEB_SEARCH_TOOL_NAME, formatWebSearchResult } from '@willow/ai/web-search-tool';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
 import { runPersonalTool } from '@willow/personal';
 import { declaredToolNames } from './personal-tools';
 import { createCanvasToolExecutor, type CanvasToolHost } from './canvas/canvas-runtime';
 import { isCanvasToolCall } from './canvas/canvas-tools';
-import { WEB_SEARCH_TOOL_NAME, formatWebSearchResult } from '@willow/ai/web-search-tool';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   formatUpstreamError,

@@ -199,17 +199,30 @@ describe('compatible-provider search: reply shapes', () => {
 describe('compatible-provider search: what gets sent', () => {
   it('sends xAI the current tool, not the superseded search block', () => {
     const chat = CHAT();
-    // Both of xAI's server-side tools, or Grok cannot reach X (Twitter). They
-    // are keyed on the wire format rather than the provider name so a Grok
-    // model reached through a relay gets the same pair.
+    // Both of xAI's server-side tools on the Responses path, or Grok cannot reach X
+    // (Twitter) — and keyed on the ENDPOINT, so an xAI profile switched to the
+    // Responses format keeps the pair rather than falling back to OpenAI's single
+    // tool.
     assert.match(
       chat,
-      /usesXaiAdapter\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
+      /const isXaiEndpoint = usesXaiAdapter \|\| provider === 'spacexai';/,
+      'x_search is xAI\'s alone, so it follows the credential as well as the format',
     );
-    // `search_parameters` was xAI's previous shape and is no longer current.
+    assert.match(
+      chat,
+      /isXaiEndpoint\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
+    );
+    // Chat Completions is the other vocabulary, and this is measured: api.x.ai
+    // answers `web_search` there with `unknown variant`, naming `live_search` as
+    // what it expects. `search_parameters` is kept as the second spelling a gateway
+    // may have implemented instead — a fallback, never the first thing sent.
+    assert.match(chat, /\{ tools: \[\{ type: 'live_search' \}\] \},/);
+    assert.match(chat, /\{ extra: \{ search_parameters: \{ mode: 'auto', return_citations: true \} \} \},/);
+    const shapes = chat.indexOf('XAI_SEARCH_SHAPES');
     assert.ok(
-      !/search_parameters:/.test(chat),
-      'the superseded Live Search block must not come back',
+      chat.indexOf("{ tools: [{ type: 'live_search' }] }", shapes)
+        < chat.indexOf('search_parameters: { mode', shapes),
+      'the variant the endpoint named comes first',
     );
   });
 
@@ -245,17 +258,24 @@ describe('compatible-provider search: what gets sent', () => {
     // `web_search_preview` is the legacy spelling and is not what new
     // integrations are told to send.
     assert.ok(!/web_search_preview/.test(CHAT_CODE()));
-    // Every OpenAI request path attaches it, and search now shares the `tools`
-    // array with the declared functions rather than owning it — so the assertion
-    // is that search is still spread in wherever functions are, on all three
-    // sites (background Responses, streaming Responses, Chat Completions).
-    const attachments = chat.match(
-      /\{ tools: \[\.\.\.\(searchEnabled \? openaiSearchTools : \[\]\), \.\.\.openai(Responses|Chat)Functions\] \}/g,
+    // Search shares the `tools` array with the declared functions rather than owning
+    // it, and every request path has to spread BOTH — a path that sends search alone
+    // cannot call a function, which was the Gemini-only tools bug. Two Responses
+    // sites (background and streaming) plus the Chat Completions one, where the
+    // built-ins are chosen per endpoint first (`builtIns`) because xAI wants a
+    // different vocabulary there.
+    const responsesSites = chat.match(
+      /\{ tools: \[\.\.\.\(searchEnabled \? openaiResponsesSearchTools : \[\]\), \.\.\.openaiResponsesFunctions\] \}/g,
     ) || [];
-    assert.equal(attachments.length, 3, 'every OpenAI request path, or one of them silently loses search');
+    assert.equal(responsesSites.length, 2, 'background and streaming Responses');
+    assert.match(
+      chat,
+      /\{ tools: \[\.\.\.builtIns, \.\.\.openaiChatFunctions\] \}/,
+      'and Chat Completions, whose built-ins are picked per endpoint',
+    );
     assert.ok(
-      !/\{ tools: openaiSearchTools \}/.test(chat),
-      'a path that sends search ALONE cannot call a function — that was the Gemini-only tools bug',
+      !/\{ tools: openaiResponsesSearchTools \}/.test(chat) && !/\{ tools: builtIns \}/.test(chat),
+      'no path may send search without the declarations beside it',
     );
   });
 

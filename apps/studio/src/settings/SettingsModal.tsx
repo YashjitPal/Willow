@@ -41,10 +41,19 @@ const DEFAULT_PROVIDER_STATE: ProviderParams = {
   activeProvider: 'gemini'
 };
 
-const getProviderStorageKeys = (uid: string) => ({
-  providerState: `willow:providerState:${uid}`,
-  apiKeys: `willow:apiKeys:${uid}`
+const GUEST_PROVIDER_SCOPE = 'guest';
+
+const getProviderStorageKeys = (scope: string) => ({
+  providerState: `willow:providerState:${scope}`,
+  apiKeys: `willow:apiKeys:${scope}`
 });
+
+// An account's keys live in Firestore and the tab cache is only a cache, so it
+// is thrown away with the tab. Signed-out keys have no document behind them —
+// sessionStorage would lose them on every tab close and make bring-your-own-key
+// unusable without an account, so the guest scope persists instead.
+const storageForScope = (scope: string): Storage =>
+  scope === GUEST_PROVIDER_SCOPE ? localStorage : sessionStorage;
 
 const normalizeProviderState = (value: unknown): ProviderParams | null => {
   if (!value || typeof value !== 'object') return null;
@@ -92,13 +101,14 @@ const migrateProviderStorage = (uid: string) => {
   }
 };
 
-const readCachedProviderState = (uid: string): ProviderParams | null => {
+const readCachedProviderState = (scope: string): ProviderParams | null => {
   try {
-    const key = getProviderStorageKeys(uid).providerState;
-    const serialized = sessionStorage.getItem(key);
+    const store = storageForScope(scope);
+    const key = getProviderStorageKeys(scope).providerState;
+    const serialized = store.getItem(key);
     if (!serialized) return null;
     const state = normalizeProviderState(JSON.parse(serialized));
-    if (!state) sessionStorage.removeItem(key);
+    if (!state) store.removeItem(key);
     return state;
   } catch (error) {
     console.warn('[Settings] Ignoring invalid provider cache:', error);
@@ -106,11 +116,12 @@ const readCachedProviderState = (uid: string): ProviderParams | null => {
   }
 };
 
-const cacheProviderState = (uid: string, state: ProviderParams) => {
+const cacheProviderState = (scope: string, state: ProviderParams) => {
   try {
-    const keys = getProviderStorageKeys(uid);
-    sessionStorage.setItem(keys.providerState, JSON.stringify(state));
-    sessionStorage.setItem(keys.apiKeys, JSON.stringify({
+    const store = storageForScope(scope);
+    const keys = getProviderStorageKeys(scope);
+    store.setItem(keys.providerState, JSON.stringify(state));
+    store.setItem(keys.apiKeys, JSON.stringify({
       gemini: state.gemini.apiKey ? [state.gemini.apiKey] : [],
       openai: state.openai.apiKey ? [state.openai.apiKey] : [],
       anthropic: state.anthropic.apiKey ? [state.anthropic.apiKey] : [],
@@ -591,13 +602,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     setProviderState(DEFAULT_PROVIDER_STATE);
     setIsLoadingKeys(Boolean(uid));
 
-    if (uid) {
-      migrateProviderStorage(uid);
-      const cachedState = readCachedProviderState(uid);
-      if (cachedState) {
-        providerStateRef.current = cachedState;
-        setProviderState(cachedState);
-      }
+    if (uid) migrateProviderStorage(uid);
+    // Signed out reads the guest scope rather than nothing: there is no
+    // Firestore load coming to fill it in afterwards.
+    const cachedState = readCachedProviderState(uid ?? GUEST_PROVIDER_SCOPE);
+    if (cachedState) {
+      providerStateRef.current = cachedState;
+      setProviderState(cachedState);
     }
   }, [user?.uid]);
 
@@ -725,7 +736,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
 
   const handleUpdateConfig = async (provider: ProviderId, config: ProviderConfig) => {
-    if (!user || providerStateUidRef.current !== user.uid) return;
+    const activeUser = user;
+    const uid = activeUser?.uid ?? null;
+    if (providerStateUidRef.current !== uid) return;
     const newState = {
       ...providerStateRef.current,
       [provider]: config
@@ -734,7 +747,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     providerEditVersionRef.current += 1;
     providerStateRef.current = newState;
     setProviderState(newState);
-    cacheProviderState(user.uid, newState);
+    cacheProviderState(uid ?? GUEST_PROVIDER_SCOPE, newState);
     // Sync baseUrl into modelConfig so streaming callers can access it. This
     // runs unconditionally: when the field is cleared we must overwrite the
     // previous custom URL with the official default, otherwise the stale
@@ -747,11 +760,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         : profile),
     }));
     window.dispatchEvent(new Event('apikeys-updated'));
-    scheduleProviderSave({
-      uid: user.uid,
-      state: newState,
-      getIdToken: () => user.getIdToken()
-    });
+    // Guest keys stay on this device — there is no account document to sync to.
+    if (activeUser) {
+      scheduleProviderSave({
+        uid: activeUser.uid,
+        state: newState,
+        getIdToken: () => activeUser.getIdToken()
+      });
+    }
   };
 
   // Delete account handler

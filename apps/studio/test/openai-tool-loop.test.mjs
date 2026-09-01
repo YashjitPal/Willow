@@ -77,6 +77,23 @@ globalThis.fetch = async (url, init) => {
       { status: 400, headers: { 'content-type': 'application/json' } },
     );
   }
+  /* Reject whichever Live Search spelling arrives, so the ladder can be walked all
+     the way down. The message copies the one api.x.ai actually returned. */
+  if (script.rejectXaiSearch) {
+    const types = (body.tools || []).map((entry) => entry.type);
+    if (types.includes('live_search')) {
+      return new Response(
+        JSON.stringify({ error: { message: 'Failed to deserialize the JSON body into the target type: tools[0].type: unknown variant `live_search`, expected `function`' } }),
+        { status: 422, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (body.search_parameters) {
+      return new Response(
+        JSON.stringify({ error: { message: 'unknown field `search_parameters`' } }),
+        { status: 422, headers: { 'content-type': 'application/json' } },
+      );
+    }
+  }
   const next = script.bodies[Math.min(script.round, script.bodies.length - 1)];
   script.round += 1;
   if (next && typeof next === 'object' && next.httpError) {
@@ -268,7 +285,18 @@ it('runs two calls from one turn, in the order they were declared', async () => 
 
 /* -------------------------------------------------------------- Grok's shape */
 
-it('gives Grok both of its server-side searches alongside the function', async () => {
+/*
+ * Grok's search is TWO vocabularies, and which one is right depends on the endpoint
+ * — measured in the user's own gateway log against grok-4.6:
+ *
+ *     tools[0].type: unknown variant `web_search`,
+ *                    expected `function` or `live_search`
+ *
+ * `web_search` / `x_search` are Responses-API types. Sending them on Chat
+ * Completions is a 422 before the model runs, and the search-off fallback then
+ * returned a clean 200 — so every Grok turn answered and none of them searched.
+ */
+it('asks Chat Completions for live_search, never the Responses types', async () => {
   const { requests } = await runTurn([CHAT_TOOL_ROUND, CHAT_ANSWER_ROUND], {
     provider: 'spacexai',
     model: 'grok-4-latest',
@@ -276,12 +304,57 @@ it('gives Grok both of its server-side searches alongside the function', async (
   });
   const tools = requests[0].body.tools || [];
   const types = tools.map((entry) => entry.type);
-  assert.ok(types.includes('web_search'), 'the open web');
-  assert.ok(types.includes('x_search'), 'and X, which is the reason Grok is here');
+  assert.ok(types.includes('live_search'), 'the variant the endpoint itself named');
+  assert.ok(!types.includes('web_search'), 'this one 422s the whole body on this path');
+  assert.ok(!types.includes('x_search'));
   assert.ok(
     tools.some((entry) => entry.function?.name === 'update_canvas'),
-    'declaring a function must not displace the server-side tools',
+    'declaring a function must not displace the built-in',
   );
+});
+
+it('keeps the agentic pair for the Responses path, where they are correct', async () => {
+  const { requests } = await runTurn([RESPONSES_ANSWER_ROUND], {
+    provider: 'spacexai',
+    model: 'grok-4-latest',
+    apiFormat: 'openai-responses',
+    enableSearch: true,
+    toolDeclarations: [],
+  });
+  const types = (requests[0].body.tools || []).map((entry) => entry.type);
+  assert.deepEqual(types, ['web_search', 'x_search'], 'X as well as the open web');
+});
+
+/*
+ * And if `live_search` is not what a given relay wants either, the other spelling
+ * is tried before search is given up — the ladder has to be one ladder, because a
+ * generic "drop search" retry would fire on the first rejection and never reach the
+ * second shape.
+ */
+it('falls back to search_parameters, then to no search at all', async () => {
+  script = { bodies: [CHAT_ANSWER_ROUND], requests: [], round: 0, rejectXaiSearch: true };
+  let text = '';
+  await streamChat(
+    [{ role: 'user', content: 'what happened today' }],
+    {
+      provider: 'spacexai',
+      model: 'grok-4-latest',
+      apiKey: 'sk-test-key',
+      thinkingLevel: 2,
+      enableSearch: true,
+    },
+    (token) => { text += token; },
+    () => {},
+    'system prompt',
+  );
+  const shapes = script.requests.map((request) => {
+    const types = (request.body.tools || []).map((entry) => entry.type);
+    if (types.includes('live_search')) return 'live_search';
+    if (request.body.search_parameters) return 'search_parameters';
+    return 'none';
+  });
+  assert.deepEqual(shapes, ['live_search', 'search_parameters', 'none'], 'every spelling, then give up');
+  assert.match(text, /Done/, 'and the turn still answers');
 });
 
 it('sends reasoning_effort to grok-4 and withholds it from grok-3', async () => {

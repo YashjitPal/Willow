@@ -56,11 +56,18 @@ const DEFAULT_SETTINGS: UserSettings = {
   selectedModelId: '',
 };
 
-const getUserStorageKeys = (uid: string) => ({
-  apiKeys: `willow:apiKeys:${uid}`,
-  providerState: `willow:providerState:${uid}`,
-  settings: `willow:userSettings:${uid}`,
+const GUEST_SCOPE = 'guest';
+
+const getUserStorageKeys = (scope: string) => ({
+  apiKeys: `willow:apiKeys:${scope}`,
+  providerState: `willow:providerState:${scope}`,
+  settings: `willow:userSettings:${scope}`,
 });
+
+// Mirrors SettingsModal: an account's cache is backed by Firestore and so can
+// die with the tab, but guest keys are only ever stored here.
+const storageForScope = (scope: string): Storage =>
+  scope === GUEST_SCOPE ? localStorage : sessionStorage;
 
 const mapProviderState = (providerState: any): ApiKeys => {
   if (!providerState) return DEFAULT_API_KEYS;
@@ -111,18 +118,21 @@ const normalizeApiKeys = (value: unknown): ApiKeys | null => {
 };
 
 const readCachedApiKeys = (uid: string | null): ApiKeys => {
-  if (!uid || typeof window === 'undefined') return DEFAULT_API_KEYS;
+  if (typeof window === 'undefined') return DEFAULT_API_KEYS;
+
+  const scope = uid ?? GUEST_SCOPE;
+  const store = storageForScope(scope);
 
   try {
-    const keys = getUserStorageKeys(uid);
-    const serializedApiKeys = sessionStorage.getItem(keys.apiKeys);
+    const keys = getUserStorageKeys(scope);
+    const serializedApiKeys = store.getItem(keys.apiKeys);
     if (serializedApiKeys) {
       const cachedApiKeys = normalizeApiKeys(JSON.parse(serializedApiKeys));
       if (cachedApiKeys) return cachedApiKeys;
-      sessionStorage.removeItem(keys.apiKeys);
+      store.removeItem(keys.apiKeys);
     }
 
-    const serializedProviderState = sessionStorage.getItem(keys.providerState);
+    const serializedProviderState = store.getItem(keys.providerState);
     if (serializedProviderState) {
       return mapProviderState(JSON.parse(serializedProviderState));
     }
@@ -133,11 +143,12 @@ const readCachedApiKeys = (uid: string | null): ApiKeys => {
   return DEFAULT_API_KEYS;
 };
 
-const cacheApiKeys = (uid: string, apiKeys: ApiKeys) => {
+const cacheApiKeys = (uid: string | null, apiKeys: ApiKeys) => {
+  const scope = uid ?? GUEST_SCOPE;
   try {
-    sessionStorage.setItem(getUserStorageKeys(uid).apiKeys, JSON.stringify(apiKeys));
+    storageForScope(scope).setItem(getUserStorageKeys(scope).apiKeys, JSON.stringify(apiKeys));
   } catch (error) {
-    console.warn('[UserData] Unable to cache API keys for this tab:', error);
+    console.warn('[UserData] Unable to cache API keys:', error);
   }
 };
 
@@ -221,7 +232,6 @@ export const useUserData = () => {
   useEffect(() => {
     const handleApiKeysUpdated = () => {
       const uid = currentUserIdRef.current;
-      if (!uid) return;
       apiKeysSyncGenerationRef.current += 1;
       setOwnedApiKeys(uid, readCachedApiKeys(uid));
     };
@@ -333,7 +343,7 @@ export const useUserData = () => {
     }
 
     setOwnedApiKeys(uid, newApiKeys);
-    if (uid) cacheApiKeys(uid, newApiKeys);
+    cacheApiKeys(uid, newApiKeys);
 
     if (uid) {
       const generation = ++apiKeysSyncGenerationRef.current;

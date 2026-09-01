@@ -54,6 +54,7 @@ import {
   playLiveSessionCue,
   primeLiveSessionCues,
 } from '@willow/ai/live';
+import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-store';
@@ -307,7 +308,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onNewChat,
   workspaceColor,
 }) => {
-  const { apiKeys } = useUserDataContext();
+  const { loading: isAuthResolving } = useAuth();
+  const { apiKeys, loading: areKeysLoading } = useUserDataContext();
   const {
     isLocalFolderConnected,
     saveLocalFSChat,
@@ -2458,7 +2460,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // "background" pointless. Within one chat a second turn is meaningless.
       if (!trimmed && attachmentSources.length === 0) return;
       if (hasRunningTurnForChat(chatTitle || chatSessionId) || sendInFlightRef.current) return;
-      if (!isAuthenticated) { onAuthRequired?.(); return; }
       if (countRunningChatTurns() >= MAX_CONCURRENT_CHAT_TURNS) return;
 
       const { provider, model, thinkingLevel, apiKey, modelLabel, baseUrl, apiFormat, toolPolicy, profileId, reasoningEffort } = resolveModel();
@@ -2703,7 +2704,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         saveChat: saveLocalFSChatRef.current,
       });
     },
-    [messages, isAuthenticated, onAuthRequired, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog]
+    [messages, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog]
   );
 
   /*
@@ -2727,23 +2728,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const pendingNotebookHandoff = useStore($notebookHandoff);
   useEffect(() => {
     /*
-     * Wait for auth before consuming.
+     * Wait for the key set to settle before consuming.
      *
-     * `handleSend` bails on `!isAuthenticated` by calling `onAuthRequired` and
-     * returning — no throw, no log. Firing this on mount therefore *silently*
-     * dropped the message whenever auth had not resolved yet, and because the
-     * handoff was already marked consumed it never retried: the notebook composer
-     * looked like it did nothing at all. Gating on `isAuthenticated` is the fix.
+     * Sending does not require an account, but it does require a key, and
+     * `handleSend` gives up when it has none. Firing this on mount therefore
+     * dropped the message whenever identity or the stored keys had not resolved
+     * yet — and because the handoff was already marked consumed it never
+     * retried, so the notebook composer looked like it did nothing at all.
+     * Both flags settle on their own within a tick or two, signed in or not.
      *
      * Re-running as `handleSend` changes identity is harmless and deliberate —
      * `consumeNotebookHandoff` returns null once taken, so the send happens once.
      */
-    if (!isAuthenticated) return;
+    if (isAuthResolving || areKeysLoading) return;
     if (!pendingNotebookHandoff || pendingNotebookHandoff.consumed) return;
     const handoff = consumeNotebookHandoff();
     if (!handoff) return;
     void handleSend(handoff.prompt);
-  }, [pendingNotebookHandoff, isAuthenticated, handleSend]);
+  }, [pendingNotebookHandoff, isAuthResolving, areKeysLoading, handleSend]);
 
   /*
    * Record the chat on the notebook it was started from, so the notebook's "Past
@@ -3070,7 +3072,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleStartLive = useCallback(() => {
     if (isLive || isGenerating) return;
-    if (!isAuthenticated) { onAuthRequired?.(); return; }
 
     // Temporary chats have no live voice. Silent rather than an inline error,
     // because there is no control to reach this from — `liveAvailable` is false
@@ -3129,8 +3130,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [
     isLive,
     isGenerating,
-    isAuthenticated,
-    onAuthRequired,
     isIncognito,
     hasLiveModel,
     apiKeys,

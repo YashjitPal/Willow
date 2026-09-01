@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
 import { defaultApiFormatForProvider, nativeToolFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
-import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type MessageCitations } from "./grounding";
+import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type GroundingCitation, type MessageCitations } from "./grounding";
 import type { CodeExecution } from "./code-execution";
 
 export interface Attachment {
@@ -905,6 +905,27 @@ const streamGeminiInteractions = async ({
   let answerStarted = false;
   const codeExecutions: CodeExecution[] = [];
   const sources: MessageCitations['sources'] = [];
+  /*
+   * Grounding on the Interactions transport, and why it needs its own bookkeeping.
+   *
+   * The legacy `generateContentStream` path reads `groundingMetadata`, which carries
+   * the sources and the supports together at the end of the response. Interactions
+   * streams the same information as `text_annotation_delta` events instead —
+   * `{ annotations: [{ start_index, end_index, url, title, type: 'url_citation' }] }`
+   * — and this adapter did not read them, so on every Interactions turn the source
+   * pill and the per-sentence chips silently stopped appearing. Measured on
+   * gemini-3.7-flash: `google_search_result` now carries `search_suggestions` HTML
+   * and no URLs at all, so the old reader found nothing to report.
+   *
+   * Sources are deduplicated by URL because one page is usually cited by several
+   * sentences, and `sourceIndices` has to point at ONE entry per page or the cards
+   * repeat. Spans are keyed by range for the same reason in the other direction: two
+   * pages citing the same sentence are one chip with two sources.
+   */
+  const sourceIndexByUrl = new Map<string, number>();
+  const spansByRange = new Map<string, GroundingCitation>();
+  /** Length of the answer as streamed, so a stale offset can be clamped to it. */
+  let answerLength = 0;
   const emitCode = () => onCodeExecutions?.(codeExecutions.map((entry) => ({ ...entry })));
   let interactionId = '';
   let interactionStatus = '';
@@ -1154,7 +1175,48 @@ const streamGeminiInteractions = async ({
           answerStarted = true;
           onPhase?.('responding');
         }
+        answerLength += delta.text.length;
         onToken(delta.text);
+      } else if (delta.type === 'text_annotation_delta' && Array.isArray(delta.annotations)) {
+        /* The grounding, as this transport reports it — see the note at
+           `sourceIndexByUrl`. `url_citation` is the only type observed; anything
+           else is ignored rather than guessed at, since a shape we cannot read is
+           better dropped than turned into a chip pointing somewhere wrong. */
+        for (const annotation of delta.annotations) {
+          if (annotation?.type && annotation.type !== 'url_citation') continue;
+          const uri = typeof annotation?.url === 'string' ? annotation.url : '';
+          if (!uri) continue;
+          let index = sourceIndexByUrl.get(uri);
+          if (index === undefined) {
+            index = sources.length;
+            sourceIndexByUrl.set(uri, index);
+            /* The redirect URL hides the real host, so the title is all there is —
+               and it IS the host on this API ("youtube.com"). Deriving the domain
+               from the URI instead would label every chip
+               `vertexaisearch.cloud.google.com`, which is the redirector rather than
+               the publisher. Same rule `grounding.ts` applies to a 1.5-era chunk
+               with no `domain`: take the title when it looks like a hostname. */
+            const title = typeof annotation.title === 'string' && annotation.title ? annotation.title : uri;
+            const looksLikeHost = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(title);
+            sources.push({
+              uri,
+              title,
+              domain: looksLikeHost
+                ? title
+                : (() => { try { return new URL(uri).hostname; } catch { return ''; } })(),
+            });
+          }
+          const start = Math.floor(Number(annotation.start_index));
+          const end = Math.floor(Number(annotation.end_index));
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < 0) continue;
+          const key = `${start}:${end}`;
+          const existing = spansByRange.get(key);
+          if (existing) {
+            if (!existing.sourceIndices.includes(index)) existing.sourceIndices.push(index);
+          } else {
+            spansByRange.set(key, { startIndex: start, endIndex: end, sourceIndices: [index] });
+          }
+        }
       } else if (delta.type === 'google_search_result' && Array.isArray(delta.result)) {
         for (const result of delta.result) {
           if (typeof result?.url !== 'string' || !result.url) continue;
@@ -1332,7 +1394,26 @@ const streamGeminiInteractions = async ({
     }));
     previousInteractionId = interactionId;
   }
-  if (sources.length) onCitations?.({ sources, citations: [] });
+  /*
+   * One emit, with the spans this time.
+   *
+   * `citations: []` was what made a grounded Interactions turn render source cards
+   * and no inline chips even when the annotations were there — the sources were
+   * reported and the ranges thrown away. Offsets are clamped to the answer actually
+   * streamed, because an annotation that arrives for text a later error truncated
+   * would otherwise point past the end of the message.
+   */
+  if (sources.length) {
+    const citations = [...spansByRange.values()]
+      .map((span) => ({
+        ...span,
+        startIndex: Math.min(span.startIndex, answerLength),
+        endIndex: Math.min(span.endIndex, answerLength),
+      }))
+      .filter((span) => span.endIndex > span.startIndex)
+      .sort((a, b) => a.startIndex - b.startIndex);
+    onCitations?.({ sources, citations });
+  }
 };
 
 // ============ MAIN STREAM CHAT FUNCTION ============
@@ -2301,12 +2382,22 @@ Adhere to the following rules and guidelines:
          read for sources. */
       && !!nativeToolFormatForProvider(provider as ProviderId, configuredFormat);
     /*
-     * The built-ins each format understands.
+     * The built-ins each format understands — and for xAI, WHICH ENDPOINT.
      *
-     * xAI exposes two and needs both declared to reach X (Twitter) as well as the
-     * open web. Declaring them as client-executed `function` tools instead is what
-     * used to make Grok answer in two turns: the model has no results on the first
-     * pass, so it narrates the gap.
+     * `web_search` and `x_search` are Responses-API vocabulary. Sending them on
+     * Chat Completions is a 422 before the model ever runs, measured in the user's
+     * own gateway log against grok-4.6:
+     *
+     *     tools[0].type: unknown variant `web_search`,
+     *                    expected `function` or `live_search`
+     *
+     * `createWithSearchFallback` then retried without search and got a clean 200,
+     * which is why this looked like it worked for weeks: every Grok turn answered,
+     * none of them searched, and the only trace was one wasted round trip.
+     *
+     * So the chat path asks for `live_search` — the variant the endpoint's own error
+     * names — and `xaiChatSearchTools` degrades from there. The Responses path keeps
+     * the agentic pair, which is where they were always correct.
      *
      * Zhipu nests its configuration and needs `search_result` before results come
      * back at all — and those strings really are `'True'`, not booleans. This used
@@ -2314,11 +2405,33 @@ Adhere to the following rules and guidelines:
      * default to `openai-chat-completions`, which is served above), so GLM search
      * silently degraded to OpenAI's flat shape.
      */
-    const openaiSearchTools = usesXaiAdapter
+    /*
+     * xAI's tools follow the CREDENTIAL as well as the format.
+     *
+     * `x_search` is xAI's alone — nobody else has an index of X to search — so an
+     * xAI profile pointed at the Responses format must still get the pair, and the
+     * `xai-chat-completions` flag cannot express that: it is a format, and that
+     * profile is no longer on it. Keying on either means "this endpoint is xAI",
+     * which is the actual question.
+     */
+    const isXaiEndpoint = usesXaiAdapter || provider === 'spacexai';
+    const openaiResponsesSearchTools = isXaiEndpoint
       ? [{ type: 'web_search' }, { type: 'x_search' }]
       : provider === 'zhipuai'
         ? [{ type: 'web_search', web_search: { enable: 'True', search_result: 'True' } }]
         : [{ type: 'web_search' }];
+    /*
+     * Two spellings of xAI's Live Search, tried in order, because which one an
+     * endpoint accepts is not knowable in advance: `live_search` is what api.x.ai
+     * named in its rejection, and `search_parameters` is the long-documented
+     * top-level block that gateways implemented first. A relay may have either.
+     * Both are dropped by the same fallback if neither lands.
+     */
+    let xaiSearchAttempt = 0;
+    const XAI_SEARCH_SHAPES: { tools?: any[]; extra?: Record<string, any> }[] = [
+      { tools: [{ type: 'live_search' }] },
+      { extra: { search_parameters: { mode: 'auto', return_citations: true } } },
+    ];
 
     /* Canvas and the personalization tools, in both OpenAI shapes. Same executor
        as every other provider — `onToolCall` knows nothing about wire formats. */
@@ -2374,8 +2487,8 @@ Adhere to the following rules and guidelines:
               input: responsesInput,
               ...(systemPrompt ? { instructions: systemPrompt } : {}),
               ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-              ...((searchEnabled ? openaiSearchTools : []).concat(openaiResponsesFunctions).length
-                ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiResponsesFunctions] }
+              ...((searchEnabled ? openaiResponsesSearchTools : []).concat(openaiResponsesFunctions).length
+                ? { tools: [...(searchEnabled ? openaiResponsesSearchTools : []), ...openaiResponsesFunctions] }
                 : {}),
               background: true,
             } as any, signal ? { signal } : undefined),
@@ -2413,8 +2526,8 @@ Adhere to the following rules and guidelines:
               input: responsesInput,
               ...(systemPrompt ? { instructions: systemPrompt } : {}),
               ...(sendsReasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-              ...((searchEnabled ? openaiSearchTools : []).concat(openaiResponsesFunctions).length
-                ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiResponsesFunctions] }
+              ...((searchEnabled ? openaiResponsesSearchTools : []).concat(openaiResponsesFunctions).length
+                ? { tools: [...(searchEnabled ? openaiResponsesSearchTools : []), ...openaiResponsesFunctions] }
                 : {}),
               stream: true,
             } as any, signal ? { signal } : undefined),
@@ -2538,29 +2651,64 @@ Adhere to the following rules and guidelines:
        * been emitted.
        */
       let sendsStreamOptions = true;
+      /*
+       * One ladder for the whole chat path, rather than `createWithSearchFallback`
+       * plus a nested retry.
+       *
+       * It has to be one, because the steps interact: xAI's Live Search has two
+       * possible spellings, and the generic "drop search" fallback would have fired
+       * on the first rejection and never tried the second. Each step drops exactly
+       * what the endpoint named, and every rejection here arrives before a token has
+       * been emitted, so no retry can duplicate output.
+       */
+      let searchWanted = openaiSearchEnabled;
 
       for (let round = 0; ; round += 1) {
         const openChatStream = async (): Promise<any> => {
-          try {
-            return await createWithSearchFallback(
-              (searchEnabled) => openai.chat.completions.create({
+          for (;;) {
+            const searchShape = isXaiEndpoint ? XAI_SEARCH_SHAPES[xaiSearchAttempt] : null;
+            const builtIns = !searchWanted
+              ? []
+              : isXaiEndpoint
+                ? (searchShape?.tools ?? [])
+                : openaiResponsesSearchTools;
+            const extra = searchWanted && searchShape?.extra ? searchShape.extra : {};
+            try {
+              return await openai.chat.completions.create({
                 ...chatCompletionParams,
                 messages: chatMessages,
-                ...((searchEnabled ? openaiSearchTools : []).concat(openaiChatFunctions).length
-                  ? { tools: [...(searchEnabled ? openaiSearchTools : []), ...openaiChatFunctions] }
+                ...(builtIns.concat(openaiChatFunctions).length
+                  ? { tools: [...builtIns, ...openaiChatFunctions] }
                   : {}),
+                ...extra,
                 stream: true,
                 ...(sendsStreamOptions ? { stream_options: { include_usage: true } } : {}),
-              } as any, signal ? { signal } : undefined),
-              openaiSearchEnabled,
-              signal,
-            );
-          } catch (error: any) {
-            throwIfAborted(signal);
-            if (!sendsStreamOptions || isAbortError(error)) throw error;
-            if (!namesRejectedParameter(error, /stream_options|include_usage/i)) throw error;
-            sendsStreamOptions = false;
-            return openChatStream();
+              } as any, signal ? { signal } : undefined);
+            } catch (error: any) {
+              throwIfAborted(signal);
+              if (isAbortError(error)) throw error;
+              /* xAI first: try its other Live Search spelling before giving search up.
+                 The 422 names the offending member, so this only fires on a rejection
+                 that mentions one of the two. */
+              if (
+                isXaiEndpoint
+                && searchWanted
+                && xaiSearchAttempt < XAI_SEARCH_SHAPES.length - 1
+                && namesRejectedParameter(error, /live_search|search_parameters|web_search|x_search|tools/i)
+              ) {
+                xaiSearchAttempt += 1;
+                continue;
+              }
+              if (searchWanted && namesSearchToolRejection(error)) {
+                searchWanted = false;
+                continue;
+              }
+              if (sendsStreamOptions && namesRejectedParameter(error, /stream_options|include_usage/i)) {
+                sendsStreamOptions = false;
+                continue;
+              }
+              throw error;
+            }
           }
         };
         const stream = await openChatStream();

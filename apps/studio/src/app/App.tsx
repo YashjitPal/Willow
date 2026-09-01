@@ -1111,6 +1111,17 @@ const App: React.FC = () => {
     navigate(`/project1?prompt=${encodedPrompt}&mode=${mode}`, { state: { initialAttachments: attachments, isNewProject: true } });
   };
 
+  /*
+   * Chat, Develop and live voice run entirely on the user's own API key, so the
+   * only thing they can be missing is a key — never an account. They get
+   * Settings → Models rather than the login page, which is also what makes the
+   * composer's "Add new" model button work in both signed states.
+   */
+  const openModelSettings = () => {
+    setSettingsInitialTab('models');
+    setIsSettingsOpen(true);
+  };
+
   // Helper to open settings to Drive connector
   const openDriveSettings = () => {
     setSettingsInitialTab('connectors');
@@ -1307,7 +1318,7 @@ const App: React.FC = () => {
                 selectedModelId={selectedModelId}
                 setSelectedModelId={setSelectedModelId}
                 isAuthenticated={!!user}
-                onAuthRequired={!user ? () => navigate('/login') : undefined}
+                onAuthRequired={openModelSettings}
                 onOpenDriveSettings={openDriveSettings}
                 isIncognito={isIncognito}
                 onChatStartedChange={setHasActiveChat}
@@ -1377,7 +1388,7 @@ const App: React.FC = () => {
                 selectedModelId={selectedModelId}
                 setSelectedModelId={setSelectedModelId}
                 isAuthenticated={!!user}
-                onAuthRequired={!user ? () => navigate('/login') : undefined}
+                onAuthRequired={openModelSettings}
                 onSettingsClick={(tab) => {
                   if (tab) setSettingsInitialTab(tab as any);
                   setIsSettingsOpen(true);
