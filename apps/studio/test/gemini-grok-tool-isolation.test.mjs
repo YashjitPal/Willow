@@ -74,10 +74,18 @@ describe('Gemini and Grok tool isolation', () => {
       'search must never be declared as a client-executed function tool',
     );
     assert.doesNotMatch(chat, /\/llm-search/, 'the client-side search fetch must be gone');
+    // Both of xAI's server-side tools, keyed on the ENDPOINT rather than the wire
+    // format: `x_search` is xAI's alone, so an xAI profile switched to the Responses
+    // format keeps the pair instead of falling back to OpenAI's single tool.
     assert.match(
       openaiBranch,
-      /usesXaiAdapter\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
+      /isXaiEndpoint\s*\r?\n\s*\? \[\{ type: 'web_search' \}, \{ type: 'x_search' \}\]/,
       'xAI needs both server-side search tools declared',
+    );
+    assert.match(
+      openaiBranch,
+      /const isXaiEndpoint = usesXaiAdapter \|\| provider === 'spacexai';/,
+      'and "is this xAI" is the question, not "is this the xAI format"',
     );
   });
 

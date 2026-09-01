@@ -723,7 +723,6 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   const handleIdleSubmit = useCallback(() => {
     const text = promptText.trim();
     if (!text && attachments.length === 0) return;
-    if (!isAuthenticated) { onAuthRequired?.(); return; }
 
     startTransition(() => {
       setInitialPrompt(text);
@@ -733,7 +732,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setIsChatMode(true);
       setPhase('active');
     });
-  }, [promptText, attachments, isAuthenticated, onAuthRequired]);
+  }, [promptText, attachments]);
 
   // Handle file input for attachments
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
