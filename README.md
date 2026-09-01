@@ -4,14 +4,17 @@
 
 # Willow
 
-### One workspace for everything you make with AI.
+### An Open-Source, All-in-One AI Studio & Canvas Workspace
 
-Talk to a model, build a working app from a sentence, generate images, music and
-video, and hand your recurring work to an agent that runs on a schedule — all in
-one place, on your machine, with your own API keys.
+A multi-surface client combining conversational LLM chat, an interactive
+component-generation canvas (inspired by full-stack prompt builders), and visual
+workflow pipelines into a single interface — on your machine, with your own API
+keys.
 
 <br />
 
+<img src="https://img.shields.io/badge/status-alpha-FF8C00?style=flat-square" alt="Alpha" />
+<img src="https://img.shields.io/badge/license-MIT-4C9A2A?style=flat-square" alt="MIT licence" />
 <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React 19" />
 <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 5.8" />
 <img src="https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite 6" />
@@ -22,18 +25,43 @@ one place, on your machine, with your own API keys.
 
 <br />
 
+> [!IMPORTANT]
+> **Willow is an alpha release.** It is usable and it is real, but it is not
+> finished. Read [Known issues](#known-issues) before you rely on it — in
+> particular, **Gemini is the provider that works best today**, and several
+> surfaces are deliberately switched off until you enable them in
+> **Settings → Labs**.
+
+<br />
+
 ## Why Willow
 
+Why switch across four different tabs for chatting, code generation, and visual
+workflows? Willow is a unified, open-source AI super-app that brings all of it
+into one persistent workspace.
+
 Most AI tools are single-purpose. You write in one, code in another, generate
-images in a third, and glue the results together by hand. Willow is the opposite
-bet: one shell, one thread of context, one set of files — and four surfaces
-sharing them.
+images in a third, and glue the results together by hand — losing your context at
+every hop. Willow is the opposite bet: one shell, one thread of context, one set
+of files, and every surface sharing them.
 
 It is **local-first**. Your chats, projects, notebooks and generated media live
 in a folder *you* pick on your own disk, through the browser's File System
 Access API. There is no Willow account, no Willow server, and no telemetry. The
 only network calls are the ones you make to the model provider whose key you
 entered.
+
+<br />
+
+## Demo
+
+<!--
+  TODO: 10-15s screen capture showing the switch between the main chat surface
+  and the sidebar tools — the interactive builder and the flow canvas — without
+  a page reload or a lost thread.
+-->
+
+*A short walkthrough video is coming — it'll land here.*
 
 <br />
 
@@ -53,6 +81,9 @@ Open **http://localhost:3000**, then open **Settings → Models** and paste in a
 key for whichever provider you want to use. Pick a folder when prompted and
 you're running.
 
+For the alpha, **start with a Google Gemini key** — it is the provider the app is
+most thoroughly wired against. See [Known issues](#known-issues).
+
 <br />
 
 ## What's inside
@@ -63,6 +94,14 @@ you're running.
 | ⌨️ | **Code** | Describe an app, watch it get written, run it live, edit it by clicking |
 | 🎨 | **Media** | Images, music, video, and consistent characters across a set |
 | ⚡ | **Spark** | Agents that run on a schedule and can drive a real browser |
+
+Two more surfaces exist but are **unfinished, and hidden by default**. Turn them
+on in **Settings → Labs** if you want to look around:
+
+|  | Surface | State |
+| :-- | :-- | :-- |
+| 🎛️ | **Agents** | A node-based canvas for visual workflow pipelines. Explorable, not finished |
+| 🖌️ | **Design** | A canvas for generating UI from text or sketches. Explorable, not finished |
 
 <br />
 
@@ -176,14 +215,14 @@ Willow has no opinion about who serves your tokens. Six providers are wired in,
 each with its own key, and each with a full tool-calling loop — not just plain
 text completion.
 
-| Provider | Models |
-| :-- | :-- |
-| **Google** | Gemini |
-| **Anthropic** | Claude |
-| **OpenAI** | GPT |
-| **xAI** | Grok |
-| **Moonshot** | Kimi |
-| **Zhipu** | GLM |
+| Provider | Models | Alpha status |
+| :-- | :-- | :-- |
+| **Google** | Gemini | ✅ Best supported — the one to start with |
+| **Anthropic** | Claude | 🧪 Under testing |
+| **OpenAI** | GPT | 🧪 Under testing |
+| **xAI** | Grok | 🧪 Under testing |
+| **Moonshot** | Kimi | 🧪 Under testing |
+| **Zhipu** | GLM | 🧪 Under testing |
 
 Keys are entered in Settings and stored locally. Reasoning effort, grounded
 search, code execution and transcription are negotiated per provider, so the
@@ -244,14 +283,56 @@ nanostores for cross-surface state.
 
 ---
 
-## Status
+## Known issues
 
-Willow is under active development and moving quickly. Chat, Code, Media and
-Spark are the four surfaces worth your time today. A few others are in the tree
-and deliberately undocumented for now — they'll get their own write-up when
-they're ready to be used rather than watched.
+**Willow is an alpha release.** It is under active development and moving
+quickly, and plenty of it is not baked yet. What follows is the honest state of
+things rather than a roadmap — none of it is a surprise, and all of it is
+fixable.
 
-Contributions, issues and ideas are welcome.
+**Gemini is the provider that works best.** Willow is wired against six
+providers and every one of them has a full tool-calling loop, but Google's is the
+path that gets the most use and the most testing. **Anthropic, OpenAI, xAI,
+Moonshot and Zhipu are all under testing and may not behave as intended** —
+expect rough edges around tool calls, streamed reasoning, grounded search and
+attachments in particular. If something misbehaves on another provider, try the
+same prompt on Gemini before assuming the feature itself is broken.
+
+**Not every feature is finished.**
+
+- **Agents and Design are incomplete and hidden by default.** Both ship switched
+  off behind **Settings → Labs**. Turn them on if you want to look at the UI, but
+  treat them as previews rather than tools — they are there to be seen, not
+  relied on.
+- Surfaces are at uneven depth. Chat, Code, Media and Spark are the four worth
+  your time today; the rest are earlier.
+- Some settings panels are static mock-ups rather than wired controls. Labs marks
+  which of its toggles actually do something.
+- Errors are not uniformly surfaced yet. A failed provider call can be quieter
+  than it should be — the browser console is still sometimes the fastest way to
+  see what went wrong.
+
+**Nothing here is a data risk.** Willow writes plain files into a folder you
+picked, so the worst case of any of the above is a surface that misbehaves, not
+work you cannot recover.
+
+Contributions, issues and ideas are very welcome — especially non-Gemini provider
+reports, which are exactly what the alpha needs.
+
+<br />
+
+---
+
+## Credits
+
+Design language and interaction patterns inspired by Gemini, Lovable, and
+next-gen canvas tools.
+
+<br />
+
+## Licence
+
+[MIT](LICENSE) © 2026 Yashjit Pal.
 
 <br />
 

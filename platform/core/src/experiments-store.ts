@@ -12,7 +12,10 @@
 
 import { atom } from 'nanostores';
 
-export type ExperimentId = 'darker-design-background';
+export type ExperimentId =
+  | 'darker-design-background'
+  | 'design-surface'
+  | 'agents-surface';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -20,6 +23,8 @@ const STORAGE_KEY = 'willow:experiments';
 
 export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'darker-design-background': false,
+  'design-surface': false,
+  'agents-surface': false,
 };
 
 /**

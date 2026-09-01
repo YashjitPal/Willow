@@ -25,6 +25,7 @@ import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-stor
 import { sparkLocation } from '@willow/spark/spark-store';
 import { startNotebookChat } from '@willow/notebooks/notebook-chat-store';
 import type { StudioExperience } from '@willow/core/types';
+import { experimentsStore, isExperimentEnabled } from '@willow/core/experiments-store';
 import { createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
 import { CHROME_NATIVE_TRANSCRIPTION_MODEL } from '@willow/ai/transcription';
 import {
@@ -283,6 +284,14 @@ const App: React.FC = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const activeSparkLocation = useStore(sparkLocation);
+  /*
+   * Agents and Design are unfinished surfaces, hidden until switched on in
+   * Settings > Labs. The Sidebar hides their rows off the same flags; these
+   * gates are what stop `/design` and `/?view=agents` being reachable anyway.
+   */
+  const experiments = useStore(experimentsStore);
+  const isDesignEnabled = experiments['design-surface'];
+  const isAgentsEnabled = experiments['agents-surface'];
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
@@ -294,7 +303,7 @@ const App: React.FC = () => {
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
-    if (location.pathname === '/design') return 'design';
+    if (location.pathname === '/design' && isExperimentEnabled('design-surface')) return 'design';
     if (location.pathname.startsWith('/gems')) return 'gems';
     const notebookRoute = matchNotebookRoute(location.pathname);
     if (notebookRoute) return notebookRoute.view;
@@ -711,6 +720,8 @@ const App: React.FC = () => {
   const viewChangeIntentRef = React.useRef<ViewType | null>(null);
   const handleViewChange = React.useCallback(async (view: ViewType): Promise<boolean> => {
     if (view === currentView) return true;
+    if (view === 'design' && !isDesignEnabled) return false;
+    if (view === 'agents' && !isAgentsEnabled) return false;
     const sequence = ++viewChangeSequenceRef.current;
     viewChangeIntentRef.current = view;
     // Before the first `startTopLoading` below, which would otherwise raise the
@@ -759,7 +770,21 @@ const App: React.FC = () => {
     }
     commitView(view);
     return true;
-  }, [commitView, currentView, finishTopLoading, navigate, searchParams, startTopLoading, location.pathname]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, navigate, searchParams, startTopLoading, location.pathname]);
+
+  /*
+   * Bounce off a Labs-gated URL. The sync effects below simply decline to enter
+   * the view, which would leave the shell rendering Home while the address bar
+   * still read `/design` — and would leave the view stuck if a user turned the
+   * flag off while sitting on the surface.
+   */
+  React.useEffect(() => {
+    if (location.pathname === '/design' && !isDesignEnabled) {
+      navigate('/', { replace: true });
+    } else if (searchParams.get('view') === 'agents' && !isAgentsEnabled) {
+      navigate('/', { replace: true });
+    }
+  }, [isAgentsEnabled, isDesignEnabled, location.pathname, navigate, searchParams]);
 
   /**
    * Open one notebook.
@@ -853,7 +878,7 @@ const App: React.FC = () => {
       if (currentView !== 'connected-apps') {
         commitView('connected-apps');
       }
-    } else if (location.pathname === '/design') {
+    } else if (location.pathname === '/design' && isDesignEnabled) {
       if (currentView !== 'design') {
         commitView('design');
       }
@@ -881,7 +906,7 @@ const App: React.FC = () => {
     ) {
       commitView('home');
     }
-  }, [location.pathname, currentView, commitView]);
+  }, [location.pathname, currentView, commitView, isDesignEnabled]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
@@ -901,7 +926,7 @@ const App: React.FC = () => {
         return;
       }
 
-      if (user && searchParams.get('view') === 'agents') {
+      if (user && isAgentsEnabled && searchParams.get('view') === 'agents') {
         if (!cancelled && sequence === viewChangeSequenceRef.current && currentView !== 'agents') {
           startTopLoading('studio-view');
           commitView('agents');
@@ -933,7 +958,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [commitView, currentView, finishTopLoading, navigate, searchParams, startTopLoading, user]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, navigate, searchParams, startTopLoading, user]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-view'));
