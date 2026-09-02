@@ -47,9 +47,14 @@ of files, and every surface sharing them.
 
 It is **local-first**. Your chats, projects, notebooks and generated media live
 in a folder *you* pick on your own disk, through the browser's File System
-Access API. There is no Willow account, no Willow server, and no telemetry. The
-only network calls are the ones you make to the model provider whose key you
-entered.
+Access API. Willow never uploads your work, and there is no analytics or
+telemetry of any kind.
+
+Signing in is **optional** and is backed by Firebase. If you stay signed out,
+everything — including your API keys — stays on your machine. If you do sign in,
+please read [the note on API keys](#api-keys-and-what-leaves-your-machine)
+first: today they sync to that Firebase project in plaintext, and that is being
+changed.
 
 <br />
 
@@ -297,6 +302,30 @@ Moonshot and Zhipu are all under testing and may not behave as intended** —
 expect rough edges around tool calls, streamed reasoning, grounded search and
 attachments in particular. If something misbehaves on another provider, try the
 same prompt on Gemini before assuming the feature itself is broken.
+
+### API keys, and what leaves your machine
+
+**If you sign in, your API keys are currently synced to Willow's Firebase
+project in plaintext.** This is the most serious known issue in the alpha and it
+is being fixed — key storage is moving to local-only for everyone. Until that
+ships, be aware of exactly what happens:
+
+| You are | Where your keys are stored | Do they leave your machine? |
+| :-- | :-- | :-- |
+| **Signed out** | Your browser's `localStorage` | **No — never** |
+| **Signed in** | Your browser, **and** the `users/{uid}` document in Firestore, as readable strings | **Yes** |
+
+Signed in, the project owner can read those keys in the Firebase console. Willow
+does not use them for anything other than your own requests, but you should not
+have to take that on trust — so, until the fix lands, pick whichever of these
+suits you:
+
+- **Use Willow signed out.** Bring-your-own-key works fully without an account;
+  nothing about the model surfaces requires signing in.
+- **Or use a disposable, spend-capped key** that you can revoke at any time.
+
+Your chats, projects and generated media are *not* affected either way — those
+are plain files in the folder you chose, and they are never uploaded.
 
 **Not every feature is finished.**
 
