@@ -6,9 +6,6 @@ import {
   Bot,
   ChevronRight,
   Compass,
-  Hammer,
-  ScanEye,
-  Telescope,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -27,11 +24,12 @@ import { agents as agentsStore, focusAgent, focusedAgentId } from '../agent-stor
 import type { AgentKind, SubAgent } from '../harness/runtime/protocol';
 
 /**
- * Per-kind identity for sub-agents.
+ * Per-role identity.
  *
- * Each kind gets a stable glyph and hue so a running fleet is readable at a
- * glance — an implementer is distinguishable from a reviewer without reading
- * the label.
+ * Two roles, because upstream ships two built-ins and only one of them can work
+ * here — see `AgentKind` in the protocol. The four that used to be listed
+ * (`implementer`, `reviewer`, `researcher`) were invented, and giving them
+ * glyphs and hues made them look like a system rather than a guess.
  */
 const AGENT_META: Record<AgentKind, { icon: LucideIcon; label: string; tint: string; wash: string }> = {
   explorer: {
@@ -40,25 +38,45 @@ const AGENT_META: Record<AgentKind, { icon: LucideIcon; label: string; tint: str
     tint: 'text-[hsl(199_82%_68%)]',
     wash: 'bg-[hsl(199_82%_68%)]/12',
   },
-  implementer: {
-    icon: Hammer,
-    label: 'Implementer',
+  agent: {
+    icon: Bot,
+    label: 'Agent',
     tint: 'text-[hsl(253_88%_76%)]',
     wash: 'bg-[hsl(253_88%_76%)]/12',
   },
-  reviewer: {
-    icon: ScanEye,
-    label: 'Reviewer',
-    tint: 'text-[hsl(38_88%_66%)]',
-    wash: 'bg-[hsl(38_88%_66%)]/12',
-  },
-  researcher: {
-    icon: Telescope,
-    label: 'Researcher',
-    tint: 'text-[hsl(285_75%_74%)]',
-    wash: 'bg-[hsl(285_75%_74%)]/12',
-  },
 };
+
+/**
+ * How deep an agent sits, from its canonical path.
+ *
+ * `/root/a` is 0, `/root/a/b` is 1. Used to indent the panel so the tree is
+ * visible: a flat list of `/root/explore/deeper` strings is technically
+ * complete and unreadable, and the whole reason nested spawning exists is that
+ * the shape of the tree carries meaning.
+ */
+const agentDepth = (agent: SubAgent): number =>
+  Math.max(0, (agent.path ?? '/root').split('/').length - 3);
+
+/** The status line the model itself would read, for the panel. */
+function agentStatusLabel(agent: SubAgent): string {
+  const status = agent.agentStatus;
+  if (!status) return agent.objective;
+  switch (status.kind) {
+    case 'running':
+    case 'pending_init':
+      return agent.activity ?? agent.objective;
+    case 'interrupted':
+      return 'Interrupted — can be re-tasked';
+    case 'completed':
+      return status.message ?? 'Finished';
+    case 'errored':
+      return status.message;
+    case 'shutdown':
+      return 'Shut down';
+    case 'not_found':
+      return 'Not found';
+  }
+}
 
 /* ------------------------------------------------------------------------ */
 /* Inline chip                                                               */
@@ -109,8 +127,15 @@ function AgentChip({ agent }: { agent: SubAgent }) {
         {meta.label}
       </span>
 
-      <span className="min-w-0 flex-1 truncate text-xs text-[hsl(var(--cb-ink))]">
-        {agent.name}
+      {/*
+        * The path, not the label.
+        *
+        * `/root/explore/deeper` is the agent's actual address — the thing the
+        * model types into `send_message` — and it is also the only way to see
+        * that one agent spawned another. A bare display name hides both.
+        */}
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[hsl(var(--cb-ink))]">
+        {agent.path ?? agent.name}
       </span>
 
       <span className="min-w-0 shrink truncate text-[11px]">
@@ -203,16 +228,31 @@ export function AgentsPanel({ agents: list }: { agents: SubAgent[] }) {
 
       {/* Capped width: agent rows are text, and full-bleed lines on a wide
           display are hard to track back to the next row. */}
+      {/* Capped width: agent rows are text, and full-bleed lines on a wide
+          display are hard to track back to the next row. */}
       <div className="cb-scroll mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-2 overflow-y-auto p-3">
         {list.map((agent) => (
-          <AgentRow key={agent.id} agent={agent} expanded={focused === agent.id} />
+          <AgentRow
+            key={agent.id}
+            agent={agent}
+            expanded={focused === agent.id}
+            depth={agentDepth(agent)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function AgentRow({ agent, expanded }: { agent: SubAgent; expanded: boolean }) {
+function AgentRow({
+  agent,
+  expanded,
+  depth,
+}: {
+  agent: SubAgent;
+  expanded: boolean;
+  depth: number;
+}) {
   const meta = AGENT_META[agent.kind];
   const running = agent.status === 'running';
   const elapsed = useElapsed(agent.startedAt, running);
@@ -225,6 +265,9 @@ function AgentRow({ agent, expanded }: { agent: SubAgent; expanded: boolean }) {
       initial={reduced ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+      // Indented by depth, capped so a deep tree stays readable rather than
+      // walking off the right edge.
+      style={{ marginLeft: `${Math.min(depth, 4) * 16}px` }}
       className={cn(
         'overflow-hidden rounded-lg border bg-[hsl(var(--cb-surface))] transition-[border-color] duration-200',
         expanded
@@ -253,14 +296,23 @@ function AgentRow({ agent, expanded }: { agent: SubAgent; expanded: boolean }) {
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-xs font-medium text-[hsl(var(--cb-ink))]">{agent.name}</span>
+            <span className="truncate font-mono text-[11px] font-medium text-[hsl(var(--cb-ink))]">
+              {agent.path ?? agent.name}
+            </span>
             <Badge tone="outline">{meta.label}</Badge>
+            {/* What context it inherited. `none` explains a confused agent
+                far more often than anything else does. */}
+            {agent.forkTurns && agent.forkTurns !== 'all' && (
+              <Badge tone="outline">fork {agent.forkTurns}</Badge>
+            )}
           </span>
           <span className="block truncate text-[11px]">
             {running && agent.activity ? (
               <ShimmerText>{agent.activity}</ShimmerText>
             ) : (
-              <span className="text-[hsl(var(--cb-ink-faint))]">{agent.objective}</span>
+              <span className="text-[hsl(var(--cb-ink-faint))]">
+                {agentStatusLabel(agent)}
+              </span>
             )}
           </span>
         </span>

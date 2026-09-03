@@ -1586,12 +1586,20 @@
   margin-bottom: 0;
 }
 
+/*
+ * The working spark. Its `fill`s are `currentColor` in `gemini-working-animation/`
+ * rather than Gemini's literal `rgb(49,134,255)`, so the glyph follows the
+ * workspace colour. The asset carried exactly one colour across the template and
+ * every frame, so there was nothing else in it to preserve — the loop animates
+ * `fill-opacity` and transforms, not hue.
+ */
 .spark-task-detail__agent-working-animation {
   display: inline-block;
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
   overflow: visible;
+  color: var(--spark-accent-bright, #3186ff);
 }
 
 .spark-task-detail__agent-working-animation > svg {

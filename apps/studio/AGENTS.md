@@ -15,7 +15,8 @@ behaviour that belongs to Code or Media or Agents, it goes in that feature.
 | `src/shell/sidebar/` | Sidebar, its icons, primitives, appearance + user menus. |
 | `src/shell/SearchModal.tsx` | Global search. |
 | `src/shell/BackgroundContext.tsx` | Which animated background is active. |
-| `src/settings/` | Settings modal and its eight tabs. |
+| `src/settings/` | Settings modal and its eight tabs, plus the full-page settings routes. |
+| `src/settings/provider-settings.ts` | API keys and endpoints. Module scope, deliberately — see below. |
 | `scripts/lib/willow-aliases.mjs` | Reads `tsconfig.base.json` `paths`; feeds bundlers. |
 | `vite.config.ts` | Dev server, the mounted backend, and the LLM proxy. |
 
@@ -33,19 +34,22 @@ top-level import defeats the code-splitting and inflates the initial bundle.
 
 ### Gating one behind Labs
 
-**Agents and Design are both gated this way** — they are unfinished, so the alpha
-ships them off by default behind `agents-surface` and `design-surface` rather
-than putting a half-built surface in the rail. `darker-design-background` is the
-third flag, and it toggles a style rather than a route.
+**Agents, Design and Projects are all gated this way** — they are unfinished, so
+the alpha ships them off by default behind `agents-surface`, `design-surface` and
+`projects-panel` rather than putting a half-built surface in the rail.
+`darker-design-background` is the fourth flag, and it toggles a style rather than
+a route.
 
 Four pieces, and the lazy import is what makes the gate meaningful rather than
 cosmetic:
 
 1. A flag id in `ExperimentId` and a `false` default in
    [`platform/core/src/experiments-store.ts`](../../platform/core/src/experiments-store.ts).
-2. A row in `src/settings/tabs/LabsTab.tsx` using the `ExperimentToggle` already
-   defined there. (The other toggles on that tab are still static mock-ups —
-   only wire the ones backed by a flag.)
+2. An entry in `src/settings/labs-experiments.ts`. That roster is the only place
+   a row is declared and **both** Labs surfaces render it, so this is one edit
+   rather than two — see *Labs has two surfaces* below. (Two entries there carry
+   `id: null`: static mock-ups with no flag behind them, which each surface draws
+   inert. Only wire the ones backed by a flag.)
 3. A `ViewType` member plus a sidebar row wrapped in `experiments['<id>'] && (…)`.
    The Sidebar reads `experimentsStore` through `useStore`.
 4. A `React.lazy` route in `App.tsx`.
@@ -59,6 +63,14 @@ while sitting on the surface — the sync effects only decline to *enter* a view
 which would otherwise leave Home rendering under a `/design` address bar.
 Agents exits through the existing `agentBuilderDraftFlush` path, so switching the
 flag off mid-edit still gets the draft-save prompt.
+
+Projects is the exception that proves the point: it has **no URL**, so it is only
+ever entered from its sidebar row and there is nothing for a redirect to bounce
+off. Its gate is therefore the row, the `handleViewChange` early return, and a
+small effect that commits `'home'` if the flag goes off while the page is open.
+Do not make the render chain's final `else` conditional on the flag — that branch
+is what holds the Projects page on screen during a notebook transition, and
+gating it would reintroduce the dark flash the transition exists to prevent.
 
 Because the route is lazy, a user who never enables the flag never downloads the
 chunk — the experiment costs nothing to ship. Doing step 3 without step 4 would
@@ -267,6 +279,109 @@ two independent copies), and it keeps the sidebar off a composer stylesheet that
 not be mounted.
 
 `apps/studio/test/gemini-sidebar-footer.test.mjs` pins all of the above.
+
+## Models & API has two surfaces, and one store behind them
+
+The same settings are reachable two ways, and both stay:
+
+| Entry | Surface |
+| --- | --- |
+| Profile menu → Settings → **Models & API** | `settings/tabs/ModelsTab.tsx`, inside `SettingsModal` |
+| Sidebar gear → **Models** | `settings/tabs/models-api/ModelsApiPage.tsx`, at `/models-settings` |
+
+The page is not a re-skin of the tab — it is a separate component drawn in the
+language of the other full-page settings (`#0f0f0f`, one centred 800px column,
+`#1e1f20` cards on a 12px radius, Google Sans Flex), with every control the tab
+has doing the same thing. The one thing it drops is the tab's two-page provider
+pager: that exists because six cards did not fit a dialog's content pane, and a
+page lists all six.
+
+Its accents are the **workspace colour**, not a fixed hue. `ModelsApiPage` reads
+`getWorkspaceTheme(userProfile?.workspaceColor)` and hands the CSS three
+variables, the way the notebooks pages do: `--ma-primary` from `creamy.hex` (the
+pastel that tints configured providers, checkmarks and focus rings) and
+`--ma-accent-button-bg`/`-hover` from `sendButton.*` (the deeper pair that fills
+"Add to models"). Those two roles are the same ones they play on the agent cards
+and the composer's send button — keep them distinct, or a button reads as another
+icon tile. The defaults in `ModelsApiPage.css` are Willow Green's; do not
+hardcode a hex anywhere else in that file.
+
+**They must not each own the keys.** Three pieces are therefore module-scope in
+`settings/provider-settings.ts`, not component state:
+
+- the `$providerState` atom both surfaces render from,
+- the Firestore load, single-flighted per uid,
+- the 400ms debounced save.
+
+`SettingsModal` stays mounted after its first open (the `hasOpenedSettings` latch
+in `App.tsx`), so both surfaces are alive at once. Two copies of this would mean
+two loads of `users/{uid}`, a key typed on one surface invisible on the other, and
+two debounced writers racing on one field — where the loser's 400ms-old snapshot
+silently overwrites the key just typed. `useProviderSettings` is only a
+subscription; call it from as many surfaces as you like.
+
+The offered-model roster and its pricing table are shared for the same reason, in
+`settings/provider-models.ts`: a model added on either surface lands in the one
+`modelConfig` the composer reads, so it has to be the same record either way.
+Several assertions in `test/model-catalog.test.mjs` read that file as source text.
+
+### Adding a model
+
+Usually two edits, both in `settings/provider-models.ts`: an entry in the
+provider's list and a row in the pricing table. Everything downstream keys off
+the id's shape, so a well-named model needs nothing else — `providerOfModelId`
+reads the prefix, `familyRank` and `versionOf` in `@willow/ai/models/auto-select`
+place it on the price ladder, `getModelCategory` in `@willow/core/model-catalog`
+decides text vs image/video/audio, and `chat.ts` picks the thinking map off
+`model.includes('flash')` and friends.
+
+The exception is a model whose **reasoning scale differs from its family's**.
+Those need the request layer to agree with the picker, or the user selects an
+effort the API cannot be sent. `GEMINI_FLASH_WITHOUT_MINIMAL` in
+`@willow/ai/models/efforts` is the worked example: Gemini 3.7 and 3.8 Flash start
+at Low, so they appear there, carry `hasNone: false` in the catalogue, and
+`chat.ts` floors a stored level 0 up to 1 off the same list. When in doubt about
+an undocumented model, fail *closed* — a missing cheap step costs the user a
+choice, while a `minimal` the API quietly upgrades to full thinking costs them
+money and tells them nothing.
+
+## Labs has two surfaces
+
+Same arrangement as Models & API, for the same reason, and both stay:
+
+| Entry | Surface |
+| --- | --- |
+| Profile menu → Settings → **Labs** | `settings/tabs/LabsTab.tsx`, inside `SettingsModal` |
+| Sidebar gear → **Labs** | `settings/tabs/labs/LabsPage.tsx`, at `/labs` |
+
+The page is not a re-skin of the tab. It is drawn in the language of the other
+full-page settings — `#0f0f0f`, one centred 800px column, `#1e1f20` cards on a
+12px radius, Google Sans Flex, the same 68px top margin — while the tab stays
+dialog-shaped, with 14px type on `border-white/5` dividers.
+
+**Neither surface owns the roster or the flags.** The rows come from
+`settings/labs-experiments.ts` and the flags from `experimentsStore` in
+`@willow/core/experiments-store`. That store was already the single writer, so
+unlike Models & API there is no load or debounced save to single-flight — a flag
+flipped on the page is flipped on the tab behind it, which matters because
+`SettingsModal` stays mounted after its first open. Duplicating the row list
+would be the real hazard: an experiment offered on one surface and hidden on the
+other is a feature the user can only find by luck.
+
+Its switch is **`PersonalIntelligenceTab`'s MDC slide toggle reproduced geometry
+for geometry** in `LabsPage.css` — 52x32 track, a 16px handle growing to 24px and
+travelling 20px, 75ms on `cubic-bezier(0.4, 0, 0.2, 1)` — so a toggle is the same
+object on every settings page. The one intended difference is colour: the Personal
+Intelligence copy hardcodes Gemini's blues, while this reads the workspace colour,
+taking `--lp-switch-on-track` from `creamy.hex` and `--lp-switch-on-handle` from
+`sendButton.bg`, the same two roles they play on the Models page.
+
+**Every selector in `LabsPage.css` is prefixed `.labs-page-container`, and that is
+not optional.** It styles a switch, and `PersonalIntelligenceTab.css` /
+`SavedInfoTab.css` are plain global imports that already collide with each other
+on `.header`, `.section` and `.page-content` — an unprefixed `.mdc-switch` rule
+here would repaint the Memory toggle two pages over. The class names carry an
+`lp-` prefix for the same reason.
 
 ## Settings > Activity
 

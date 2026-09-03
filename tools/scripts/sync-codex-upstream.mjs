@@ -63,6 +63,31 @@ const TRACKED = [
     role: 'Lark grammar for the freeform apply_patch tool.',
   },
   {
+    upstream: 'codex-rs/collaboration-mode-templates/templates/plan.md',
+    local: 'collaboration_mode_plan.md',
+    role: 'Plan mode developer instructions, injected in <collaboration_mode> tags.',
+  },
+  {
+    upstream: 'codex-rs/collaboration-mode-templates/templates/default.md',
+    local: 'collaboration_mode_default.md',
+    role: 'Default mode developer instructions, injected in <collaboration_mode> tags.',
+  },
+  {
+    upstream: 'codex-rs/ext/goal/templates/goals/continuation.md',
+    local: 'goal_continuation.md',
+    role: 'Steering message that drives each automatic goal continuation turn.',
+  },
+  {
+    upstream: 'codex-rs/ext/goal/templates/goals/budget_limit.md',
+    local: 'goal_budget_limit.md',
+    role: 'Steering message sent once a goal exhausts its token budget.',
+  },
+  {
+    upstream: 'codex-rs/ext/goal/templates/goals/objective_updated.md',
+    local: 'goal_objective_updated.md',
+    role: "Steering message sent when the user edits an active goal's objective.",
+  },
+  {
     upstream: 'LICENSE',
     local: 'LICENSE',
     role: 'Apache-2.0 licence text, required for redistribution.',
@@ -124,10 +149,19 @@ async function update() {
 
   await mkdir(UPSTREAM_DIR, { recursive: true });
 
-  // Clear previously vendored files so a path that disappears upstream does
-  // not linger and quietly keep feeding the harness stale text.
+  /*
+   * Clear previously vendored files so a path that disappears upstream does not
+   * linger and quietly keep feeding the harness stale text.
+   *
+   * `KEEP` is Willow's own files in that folder. `.gitattributes` is not
+   * optional: it carries `* -text`, which is what stops git rewriting LF to
+   * CRLF on checkout and breaking every checksum this script just wrote. It was
+   * deleted here once, and the failure that followed looked like a hand-edited
+   * vendored file rather than a missing exemption.
+   */
+  const KEEP = new Set(['AGENTS.md', '.gitattributes']);
   for (const entry of existsSync(UPSTREAM_DIR) ? await readdir(UPSTREAM_DIR) : []) {
-    if (entry === 'AGENTS.md') continue;
+    if (KEEP.has(entry)) continue;
     await rm(path.join(UPSTREAM_DIR, entry), { recursive: true, force: true });
   }
 

@@ -1,24 +1,34 @@
 /**
  * Slash commands for the Agent tool's composer.
  *
- * Upstream Codex has these in its TUI (`/model`, `/review`, `/plan`, …) and
- * they exist for a reason that survives the port: the useful prompts for a
+ * Upstream Codex has these in its TUI (`/model`, `/review`, `/plan`, `/goal`, …)
+ * and they exist for a reason that survives the port: the useful prompts for a
  * coding agent are the same half-dozen every session, and typing them out in
  * full each time is friction that makes people write worse prompts.
  *
- * ## The rule they follow
+ * ## Two kinds, and the distinction is upstream's
  *
- * A command is a **prompt template**, never a mode. It expands into text in the
- * composer, which the user can then edit before sending. That matters:
+ * Most commands are **prompt templates**. They expand into text in the composer,
+ * which the user can then edit before sending, and the harness stays the only
+ * thing deciding what tools run.
  *
- * - The harness stays the only thing deciding what tools run. A command that
- *   flipped the composer into a special path would be a second control flow,
- *   which is exactly what the Test tool was and why it is gone.
- * - The user sees what will be sent. A command that silently rewrote the prompt
- *   on submit would make the transcript disagree with what actually happened.
+ * `/plan` and `/goal` are **not templates**, because upstream's are not. They
+ * are the entry points to a collaboration mode and to the goal extension
+ * respectively, and this file used to get that wrong in a way that mattered:
+ * `/plan` expanded to a paragraph ending "Use update_plan", while upstream's
+ * Plan mode *refuses* `update_plan` and its mode document explains at length
+ * that the two are unrelated. The template was instructing the model to do the
+ * one thing the real mode forbids.
  *
- * `/clear` is the one exception — it is an action, not a template — and it is
- * marked as such.
+ * So both are `mode` actions now. The harness receives a `ModeKind` and a goal
+ * objective; nothing about the request is a paraphrase of upstream's
+ * instructions, because the instructions themselves are vendored.
+ *
+ * ## Why templates still see the composer
+ *
+ * For a template, the user sees what will be sent. A command that silently
+ * rewrote the prompt on submit would make the transcript disagree with what
+ * actually happened.
  */
 
 export interface SlashCommand {
@@ -29,31 +39,40 @@ export interface SlashCommand {
   /**
    * Text placed in the composer. `{}` marks where the caret should land so the
    * user can keep typing without repositioning.
+   *
+   * Empty for an action.
    */
   template: string;
   /** Actions run immediately instead of expanding. */
-  action?: 'clear';
+  action?: 'clear' | 'plan-mode' | 'default-mode' | 'goal-mode';
+  /**
+   * Whether the action needs the rest of the line as an argument.
+   *
+   * `/goal ship the checkout flow` starts a goal with that objective, so the
+   * command is submitted with its text rather than expanded into the composer.
+   */
+  takesArgument?: boolean;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   {
-    name: '/goal',
-    hint: 'State an outcome and let the agent plan it',
-    // Deliberately outcome-shaped rather than instruction-shaped. Asking for a
-    // goal produces a plan and a sequence of edits; asking for a change
-    // produces one edit and a stop.
-    template:
-      'Goal: {}\n\n' +
-      'Work until this is true. Plan it first, then make the changes, then ' +
-      'check the result in the preview.',
+    name: '/plan',
+    hint: 'Enter Plan mode — explore and design, change nothing',
+    template: '',
+    action: 'plan-mode',
   },
   {
-    name: '/plan',
-    hint: 'Plan the work without changing anything yet',
-    template:
-      'Plan how you would do this, but do not change any files yet:\n\n{}\n\n' +
-      'Use update_plan, and tell me what you would touch and what you are ' +
-      'unsure about.',
+    name: '/goal',
+    hint: 'Pursue an outcome across turns until it is true',
+    template: '',
+    action: 'goal-mode',
+    takesArgument: true,
+  },
+  {
+    name: '/code',
+    hint: 'Leave Plan mode and start building',
+    template: '',
+    action: 'default-mode',
   },
   {
     name: '/fix',
@@ -115,6 +134,32 @@ export function matchSlashCommands(draft: string): SlashCommand[] {
   if (!match) return [];
   const query = (match[1] ?? '').toLowerCase();
   return SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+}
+
+/**
+ * Resolves a submitted draft that begins with an action command.
+ *
+ * Checked on submit as well as in the menu, because `/goal ship the checkout
+ * flow` is a complete instruction the user can type and send without ever
+ * opening the menu — and `matchSlashCommands` deliberately stops matching the
+ * moment a space is typed.
+ */
+export interface CommandSubmission {
+  command: SlashCommand;
+  /** The rest of the line, for a command that takes one. */
+  argument: string;
+}
+
+export function matchCommandSubmission(draft: string): CommandSubmission | null {
+  const match = /^\/(\w+)(?:\s+([\s\S]*))?$/.exec(draft.trim());
+  if (!match) return null;
+
+  const command = SLASH_COMMANDS.find(
+    (candidate) => candidate.name.slice(1) === match[1]!.toLowerCase(),
+  );
+  if (!command?.action) return null;
+
+  return { command, argument: (match[2] ?? '').trim() };
 }
 
 export interface Expansion {

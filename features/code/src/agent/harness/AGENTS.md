@@ -101,7 +101,117 @@ turn where the agent announces it ran your tests.
 | `prompt_with_apply_patch_instructions.md` | The base system prompt. The overlay rewrites parts of it. |
 | `apply_patch_tool_instructions.md` | Its grammar section is spliced into the tool-protocol section, so a grammar change upstream reaches the model with no local edit. |
 | `apply_patch.lark` | The formal grammar. Not executed — `runtime/apply-patch.ts` is a hand port — but diffed on every upgrade to catch a format change. |
+| `collaboration_mode_plan.md` | **Plan mode, entire.** Sent as a `<collaboration_mode>` developer message. |
+| `collaboration_mode_default.md` | The same for Default mode. Its `{{KNOWN_MODE_NAMES}}` is the only placeholder. |
+| `goal_continuation.md` | Rendered and submitted as the sole input of each automatic goal turn. |
+| `goal_budget_limit.md` | Sent once, when a goal exhausts its token budget. |
+| `goal_objective_updated.md` | Sent when the user edits a live goal's objective. |
 | `LICENSE`, `NOTICE` | Required by Apache-2.0 §4 for redistribution. |
+
+## The four subsystems
+
+Plan mode, Goal mode, multi-agent collaboration and the effort ladder are all
+upstream subsystems, and all four are easy to approximate and wrong when
+approximated. What each one actually is:
+
+| | Upstream | Here |
+| --- | --- | --- |
+| **Plan mode** | `ModeKind::Plan`. A 9KB developer document, `update_plan` refused, mutation forbidden, `request_user_input` available and *blocking*, output wrapped in `<proposed_plan>`. | `overlay/collaboration-mode.ts` + the vendored document. `runtime/proposed-plan.ts` is a port of upstream's streaming parser. |
+| **Goal mode** | The `ext/goal` crate. Three tools, six statuses, a token budget, and `continue_if_idle` restarting the turn until the objective is *true*. | `runtime/goal.ts`, and the continuation loop at the bottom of `runTurn`. |
+| **Collaboration** | Multi-agent V2. Six tools, agent addresses, non-blocking spawn, unbounded nesting, `fork_turns`, a message envelope. | `runtime/collaboration.ts` + `runtime/agent-path.ts`, described by `overlay/collaboration-tools.ts`. |
+| **Ultra** | Not more reasoning. `client.rs` lowers it to `Max`; what it selects is `MultiAgentMode::Proactive`. | `overlay/effort.ts` + `overlay/multi-agent-mode.ts`, which holds upstream's two mode texts verbatim. |
+
+### Why collaboration and Ultra are one story
+
+Ultra's entire effect is one bit: delegation goes from "only when asked" to
+"when it would help". That bit is worth nothing unless the delegation machinery
+can actually spend it, and for a long time it could not — the harness had a
+single tool called `task` that blocked until its helper finished. `task` exists
+nowhere in codex-rs, and upstream's own role guidance says exactly what a
+blocking helper costs:
+
+> "You are encouraged to spawn up multiple explorers in parallel… **While
+> waiting for the explorer results, you can continue working on other local
+> tasks that do not depend on those results.** This parallelism is a key
+> advantage of delegation."
+
+So Ultra was granting a freedom the model had no way to use. `spawn_agent`
+returning immediately is the fix, and it is why the two arrived together.
+
+Three rules follow, and each of them was learned by getting it wrong first.
+
+**A mode is a document, not a paraphrase.** `/plan` began life as a composer
+template that expanded to three lines ending "Use update_plan" — the exact tool
+upstream *refuses* in Plan mode, and spends a section of the mode document
+explaining why. The documents are 9KB and 5KB of behaviour; they are vendored
+and sent verbatim, and the tests assert that rather than asserting their
+contents.
+
+**Effort derives two things and no more.** `maxIterations` (Willow's own; see
+below) and the multi-agent mode. There is no per-rung guidance text upstream and
+there must not be one here — the version that existed named tools, which made
+planning and browser verification unconditional at the higher rungs and overrode
+upstream's own rules for when to do either.
+
+**Where this port diverges, it is because a browser forced it.** There are
+exactly six places, all commented at the site:
+
+- **Plan mode's mutation boundary is enforced, not instructed.** Upstream can
+  refuse an `apply_patch` *call*; Willow's patches apply the instant the
+  envelope closes, mid-stream, so an instruction-only boundary would mean a
+  model that ignores it has already written the user's files.
+- **Ultra lowers to the model's ceiling, not literally to `max`.** Upstream
+  talks to one backend. `platform/ai` forwards `reasoningEffort` verbatim to
+  Gemini as `thinking_level`, where `max` is not a valid value and the request
+  fails outright. Everywhere `max` exists, the two agree exactly.
+- **`maxIterations` and `MAX_GOAL_CONTINUATIONS` exist at all.** Codex runs until
+  the model stops and the user interrupts from a terminal. A browser tab has no
+  terminal and no visible bill.
+- **Goal token usage is only ever a number a provider reported.** Upstream
+  accounts exact usage from its own backend. An estimate here would make
+  `budget_limited` fire on invented arithmetic, and a budget that stops work
+  early on a guess is worse than no budget.
+- **The turn waits for the agent tree.** Upstream's session outlives a turn, so
+  a parent may finish while its children work on and the user watches them in
+  the TUI. Resolving `runTurn` unlocks the composer and reports the turn done,
+  so a still-running agent would rewrite the user's files *after* they were told
+  the work finished. Spawning is still non-blocking — only the final boundary
+  waits.
+- **Every tool goes over the text protocol, including these six.** Upstream uses
+  native function calling and namespaces them under `collaboration`. See *Why a
+  text protocol* below; the short version is that `platform/ai` only wires
+  `functionDeclarations` on the Gemini adapter.
+
+### Collaboration, in one screen
+
+Six tools, and the three properties that make them worth having:
+
+| Tool | What it does |
+| --- | --- |
+| `spawn_agent` | Starts an agent and **returns immediately**. |
+| `send_message` | Queues a note. Does not start a turn. |
+| `followup_task` | Queues a new job, waking the agent if idle. |
+| `wait_agent` | Waits for news. **Returns who has news, never the news.** |
+| `interrupt_agent` | Stops a turn. The agent survives and can be re-tasked. |
+| `list_agents` | Who exists, and in what state. |
+
+- **Addresses, not ids.** `/root`, `/root/explore`, `/root/explore/deeper`. A
+  parent may name its own child relatively; anyone else needs the full path.
+  `runtime/agent-path.ts` is that port, and its naming rules are strict because
+  a path arrives as model-supplied text and is then used as a map key.
+- **Nesting is unbounded.** `collab_tools_enabled` only depth-limits multi-agent
+  **V1**; V2 has no limit, and both `spawn_agent`'s description and the
+  sub-agent role hint say children may spawn children. **Spark's harness gets
+  this wrong** — it strips `spawn_agent` from children, which is why its
+  `nested delegation` test fails. Do not copy it.
+- **`wait_agent` is a doorbell, not a mailbox.** It reports *that* there is
+  news; the news arrives as an envelope on the next turn. A model that thinks
+  otherwise summarises findings it has not received.
+
+The concurrency cap is 4 — `DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION`
+— and it is **the same at every effort**, because upstream's is one session
+config value. It briefly scaled from 1 at `none` to 4 at `ultra` here, which was
+invented and made low effort worse at a job the user had explicitly delegated.
 
 ## What is a port, not a copy
 
@@ -152,13 +262,51 @@ the overlay's tool-protocol section.
 - **Errors come back as observations, not exceptions.** A malformed patch is
   normal and recoverable, and models fix it far more reliably when handed the
   parser's actual complaint.
-- **`MAX_ITERATIONS` is 12.** On exhaustion the user is told, in the transcript,
-  rather than the turn ending silently.
+- **The iteration budget comes from effort**, defaulting to `MAX_ITERATIONS`
+  (12). On exhaustion the user is told, in the transcript, and `turn-end`
+  carries `stopReason: 'iteration-budget'` so the caller can tell an
+  interrupted turn from a finished one.
+- **In Goal mode the loop runs more than once.** `runIterations` is one pass;
+  when the model stops with the goal still `active`, another pass begins whose
+  sole input is the rendered `goal_continuation.md`. That is upstream's
+  `continue_if_idle`, and it is the entire difference between a goal and a long
+  prompt.
 
-Sub-agents run the identical loop through a different `CallSink` — that
-indirection is the only difference between a main turn and a delegated one. They
-get every tool except `task`, because unbounded recursion in a browser tab is
-not a feature.
+Agents run the identical loop through a different `CallSink` — that indirection
+is the only difference between the root turn and a delegated one. They get every
+tool the root had **including all six collaboration tools**, and lose exactly
+one: `request_user_input`, which upstream also withholds
+(`session_source.is_non_root_agent()` → "can only be used by the root thread").
+A delegated agent has no user to ask.
+
+Parallelism comes from `spawn_agent` returning immediately, not from the
+dispatcher. `runIteration` executes pending calls one at a time in the order the
+model wrote them, which matters for everything else: two `read_file` calls
+emitted in sequence may be sequenced on purpose, and a `run_command` reordered
+against a patch is a different program.
+
+Concurrent agents are safe against the shared file map for a reason worth
+stating: every patch application is a synchronous read-modify-write
+(`files()` → `applyPatch` → `writeFiles()` with no `await` between), so two
+agents cannot interleave inside one. They can still both edit the same file,
+which is a logical conflict upstream has too — hence the prompt telling the
+model to give each agent a piece nobody else is touching.
+
+### Two failure modes worth knowing
+
+Both were real, both were silent, and both are now pinned by tests.
+
+- **`getHarnessProfile()` must be called inside `runTurn`'s `try`.** It throws
+  `OverlayAnchorError` after an upstream reorganisation, which is deliberate —
+  but called outside the `try` the rejection escaped, so no `turn-end` was
+  emitted, `onDone` never ran, and the composer span forever on a turn that had
+  already failed.
+- **A mode-gated tool must not report "unknown".** `ALLOWED_TOOLS` is a superset
+  of what any one turn registers, so `runCall` distinguishes "the harness has no
+  such tool" from "not available this turn". `request_user_input` in Default
+  mode used to come back as `Unknown tool "request_user_input". Available tools:
+  read_file, …` — a list that does not contain it, from a harness that plainly
+  does. A model reading that concludes the capability does not exist.
 
 ## Licence obligations
 

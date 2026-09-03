@@ -19,6 +19,7 @@ const SOURCE = {
   sidebar: path.join(appDir, 'src', 'shell', 'sidebar', 'Sidebar.tsx'),
   viteConfig: path.join(appDir, 'vite.config.ts'),
   settings: path.join(appDir, 'src', 'settings', 'SettingsModal.tsx'),
+  providerSettings: path.join(appDir, 'src', 'settings', 'provider-settings.ts'),
   modelsTab: path.join(appDir, 'src', 'settings', 'tabs', 'ModelsTab.tsx'),
   governance: path.join(appDir, 'src', 'settings', 'tabs', 'GovernanceTab.tsx'),
   qaUserData: path.join(appDir, 'test', 'agent-builder-qa-user-data.ts'),
@@ -175,6 +176,7 @@ it('keeps Agent Builder reachable from app navigation and a direct route', () =>
   const evaluationPanelSource = fs.readFileSync(SOURCE.feature('EvaluationPanel.tsx'), 'utf8');
   const viteConfigSource = fs.readFileSync(SOURCE.viteConfig, 'utf8');
   const settingsSource = fs.readFileSync(SOURCE.settings, 'utf8');
+  const providerSettingsSource = fs.readFileSync(SOURCE.providerSettings, 'utf8');
   const modelsTabSource = fs.readFileSync(SOURCE.modelsTab, 'utf8');
   const userDataSource = fs.readFileSync(SOURCE.userData, 'utf8');
   const governanceSource = fs.readFileSync(SOURCE.governance, 'utf8');
@@ -239,7 +241,9 @@ it('keeps Agent Builder reachable from app navigation and a direct route', () =>
   assert.match(viteConfigSource, /open:\s*false/);
   assert.match(viteConfigSource, /port:\s*3000/);
   assert.match(settingsSource, /activeTab === 'governance'/);
-  assert.match(settingsSource, /\.join\(', '\)/);
+  // Multiple comma-separated keys per provider. Read from the shared provider
+  // store, which is where the Firestore parsing lives now.
+  assert.match(providerSettingsSource, /\.join\(', '\)/);
   assert.match(modelsTabSource, /Separate multiple keys with commas/);
   assert.match(modelsTabSource, /type="password"/);
   assert.match(userDataSource, /\.split\(\/\[\\r\\n,\]\+\/\)/);

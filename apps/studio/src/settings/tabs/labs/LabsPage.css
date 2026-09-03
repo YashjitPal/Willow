@@ -1,0 +1,307 @@
+/*
+ * Labs, as a page.
+ *
+ * The same experiments as the modal's Labs tab, drawn in the language the other
+ * full-page settings use — `ModelsApiPage`, `PersonalIntelligenceTab`,
+ * `ConnectedAppsTab` and `ActivityTab`: a #0f0f0f page, one centred 800px
+ * column, #1e1f20 section cards on a 12px radius, and Google Sans Flex. The
+ * tokens below are deliberately the same values `ModelsApiPage.css` declares, so
+ * the two pages reached from the same gear menu share one vertical rhythm.
+ *
+ * The switch is `PersonalIntelligenceTab`'s MDC slide toggle reproduced geometry
+ * for geometry — 52x32 track, a 16px handle that grows to 24px and travels 20px,
+ * 75ms on the same curve — so a toggle means the same thing on every settings
+ * surface. Colour is the one thing that differs: the pastel `creamy` tone and
+ * the deeper `sendButton` tone arrive as variables from the workspace colour,
+ * where the Personal Intelligence copy hardcodes Gemini's blues. The values here
+ * are Willow Green's, the default workspace colour, and `LabsPage` overwrites
+ * them inline.
+ *
+ * Every selector is prefixed with .labs-page-container, and that is not
+ * optional. PersonalIntelligenceTab.css and SavedInfoTab.css are plain global
+ * imports that already collide with each other on .header, .section and
+ * .page-content — and this file styles a switch, so an unprefixed `.mdc-switch`
+ * rule here would repaint the Memory toggle on the Personal Intelligence page.
+ * The class names are `lp-`-prefixed for the same reason.
+ */
+
+.labs-page-container {
+  --lp-spacing-xs: 4px;
+  --lp-spacing-s: 8px;
+  --lp-spacing-m: 12px;
+  --lp-spacing-l: 16px;
+  --lp-spacing-xl: 20px;
+  --lp-spacing-xxl: 24px;
+
+  --lp-surface: #0f0f0f;
+  --lp-surface-container: #1e1f20;
+  --lp-on-surface: #e3e3e3;
+  --lp-on-surface-variant: #c4c7c5;
+  --lp-outline: #8e918f;
+  --lp-divider: rgba(68, 71, 70, 0.5);
+
+  /* Switch, unchecked. Both measured off the Personal Intelligence toggle. */
+  --lp-switch-off-track: #353636;
+  --lp-switch-off-outline: #8e918f;
+  --lp-switch-off-handle: #c4c7c5;
+  /* theme.creamy.hex — the pastel the rest of the app tints accents with */
+  --lp-switch-on-track: #9ce4b3;
+  /* theme.sendButton.bg — deep enough to read as a mark on that pastel */
+  --lp-switch-on-handle: #127352;
+
+  --lp-shape-m: 12px;
+  --lp-content-max-width: 800px;
+
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  background-color: var(--lp-surface);
+  color: var(--lp-on-surface);
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  /* The sibling settings pages run their body text on the narrow width axis. */
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92;
+}
+
+/* ---------- Type scale ---------- */
+
+.labs-page-container .lp-display-s {
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  letter-spacing: normal;
+  color: var(--lp-on-surface);
+  margin: 0;
+}
+
+.labs-page-container .lp-title-l {
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  letter-spacing: normal;
+  color: var(--lp-on-surface);
+  margin: 0;
+}
+
+.labs-page-container .lp-title-m {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--lp-on-surface);
+  margin: 0;
+}
+
+.labs-page-container .lp-body-l {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  color: var(--lp-on-surface-variant);
+}
+
+.labs-page-container .lp-body-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--lp-on-surface-variant);
+}
+
+/* ---------- Page shell ---------- */
+
+.labs-page-container .lp-page-content {
+  height: fit-content;
+  width: 100%;
+  max-width: var(--lp-content-max-width);
+  /* 68px matches every sibling settings page, so all of them share one vertical
+     rhythm regardless of which one you arrive on. */
+  margin: 68px auto var(--lp-spacing-xxl);
+  padding: 0 var(--lp-spacing-xxl) var(--lp-spacing-xxl);
+  box-sizing: border-box;
+}
+
+.labs-page-container .lp-page-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--lp-spacing-m);
+  margin-top: var(--lp-spacing-m);
+}
+
+.labs-page-container .lp-page-description {
+  margin: var(--lp-spacing-m) 0 var(--lp-spacing-xl);
+  padding-bottom: var(--lp-spacing-m);
+}
+
+/* ---------- Section card ---------- */
+
+.labs-page-container .lp-section {
+  box-sizing: border-box;
+  padding: var(--lp-spacing-xl);
+  margin-bottom: var(--lp-spacing-l);
+  border-radius: var(--lp-shape-m);
+  background-color: var(--lp-surface-container);
+}
+
+.labs-page-container .lp-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--lp-spacing-m);
+  min-height: 2rem;
+}
+
+.labs-page-container .lp-section-description {
+  margin-top: var(--lp-spacing-xs);
+}
+
+.labs-page-container .lp-section-note {
+  margin-top: var(--lp-spacing-l);
+  color: var(--lp-outline);
+}
+
+/* ---------- Experiment row ---------- */
+
+.labs-page-container .lp-row-list {
+  margin-top: var(--lp-spacing-l);
+}
+
+.labs-page-container .lp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--lp-spacing-xl);
+  padding: var(--lp-spacing-l) 0;
+}
+
+.labs-page-container .lp-row + .lp-row {
+  border-top: 1px solid var(--lp-divider);
+}
+
+.labs-page-container .lp-row:first-child {
+  padding-top: 0;
+}
+
+.labs-page-container .lp-row:last-child {
+  padding-bottom: 0;
+}
+
+.labs-page-container .lp-row-text {
+  flex: 1 1 auto;
+  /* The description wraps well before the switch. Matches the modal tab, which
+     caps its own copy at 60% of the row. */
+  max-width: 60%;
+  min-width: 0;
+}
+
+.labs-page-container .lp-row-description {
+  margin-top: var(--lp-spacing-xs);
+}
+
+.labs-page-container .lp-row-control {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* ---------- Switch ---------- */
+
+.labs-page-container .lp-switch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.labs-page-container .lp-switch-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  box-sizing: border-box;
+  background-color: var(--lp-switch-off-track);
+  border: 2px solid var(--lp-switch-off-outline);
+  transition: background-color 75ms, border-color 75ms;
+}
+
+.labs-page-container .lp-switch-checked .lp-switch-track {
+  background-color: var(--lp-switch-on-track);
+  border-color: var(--lp-switch-on-track);
+}
+
+.labs-page-container .lp-switch-handle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--lp-switch-off-handle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    width 75ms,
+    height 75ms,
+    top 75ms,
+    left 75ms,
+    background-color 75ms;
+}
+
+.labs-page-container .lp-switch-checked .lp-switch-handle {
+  transform: translateX(20px);
+  width: 24px;
+  height: 24px;
+  top: 4px;
+  left: 4px;
+  background-color: var(--lp-switch-on-handle);
+}
+
+.labs-page-container .lp-switch-icon {
+  width: 16px;
+  height: 16px;
+  fill: var(--lp-switch-on-track);
+  opacity: 0;
+  transition: opacity 75ms;
+}
+
+.labs-page-container .lp-switch-checked .lp-switch-icon {
+  opacity: 1;
+}
+
+.labs-page-container .lp-switch:focus-visible .lp-switch-track {
+  outline: 2px solid var(--lp-switch-on-track);
+  outline-offset: 2px;
+}
+
+/* A row whose flag has no code behind it yet. Not dimmed — a faded control
+   reads as "switched off for you", and these are "not built". The cursor and
+   the removed hover are what say it does nothing. */
+.labs-page-container .lp-switch:disabled {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .labs-page-container .lp-switch-track,
+  .labs-page-container .lp-switch-handle,
+  .labs-page-container .lp-switch-icon {
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .labs-page-container .lp-row {
+    align-items: flex-start;
+    gap: var(--lp-spacing-l);
+  }
+
+  .labs-page-container .lp-row-text {
+    max-width: none;
+  }
+}

@@ -138,9 +138,20 @@ they all render anyway: the menu is a clone, so a missing row is a visible diffe
 Each takes an optional handler; a row without one closes the menu and does nothing
 else. Only **Upload files** and **Import code** are actually wired today.
 
-**Personal Intelligence** is wired but not persisted: `Composer.tsx` holds it in
-local state, because Willow's Personal Intelligence settings tab has no app-level
-store behind it yet. The row renders and flips exactly as Gemini's does.
+**Personal Intelligence** is the Memory switch, not a per-turn chip like the ones
+beside it. The row reads `profileStore` and calls `setProfileEnabled`, so it is the
+same switch as the settings tab and it **persists** — off stays off in the next
+chat, and in every surface.
+
+Off withdraws everything personal from a turn, which is four things and not one:
+the inferred profile summary, `PERSONAL_DATA_LADDER`, the personalization tools
+(`personalChatTools` returns `[]`, and `declaredToolNames` then makes a stray call
+uncallable rather than merely undeclared), and **Saved Info**. That last one is
+gated by *reading* the switch in `withTurnContext`, never by writing
+`savedInfoStore` — silencing a turn is not the same act as editing what the user
+saved, so the Saved Info page keeps listing entries the model can no longer see,
+and flipping Memory back on restores them untouched. `saved-info.test.mjs` pins
+both halves.
 
 Its glyph is **the one unmeasured value in the file, and it is currently wrong**.
 Gemini draws it as a masked `span.icon.lm-icon-m` rather than a `mat-icon`, so it
@@ -448,6 +459,21 @@ a background chat painting over the displayed one. For the same reason the
 settle path compare-and-clears `generationAbortRef` and `streamingClearRafRef` —
 a turn finishing in another chat must not kill the displayed chat's stop button.
 
+**Detaching must tear the mirror down, and `onSettled` cannot do it.** That
+callback runs only for `owner === 'view'`; a turn the user walked away from
+settles through `owner === 'runner'` and never touches the listener. So
+`commitLoadedChat`'s `!record` branch is the *only* place `isGenerating`,
+`streaming`, the thinking pair, `generationAbortRef` and `sendInFlightRef` come
+back down. Leaving them set is not cosmetic — it shipped as the bug where
+backgrounding a reply and opening another chat left the composer rendering
+**Stop while still holding the backgrounded turn's `AbortController`**, so the
+next click killed a response in a chat the user could not see, and
+`sendInFlightRef` blocked every send from that view for good. `handleStopGenerating`
+now resolves its target through `attachedTurnIdRef` + `getChatTurn` so the same
+class of staleness cannot come back through a different route. That branch
+**clears; it must never abort** — the whole point is that the turn keeps running.
+`background-chat-turns.test.mjs` pins both halves.
+
 **Abort on:** delete, scope/workspace/account switch, sign-out, incognito
 unmount, and the stop button (attached turn only). **Never on** unmount or chat
 switch. Delete is the sharp one: `saveLocalFSChat` clears the tombstone and
@@ -458,7 +484,27 @@ IndexedDB, in Recents and on disk, and it survives the reconciler. Hence
 **Reload.** Nothing survives a tab close mid-request, so the runner checkpoints
 the partial response every `CHECKPOINT_INTERVAL_MS` as `wasStopped: true` — the
 existing "ended early but keep it" shape, which `hasSavedMessageContent` retains
-even when empty and the thread renders with the divider. Do **not** try to save
+even when empty and the thread renders with the divider.
+
+**A checkpoint is a crash artefact, so on re-open the record outranks it — for
+the assistant message only.** That `wasStopped: true` is written while the turn
+is still running, so the saved thread carries the assistant id well before the
+turn ends. `commitLoadedChat` therefore *substitutes* the record's assistant over
+the saved one instead of skipping an id the disk already has. Skipping it shipped
+as the bug where re-entering a chat mid-turn painted the last checkpoint
+verbatim — a truncated reply under a "You stopped this response" divider, for a
+turn that was still streaming, which then rewrote itself in front of the user
+when the answer landed. It matters for a settled record too: if the runner
+exhausted its save retries, deferring to disk would commit the stale checkpoint
+permanently through the autosave path. Substitution is in place, not an append,
+or the thread reorders on every open.
+
+**The user message resolves the other way, and the asymmetry is load-bearing.**
+Only an absent one is appended; a saved one is left alone. The record's copy went
+through `stripAttachmentObjectUrls` — those blob URLs belong to the ChatView that
+created them and are revoked on its unmount — so the load path's freshly hydrated
+copy is the one whose images render. Substituting the record's there blanks every
+attachment on the turn you just came back to. Do **not** try to save
 from `beforeunload`/`pagehide`: an IndexedDB transaction started during unload
 routinely never commits, so it only appears to work. The 2s floor is deliberate
 too — every save bumps the chat timestamp, and Recents sorts newest-first, so a

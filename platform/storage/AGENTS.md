@@ -160,8 +160,11 @@ feature register it — don't reach up and import the feature.
 1. **Never write a filtered project list back to the registry.** A surface that
    filters for display must still write the full list — writing a filtered subset
    erased all non-media projects.
-2. **Disk is authoritative.** A rename/delete that doesn't change the disk folder
-   is reverted by the next reconcile loop.
+2. **Disk is authoritative.** A rename/delete that doesn't change an *existing*
+   disk folder is reverted by the next reconcile loop. A project with no folder
+   yet is the exception, not a failure — see ARCHITECTURE.md §7 *Rename
+   (project)*, which is the rule that got a Media project stuck with its old
+   name.
 3. **Keep `manifest.id === registry.id`.** Covers and media are keyed by the
    registry id; the `.willow.json` manifest carries the id across
    renames/reconnects.

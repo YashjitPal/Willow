@@ -170,18 +170,55 @@ it('allows exactly the tools the runtime implements', () => {
       'add_dependency',
       'apply_patch',
       'computer_use',
+      'create_goal',
+      'followup_task',
+      'get_goal',
+      'interrupt_agent',
+      'list_agents',
       'list_files',
       'read_file',
+      'request_user_input',
       'run_command',
       'search_files',
-      'task',
+      'send_message',
+      'spawn_agent',
+      'update_goal',
       'update_plan',
+      'wait_agent',
     ],
   );
+  // `task` is gone. It never existed upstream, and a blocking helper cannot do
+  // the thing delegation is for.
+  assert.equal(policy.isAllowed('task'), false);
   for (const tool of policy.ALLOWED_TOOLS) {
     assert.equal(policy.isAllowed(tool), true);
   }
   assert.equal(policy.isAllowed('shell'), false);
+});
+
+it('offers mode-gated tools only in the mode that has them', () => {
+  /*
+   * `ALLOWED_TOOLS` is the superset; `toolsForTurn` is the gate. The split
+   * matters: a tool the model calls out of mode has to come back with a
+   * mode-aware refusal ("unavailable in Default mode") rather than "unknown
+   * tool", because the first is recoverable inside the turn and the second is
+   * not.
+   */
+  const inDefault = policy.toolsForTurn({ mode: 'default', goalActive: false });
+  assert.ok(!inDefault.includes('request_user_input'), 'Plan mode only');
+  assert.ok(!inDefault.includes('get_goal'), 'goal tools need a goal session');
+  assert.ok(inDefault.includes('update_plan'), 'the checklist tool is always there');
+
+  const inPlan = policy.toolsForTurn({ mode: 'plan', goalActive: false });
+  assert.ok(inPlan.includes('request_user_input'), 'Plan mode is where questions happen');
+  // Not removed: refused by the handler, because the mode document promises the
+  // model a specific error if it tries.
+  assert.ok(inPlan.includes('update_plan'));
+
+  const withGoal = policy.toolsForTurn({ mode: 'default', goalActive: true });
+  for (const tool of policy.GOAL_TOOLS) {
+    assert.ok(withGoal.includes(tool), `${tool} should exist during a goal session`);
+  }
 });
 
 it('describes computer_use as checking the app the agent just built', () => {

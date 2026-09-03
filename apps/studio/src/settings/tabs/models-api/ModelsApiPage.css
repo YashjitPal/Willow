@@ -1,0 +1,858 @@
+/*
+ * Models & API, as a page.
+ *
+ * Same settings as the modal's Models tab, drawn in the language the other
+ * full-page settings use — `PersonalIntelligenceTab`, `ConnectedAppsTab` and
+ * `ActivityTab`: a #0f0f0f page, one centred column, #1e1f20 section cards on a
+ * 12px radius, and Google Sans Flex.
+ *
+ * Anything actionable is the workspace colour, not a fixed blue. The three
+ * accent variables below are defaults only — `ModelsApiPage` overwrites them
+ * inline from `getWorkspaceTheme(userProfile.workspaceColor)`, so the values
+ * here are Willow Green's, the default workspace colour.
+ *
+ * Every selector is prefixed with .models-api-container, and that is not
+ * optional. PersonalIntelligenceTab.css and SavedInfoTab.css are plain global
+ * imports that already collide with each other on .header, .section and
+ * .page-content; an unprefixed .section here would restyle both of them.
+ */
+
+.models-api-container {
+  --ma-spacing-xs: 4px;
+  --ma-spacing-s: 8px;
+  --ma-spacing-m: 12px;
+  --ma-spacing-l: 16px;
+  --ma-spacing-xl: 20px;
+  --ma-spacing-xxl: 24px;
+
+  --ma-surface: #0f0f0f;
+  --ma-surface-container: #1e1f20;
+  --ma-surface-child: #1b1b1b;
+  --ma-surface-field: #282a2c;
+  --ma-surface-menu: #282a2c;
+  --ma-on-surface: #e3e3e3;
+  --ma-on-surface-variant: #c4c7c5;
+  --ma-outline: #8e918f;
+  --ma-divider: #444746;
+  /* theme.creamy.hex — the pastel the rest of the app tints icons and links with */
+  --ma-primary: #9ce4b3;
+  /* theme.sendButton.* — the app's filled-CTA pair, deeper than the pastel so a
+     button does not read as another icon tile */
+  --ma-accent-button-bg: #127352;
+  --ma-accent-button-hover: #0d5c41;
+  --ma-on-accent-button: #e6e6e6;
+  --ma-error: #f2b8b5;
+
+  --ma-shape-s: 8px;
+  --ma-shape-m: 12px;
+  --ma-shape-l: 16px;
+  --ma-content-max-width: 800px;
+
+  /* Google Sans Code is the app's monospace and is the one index.html actually
+     loads; the stack matches `platform/ui/src/streaming-markdown-styles.ts`.
+     The mono fields here named 'Roboto Mono' first, which nothing loads, so
+     they all fell through to `monospace` — Courier New on Windows. */
+  --ma-mono: 'Google Sans Code', ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  background-color: var(--ma-surface);
+  color: var(--ma-on-surface);
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  /* The sibling settings pages run their body text on the narrow width axis.
+     Icons are unaffected: lucide draws SVG, and MaterialSymbol always writes its
+     own font-variation-settings, which replaces rather than merges. */
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92;
+}
+
+/* ---------- Type scale ---------- */
+
+.models-api-container .ma-display-s {
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  letter-spacing: normal;
+  color: var(--ma-on-surface);
+  margin: 0;
+}
+
+.models-api-container .ma-title-l {
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  letter-spacing: normal;
+  color: var(--ma-on-surface);
+  margin: 0;
+}
+
+.models-api-container .ma-title-m {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--ma-on-surface);
+  margin: 0;
+}
+
+.models-api-container .ma-body-l {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  color: var(--ma-on-surface-variant);
+}
+
+.models-api-container .ma-body-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--ma-on-surface-variant);
+}
+
+.models-api-container .ma-label-m {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--ma-on-surface-variant);
+}
+
+.models-api-container .ma-label-s {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  color: var(--ma-on-surface-variant);
+}
+
+/* ---------- Page shell ---------- */
+
+.models-api-container .ma-page-content {
+  height: fit-content;
+  width: 100%;
+  max-width: var(--ma-content-max-width);
+  /* 68px matches the sibling settings pages so all of them share one vertical
+     rhythm regardless of which one you arrive on. */
+  margin: 68px auto var(--ma-spacing-xxl);
+  padding: 0 var(--ma-spacing-xxl) var(--ma-spacing-xxl);
+  box-sizing: border-box;
+}
+
+.models-api-container .ma-page-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ma-spacing-m);
+  margin-top: var(--ma-spacing-m);
+}
+
+/* The overview's `.ma-page-description` is what normally separates the headline
+   from the first card. A provider's page has no description, so without this the
+   card sat almost flush against the title. */
+.models-api-container .ma-page-header-standalone {
+  margin-bottom: 28px;
+}
+
+.models-api-container .ma-page-headline-group {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-api-container .ma-page-description {
+  margin: var(--ma-spacing-m) 0 var(--ma-spacing-xl);
+  padding-bottom: var(--ma-spacing-m);
+}
+
+/* A 40px target on a 32px glyph, matching the sidebar's own icon buttons. */
+.models-api-container .ma-back-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: -4px 0 0 -8px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ma-on-surface);
+  cursor: pointer;
+  transition: background-color 150ms linear;
+}
+
+.models-api-container .ma-back-button:hover {
+  background: rgba(227, 227, 227, 0.08);
+}
+
+.models-api-container .ma-back-button:focus-visible {
+  outline: 2px solid var(--ma-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Section card ---------- */
+
+.models-api-container .ma-section {
+  position: relative;
+  box-sizing: border-box;
+  padding: var(--ma-spacing-xl);
+  margin-bottom: var(--ma-spacing-l);
+  border-radius: var(--ma-shape-m);
+  background-color: var(--ma-surface-container);
+}
+
+.models-api-container .ma-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-m);
+  min-height: 2rem;
+}
+
+.models-api-container .ma-section-heading .ma-title-l {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-api-container .ma-section-description {
+  margin-top: var(--ma-spacing-xs);
+}
+
+.models-api-container .ma-section-note {
+  margin-top: var(--ma-spacing-l);
+  color: var(--ma-outline);
+}
+
+/* ---------- Provider list ---------- */
+
+.models-api-container .ma-provider-list {
+  display: grid;
+  gap: var(--ma-spacing-s);
+  margin-top: var(--ma-spacing-l);
+}
+
+.models-api-container .ma-provider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-l);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--ma-spacing-l);
+  border: none;
+  border-radius: var(--ma-shape-m);
+  background: var(--ma-surface-child);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms linear;
+}
+
+.models-api-container .ma-provider-row:hover {
+  background: #232324;
+}
+
+.models-api-container .ma-provider-row:focus-visible {
+  outline: 2px solid var(--ma-primary);
+  outline-offset: -1px;
+}
+
+.models-api-container .ma-provider-mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: #000;
+  color: var(--ma-on-surface);
+}
+
+/* A configured provider gets the accent ring rather than the modal's glowing
+   border: on a page there is no dialog edge for a glow to read against. */
+.models-api-container .ma-provider-row-configured .ma-provider-mark {
+  box-shadow: 0 0 0 2px var(--ma-primary);
+  color: var(--ma-primary);
+}
+
+.models-api-container .ma-provider-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-api-container .ma-provider-status {
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-s);
+  margin-top: 2px;
+}
+
+.models-api-container .ma-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--ma-outline);
+}
+
+.models-api-container .ma-provider-row-configured .ma-status-dot {
+  background: var(--ma-primary);
+}
+
+.models-api-container .ma-provider-chevron {
+  flex: 0 0 auto;
+  color: var(--ma-on-surface-variant);
+}
+
+/* ---------- Label + control row ---------- */
+
+.models-api-container .ma-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-xl);
+  padding: var(--ma-spacing-m) 0;
+}
+
+.models-api-container .ma-row + .ma-row {
+  border-top: 1px solid rgba(68, 71, 70, 0.5);
+}
+
+.models-api-container .ma-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-api-container .ma-row-control {
+  flex: 0 0 auto;
+  width: 260px;
+  max-width: 100%;
+}
+
+/* ---------- Fields ---------- */
+
+.models-api-container .ma-stack-l {
+  margin-top: var(--ma-spacing-l);
+}
+
+.models-api-container .ma-stack-xl {
+  margin-top: var(--ma-spacing-xl);
+}
+
+.models-api-container .ma-field {
+  display: grid;
+  gap: var(--ma-spacing-s);
+}
+
+/* The stacked-field rhythm. `.ma-field-grid + .ma-field` is not redundant: a
+   field *following* a two-column row matched none of the other selectors, so
+   Capabilities' label sat hard against the Display name / Model ID row with
+   only its own 8px label gap below it. */
+.models-api-container .ma-field + .ma-field,
+.models-api-container .ma-field-grid + .ma-field,
+.models-api-container .ma-field-grid {
+  margin-top: var(--ma-spacing-l);
+}
+
+.models-api-container .ma-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ma-spacing-l);
+}
+
+/* The rule above is an adjacent-sibling one, so inside the grid it pushed the
+   second column down by 16px and left the two selects off each other's
+   baseline. Columns get their spacing from `gap`. */
+.models-api-container .ma-field-grid > .ma-field + .ma-field {
+  margin-top: 0;
+}
+
+.models-api-container .ma-field-label {
+  color: var(--ma-on-surface-variant);
+}
+
+.models-api-container .ma-field-hint {
+  color: var(--ma-outline);
+}
+
+.models-api-container .ma-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: var(--ma-spacing-m) var(--ma-spacing-l);
+  border: 1px solid var(--ma-divider);
+  border-radius: var(--ma-shape-s);
+  background: var(--ma-surface-field);
+  color: var(--ma-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.models-api-container .ma-input-mono {
+  font-family: var(--ma-mono);
+  font-size: 13px;
+}
+
+.models-api-container .ma-input::placeholder {
+  color: var(--ma-outline);
+}
+
+.models-api-container .ma-input:focus-visible {
+  outline: none;
+  border-color: var(--ma-primary);
+}
+
+/* ---------- Dropdown ---------- */
+
+.models-api-container .ma-dropdown {
+  position: relative;
+}
+
+.models-api-container .ma-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ma-spacing-s);
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: var(--ma-spacing-m) var(--ma-spacing-l);
+  border: 1px solid var(--ma-divider);
+  border-radius: var(--ma-shape-s);
+  background: var(--ma-surface-field);
+  color: var(--ma-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms linear;
+}
+
+.models-api-container .ma-dropdown-trigger:hover {
+  border-color: var(--ma-outline);
+}
+
+.models-api-container .ma-dropdown-trigger:focus-visible {
+  outline: none;
+  border-color: var(--ma-primary);
+}
+
+.models-api-container .ma-dropdown-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-s);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-api-container .ma-dropdown-chevron {
+  flex: 0 0 auto;
+  color: var(--ma-on-surface-variant);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.models-api-container .ma-dropdown-open .ma-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.models-api-container .ma-dropdown-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--ma-spacing-s) 0;
+  border-radius: var(--ma-shape-m);
+  background: var(--ma-surface-menu);
+  box-shadow:
+    0 2px 6px 2px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.models-api-container .ma-dropdown-menu-down {
+  top: calc(100% + var(--ma-spacing-s));
+  transform-origin: top center;
+  animation: ma-menu-in 150ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+.models-api-container .ma-dropdown-menu-up {
+  bottom: calc(100% + var(--ma-spacing-s));
+  transform-origin: bottom center;
+  animation: ma-menu-in 150ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+.models-api-container .ma-dropdown-menu-closing {
+  animation: ma-menu-out 150ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
+}
+
+@keyframes ma-menu-in {
+  from { opacity: 0; transform: scaleY(0.9); }
+  to { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes ma-menu-out {
+  from { opacity: 1; transform: scaleY(1); }
+  to { opacity: 0; transform: scaleY(0.9); }
+}
+
+.models-api-container .ma-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ma-spacing-m);
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: var(--ma-spacing-s) var(--ma-spacing-l);
+  border: none;
+  background: transparent;
+  color: var(--ma-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms linear;
+}
+
+.models-api-container .ma-dropdown-item:hover {
+  background: rgba(227, 227, 227, 0.08);
+}
+
+.models-api-container .ma-dropdown-item-selected {
+  background: color-mix(in srgb, var(--ma-primary) 14%, transparent);
+  color: var(--ma-primary);
+}
+
+.models-api-container .ma-dropdown-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.models-api-container .ma-dropdown-item-note {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ma-outline);
+}
+
+.models-api-container .ma-dropdown-item-check {
+  flex: 0 0 auto;
+  color: var(--ma-primary);
+}
+
+.models-api-container .ma-dropdown-empty {
+  padding: var(--ma-spacing-m) var(--ma-spacing-l);
+  color: var(--ma-outline);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.models-api-container .ma-dropdown-divider {
+  height: 1px;
+  margin: var(--ma-spacing-s) 0;
+  background: var(--ma-divider);
+}
+
+/* ---------- Buttons ---------- */
+
+.models-api-container .ma-button-filled,
+.models-api-container .ma-button-tonal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ma-spacing-s);
+  min-height: 40px;
+  padding: 0 var(--ma-spacing-xl);
+  border: none;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition: box-shadow 280ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms linear;
+}
+
+.models-api-container .ma-button-filled {
+  background: var(--ma-accent-button-bg);
+  color: var(--ma-on-accent-button);
+}
+
+.models-api-container .ma-button-filled:hover {
+  background: var(--ma-accent-button-hover);
+  box-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
+}
+
+.models-api-container .ma-button-tonal {
+  background: var(--ma-surface-field);
+  color: var(--ma-on-surface);
+}
+
+.models-api-container .ma-button-tonal:hover {
+  background: #323436;
+}
+
+.models-api-container .ma-button-filled:disabled,
+.models-api-container .ma-button-tonal:disabled {
+  background: var(--ma-divider);
+  color: var(--ma-on-surface-variant);
+  box-shadow: none;
+  cursor: default;
+  opacity: 0.6;
+}
+
+.models-api-container .ma-button-block {
+  width: 100%;
+}
+
+.models-api-container .ma-button-filled:focus-visible,
+.models-api-container .ma-button-tonal:focus-visible {
+  outline: 2px solid var(--ma-primary);
+  outline-offset: 2px;
+}
+
+.models-api-container .ma-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ma-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 150ms linear, color 150ms linear;
+}
+
+.models-api-container .ma-icon-button:hover {
+  background: rgba(227, 227, 227, 0.08);
+  color: var(--ma-on-surface);
+}
+
+.models-api-container .ma-icon-button-danger:hover {
+  color: var(--ma-error);
+}
+
+.models-api-container .ma-icon-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.models-api-container .ma-icon-button:disabled:hover {
+  background: transparent;
+  color: var(--ma-on-surface-variant);
+}
+
+.models-api-container .ma-drag-handle {
+  cursor: grab;
+}
+
+.models-api-container .ma-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ---------- Expander (add custom model) ---------- */
+
+.models-api-container .ma-expander-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ma-spacing-l);
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: var(--ma-spacing-m) var(--ma-spacing-l);
+  margin-top: var(--ma-spacing-l);
+  border: 1px solid var(--ma-divider);
+  border-radius: var(--ma-shape-m);
+  background: transparent;
+  color: var(--ma-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms linear;
+}
+
+.models-api-container .ma-expander-trigger:hover {
+  background: rgba(227, 227, 227, 0.06);
+}
+
+.models-api-container .ma-expander-trigger-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ma-spacing-m);
+}
+
+.models-api-container .ma-expander-open .ma-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.models-api-container .ma-expander-body {
+  margin-top: var(--ma-spacing-m);
+  padding: var(--ma-spacing-xl);
+  border-radius: var(--ma-shape-m);
+  background: var(--ma-surface-child);
+  animation: ma-fade-in 150ms ease-out;
+}
+
+.models-api-container .ma-effort-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ma-spacing-l);
+  margin-top: var(--ma-spacing-xl);
+}
+
+.models-api-container .ma-effort-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: var(--ma-spacing-s);
+  margin-top: var(--ma-spacing-s);
+}
+
+.models-api-container .ma-effort-row .ma-input {
+  min-height: 40px;
+  padding: var(--ma-spacing-s) var(--ma-spacing-m);
+  font-size: 13px;
+}
+
+/* ---------- Saved model list ---------- */
+
+.models-api-container .ma-model-list {
+  display: grid;
+  gap: var(--ma-spacing-s);
+  margin-top: var(--ma-spacing-l);
+}
+
+.models-api-container .ma-model-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-l);
+  box-sizing: border-box;
+  padding: var(--ma-spacing-m) var(--ma-spacing-l);
+  border-radius: var(--ma-shape-m);
+  background: var(--ma-surface-child);
+  transition: background-color 150ms linear, box-shadow 150ms linear;
+}
+
+.models-api-container .ma-model-row:hover {
+  background: #232324;
+}
+
+.models-api-container .ma-model-row-drop-target {
+  box-shadow: inset 0 0 0 1px var(--ma-primary);
+}
+
+.models-api-container .ma-model-row-dragging {
+  opacity: 0.55;
+}
+
+.models-api-container .ma-model-mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--ma-on-surface);
+}
+
+.models-api-container .ma-model-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-api-container .ma-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-api-container .ma-model-price {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  /* On the icon-only variant there is no second child, so no gap is drawn. */
+  column-gap: var(--ma-spacing-s);
+  padding: 5px var(--ma-spacing-m);
+  border-radius: 9999px;
+  background: var(--ma-surface-field);
+  color: var(--ma-on-surface-variant);
+  font-family: var(--ma-mono);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.models-api-container .ma-model-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--ma-spacing-xs);
+}
+
+.models-api-container .ma-empty {
+  padding: var(--ma-spacing-xxl);
+  border: 1px dashed var(--ma-divider);
+  border-radius: var(--ma-shape-m);
+  color: var(--ma-outline);
+  text-align: center;
+}
+
+/* ---------- Drill-in transition ---------- */
+
+.models-api-container .ma-fade-in {
+  animation: ma-fade-in 150ms ease-out;
+}
+
+@keyframes ma-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- Narrow viewports ---------- */
+
+@media (max-width: 767px) {
+  .models-api-container .ma-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .models-api-container .ma-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ma-spacing-m);
+  }
+
+  .models-api-container .ma-row-control {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .models-api-container .ma-dropdown-menu,
+  .models-api-container .ma-dropdown-menu-closing,
+  .models-api-container .ma-expander-body,
+  .models-api-container .ma-fade-in {
+    animation-duration: 1ms;
+  }
+
+  .models-api-container .ma-provider-row,
+  .models-api-container .ma-model-row,
+  .models-api-container .ma-button-filled,
+  .models-api-container .ma-button-tonal,
+  .models-api-container .ma-icon-button,
+  .models-api-container .ma-dropdown-chevron {
+    transition-duration: 1ms;
+  }
+}

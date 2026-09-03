@@ -393,12 +393,12 @@
   flex: 0 0 3px;
   margin-inline-end: 12px;
   border-radius: 9999px;
-  background: #1f3b9b;
+  background: var(--spark-accent, #1f3b9b);
   transition: background-color 100ms ease;
 }
 
 .spark-suggested-row:hover .spark-suggested-indicator {
-  background: #3186ff;
+  background: var(--spark-accent-bright, #3186ff);
 }
 
 .spark-suggested-copy {

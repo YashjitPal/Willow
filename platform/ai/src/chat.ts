@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
 import { defaultApiFormatForProvider, nativeToolFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
+import { geminiFlashStartsAtLow } from './models/efforts';
 import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type GroundingCitation, type MessageCitations } from "./grounding";
 import type { CodeExecution } from "./code-execution";
 
@@ -1486,7 +1487,9 @@ const streamChatImpl: any = async (
     } else if (options.thinkingLevel !== undefined) {
       if (model.includes('flash')) {
         const flashMap: Record<number, string> = { 0: 'minimal', 1: 'low', 2: 'medium', 3: 'high' };
-        const requestedLevel = model === 'gemini-3.7-flash' && options.thinkingLevel === 0
+        // Releases with no `minimal` step floor at Low rather than sending one.
+        // The picker hides level 0 for these too — same list, see efforts.ts.
+        const requestedLevel = geminiFlashStartsAtLow(model) && options.thinkingLevel === 0
           ? 1
           : options.thinkingLevel;
         geminiThinkingLevel = flashMap[requestedLevel] ?? 'high';

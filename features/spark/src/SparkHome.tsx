@@ -15,6 +15,7 @@ import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { sparkAccentVars } from './spark-accent';
 import './SparkHome.css';
 
 export interface SparkHomeProps {
@@ -114,7 +115,13 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   };
 
   return (
-    <div className={`spark-home ${className}`.trim()} aria-labelledby={pageHeadingId}>
+    <div
+      className={`spark-home ${className}`.trim()}
+      aria-labelledby={pageHeadingId}
+      /* The suggested rows sit outside `.spark-composer-anchor`, so the glow
+         variable declared there never reached their indicators. */
+      style={sparkAccentVars(effectiveWorkspaceColor)}
+    >
       <div className="spark-top-controls" aria-label="Spark release information">
         {/* `button.whats-new-badge` sits left of the Beta label in Gemini's `remy-badges`
           * row: the label, then a 4px dot. */}

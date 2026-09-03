@@ -4,11 +4,26 @@
  * This is the seam the runtime talks to: it asks for a profile and gets a
  * prompt, a tool list, and the policy for refusing everything else. Nothing
  * downstream of here knows that half the prompt came from a vendored file.
+ *
+ * ## Two layers, and why they are separate
+ *
+ * `getHarnessProfile()` is the **session** layer: upstream's prompt with
+ * Willow's overlay applied. It is pure, cached, and identical for every turn.
+ *
+ * `composeSystemPrompt()` is the **turn** layer. Collaboration mode, multi-agent
+ * mode and the live goal all change per turn, and upstream delivers each of them
+ * as its own `developer`-role message appended after the base instructions
+ * rather than by rebuilding the prompt. Keeping the split means a mode switch
+ * costs a string concatenation instead of re-parsing a 24,000-character
+ * document, and it keeps the ordering upstream relies on: base instructions,
+ * then mode, then multi-agent mode, then turn context.
  */
 
 import { UPSTREAM, upstreamLabel } from '../upstream-assets';
 import { buildOverlay, composePrompt, type ComposeResult } from './prompt-overlay';
-import { ALLOWED_TOOLS, refusalFor, type ToolId } from './tool-policy';
+import { ALLOWED_TOOLS, refusalFor, toolsForTurn, type ToolId } from './tool-policy';
+import { collaborationModeSection, type ModeKind } from './collaboration-mode';
+import { multiAgentModeSection, type MultiAgentMode } from './multi-agent-mode';
 
 export interface HarnessProfile {
   /** The fully composed system prompt. */
@@ -63,3 +78,37 @@ export function getHarnessProfile(): HarnessProfile {
 export function resetHarnessProfile(): void {
   cached = null;
 }
+
+export interface TurnPromptOptions {
+  mode: ModeKind;
+  multiAgentMode: MultiAgentMode;
+  /** `<thread_goal>` block for a live goal, or empty. */
+  goalContext?: string;
+  /** Appended last, so it is the most recent thing the model read. */
+  turnContext?: string;
+}
+
+/**
+ * The system prompt for one turn.
+ *
+ * Order is upstream's and is not arbitrary. The mode document asserts that the
+ * agent's mode "changes only when new developer instructions with a different
+ * `<collaboration_mode>` change it", and the multi-agent texts both open by
+ * revoking the other — so both have to come *after* the base instructions, and
+ * the later one has to win. Appending in this order is what makes those
+ * sentences true.
+ */
+export function composeSystemPrompt(options: TurnPromptOptions): string {
+  return [
+    getHarnessProfile().systemPrompt,
+    collaborationModeSection(options.mode),
+    multiAgentModeSection(options.multiAgentMode),
+    options.goalContext,
+    options.turnContext,
+  ]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join('\n\n');
+}
+
+/** Re-exported so the runtime has one import for the whole overlay surface. */
+export { toolsForTurn };

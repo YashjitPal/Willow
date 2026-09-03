@@ -259,6 +259,44 @@ it('appends saved info to text but isolates it from the voice prompt', async () 
   store.clearSavedInstructions();
 });
 
+it('withholds saved info when Memory is off, without editing what is saved', async () => {
+  const { chatSystemPromptFor } = await importTs(chatModelModule);
+  const { profileStore, setProfileEnabled } = await importTs(profileStoreModule);
+  const store = await importTs(storeModule);
+
+  store.clearSavedInstructions();
+  store.setSavedInfoEnabled(true);
+  store.addSavedInstruction('Write like a real Discord user.');
+
+  const previous = profileStore.get();
+  try {
+    // Exactly what the composer's Personal Intelligence row calls.
+    setProfileEnabled(false);
+
+    const off = chatSystemPromptFor('gemini', { now: new Date('2026-08-10T12:00:00Z') });
+    assert.equal(off.includes('# Saved Information'), false,
+      'Memory was off and the saved instructions still reached the model');
+    assert.equal(off.includes('Write like a real Discord user'), false,
+      'the header was suppressed but the instruction text survived under it');
+    assert.match(off, /Current date: Monday, August 10, 2026/,
+      'suppressing saved info also dropped the date line');
+
+    // Suppression reads the switch; it must never write the other store. The
+    // entries stay listed in Settings, which is where the user put them.
+    assert.equal(store.savedInfoStore.get().enabled, true,
+      "turning Memory off flipped the Saved Info page's own toggle");
+    assert.equal(store.savedInfoStore.get().instructions.length, 1,
+      'turning Memory off deleted a saved instruction');
+
+    setProfileEnabled(true);
+    assert.match(chatSystemPromptFor('gemini', {}), /Write like a real Discord user/,
+      'turning Memory back on did not restore the saved instructions');
+  } finally {
+    profileStore.set(previous);
+    store.clearSavedInstructions();
+  }
+});
+
 it('gives voice only the generated personal snapshot', async () => {
   const { voiceAgentSystemPrompt } = await importTs(voicePromptModule);
   const { profileStore } = await importTs(profileStoreModule);

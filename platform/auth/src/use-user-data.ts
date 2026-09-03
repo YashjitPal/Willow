@@ -64,10 +64,15 @@ const getUserStorageKeys = (scope: string) => ({
   settings: `willow:userSettings:${scope}`,
 });
 
-// Mirrors SettingsModal: an account's cache is backed by Firestore and so can
-// die with the tab, but guest keys are only ever stored here.
-const storageForScope = (scope: string): Storage =>
-  scope === GUEST_SCOPE ? localStorage : sessionStorage;
+/*
+ * Keys live in localStorage and nowhere else, signed in or out.
+ *
+ * They used to be Firestore-backed for an account, which made sessionStorage a
+ * safe place for the copy — the cache could die with the tab because the real
+ * one was in the database. Nothing backs them now (deliberately: they are the
+ * user's credentials, not ours), so this is the only copy and it has to
+ * survive a tab close. `settings` below is non-secret and still syncs.
+ */
 
 const mapProviderState = (providerState: any): ApiKeys => {
   if (!providerState) return DEFAULT_API_KEYS;
@@ -121,18 +126,17 @@ const readCachedApiKeys = (uid: string | null): ApiKeys => {
   if (typeof window === 'undefined') return DEFAULT_API_KEYS;
 
   const scope = uid ?? GUEST_SCOPE;
-  const store = storageForScope(scope);
 
   try {
     const keys = getUserStorageKeys(scope);
-    const serializedApiKeys = store.getItem(keys.apiKeys);
+    const serializedApiKeys = localStorage.getItem(keys.apiKeys);
     if (serializedApiKeys) {
       const cachedApiKeys = normalizeApiKeys(JSON.parse(serializedApiKeys));
       if (cachedApiKeys) return cachedApiKeys;
-      store.removeItem(keys.apiKeys);
+      localStorage.removeItem(keys.apiKeys);
     }
 
-    const serializedProviderState = store.getItem(keys.providerState);
+    const serializedProviderState = localStorage.getItem(keys.providerState);
     if (serializedProviderState) {
       return mapProviderState(JSON.parse(serializedProviderState));
     }
@@ -146,7 +150,7 @@ const readCachedApiKeys = (uid: string | null): ApiKeys => {
 const cacheApiKeys = (uid: string | null, apiKeys: ApiKeys) => {
   const scope = uid ?? GUEST_SCOPE;
   try {
-    storageForScope(scope).setItem(getUserStorageKeys(scope).apiKeys, JSON.stringify(apiKeys));
+    localStorage.setItem(getUserStorageKeys(scope).apiKeys, JSON.stringify(apiKeys));
   } catch (error) {
     console.warn('[UserData] Unable to cache API keys:', error);
   }
@@ -191,16 +195,15 @@ export const useUserData = () => {
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
   const loadGenerationRef = useRef(0);
-  const apiKeysSyncGenerationRef = useRef(0);
   const settingsSyncGenerationRef = useRef(0);
-  const apiKeysDirtyRef = useRef(false);
   const settingsDirtyRef = useRef(false);
-  const apiKeysSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
+  // Settings are the only thing that syncs, so they are the only thing that can
+  // be out of sync. Keys are written straight to disk and are never pending.
   const publishSyncState = useCallback((uid: string) => {
     if (currentUserIdRef.current === uid) {
-      setSynced(!apiKeysDirtyRef.current && !settingsDirtyRef.current);
+      setSynced(!settingsDirtyRef.current);
     }
   }, []);
 
@@ -228,27 +231,24 @@ export const useUserData = () => {
     }
   }, []);
 
-  // Listen for API key updates from SettingsModal's UID-scoped tab cache.
+  // Listen for API key updates from SettingsModal's UID-scoped device cache.
   useEffect(() => {
     const handleApiKeysUpdated = () => {
       const uid = currentUserIdRef.current;
-      apiKeysSyncGenerationRef.current += 1;
       setOwnedApiKeys(uid, readCachedApiKeys(uid));
     };
     window.addEventListener('apikeys-updated', handleApiKeysUpdated);
     return () => window.removeEventListener('apikeys-updated', handleApiKeysUpdated);
   }, [setOwnedApiKeys]);
 
-  // Load user data from Firestore
+  // Load settings from Firestore. Keys come off local storage only.
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
     // Invalidate completions from an earlier account, including A -> B -> A
     // switches where the UID alone would otherwise look current again.
-    const apiKeysGenerationAtLoad = ++apiKeysSyncGenerationRef.current;
     const settingsGenerationAtLoad = ++settingsSyncGenerationRef.current;
     const uid = userId;
 
-    apiKeysDirtyRef.current = false;
     settingsDirtyRef.current = false;
     setSynced(false);
     setOwnedApiKeys(uid, readCachedApiKeys(uid));
@@ -272,16 +272,12 @@ export const useUserData = () => {
         if (userDoc.exists()) {
           const data = userDoc.data();
 
-          if (
-            apiKeysSyncGenerationRef.current === apiKeysGenerationAtLoad &&
-            !apiKeysDirtyRef.current
-          ) {
-            const remoteApiKeys = data.providerState
-              ? mapProviderState(data.providerState)
-              : normalizeApiKeys(data.apiKeys) || DEFAULT_API_KEYS;
-            setOwnedApiKeys(uid, remoteApiKeys);
-            cacheApiKeys(uid, remoteApiKeys);
-          }
+          /*
+           * Keys are deliberately not read back from here. `provider-settings`
+           * owns the one remaining touch of the remote key fields — it recovers
+           * them onto this device and then deletes them — and a second reader
+           * racing that eviction would just re-cache what is being removed.
+           */
 
           if (
             settingsSyncGenerationRef.current === settingsGenerationAtLoad &&
@@ -298,12 +294,6 @@ export const useUserData = () => {
           const initialDocument: Record<string, unknown> = {
             createdAt: new Date().toISOString(),
           };
-          if (
-            apiKeysSyncGenerationRef.current === apiKeysGenerationAtLoad &&
-            !apiKeysDirtyRef.current
-          ) {
-            initialDocument.apiKeys = DEFAULT_API_KEYS;
-          }
           if (
             settingsSyncGenerationRef.current === settingsGenerationAtLoad &&
             !settingsDirtyRef.current
@@ -335,7 +325,13 @@ export const useUserData = () => {
     };
   }, [publishSyncState, setOwnedApiKeys, setOwnedSettings, userId]);
 
-  // Save API keys
+  /**
+   * Save API keys — to this device only.
+   *
+   * Stays `async` because every caller awaits it, but there is nothing to wait
+   * for any more: a localStorage write is synchronous and cannot half-succeed.
+   * Nothing here may ever send a key over the network again.
+   */
   const saveApiKeys = useCallback(async (newApiKeys: ApiKeys) => {
     const uid = userId;
     if (currentUserIdRef.current !== uid) {
@@ -344,35 +340,7 @@ export const useUserData = () => {
 
     setOwnedApiKeys(uid, newApiKeys);
     cacheApiKeys(uid, newApiKeys);
-
-    if (uid) {
-      const generation = ++apiKeysSyncGenerationRef.current;
-      apiKeysDirtyRef.current = true;
-      setSynced(false);
-      const operation = apiKeysSaveQueueRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          const userDocRef = doc(db, 'users', uid);
-          await setDoc(userDocRef, { apiKeys: newApiKeys }, { merge: true });
-          if (apiKeysSyncGenerationRef.current === generation && currentUserIdRef.current === uid) {
-            apiKeysDirtyRef.current = false;
-            publishSyncState(uid);
-          }
-        })
-        .catch((error) => {
-          console.error('Error saving API keys:', error);
-          if (apiKeysSyncGenerationRef.current === generation && currentUserIdRef.current === uid) {
-            apiKeysDirtyRef.current = true;
-            publishSyncState(uid);
-          }
-          throw error;
-        });
-      apiKeysSaveQueueRef.current = operation.catch(() => undefined);
-      await operation;
-    } else {
-      setSynced(false);
-    }
-  }, [publishSyncState, setOwnedApiKeys, userId]);
+  }, [setOwnedApiKeys, userId]);
 
   // Save settings
   const saveSettings = useCallback(async (newSettings: UserSettings) => {

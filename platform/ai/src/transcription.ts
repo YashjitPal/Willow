@@ -9,6 +9,19 @@ export const isChromeNativeTranscriptionModel = (modelId: unknown): boolean => (
   modelId === CHROME_NATIVE_TRANSCRIPTION_MODEL
 );
 
+/**
+ * Transcription SKUs that only exist on the Live API.
+ *
+ * Google ships the 3.5 Transcribe pair across two different APIs: the file model
+ * takes recorded audio over Interactions, while `-live` streams PCM over the Live
+ * API's WebSocket and has no Interactions or `generateContent` surface at all.
+ * This module transcribes a finished recording, so a live-only model can never
+ * answer here — it has to be kept out of the picker rather than failing at send.
+ */
+export const isLiveOnlyTranscriptionModel = (modelId: unknown): boolean => (
+  typeof modelId === 'string' && /transcribe-live$/i.test(modelId.trim())
+);
+
 type TranscriptionProvider =
   | 'gemini'
   | 'openai'
@@ -193,6 +206,36 @@ const responseError = async (response: Response) => {
   return data?.error?.message || data?.message || `Transcription failed (${response.status}).`;
 };
 
+/**
+ * Text out of one `generateContent` part.
+ *
+ * The transcribe SKUs answer with `audioTranscription.text` rather than the
+ * `text` every other Gemini model uses, so a reader that only knows `text`
+ * silently returns "" for the one model family this file exists to support.
+ */
+const partText = (part: any): string => (
+  (typeof part?.text === 'string' ? part.text : '')
+  || (typeof part?.audioTranscription?.text === 'string' ? part.audioTranscription.text : '')
+);
+
+/** Flattens a `content`/`outputs` array of typed blocks (or a bare string) to text. */
+const contentBlocksText = (content: unknown): string => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block: any) => (typeof block === 'string' ? block : partText(block)))
+    .filter(Boolean)
+    .join('\n');
+};
+
+const stepText = (step: any): string => {
+  if (typeof step?.output_text === 'string' && step.output_text.trim()) return step.output_text;
+  if (typeof step?.text === 'string' && step.text.trim()) return step.text;
+  const content = contentBlocksText(step?.content);
+  if (content.trim()) return content;
+  return contentBlocksText(step?.outputs);
+};
+
 const extractInteractionTranscript = (data: any): string => {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) {
     return cleanTranscript(data.output_text);
@@ -200,33 +243,33 @@ const extractInteractionTranscript = (data: any): string => {
   if (typeof data?.text === 'string' && data.text.trim()) {
     return cleanTranscript(data.text);
   }
-  if (Array.isArray(data?.outputs) && data.outputs.length > 0) {
-    const text = data.outputs
-      .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
+  const outputs = contentBlocksText(data?.outputs);
+  if (outputs.trim()) return cleanTranscript(outputs);
+
+  if (Array.isArray(data?.steps)) {
+    /*
+     * Where the transcript actually is.
+     *
+     * A completed interaction returns `steps: [{ type: 'model_output', content:
+     * [{ type: 'text', text }] }]` — the text is nested inside the step's
+     * `content` blocks, not on the step itself. Every `model_output` step is
+     * concatenated rather than taking the last one, so a transcript split across
+     * steps is not silently truncated to its final chunk.
+     */
+    const modelOutput = data.steps
+      .filter((step: any) => step?.type === 'model_output')
+      .map(stepText)
       .filter(Boolean)
       .join('\n');
-    if (text.trim()) return cleanTranscript(text);
-  }
-  if (Array.isArray(data?.steps)) {
+    if (modelOutput.trim()) return cleanTranscript(modelOutput);
+
     for (let i = data.steps.length - 1; i >= 0; i--) {
-      const step = data.steps[i];
-      if (typeof step?.output_text === 'string' && step.output_text.trim()) {
-        return cleanTranscript(step.output_text);
-      }
-      if (typeof step?.text === 'string' && step.text.trim()) {
-        return cleanTranscript(step.text);
-      }
-      if (Array.isArray(step?.outputs)) {
-        const text = step.outputs
-          .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
-          .filter(Boolean)
-          .join('\n');
-        if (text.trim()) return cleanTranscript(text);
-      }
+      const text = stepText(data.steps[i]);
+      if (text.trim()) return cleanTranscript(text);
     }
   }
   if (Array.isArray(data?.candidates?.[0]?.content?.parts)) {
-    const text = data.candidates[0].content.parts.map((part: any) => part?.text || '').join('');
+    const text = data.candidates[0].content.parts.map(partText).join('');
     if (text.trim()) return cleanTranscript(text);
   }
   return '';
@@ -296,6 +339,21 @@ const transcribeWithGemini = async (
   const wavAudio = await convertToWav(audio).catch(() => audio);
   const mimeType = (wavAudio.type || audio.type || 'audio/wav').split(';')[0].trim();
   const audioData = await blobToBase64(wavAudio);
+  /*
+   * Why the fallback chain remembers its first error.
+   *
+   * Each attempt below gives up quietly so the next one can run, which is right
+   * — but it used to discard the reason as well, so a chain that failed at every
+   * step surfaced as an empty transcript and the composer said "Didn't catch
+   * that", blaming the microphone for what was an API error. The first real
+   * reason is kept and raised if nothing produces a transcript.
+   */
+  let firstFailure = '';
+  const noteFailure = (reason: unknown) => {
+    if (firstFailure) return;
+    const message = reason instanceof Error ? reason.message : String(reason ?? '');
+    if (message) firstFailure = message;
+  };
 
   // Specialized transcribe models (gemini-3.5-transcribe, etc.) use the Interactions API
   if (model.modelId.includes('transcribe')) {
@@ -327,8 +385,11 @@ const transcribeWithGemini = async (
         const data = await response.json();
         const transcript = extractInteractionTranscript(data);
         if (transcript) return transcript;
+      } else {
+        noteFailure(await responseError(response));
       }
-    } catch {
+    } catch (error) {
+      noteFailure(error);
       // Fall through to Files API
     }
 
@@ -361,8 +422,11 @@ const transcribeWithGemini = async (
         const data = await fileResponse.json();
         const transcript = extractInteractionTranscript(data);
         if (transcript) return transcript;
+      } else {
+        noteFailure(await responseError(fileResponse));
       }
-    } catch {
+    } catch (error) {
+      noteFailure(error);
       // Fall through to generateContent
     }
   }
@@ -397,8 +461,9 @@ const transcribeWithGemini = async (
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
   const transcript = (data?.candidates?.[0]?.content?.parts || [])
-    .map((part: any) => part?.text || '')
+    .map(partText)
     .join('');
+  if (!transcript.trim() && firstFailure) throw new Error(firstFailure);
   return cleanTranscript(transcript);
 };
 

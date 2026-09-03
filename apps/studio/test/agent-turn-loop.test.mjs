@@ -237,31 +237,33 @@ it('records a plan without echoing it back into the transcript', async () => {
   assert.match(transport.conversations[1].at(-1).content, /Do not repeat it back/);
 });
 
-it('runs a sub-agent and surfaces its work separately from the main thread', async () => {
+it('runs an agent and surfaces its work separately from the main thread', async () => {
   const { files, events } = await run([
     `Delegating the component.
 
-*** Call: task
-{"name": "Card builder", "kind": "implementer", "objective": "Create the Card component"}
+*** Call: spawn_agent
+{"task_name": "card_builder", "message": "Create the Card component"}
 *** End Call
 `,
-    // The sub-agent's own turn.
+    // The agent's own turn.
     `*** Begin Patch
 *** Add File: /Card.tsx
 +export function Card() { return null; }
 *** End Patch
 `,
     'Created Card.tsx.\n',
-    // Back on the main thread.
+    // Back on the root thread.
     'The card is in place.\n',
   ]);
 
-  assert.ok(files['/Card.tsx'], 'the sub-agent should have written the file');
+  assert.ok(files['/Card.tsx'], 'the agent should have written the file');
 
   const started = events.find((event) => event.type === 'agents-start');
   assert.ok(started);
-  assert.equal(started.agents[0].name, 'Card builder');
-  assert.equal(started.agents[0].kind, 'implementer');
+  // Addressed by canonical path, which is what every collaboration tool takes.
+  assert.equal(started.agents[0].path, '/root/card_builder');
+  assert.equal(started.agents[0].name, 'card_builder');
+  assert.equal(started.agents[0].parentPath, '/root');
 
   // Its tool calls land on the agent, not in the main transcript.
   const agentProgress = events.filter((event) => event.type === 'agent-progress');

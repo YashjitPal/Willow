@@ -240,9 +240,43 @@ it('reconstructs the turn messages that are not on disk', () => {
   assert.ok(commit, 'could not locate commitLoadedChat');
   // The placeholder is filtered out of every save by hasSavedMessageContent
   // (empty content), and the user message may predate the first save, so the
-  // loaded thread cannot contain either.
-  assert.match(commit[0], /\[record\.userMessage, assistant\]\.filter\(/);
-  assert.match(commit[0], /!saved\.some\(\(savedMessage\) => savedMessage\.id === message\.id\)/);
+  // loaded thread need not contain either.
+  assert.match(
+    commit[0],
+    /\[record\.userMessage, assistant\]\.filter\(\(message\) => !savedIds\.has\(message\.id\)\)/,
+  );
+});
+
+it('lets a running record outrank its own checkpoint on disk', () => {
+  const view = codeOnly(CHAT_VIEW());
+  const commit = view.match(/const commitLoadedChat = useEventCallback[\s\S]*?\n {2}\}\);/);
+  assert.ok(commit, 'could not locate commitLoadedChat');
+
+  /*
+   * The runner checkpoints a partial response as `wasStopped: true` on purpose,
+   * so a tab that dies mid-stream leaves correct state behind. That makes the
+   * saved thread carry the assistant id while the turn is STILL RUNNING — so a
+   * commit that defers to disk for that id renders a live turn as a truncated,
+   * stopped one, which then rewrites itself when the answer lands.
+   */
+  assert.match(
+    commit[0],
+    /saved\.map\(\(message\) => \(message\.id === assistant\.id \? assistant : message\)\)/,
+  );
+});
+
+it('keeps the hydrated user message rather than the record\'s stripped copy', () => {
+  const view = codeOnly(CHAT_VIEW());
+  const commit = view.match(/const commitLoadedChat = useEventCallback[\s\S]*?\n {2}\}\);/);
+  assert.ok(commit, 'could not locate commitLoadedChat');
+
+  // The record strips attachment object URLs (they die with the ChatView that
+  // made them), so the copy the load path hydrated is the one whose images
+  // render. Only the ASSISTANT may be substituted over the saved thread.
+  const substitution = commit[0].match(/saved\.map\(\(message\) => \([^)]*\)\)/);
+  assert.ok(substitution, 'could not locate the saved-thread substitution');
+  assert.ok(!/record\.userMessage/.test(substitution[0]),
+    'the user message is overwritten with the record copy, blanking its attachments');
 });
 
 it('strips blob URLs from anything stored on a record', () => {
@@ -265,4 +299,41 @@ it('gates sending on the chat, not on component state', () => {
   // own, so it must not linger as the primary gate.
   assert.ok(!/\|\| isGenerating \|\| sendInFlightRef\.current\) return;/.test(view),
     'the send guard still reads component isGenerating');
+});
+
+it('clears the turn mirror when the chat being opened has no turn', () => {
+  const view = codeOnly(CHAT_VIEW());
+  const commit = view.match(/const commitLoadedChat = useEventCallback[\s\S]*?\n {2}\}\);/);
+  assert.ok(commit, 'could not locate commitLoadedChat');
+  // The `!record` branch, i.e. arriving at a chat with nothing running.
+  const branch = commit[0].match(/if \(!record\) \{[\s\S]*?\n {4}\}/);
+  assert.ok(branch, 'could not locate the no-record branch');
+  const body = branch[0];
+
+  /*
+   * `onSettled` clears these too, but it fires only for `owner === 'view'`. A
+   * turn the user walked away from settles through `owner === 'runner'` and
+   * never calls the listener, so this branch is the only place the mirror comes
+   * down. Leaving it set stranded all three for the life of the component:
+   * the composer kept rendering Stop, that Stop still held the OTHER chat's
+   * controller, and `sendInFlightRef` blocked every later send.
+   */
+  assert.match(body, /generationAbortRef\.current = null;/);
+  assert.match(body, /sendInFlightRef\.current = false;/);
+  assert.match(body, /setIsGenerating\(false\);/);
+
+  // Clearing only. Aborting here would kill the very turn the user backgrounded.
+  assert.ok(!/\.abort\(\)/.test(body),
+    'leaving a chat aborts the turn it is leaving behind');
+});
+
+it('points the stop button at the attached turn, not at a captured ref', () => {
+  const view = codeOnly(CHAT_VIEW());
+  const stop = view.match(/const handleStopGenerating = useCallback\([\s\S]*?\n {2}\}, \[[^\]]*\]\);/);
+  assert.ok(stop, 'could not locate handleStopGenerating');
+  // Stop is the one control wired straight to an AbortController, so it has to
+  // resolve the turn it is stopping rather than trusting a ref that another
+  // code path is responsible for clearing.
+  assert.match(stop[0], /attachedTurnIdRef\.current/);
+  assert.match(stop[0], /getChatTurn\(attachedTurnId\)/);
 });

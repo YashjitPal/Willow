@@ -1,19 +1,23 @@
 import React from 'react';
+import { useStore } from '@nanostores/react';
 import { motion } from 'framer-motion';
 import {
   BookOpen,
   Check,
   ChevronRight,
+  ClipboardList,
   Copy,
   FileMinus2,
   FilePlus2,
   FolderTree,
   ListChecks,
+  MessageCircleQuestion,
   Package,
   Search,
   Sparkles,
   SquarePen,
   SquareTerminal,
+  Target,
 } from 'lucide-react';
 import {
   Badge,
@@ -34,16 +38,20 @@ import { CodeLine } from './CodeLine';
 import { TerminalOutput } from './TerminalOutput';
 import { ComputerUseCard } from './ComputerUseCard';
 import { languageFromPath } from './highlight';
+import { pendingUserInput } from '../agent-store';
 import type {
   CommandCall,
   DependencyCall,
   EditCall,
+  GoalCall,
   ListCall,
   PlanCall,
+  ProposedPlanCall,
   ReadCall,
   SearchCall,
   ThinkCall,
   ToolCall,
+  UserInputCall,
 } from '../harness/runtime/protocol';
 
 /**
@@ -74,6 +82,12 @@ export function ToolCallView({ call }: { call: ToolCall }) {
       return <ComputerUseCard call={call} />;
     case 'think':
       return <ThinkCardView call={call} />;
+    case 'proposed-plan':
+      return <ProposedPlanCardView call={call} />;
+    case 'user-input':
+      return <UserInputCardView call={call} />;
+    case 'goal':
+      return <GoalCardView call={call} />;
     // `task` surfaces through the agents panel, never inline.
     default:
       return null;
@@ -318,6 +332,263 @@ function PlanCardView({ call }: { call: PlanCall }) {
             <li className="pt-1 text-[11px] italic text-[hsl(var(--cb-ink-ghost))]">{call.explanation}</li>
           )}
         </ol>
+      }
+    />
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Plan mode                                                                 */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The `<proposed_plan>` block.
+ *
+ * Plan mode's deliverable, and the reason the mode document asks the model to
+ * wrap it: *"so the client can render it specially"*. Rendered as its own card
+ * rather than left in the prose because the surrounding turn is a conversation
+ * — questions, exploration, revisions — and the plan is the one part of it the
+ * user is meant to act on.
+ *
+ * Always open, for the same reason the `update_plan` card is.
+ */
+function ProposedPlanCardView({ call }: { call: ProposedPlanCall }) {
+  const [copied, copy] = useCopy();
+
+  return (
+    <ToolCard
+      status={call.status}
+      error={call.error}
+      defaultOpen
+      icon={<ClipboardList size={13} strokeWidth={1.9} />}
+      title="Proposed plan"
+      runningTitle="Writing the plan"
+      actions={
+        <Tooltip content={copied ? 'Copied' : 'Copy plan'}>
+          <IconButton size="xs" label="Copy plan" onClick={() => copy(call.markdown)}>
+            {copied ? (
+              <Check size={11} className="text-[hsl(var(--cb-positive))]" />
+            ) : (
+              <Copy size={11} />
+            )}
+          </IconButton>
+        </Tooltip>
+      }
+      body={
+        <div className="cb-proposed-plan whitespace-pre-wrap py-0.5 text-xs leading-relaxed text-[hsl(var(--cb-ink))]">
+          {call.markdown.trim()}
+        </div>
+      }
+    />
+  );
+}
+
+/**
+ * A `request_user_input` round.
+ *
+ * In Plan mode this call is *blocking* — the turn genuinely stops here — so the
+ * card is the only way forward and has to be answerable in place. Once answered
+ * it keeps the questions and shows what was chosen, because the plan that
+ * follows was shaped by those answers and the record of them is part of reading
+ * it.
+ *
+ * The options come from the model; the "Other" row does not. Upstream forces
+ * `is_other` on every question and tells the model in the schema *not* to write
+ * one, precisely so this affordance is always available — a question the user
+ * cannot answer in their own words is a worse question.
+ */
+function UserInputCardView({ call }: { call: UserInputCall }) {
+  const pending = useStore(pendingUserInput);
+  const answered = new Map((call.answers ?? []).map((answer) => [answer.id, answer.answer]));
+
+  // Only the live question is interactive. Matching on the questions rather than
+  // on the card id keeps a re-rendered card wired to the promise it opened.
+  const live =
+    call.status === 'running' &&
+    pending &&
+    pending.questions.length === call.questions.length &&
+    pending.questions.every((question, index) => question.id === call.questions[index]?.id)
+      ? pending
+      : null;
+
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [chosen, setChosen] = React.useState<Record<string, string>>({});
+
+  const submit = (next: Record<string, string>): void => {
+    live?.resolve(
+      call.questions
+        .map((question) => ({ id: question.id, answer: next[question.id] ?? '' }))
+        .filter((answer) => answer.answer !== ''),
+    );
+  };
+
+  const pick = (questionId: string, answer: string): void => {
+    const next = { ...chosen, [questionId]: answer };
+    setChosen(next);
+    // One question is the common case and the schema says to prefer it, so a
+    // single pick submits rather than making the user confirm a choice of one.
+    if (call.questions.length === 1) submit(next);
+  };
+
+  const allPicked = call.questions.every((question) => chosen[question.id]);
+
+  return (
+    <ToolCard
+      status={call.status}
+      error={call.error}
+      defaultOpen
+      icon={<MessageCircleQuestion size={13} strokeWidth={1.9} />}
+      title={call.answers ? 'You answered' : 'Question'}
+      runningTitle={call.blocking ? 'Waiting for you' : 'Asking'}
+      meta={
+        call.questions.length > 1 ? (
+          <span className="cb-tabular">{call.questions.length}</span>
+        ) : undefined
+      }
+      body={
+        <div className="space-y-3 py-0.5">
+          {call.questions.map((question) => {
+            const answer = answered.get(question.id) ?? chosen[question.id];
+            return (
+              <div key={question.id} className="space-y-1.5">
+                <div className="text-xs leading-relaxed text-[hsl(var(--cb-ink))]">
+                  {question.question}
+                </div>
+
+                {answer && !live ? (
+                  <div className="flex items-start gap-2 text-[11px] leading-relaxed">
+                    <Check
+                      size={11}
+                      className="mt-[3px] shrink-0 text-[hsl(var(--cb-positive))]"
+                      strokeWidth={3}
+                    />
+                    <span className="text-[hsl(var(--cb-ink))]">{answer}</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {question.options.map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        disabled={!live}
+                        onClick={() => pick(question.id, option.label)}
+                        className={cn(
+                          'block w-full rounded-md px-2 py-1.5 text-left text-[11px] leading-relaxed transition-colors',
+                          live
+                            ? 'hover:bg-[hsl(var(--cb-surface-raised))]'
+                            : 'cursor-default',
+                          chosen[question.id] === option.label
+                            ? 'bg-[hsl(var(--cb-surface-raised))] text-[hsl(var(--cb-ink))]'
+                            : 'text-[hsl(var(--cb-ink-faint))]',
+                        )}
+                      >
+                        {option.label}
+                        {option.description ? (
+                          <span className="text-[hsl(var(--cb-ink-ghost))]">
+                            {' — '}
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+
+                    {live && (
+                      <input
+                        value={drafts[question.id] ?? ''}
+                        onChange={(event) =>
+                          setDrafts({ ...drafts, [question.id]: event.target.value })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter') return;
+                          const value = (drafts[question.id] ?? '').trim();
+                          if (value) pick(question.id, value);
+                        }}
+                        placeholder="Other…"
+                        className="w-full rounded-md bg-[hsl(var(--cb-surface-sunken))] px-2 py-1.5 text-[11px] text-[hsl(var(--cb-ink))] outline-none placeholder:text-[hsl(var(--cb-ink-ghost))]"
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {live && call.questions.length > 1 && (
+            <button
+              type="button"
+              disabled={!allPicked}
+              onClick={() => submit(chosen)}
+              className="rounded-md bg-[hsl(var(--cb-surface-raised))] px-2.5 py-1 text-[11px] text-[hsl(var(--cb-ink))] disabled:opacity-40"
+            >
+              Answer
+            </button>
+          )}
+
+          {live && (
+            /*
+             * Skipping is a real answer, and both mode documents say what
+             * happens next: "continue with best judgment instead of asking
+             * again". Without it a blocking question in Plan mode would be a
+             * dead end for anyone who does not want to choose.
+             */
+            <button
+              type="button"
+              onClick={() => live.resolve([])}
+              className="block text-[11px] text-[hsl(var(--cb-ink-ghost))] hover:text-[hsl(var(--cb-ink-faint))]"
+            >
+              Skip and use your judgement
+            </button>
+          )}
+        </div>
+      }
+    />
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Goal mode                                                                 */
+/* ------------------------------------------------------------------------ */
+
+const GOAL_VERB = {
+  get: { done: 'Checked the goal', running: 'Checking the goal' },
+  create: { done: 'Goal set', running: 'Setting the goal' },
+  update: { done: 'Goal updated', running: 'Updating the goal' },
+} as const;
+
+/**
+ * A goal tool call.
+ *
+ * These cards are what keep Goal mode honest. The harness starts turns the user
+ * did not send, so every transition that decides whether it keeps going — the
+ * objective, the status, the budget consumed — has to be somewhere the user can
+ * see it after the fact.
+ */
+function GoalCardView({ call }: { call: GoalCall }) {
+  const verb = GOAL_VERB[call.action];
+  const budget =
+    call.tokenBudget === undefined
+      ? undefined
+      : `${call.tokensUsed ?? 0}/${call.tokenBudget} tokens`;
+
+  return (
+    <ToolCard
+      status={call.status}
+      error={call.error}
+      icon={<Target size={13} strokeWidth={1.9} />}
+      title={verb.done}
+      runningTitle={verb.running}
+      subject={
+        call.goalStatus ? (
+          <span className="text-[hsl(var(--cb-ink-faint))]">{call.goalStatus}</span>
+        ) : undefined
+      }
+      meta={budget ? <span className="cb-tabular">{budget}</span> : undefined}
+      body={
+        call.objective ? (
+          <div className="py-0.5 text-xs leading-relaxed text-[hsl(var(--cb-ink))]">
+            {call.objective}
+          </div>
+        ) : undefined
       }
     />
   );

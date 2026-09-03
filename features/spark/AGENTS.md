@@ -387,6 +387,144 @@ Both are `transition: background 0.15s`.
   capability. `SparkProcessingState` in `SparkTaskDetail.tsx` is that row; the
   slide-out panel remains for the full timeline.
 
+### Sending a follow-up anchors it and holds its response area open
+
+A follow-up used to be appended and the thread scrolled to `scrollHeight`, so the
+new prompt landed jammed against the composer with the reply growing off the
+bottom edge. It now behaves like Chat: the prompt travels to near the top of the
+pane and the rest of the visible pane is held open beneath it, so the reply
+arrives into a settled area and the thread only grows once the reply is genuinely
+taller than the space it was given.
+
+The shape is Chat's — anchor, reserve, release — but **none of Chat's numbers
+transfer**, and two structural differences change the arithmetic:
+
+- **`SPARK_ANCHOR_OFFSET` is 48, not Chat's 72.** 72 is Chat's own thread top
+  padding. Spark's scroller pads `35px`, but 35 is unusable: the scroller carries
+  a scroll-edge mask that ramps transparent→opaque over `--fade-distance` (48px)
+  the moment `scrollTop > 0`, and anchoring *is* a scroll, so a prompt parked at
+  35 would settle with its top third dissolved into the fade. 48 is the first
+  offset that clears the ramp. If either the padding or `--fade-distance` moves,
+  this is the max of the two.
+- **The composer's height must be subtracted explicitly.** Chat's composer is a
+  flex sibling, so its scroller's `clientHeight` already excludes it. Spark docks
+  the composer as an absolute overlay and makes room with
+  `padding-bottom: var(--spark-followup-inset)`, so `clientHeight` still counts
+  the strip the composer covers. `measureAnchorReserve` reads the scroller's
+  computed `paddingBottom` for exactly this. Miss it and every reply gets ~160px
+  of dead space under it.
+
+**The reserve is `min-height` on the turn, and it has to be.** A sibling spacer
+sized `reserve − turnHeight` was tried first and looks equivalent — the totals
+match, and a growth sweep shows `scrollHeight` holding steady until the reply
+exceeds the reserve. It is not equivalent, because a spacer has to be *measured*
+back into shape: ResizeObserver → state → render. Collapsing the processing steps
+shrinks the turn in CSS immediately while the spacer is still sized for the tall
+version, so the thread's total height **dips for a frame** — and since anchoring
+leaves `scrollTop` exactly at its maximum, that dip makes the browser clamp it.
+The spacer then returns but the clamp does not, so the whole thread ends up
+permanently lower. Expanding never showed it: that transient *grows* the thread,
+and growth cannot clamp.
+
+`min-height` floors the box in the same layout pass with no JS in the loop, so
+there is no frame for a dip to happen in. Verified by sampling `scrollTop` across
+an expand/collapse cycle: `213,213,213,213,213,213`, with the turn flooring back
+to the reserve exactly. It also removes the need to detect the release at all —
+once the reply is taller than the floor the declaration is simply inert, which is
+why there is no `needsScrollPadding` equivalent here.
+
+Only the newest turn carries the floor. When the anchor moves, the old turn's
+`min-height` is dropped and the new one's applied inside the same `flushSync`, so
+the two changes land atomically and the glide's target is measured after.
+
+**Scrolling alone is not the animation.** `scrollTo({ behavior: 'smooth' })` is
+enough only when the previous reply was long enough to push the new prompt below
+the fold. When it was short — the common case, since its own reserve was still
+holding space open — the new prompt is laid out directly beneath it and so
+*enters* partway up the pane, around y≈274 in a 650px pane. Scrolling then
+carries it only that short remaining distance, and it reads as the message
+materialising where the last response ended and jumping, rather than rising from
+where it was typed.
+
+So `runFollowUpEntrance` offsets the entering row and article down to the
+composer's edge and animates that offset out on the **same eased clock** that
+drives the scroll. One clock for both is the point: a CSS transition plus a
+native smooth scroll are two durations and two curves, and the seam shows as a
+rate change mid-flight. Measured at 40ms intervals, the prompt now travels
+`488 → 482 → 301 → 179 → 104 → 74 → 52 → 48`, starting exactly at
+`clientHeight − composerInset`. The branch is `entranceOffset <= 8`, which sends
+the below-the-fold case to a plain smooth scroll — verified separately as
+`974 → 793 → 453 → 208 → 87 → 50 → 48`. This mirrors Chat's `runTurnEntrance`,
+which exists for the identical case.
+
+Three things that will bite if changed:
+
+- **The glide's `scrollTop` writes are monotonic**, and its listeners abandon it
+  on the first wheel/touch/keydown. A reserve collapsing mid-flight must never
+  rewind the scroll, and a user who starts scrolling is not argued with.
+- **Anchor scrolling is measured off `getBoundingClientRect`, not `offsetTop`.**
+  The thread column carries `transform: translateX(14px)` and the nearest
+  positioned ancestor is `.spark-task-detail__panel`, not the scroller — so
+  `offsetTop` is not relative to the thing being scrolled.
+- **An opened task restores its anchor, instantly.** "Lands, does not travel"
+  means *no animation* — not "goes to the bottom". Chat writes `scrollTop`
+  straight to the anchor on chat open, and Spark now does the same: the reserve
+  is recomputed and the last prompt is put back at `SPARK_ANCHOR_OFFSET` with no
+  glide. Without this the reserve, being React state, was dropped on every
+  reload and the gap the user had just been looking at disappeared. The newest
+  turn is still recorded as already handled, so reopening never replays an
+  animation the user did not trigger.
+  The restore scroll is issued from the sync effect, not the open branch, because
+  the spacer has to exist before there is any range to scroll into — both run in
+  the same layout phase, so nothing paints in between.
+  A task with no follow-ups has nothing to anchor and still lands at the end,
+  re-asserting for two frames because streamed markdown, the action row and file
+  cards each grow `scrollHeight` after the first write, which otherwise left an
+  open ~17px short.
+- **The spacer changes `scrollHeight`, so the fade vars must be recomputed with
+  it.** `updateScrollFade` is called from the reserve's own observer for this
+  reason; without it the bottom fade goes stale as the reserve collapses.
+
+Only follow-ups are anchored. The root exchange already renders its prompt at the
+top of an unscrolled thread, so it needs none of this.
+
+### The accents are the workspace colour, not Gemini's blue
+
+Spark was transcribed from Gemini, so its accents arrived as Gemini's literal
+blues. Three of them are now driven by the user's workspace colour through
+`src/spark-accent.ts`:
+
+| Variable | Theme token | Drives |
+| --- | --- | --- |
+| `--spark-accent` | `sendButton.bg` | `.spark-page-action--primary`, `.spark-suggested-indicator` at rest |
+| `--spark-accent-hover` | `sendButton.hover` | that button's hover |
+| `--spark-accent-bright` | `creamy.hex` | the indicator on hover, the working-spark glyph |
+
+Each maps to the token that already plays that role elsewhere in the app, so a
+green workspace gets Spark's buttons in the same green as the composer's send
+button rather than an independently invented green.
+
+Two things to know before touching this:
+
+- **Every stylesheet reads them as `var(--spark-accent, #1f3b9b)`**, keeping
+  Gemini's measured value as the fallback. An unthemed render is therefore
+  byte-identical to what the scrapers in `tools/ui-research/scrapers/spark/` were
+  written against — verified: with no variable set the button still computes
+  `rgb(31,59,155)`, the indicator `rgb(31,59,155)` and the glyph `rgb(49,134,255)`.
+  **Do not "simplify" these back to literals**, and do not drop the fallbacks.
+- **The working spark's colour is in its asset, not its CSS.**
+  `gemini-working-animation/template.svg` and `frames.json` now say `currentColor`
+  where they said `rgb(49,134,255)`, and `.spark-task-detail__agent-working-animation`
+  sets `color`. That worked because the asset carried exactly one colour across
+  the template and all frames — the loop animates `fill-opacity` and transforms,
+  never hue. Re-exporting the animation from Gemini will reintroduce the literal.
+
+`SparkWorkspace` returns Home, Schedules, Skills and Apps **without**
+`wrapConnectedPage`, so there is no single themed host over all of Spark and each
+page root declares the variables itself. The rest of Spark's blues — the
+`#a8c7fa` focus rings, `#192967` status pills, and the editors' primary buttons —
+are still literal.
+
 ### Measured values worth not "correcting"
 
 The home page reproduces these; each was read off the live app, not designed.

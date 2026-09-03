@@ -15,7 +15,8 @@ import { atom } from 'nanostores';
 export type ExperimentId =
   | 'darker-design-background'
   | 'design-surface'
-  | 'agents-surface';
+  | 'agents-surface'
+  | 'projects-panel';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -25,6 +26,7 @@ export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'darker-design-background': false,
   'design-surface': false,
   'agents-surface': false,
+  'projects-panel': false,
 };
 
 /**

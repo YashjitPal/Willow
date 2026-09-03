@@ -670,8 +670,12 @@ export type PromptContext = {
   /** Grounds the date line. Defaults to the current instant. */
   now?: Date;
   /**
-   * Whether Saved Info may reach the model. False in a temporary chat, which
-   * carries nothing personal in and saves nothing out.
+   * Whether anything personal may reach the model. False in a temporary chat,
+   * which carries nothing personal in and saves nothing out.
+   *
+   * It is not the only gate. Saved Info and the profile summary both also require
+   * the Memory switch (`profileStore.enabled`), which the composer's plus menu and
+   * the settings tab share. This flag is the per-turn half of that decision.
    */
   personalize?: boolean;
   /**
@@ -754,10 +758,21 @@ const personalContextBlock = ({ personalize, personalTool }: PromptContext): str
  * Saved Info stays ahead of the profile, and the ladder's Step 2 rule 1 names
  * that order explicitly: a line the user typed outranks one Willow inferred,
  * because one was written on purpose and the other was a guess.
+ *
+ * Both blocks answer to the Memory switch, not only to the temporary-chat flag.
+ * The composer's plus menu writes that switch, so someone turning personalization
+ * off expects Willow to stop knowing things about them — dropping the inferred
+ * profile while still shipping the instructions they typed honours half of that
+ * and is the more surprising half to get wrong, since Saved Info is the part they
+ * can remember writing. The switch is *read* here and never mirrored into
+ * `savedInfoStore`: silencing a turn is not the same act as editing what is
+ * saved, so the Saved Info page keeps listing every entry it holds and flipping
+ * Memory back on restores them untouched.
  */
 const withTurnContext = (prompt: string, context: PromptContext): string => {
   const { now, personalize = true } = context;
-  const savedInfo = personalize ? savedInfoBlock() : '';
+  const memory = personalize && profileStore.get().enabled;
+  const savedInfo = memory ? savedInfoBlock() : '';
   const personal = personalContextBlock({ ...context, personalize });
   return [
     prompt,

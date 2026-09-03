@@ -2350,7 +2350,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   /**
    * Rename a project folder on disk so it stays in lock-step with a UI rename
    * (otherwise the disk-authoritative reconciler would revert the new name).
-   * Renames in Code/ and/or Media/ — wherever the project lives. Uses the native
+   * Renames in Code/ and/or Media/ — wherever the project lives.
+   *
+   * The boolean means "disk now agrees with the new name", NOT "a folder was
+   * moved". A project that has no folder in any area satisfies that vacuously
+   * and answers true — see the empty-`sourceParents` case below for why the
+   * distinction is load-bearing. False is reserved for a folder that exists and
+   * could not be moved, which is the only case a caller must roll back for.
+   *
+   * Uses the native
    * FileSystemHandle.move() when available, falling back to a safe recursive
    * copy-then-delete (the original is only removed AFTER a complete copy, so an
    * interrupted rename can never lose data). The .willow.json manifest travels
@@ -2429,7 +2437,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     projectRenameOpsRef.current++;
     try {
       const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
+      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName).catch((error: any) => {
+        if (error?.name === 'NotFoundError') return null;
+        throw error;
+      });
+      // Nothing has ever been written under this root, so no project has a
+      // folder here to keep in lock-step. Same reasoning as the empty
+      // `sourceParents` case below.
+      if (!workspaceDir) return true;
       const sourceParents: FileSystemDirectoryHandle[] = [];
       for (const parentName of getProjectAreas().map((area) => area.folder)) {
         try {
@@ -2446,7 +2461,18 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           if (error?.name !== 'NotFoundError') return false;
         }
       }
-      if (sourceParents.length === 0) return false;
+      // No folder in any project area: this project has never been saved to
+      // disk. A media project's folder is created by the first file written
+      // into it, so an empty one is the ordinary case here, not an error.
+      //
+      // This must not report false. `transactionalRenameProject` reads false as
+      // a failed disk move and rolls the entire rename back, which is why
+      // renaming an untouched Media project snapped straight back to its old
+      // name the moment it was committed. Nothing reverts the registry after
+      // this returns either: the reconciler only drops a row whose folder is
+      // missing when `onDisk === true`, and a browser-only project is exactly
+      // the row that guard protects.
+      if (sourceParents.length === 0) return true;
       // A compensating rollback is itself a rename (new→old). Remove the
       // immediately preceding reverse redirect (old→new) before recording it,
       // otherwise resolveCurrentProjectName follows a two-node cycle and later

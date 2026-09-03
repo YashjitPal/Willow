@@ -81,10 +81,10 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `src/local-fs/folder-sync-engine.ts` | **The one reconcile algorithm**, shared by every registered folder. Pure: no React, no `FileSystemDirectoryHandle`, everything arrives through `FolderSyncPorts` — which is what makes the sync rules unit-testable instead of only reviewable. Owns revisions, tombstones, dirty flushes, conflict copies, and every delete-safety rule. |
 | `src/local-fs/synced-folder-driver.ts` | Adapter binding a registered folder to a real directory handle: supplies the engine with disk I/O, localStorage-backed sync records (`willow_synced_*` keys), and the per-item in-tab + cross-tab lock. |
 | `src/project-contributors.ts` | Registry for sub-folders *within* a saved Code project. |
-| `apps/studio/src/app/App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects` / `starred` / `shared`). |
+| `apps/studio/src/app/App.tsx` | Mounts `<LocalFSProvider>` around **all** routes. Runs `migrateProjectKinds()` once on mount. Chooses which surface renders (`studioMode` = `chat` / `develop` / `media`; `currentView` = `home` / `projects`). |
 | `features/media/src/MediaHome.tsx` | Media-home project grid (filtered to `kind:'media'`). Owns project rename (`persistProjectRename`) + delete + the "New project" button. |
 | `features/media/src/MediaShowcase.tsx` | Media-home "showcase" (top 9 of `kind:'media'`). Star toggle + delete. |
-| `features/projects/src/ProjectsPage.tsx` | "All projects" / Starred / Shared. Unfiltered registry. Star toggle + delete. |
+| `features/projects/src/ProjectsPage.tsx` | The Projects browser. Reads the registry unfiltered; the starred-only filter narrows the display list only. Star toggle + delete. |
 | `features/media/src/MediaView.tsx` | The media editor for one project. Generates media, saves it, sets covers, and runs **real-time media-file sync** for the open project. |
 | `features/code/src/WorkbenchView.tsx` + `WorkbenchSidebar.tsx` | The code editor. Creates code projects (`kind:'code'`); persists sessions via `saveCodeSessions`/`loadCodeSessions`. |
 
@@ -196,7 +196,7 @@ Mutations:
 - `deleteLocalFSChat(chatId)` — IndexedDB body + disk file.
 - `deleteLocalFSProject(projectId, projectName)` — removes the matching registered project-area folder (recursive). Pair with `deleteProjectData` for IndexedDB.
 - `deleteLocalFSMediaFile(projectName, kind, fsName)` — removes one media file so the poller won't re-ingest it.
-- `renameLocalFSProject(oldName, newName)` — renames the disk folder (native `move()` → recursive copy+delete fallback). Keeps disk in lock-step with a UI rename.
+- `renameLocalFSProject(oldName, newName)` — renames the disk folder (native `move()` → recursive copy+delete fallback). Keeps disk in lock-step with a UI rename. Returns "disk agrees with the new name", so a project with no folder yet is `true`; `false` means a folder exists and is stuck. See [§7 Rename (project)](#rename-project).
 - `renameLocalFSChat(oldChatId, newChatId)` — collision-safe scoped IndexedDB + metadata + disk rename.
 
 Notebooks (all no-ops returning `false`/`null` with no folder connected — the
@@ -355,11 +355,23 @@ projectName and projectId — see [§12](#12-known-issues--tech-debt)), **and**
 hover "Delete card" button and the menu "Move to trash".
 
 ### Rename (project)
-`persistProjectRename` (HeroSection): update registry name → dispatch →
-`renameLocalFSProject(oldName, newName)` renames the disk folder. The manifest
-(and thus id + covers/media) travels with the folder. If the disk rename fails,
-the disk-authoritative reconciler reverts the registry name on the next poll, so
-a rename only "sticks" when the folder actually moved.
+`transactionalRenameProject` (`platform/projects/src/rename.ts`) owns this, and
+the order is deliberate: disk folder → code sessions → registry. Disk moves first
+because it is authoritative, and the registry is the final durable commit, so no
+intermediate failure can leave a committed name the disk disagrees with. The
+manifest (and thus id + covers/media) travels with the folder. A failure at any
+step rolls the earlier ones back.
+
+**"No folder on disk" is not a failure.** A project only materializes on disk when
+its first file is written, so a Media project with nothing generated yet has no
+folder in any project area. `renameLocalFSProject` answers `true` for it — the
+boolean means "disk agrees with the new name", which holds vacuously — and the
+registry rename stands on its own. Nothing reverts it: the reconciler drops a row
+whose folder is missing only when `onDisk === true`, which a browser-only project
+never is. `false` is reserved for a folder that exists and could not be moved,
+the one case a caller must roll back for. Conflating the two is what made an
+untouched Media project impossible to rename: the new name committed nowhere and
+the old one reappeared instantly.
 
 ---
 
