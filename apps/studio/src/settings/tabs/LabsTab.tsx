@@ -1,12 +1,26 @@
 import React from 'react';
 import { useStore } from '@nanostores/react';
 import { experimentsStore, setExperiment, type ExperimentId } from '@willow/core/experiments-store';
+import { LABS_DESCRIPTION, LABS_EXPERIMENTS } from '../labs-experiments';
+
+/**
+ * Labs, inside the settings modal.
+ *
+ * The rows come from `settings/labs-experiments.ts`, which the standalone
+ * `tabs/labs/LabsPage.tsx` renders too — the same arrangement Models & API has,
+ * where both surfaces read one roster so neither can offer an experiment the
+ * other hides. The flags live in `experimentsStore`, which is the single writer,
+ * so this tab and that page are never out of step.
+ *
+ * The drawing is this file's own and stays deliberately dialog-shaped: 14px type
+ * on `border-white/5` dividers, not the page's cards.
+ */
 
 /**
  * Switch for a Labs experiment.
  *
- * The markup matches the static toggles already on this tab so an experiment
- * that is wired up is visually indistinguishable from one that is not.
+ * The markup matches the static toggles below so an experiment that is wired up
+ * is visually indistinguishable from one that is not.
  */
 const ExperimentToggle: React.FC<{
   id: ExperimentId;
@@ -29,6 +43,22 @@ const ExperimentToggle: React.FC<{
   </button>
 );
 
+/**
+ * The same switch for a row with no flag behind it.
+ *
+ * A div rather than a disabled button, which is what these rows have always
+ * been: they are drawn in a fixed state and do nothing when clicked.
+ */
+const StaticToggle: React.FC<{ enabled: boolean }> = ({ enabled }) => (
+  <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5 shrink-0">
+    <div
+      className={`w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all group-hover:bg-zinc-500 ${
+        enabled ? 'translate-x-[16px] !bg-white' : '-translate-x-0'
+      }`}
+    />
+  </div>
+);
+
 export const LabsTab: React.FC = () => {
   const experiments = useStore(experimentsStore);
 
@@ -39,82 +69,26 @@ export const LabsTab: React.FC = () => {
       </div>
 
       <div className="pb-6 border-b border-white/5 mb-0">
-        <p className="text-[14px] text-zinc-400">
-          These are experimental features, that might be modified or removed. Willow is an
-          alpha release — anything switched on here is unfinished and may not behave as intended.
-        </p>
+        <p className="text-[14px] text-zinc-400">{LABS_DESCRIPTION}</p>
       </div>
 
       <div className="space-y-0 pb-10">
-        {/* Design surface */}
-        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Design</h3>
-            <p className="text-[14px] text-zinc-400">
-              Shows the Design tab in the sidebar. An in-progress canvas for generating UI designs
-              from text or sketches — the surface is explorable but not finished.
-            </p>
+        {LABS_EXPERIMENTS.map((row) => (
+          <div
+            key={row.id ?? row.title}
+            className="py-6 border-b border-white/5 flex items-start justify-between gap-8"
+          >
+            <div className="flex-1 max-w-[60%]">
+              <h3 className="text-[14px] font-bold text-white mb-1">{row.title}</h3>
+              <p className="text-[14px] text-zinc-400">{row.description}</p>
+            </div>
+            {row.id ? (
+              <ExperimentToggle id={row.id} enabled={experiments[row.id]} label={row.title} />
+            ) : (
+              <StaticToggle enabled={!!row.staticEnabled} />
+            )}
           </div>
-          <ExperimentToggle
-            id="design-surface"
-            enabled={experiments['design-surface']}
-            label="Design"
-          />
-        </div>
-
-        {/* Agents surface */}
-        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Agents</h3>
-            <p className="text-[14px] text-zinc-400">
-              Shows the Agents tab in the sidebar. A node-based canvas for wiring visual workflow
-              pipelines — the surface is explorable but not finished.
-            </p>
-          </div>
-          <ExperimentToggle
-            id="agents-surface"
-            enabled={experiments['agents-surface']}
-            label="Agents"
-          />
-        </div>
-
-        {/* Darker Design Background */}
-        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Darker Design Background</h3>
-            <p className="text-[14px] text-zinc-400">
-              Applies a darker pitch-black background to the Design tab instead of the default dark gray.
-            </p>
-          </div>
-          <ExperimentToggle
-            id="darker-design-background"
-            enabled={experiments['darker-design-background']}
-            label="Darker Design Background"
-          />
-        </div>
-
-        {/* GitHub branch switching */}
-        <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">GitHub branch switching</h3>
-            <p className="text-[14px] text-zinc-400">Select the branch to make edits to in your GitHub repository.</p>
-          </div>
-          <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-            <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all group-hover:bg-zinc-500 translate-x-[16px] !bg-white" />
-          </div>
-        </div>
-
-         {/* Prototyping */}
-         <div className="py-6 border-b border-white/5 flex items-start justify-between gap-8">
-          <div className="flex-1 max-w-[60%]">
-            <h3 className="text-[14px] font-bold text-white mb-1">Prototyping</h3>
-            <p className="text-[14px] text-zinc-400">Build and share AI-powered mini-apps using natural language prompts.</p>
-          </div>
-           <div className="w-9 h-5 rounded-full bg-zinc-800 p-0.5 cursor-pointer relative group border border-white/5">
-            <div className="w-3.5 h-3.5 rounded-full bg-zinc-600 transition-all -translate-x-0 group-hover:bg-zinc-500" />
-          </div>
-        </div>
-
+        ))}
       </div>
     </div>
   );

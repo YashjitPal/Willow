@@ -1,8 +1,8 @@
 # features/projects
 
-The project browser: the grid/list of every saved project with covers, search, and
-sort. Aliased as **`@willow/project-browser`** — not `@willow/projects`, which is
-the platform data layer.
+The project browser: the grid/list of every saved project with covers, search,
+sort, and a starred-only filter. Aliased as **`@willow/project-browser`** — not
+`@willow/projects`, which is the platform data layer.
 
 ## Files
 

@@ -4,7 +4,20 @@ import { AUTO_MODEL, resolveAutoModel } from '@willow/ai/models/auto-select';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
 import { DEFAULT_PROFILE_IDS, defaultApiFormatForProvider, defaultToolPolicyForProvider } from '@willow/ai/providers/profiles';
 import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
-import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME } from '@willow/ai/transcription';
+import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME, isLiveOnlyTranscriptionModel } from '@willow/ai/transcription';
+/*
+ * The catalogue and the pricing table are shared with the standalone
+ * `/models-settings` page: a model added on either surface has to be the same
+ * record, because both write the one `modelConfig` the composer reads.
+ */
+import {
+  DEFAULT_CUSTOM_REASONING_EFFORTS,
+  MOONSHOT_MODELS,
+  SPACEXAI_MODELS,
+  getConfiguredThinkingLabel,
+  getModelPricing,
+  type ProviderModelOption,
+} from '../provider-models';
 
 const ModelCategoryIcon: React.FC<{ modelId: string; className?: string; size?: number }> = ({ modelId, className = "text-zinc-500", size = 14 }) => {
   const category = getModelCategory(modelId);
@@ -14,60 +27,6 @@ const ModelCategoryIcon: React.FC<{ modelId: string; className?: string; size?: 
   if (category === 'embedding') return <Database size={size} className={className} />;
   return <Sparkles size={size} className={className} />;
 };
-
-const DEFAULT_CUSTOM_REASONING_EFFORTS = [
-  { id: 'effort-none', level: '0', label: 'None', value: 'none' },
-  { id: 'effort-low', level: '1', label: 'Low', value: 'low' },
-  { id: 'effort-medium', level: '2', label: 'Medium', value: 'medium' },
-  { id: 'effort-high', level: '3', label: 'High', value: 'high' },
-];
-
-const MOONSHOT_MODELS = [
-  {
-    id: 'kimi-k3',
-    name: 'Kimi K3',
-    maxLevels: 4,
-    hasNone: true,
-    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Max' }
-  }
-];
-
-const SPACEXAI_MODELS: Array<GeminiModel & { defaultThinkingLevel: number }> = [
-  {
-    id: 'grok-4.6',
-    name: 'Grok 4.6',
-    maxLevels: 3,
-    hasNone: false,
-    defaultThinkingLevel: 3,
-    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-  },
-  {
-    id: 'grok-voice',
-    name: 'Grok Voice',
-    maxLevels: 0,
-    hasNone: true,
-    defaultThinkingLevel: 0
-  },
-  {
-    id: 'grok-imagine',
-    name: 'Grok Imagine',
-    maxLevels: 0,
-    hasNone: true,
-    defaultThinkingLevel: 0
-  }
-];
-
-const STANDARD_THINKING_LABELS: Record<number, string> = {
-  1: 'Low',
-  2: 'Medium',
-  3: 'High'
-};
-
-const getConfiguredThinkingLabel = (
-  level: number,
-  levelLabels: Record<number, string> = STANDARD_THINKING_LABELS,
-  noneLabel = 'None'
-) => level === 0 ? noneLabel : levelLabels[level] || `Level ${level}`;
 
 // Custom Bulb Icon: Uses standard Lightbulb but fills it when active (Reasoning On)
 const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean, className?: string, strokeWidth?: number }) => {
@@ -79,82 +38,8 @@ const ReasoningBulb = ({ isActive, className, strokeWidth }: { isActive: boolean
     );
 };
 
-export const getModelPricing = (modelId: string, provider: string): string => {
-  const prices: Record<string, string> = {
-    // Gemini
-    'gemini-3.7-flash': '$0.15/$0.60',
-    'gemini-3.6-flash': '$0.15/$0.60',
-    'gemini-3.5-flash': '$0.15/$0.60',
-    'gemini-3.5-flash-lite': '$0.075/$0.30',
-    'gemini-3.1-pro-preview': '$2.50/$10.00',
-    'gemini-2.5-flash-lite': '$0.075/$0.30',
-    'gemini-3-pro-image-preview': '$1.25/$5.00',
-    'gemini-3.1-flash-image-preview': '$0.15/$0.60',
-    'gemini-3.1-flash-lite-image': '$0.075/$0.30',
-    'omni-flash': '$0.15/$0.60',
-    'omni-flash-1.1': '$0.15/$0.60',
-    'lyria-3-pro': '$1.00/$4.00',
-    'lyria-3': '$0.50/$2.00',
-    'veo-3.1-fast': '$2.00/$8.00',
-    'veo-3.1': '$3.00/$12.00',
-    'veo-3.1-lite': '$1.00/$4.00',
-    'gemini-3.1-flash-live-preview': '$0.15/$0.60',
-    'gemini-3.5-transcribe': '$2.00/$12.00',
-    'gemini-3.5-transcribe-live': '$3.50/$21.00',
-    // OpenAI
-    'gpt-5.2-thinking': '$5.00/$25.00',
-    'gpt-5.2-pro': '$5.00/$25.00',
-    'gpt-5.1-codex-high-max': '$3.00/$15.00',
-    'gpt-5.2-codex': '$3.00/$15.00',
-    'gpt-image-2': '$0.50/$2.00',
-    // Anthropic
-    'claude-opus-5': '$15.00/$75.00',
-    'claude-sonnet-5': '$3.00/$15.00',
-    'claude-fable-5': '$0.25/$1.25',
-    'claude-3-5-sonnet-20241022': '$3.00/$15.00',
-    'claude-sonnet-4.5': '$3.00/$15.00',
-    // Moonshot
-    'kimi-k3': '$1.00/$3.00',
-    'kimi-k2.6': '$0.80/$2.40',
-    'kimi-k2.7-code': '$1.00/$3.00',
-    'moonshot-v1-8k': '$0.50/$1.50',
-    'moonshot-v1-32k': '$0.80/$2.40',
-    'moonshot-v1-128k': '$1.50/$4.50',
-    // SpaceXAI / xAI
-    'grok-4.6': '$3.00/$15.00',
-    'grok-voice': '$2.00/$8.00',
-    'grok-imagine': '$2.00/$8.00',
-    // Zhipu
-    'glm-5.2': '$1.00/$3.00',
-    'glm-5.3': '$1.40/$4.40',
-    'glm-4-plus': '$1.00/$3.00',
-    'glm-4-flash': '$0.10/$0.30',
-    'glm-4': '$0.50/$1.50',
-  };
-
-  if (prices[modelId]) return prices[modelId];
-
-  switch (provider) {
-    case 'gemini': return '$0.15/$0.60';
-    case 'openai': return '$2.50/$10.00';
-    case 'anthropic': return '$3.00/$15.00';
-    case 'moonshot': return '$1.00/$3.00';
-    case 'spacexai': return '$3.00/$15.00';
-    case 'zhipuai': return '$1.00/$3.00';
-    default: return '$1.00/$4.00';
-  }
-};
-
-interface GeminiModel {
-  id: string;
-  name: string;
-  maxLevels: number;
-  hasNone: boolean;
-  noneLabel?: string;
-  levelLabels?: Record<number, string>;
-  reasoningEfforts?: Array<{ id: string; level: number; label: string; value: string }>;
-  capabilities?: string[];
-}
+/** The catalogue entry shape `GEMINI_MODELS` and friends use. */
+type GeminiModel = ProviderModelOption;
 
 interface ModelsTabProps {
   modelConfig: any;
@@ -344,6 +229,15 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
       (model: any) => Boolean(providerState?.[model.provider]?.apiKey),
     ),
     [allSystemDefaultModels, providerState],
+  );
+
+  // Dictation sends a finished recording, so the live-only transcribe SKU is not
+  // a choice this row can honour.
+  const selectableTranscriptionModels = React.useMemo(
+    () => configuredSystemDefaultModels.filter(
+      (model: any) => !isLiveOnlyTranscriptionModel(model.modelId || model.id),
+    ),
+    [configuredSystemDefaultModels],
   );
 
   const selectableEmbeddingModels = React.useMemo(
@@ -555,7 +449,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
             </div>
           </div>
           <p className="text-[12px] text-zinc-500 mt-4">
-            Keys are stored locally in your browser session for security and synced securely via Firestore.
+            Keys are stored on this device only. They are never sent to Willow, and they go straight from your browser
+            to the provider you are calling.
           </p>
         </div>
 
@@ -2078,11 +1973,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                           <Check size={14} className="text-white" />
                         )}
                       </button>
-                      {configuredSystemDefaultModels.length === 0 ? (
+                      {selectableTranscriptionModels.length === 0 ? (
                         <div className="px-4 py-3 text-[13px] text-zinc-500 text-center">
                           No API-backed models saved or no API keys configured. Manage a provider above.
                         </div>
-                      ) : configuredSystemDefaultModels.map((model: any) => (
+                      ) : selectableTranscriptionModels.map((model: any) => (
                         <button
                           key={`${model.provider}-${model.id || model.modelId}`}
                           onClick={(event) => {

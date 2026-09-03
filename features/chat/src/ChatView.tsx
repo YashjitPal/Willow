@@ -500,6 +500,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     detachTurn();
     setAttachedTurnId(null);
 
+    // A settle in the outgoing chat may have queued a frame to blank `streaming`.
+    // Left pending it lands after this commit and wipes whatever we paint below.
+    if (streamingClearRafRef.current !== null) {
+      cancelAnimationFrame(streamingClearRafRef.current);
+      streamingClearRafRef.current = null;
+    }
+
     // Same commit as the messages, never a separate effect: any commit that
     // paired a full thread with a stale count would paint the whole thread and
     // defeat the chunked reveal.
@@ -514,13 +521,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     if (!record) {
       setMessages(saved);
+      /*
+       * Nothing is running in the chat being opened, so tear down the state that
+       * was mirroring the turn we just detached from.
+       *
+       * This is the only place that teardown can happen. `onSettled` clears the
+       * same values, but it fires only for `owner === 'view'` — a turn the user
+       * walked away from settles through `owner === 'runner'` and never calls
+       * the listener at all. So without this, leaving a chat mid-response
+       * strands all of it for the life of the component:
+       *
+       *  - `isGenerating` keeps the composer's send slot rendering Stop, and
+       *    `handleSubmit` refuses to submit while it is true.
+       *  - `generationAbortRef` still points at the OTHER chat's controller, so
+       *    pressing that Stop kills a turn the user cannot even see. That is the
+       *    "my background reply silently died" report.
+       *  - `sendInFlightRef` makes `handleSend` return early, forever.
+       *
+       * Clearing, never aborting. The backgrounded turn keeps streaming and the
+       * runner still owns its save.
+       */
+      generationAbortRef.current = null;
+      sendInFlightRef.current = false;
+      setIsGenerating(false);
+      setStreaming('');
+      setIsThinking(false);
+      isThinkingRef.current = false;
+      setThinkSeconds(0);
+      thinkSecondsRef.current = 0;
       return false;
     }
 
-    // The turn's own messages are not on disk: the user message may predate the
-    // first save, and the placeholder is filtered out of every save by
-    // `hasSavedMessageContent` because its content is still empty. So append
-    // whatever the saved thread does not already carry.
+    // Rebuilt from the record, and it OUTRANKS the copy on disk under this same
+    // id. See the reconcile below for why that direction matters here and not
+    // for the user message.
     const assistant: ChatMsg = {
       id: record.assistantId,
       role: 'assistant',
@@ -535,10 +569,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
       wasStopped: record.status === 'settled' ? record.wasStopped : undefined,
       citations: record.status === 'settled' ? record.citations : undefined,
     };
-    const carried = [record.userMessage, assistant].filter(
-      (message) => !saved.some((savedMessage) => savedMessage.id === message.id),
-    );
-    setMessages([...saved, ...carried]);
+    /*
+     * Reconcile the record against the saved thread. Neither message is
+     * necessarily on disk — the user message can predate the first save, and the
+     * placeholder is dropped from every save by `hasSavedMessageContent` while
+     * its content is still empty — but after one checkpoint both are. The two
+     * then resolve in OPPOSITE directions, and that asymmetry is the point.
+     *
+     * **The assistant message: the record wins.** The runner checkpoints a
+     * partial response as `wasStopped: true`, which is the right shape for a tab
+     * that dies mid-stream, but it means the saved thread carries this id while
+     * the turn is still running. Deferring to disk, as this once did, painted
+     * that checkpoint verbatim: a truncated reply under a "You stopped this
+     * response" divider, for a turn that was still streaming, which then rewrote
+     * itself in front of the user when the answer landed. The record is the live
+     * truth; the checkpoint is a crash artefact of it. It matters for a settled
+     * record too — if the runner exhausted its save retries, deferring here
+     * would commit the stale checkpoint permanently through the autosave path.
+     *
+     * **The user message: disk wins**, and only an absent one is appended. The
+     * record's copy went through `stripAttachmentObjectUrls`, because its blob
+     * URLs belong to the ChatView that created them and are revoked on unmount.
+     * The load path's freshly hydrated copy is the one whose images render.
+     *
+     * The assistant is replaced in place rather than re-appended, or a thread
+     * whose checkpoint is already saved reorders itself on open.
+     */
+    const savedIds = new Set(saved.map((message) => message.id));
+    setMessages([
+      ...saved.map((message) => (message.id === assistant.id ? assistant : message)),
+      ...[record.userMessage, assistant].filter((message) => !savedIds.has(message.id)),
+    ]);
 
     if (record.status === 'settled') {
       // Settled while we were away, and the runner could not persist it (or we
@@ -2923,7 +2984,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * marker are written in exactly one place.
    */
   const handleStopGenerating = useCallback(() => {
-    generationAbortRef.current?.abort();
+    /*
+     * Stop may only ever reach the turn this view is attached to.
+     *
+     * `commitLoadedChat` now nulls `generationAbortRef` on the way out of a
+     * chat, so the ref alone would be correct — but resolving through the store
+     * makes it structural instead of a convention two distant functions have to
+     * keep agreeing on. Stop is the one control wired directly to an
+     * AbortController, and a stale one here kills a background reply in a chat
+     * the user is not even looking at.
+     *
+     * The fallback covers the window inside `handleSend` before the record is
+     * registered, where there is no attached turn to find yet.
+     */
+    const attachedTurnId = attachedTurnIdRef.current;
+    const attached = attachedTurnId ? getChatTurn(attachedTurnId) : undefined;
+    if (attached) attached.abort.abort();
+    else generationAbortRef.current?.abort();
     if (isLiveRef.current || liveSessionRef.current) {
       handleStopLive();
     }

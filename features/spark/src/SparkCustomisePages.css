@@ -129,7 +129,7 @@
 }
 
 .spark-page-action--primary {
-  background: #1f3b9b;
+  background: var(--spark-accent, #1f3b9b);
   color: #e6e6e6;
 }
 
@@ -140,7 +140,7 @@
 }
 
 .spark-page-action--primary:hover {
-  background: #2c48a8;
+  background: var(--spark-accent-hover, #2c48a8);
 }
 
 .spark-page-action:disabled {

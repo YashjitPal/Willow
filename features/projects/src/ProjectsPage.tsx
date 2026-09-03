@@ -16,7 +16,6 @@ const isCoverVideo = (url: string): boolean => {
     lowercaseUrl.includes('veo')
   );
 };
-import { ViewType } from '@willow/studio/shell/sidebar/Sidebar';
 import { 
   Search, 
   ChevronDown, 
@@ -51,7 +50,6 @@ interface ProjectCardProps {
   thumbnail: string;
   isStarred?: boolean;
   hasChat?: boolean;
-  isShared?: boolean;
   kind?: 'media' | 'code' | 'design';
 }
 
@@ -331,7 +329,30 @@ const FilterButton: React.FC<{
   );
 };
 
-export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () => void }> = ({ view = 'projects', onOpenDriveSettings }) => {
+/*
+ * A two-state filter rather than a menu, because the neighbouring FilterButtons
+ * each pick one of several values and this one only narrows or does not.
+ */
+const FilterToggle: React.FC<{
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+}> = ({ label, active, onToggle }) => (
+  <button
+    type="button"
+    aria-pressed={active}
+    onClick={onToggle}
+    className={`flex items-center gap-2 px-4 h-[40px] rounded-2xl border transition-all shadow-sm select-none flex-shrink-0
+      ${active
+        ? 'border-white/20 bg-white/10 text-white'
+        : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white'}`}
+  >
+    <Star size={14} className="shrink-0" fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 0 : 2} />
+    <span className="text-[13px] font-medium">{label}</span>
+  </button>
+);
+
+export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ onOpenDriveSettings }) => {
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
   const { deleteLocalFSProject, isLocalFolderConnected } = useLocalFS();
@@ -460,6 +481,7 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
 
   // Filter States
+  const [starredOnly, setStarredOnly] = useState(false);
   const [sortBy, setSortBy] = useState('last-edited');
   const [order, setOrder] = useState('newest'); // Changed default to newest as it's more common
   const [visibility, setVisibility] = useState('any');
@@ -504,11 +526,9 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
     return found?.label || 'All creators';
   };
 
-  const displayedProjects = view === 'starred' 
+  const displayedProjects = starredOnly
     ? projectsData.filter(p => starredProjects.has(p.id))
-    : view === 'shared'
-      ? projectsData.filter(p => p.isShared)
-      : projectsData;
+    : projectsData;
 
   const toggleStar = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -581,14 +601,10 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
           
           <div className="flex flex-col gap-10 mb-12">
               <div className="flex items-center gap-3">
-                <h1 className="text-[28px] font-bold text-white tracking-tight">
-                  {view === 'starred' ? 'Starred' : view === 'shared' ? 'Shared' : 'Projects'}
-                </h1>
-                {view === 'projects' && (
-                  <button className="text-zinc-500 hover:text-white transition-colors p-1 translate-y-0.5">
-                    <MoreHorizontal size={22} />
-                  </button>
-                )}
+                <h1 className="text-[28px] font-bold text-white tracking-tight">Projects</h1>
+                <button className="text-zinc-500 hover:text-white transition-colors p-1 translate-y-0.5">
+                  <MoreHorizontal size={22} />
+                </button>
               </div>
 
               <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 overflow-visible">
@@ -602,6 +618,11 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
                 </div>
 
                 <div className="flex items-center gap-3 w-full lg:w-auto">
+                    <FilterToggle
+                      label="Starred"
+                      active={starredOnly}
+                      onToggle={() => setStarredOnly((on) => !on)}
+                    />
                     <FilterButton label={getSortLabel()}>
                       <SortMenu 
                         sortBy={sortBy} setSortBy={setSortBy}
@@ -638,7 +659,13 @@ export const ProjectsPage: React.FC<{ view?: ViewType; onOpenDriveSettings?: () 
               </div>
           </div>
 
-          {layoutMode === 'grid' ? (
+          {starredOnly && displayedProjects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-28 text-center">
+              <Star size={32} className="text-zinc-700" />
+              <h3 className="text-[17px] font-bold text-white">No starred projects</h3>
+              <p className="text-[14px] text-zinc-500 max-w-sm">Star a project from its card to keep it here.</p>
+            </div>
+          ) : layoutMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-14 pb-24">
               <div className="group cursor-pointer" onClick={handleCreateNewProject}>
                 <button className="w-full aspect-[16/9] rounded-xl border-2 border-dashed border-white/10 hover:border-white/20 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 cursor-pointer">

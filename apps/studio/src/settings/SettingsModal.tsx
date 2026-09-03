@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen, Link, Github, Brain } from 'lucide-react';
 import './SettingsModal.css'; // Assuming we can import a CSS file or add a style tag
+import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
+import { experimentsStore } from '@willow/core/experiments-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab, PersonalIntelligenceTab } from './tabs/index';
-import { DEFAULT_BASE_URLS, resolveBaseUrl, type ProviderId } from '@willow/ai/providers/endpoints';
-import { DEFAULT_PROFILE_IDS } from '@willow/ai/providers/profiles';
+import { type ProviderId } from '@willow/ai/providers/endpoints';
+import { GEMINI_MODELS } from './provider-models';
+import { useProviderSettings } from './use-provider-settings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,122 +20,6 @@ interface SettingsModalProps {
 }
 
 type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'governance' | 'account' | 'labs' | 'connectors' | 'github';
-
-type ProviderConfig = { apiKey: string; baseUrl: string };
-type ProviderParams = {
-  gemini: ProviderConfig;
-  openai: ProviderConfig;
-  anthropic: ProviderConfig;
-  moonshot: ProviderConfig;
-  spacexai: ProviderConfig;
-  zhipuai: ProviderConfig;
-  activeProvider: ProviderId;
-};
-
-const PROVIDER_IDS: ProviderId[] = ['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'];
-
-const DEFAULT_PROVIDER_STATE: ProviderParams = {
-  gemini: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.gemini },
-  openai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.openai },
-  anthropic: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.anthropic },
-  moonshot: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.moonshot },
-  spacexai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.spacexai },
-  zhipuai: { apiKey: '', baseUrl: DEFAULT_BASE_URLS.zhipuai },
-  activeProvider: 'gemini'
-};
-
-const GUEST_PROVIDER_SCOPE = 'guest';
-
-const getProviderStorageKeys = (scope: string) => ({
-  providerState: `willow:providerState:${scope}`,
-  apiKeys: `willow:apiKeys:${scope}`
-});
-
-// An account's keys live in Firestore and the tab cache is only a cache, so it
-// is thrown away with the tab. Signed-out keys have no document behind them —
-// sessionStorage would lose them on every tab close and make bring-your-own-key
-// unusable without an account, so the guest scope persists instead.
-const storageForScope = (scope: string): Storage =>
-  scope === GUEST_PROVIDER_SCOPE ? localStorage : sessionStorage;
-
-const normalizeProviderState = (value: unknown): ProviderParams | null => {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as Partial<ProviderParams>;
-  const readConfig = (provider: ProviderId): ProviderConfig => {
-    const config = candidate[provider as keyof ProviderParams] as Partial<ProviderConfig> | undefined;
-    const fallback = DEFAULT_PROVIDER_STATE[provider as keyof ProviderParams] as ProviderConfig;
-    return {
-      apiKey: typeof config?.apiKey === 'string' ? config.apiKey : '',
-      baseUrl: typeof config?.baseUrl === 'string' ? config.baseUrl : fallback.baseUrl
-    };
-  };
-  const activeProvider = candidate.activeProvider;
-
-  return {
-    gemini: readConfig('gemini'),
-    openai: readConfig('openai'),
-    anthropic: readConfig('anthropic'),
-    moonshot: readConfig('moonshot'),
-    spacexai: readConfig('spacexai'),
-    zhipuai: readConfig('zhipuai'),
-    activeProvider: ['openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].includes(activeProvider || '') ? (activeProvider as ProviderId) : 'gemini'
-  };
-};
-
-const migrateProviderStorage = (uid: string) => {
-  try {
-    const keys = getProviderStorageKeys(uid);
-
-    // UID-scoped local entries can be safely moved. Unscoped legacy entries
-    // cannot be attributed to an account, so remove them without importing.
-    for (const key of [keys.providerState, keys.apiKeys]) {
-      const scopedLegacyValue = localStorage.getItem(key);
-      if (scopedLegacyValue !== null && sessionStorage.getItem(key) === null) {
-        sessionStorage.setItem(key, scopedLegacyValue);
-      }
-      localStorage.removeItem(key);
-    }
-    localStorage.removeItem('providerState');
-    localStorage.removeItem('apiKeys');
-    sessionStorage.removeItem('providerState');
-    sessionStorage.removeItem('apiKeys');
-  } catch (error) {
-    console.warn('[Settings] Unable to migrate provider cache:', error);
-  }
-};
-
-const readCachedProviderState = (scope: string): ProviderParams | null => {
-  try {
-    const store = storageForScope(scope);
-    const key = getProviderStorageKeys(scope).providerState;
-    const serialized = store.getItem(key);
-    if (!serialized) return null;
-    const state = normalizeProviderState(JSON.parse(serialized));
-    if (!state) store.removeItem(key);
-    return state;
-  } catch (error) {
-    console.warn('[Settings] Ignoring invalid provider cache:', error);
-    return null;
-  }
-};
-
-const cacheProviderState = (scope: string, state: ProviderParams) => {
-  try {
-    const store = storageForScope(scope);
-    const keys = getProviderStorageKeys(scope);
-    store.setItem(keys.providerState, JSON.stringify(state));
-    store.setItem(keys.apiKeys, JSON.stringify({
-      gemini: state.gemini.apiKey ? [state.gemini.apiKey] : [],
-      openai: state.openai.apiKey ? [state.openai.apiKey] : [],
-      anthropic: state.anthropic.apiKey ? [state.anthropic.apiKey] : [],
-      moonshot: state.moonshot.apiKey ? [state.moonshot.apiKey] : [],
-      spacexai: state.spacexai.apiKey ? [state.spacexai.apiKey] : [],
-      zhipuai: state.zhipuai.apiKey ? [state.zhipuai.apiKey] : []
-    }));
-  } catch (error) {
-    console.warn('[Settings] Unable to cache provider configuration:', error);
-  }
-};
 
 const SettingsSidebarItem: React.FC<{ 
   icon?: React.ElementType; 
@@ -225,6 +112,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     connectLocalFolder,
     disconnectLocalFolder
   } = useLocalFS();
+  const isAgentsEnabled = useStore(experimentsStore)['agents-surface'];
   const [profileName, setProfileName] = useState('');
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isClosing, setIsClosing] = React.useState(false);
@@ -511,264 +399,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     }
   }, [isOpen, shouldRender]);
   
-  // Models & API State
-  const [providerState, setProviderState] = React.useState<ProviderParams>(DEFAULT_PROVIDER_STATE);
-  const [isLoadingKeys, setIsLoadingKeys] = React.useState(true);
-  const providerStateRef = React.useRef<ProviderParams>(DEFAULT_PROVIDER_STATE);
-  const providerStateUidRef = React.useRef<string | null | undefined>(undefined);
-  const providerEditVersionRef = React.useRef(0);
-  const providerSaveTimerRef = React.useRef<number | null>(null);
-  const providerSaveQueueRef = React.useRef<Promise<void>>(Promise.resolve());
-  const pendingProviderSaveRef = React.useRef<{
-    uid: string;
-    state: ProviderParams;
-    getIdToken: () => Promise<string>;
-  } | null>(null);
+  /*
+   * Models & API state.
+   *
+   * The keys, their cache and the Firestore round-trip used to be inline here.
+   * They moved to `provider-settings.ts` when the standalone `/models-settings`
+   * page became a second surface onto the same document — see the note at the
+   * top of that file for why one debounced writer is not negotiable.
+   */
+  const { providerState, handleUpdateConfig } = useProviderSettings(setModelConfig);
 
-  const saveProviderStateToFirestore = async (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
-    const idToken = await request.getIdToken();
-    const projectId = 'willow-64095';
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${request.uid}?updateMask.fieldPaths=providerState`;
-
-    const response = await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        fields: {
-          providerState: {
-            mapValue: {
-              fields: {
-                gemini: { mapValue: { fields: { apiKey: { stringValue: request.state.gemini.apiKey }, baseUrl: { stringValue: request.state.gemini.baseUrl } } } },
-                openai: { mapValue: { fields: { apiKey: { stringValue: request.state.openai.apiKey }, baseUrl: { stringValue: request.state.openai.baseUrl } } } },
-                anthropic: { mapValue: { fields: { apiKey: { stringValue: request.state.anthropic.apiKey }, baseUrl: { stringValue: request.state.anthropic.baseUrl } } } },
-                moonshot: { mapValue: { fields: { apiKey: { stringValue: request.state.moonshot.apiKey }, baseUrl: { stringValue: request.state.moonshot.baseUrl } } } },
-                spacexai: { mapValue: { fields: { apiKey: { stringValue: request.state.spacexai.apiKey }, baseUrl: { stringValue: request.state.spacexai.baseUrl } } } },
-                zhipuai: { mapValue: { fields: { apiKey: { stringValue: request.state.zhipuai.apiKey }, baseUrl: { stringValue: request.state.zhipuai.baseUrl } } } },
-                activeProvider: { stringValue: request.state.activeProvider }
-              }
-            }
-          }
-        }
-      })
-    });
-
-    if (!response.ok) throw new Error(`Firestore save failed (${response.status})`);
-  };
-
-  const enqueueProviderSave = (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
-    providerSaveQueueRef.current = providerSaveQueueRef.current
-      .catch(() => undefined)
-      .then(() => saveProviderStateToFirestore(request))
-      .catch((error) => {
-        console.error('[Settings] Failed to save provider configuration:', error);
-      });
-  };
-
-  const flushPendingProviderSave = () => {
-    if (providerSaveTimerRef.current !== null) {
-      window.clearTimeout(providerSaveTimerRef.current);
-      providerSaveTimerRef.current = null;
-    }
-    const pendingSave = pendingProviderSaveRef.current;
-    pendingProviderSaveRef.current = null;
-    if (pendingSave) enqueueProviderSave(pendingSave);
-  };
-
-  const scheduleProviderSave = (request: NonNullable<typeof pendingProviderSaveRef.current>) => {
-    pendingProviderSaveRef.current = request;
-    if (providerSaveTimerRef.current !== null) {
-      window.clearTimeout(providerSaveTimerRef.current);
-    }
-    providerSaveTimerRef.current = window.setTimeout(() => {
-      providerSaveTimerRef.current = null;
-      const pendingSave = pendingProviderSaveRef.current;
-      pendingProviderSaveRef.current = null;
-      if (pendingSave) enqueueProviderSave(pendingSave);
-    }, 400);
-  };
-
-  // Clear the previous account's keys before the browser paints the new account.
-  useLayoutEffect(() => {
-    const uid = user?.uid ?? null;
-    if (providerStateUidRef.current === uid) return;
-
-    flushPendingProviderSave();
-    providerStateUidRef.current = uid;
-    providerEditVersionRef.current += 1;
-    providerStateRef.current = DEFAULT_PROVIDER_STATE;
-    setProviderState(DEFAULT_PROVIDER_STATE);
-    setIsLoadingKeys(Boolean(uid));
-
-    if (uid) migrateProviderStorage(uid);
-    // Signed out reads the guest scope rather than nothing: there is no
-    // Firestore load coming to fill it in afterwards.
-    const cachedState = readCachedProviderState(uid ?? GUEST_PROVIDER_SCOPE);
-    if (cachedState) {
-      providerStateRef.current = cachedState;
-      setProviderState(cachedState);
-    }
-  }, [user?.uid]);
-
-  // Load API keys from Firestore using REST API (bypasses SDK streaming issues)
-  useEffect(() => {
-    if (!user) {
-      setIsLoadingKeys(false);
-      return;
-    }
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const uid = user.uid;
-    const loadEditVersion = providerEditVersionRef.current;
-    setIsLoadingKeys(true);
-
-    const applyLoadedState = (loadedState: ProviderParams) => {
-      if (
-        cancelled ||
-        providerStateUidRef.current !== uid ||
-        providerEditVersionRef.current !== loadEditVersion
-      ) return;
-      providerStateRef.current = loadedState;
-      setProviderState(loadedState);
-      cacheProviderState(uid, loadedState);
-      // Sync base URLs into modelConfig for streaming callers. Every provider
-      // is included: the streaming layer reads its endpoint from here, so a
-      // provider omitted from this merge silently falls back to its official API.
-      setModelConfig((prev: any) => {
-        const next = { ...prev };
-        (Object.keys(DEFAULT_BASE_URLS) as ProviderId[]).forEach((provider) => {
-          next[provider] = {
-            ...prev[provider],
-            baseUrl: resolveBaseUrl(provider, loadedState[provider]?.baseUrl)
-          };
-        });
-        next.providerProfiles = (prev.providerProfiles || []).map((profile: any) => {
-          const provider = (Object.keys(DEFAULT_PROFILE_IDS) as ProviderId[]).find((candidate) => DEFAULT_PROFILE_IDS[candidate] === profile.id);
-          return provider
-            ? { ...profile, baseUrl: resolveBaseUrl(provider, loadedState[provider]?.baseUrl), updatedAt: Date.now() }
-            : profile;
-        });
-        return next;
-      });
-    };
-
-    const loadKeys = async () => {
-      try {
-        const idToken = await user.getIdToken();
-        if (cancelled) return;
-        const projectId = 'willow-64095';
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
-        
-        const response = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${idToken}`,
-          },
-          signal: controller.signal,
-        });
-        if (cancelled) return;
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (cancelled) return;
-          
-          if (data.fields?.providerState?.mapValue?.fields) {
-            const ps = data.fields.providerState.mapValue.fields;
-            
-            const extractOldKey = (arr: any) => {
-              if (!arr?.arrayValue?.values || arr.arrayValue.values.length === 0) return '';
-              const values = arr.arrayValue.values;
-              const selected = values.some((value: any) => value.mapValue.fields.isActive?.booleanValue)
-                ? values.filter((value: any) => value.mapValue.fields.isActive?.booleanValue)
-                : [values[0]];
-              return selected
-                .map((value: any) => value.mapValue.fields.key?.stringValue || '')
-                .filter(Boolean)
-                .join(', ');
-            };
-            
-            const extractNewConfig = (field: any, oldKeysField: any, defaultBaseUrl: string): ProviderConfig => {
-              if (field?.mapValue?.fields) {
-                return {
-                  apiKey: field.mapValue.fields.apiKey?.stringValue || '',
-                  baseUrl: field.mapValue.fields.baseUrl?.stringValue || defaultBaseUrl
-                };
-              }
-              return { apiKey: extractOldKey(oldKeysField), baseUrl: defaultBaseUrl };
-            };
-            const activeProvider = ps.activeProvider?.stringValue;
-            
-            applyLoadedState({
-              gemini: extractNewConfig(ps.gemini, ps.geminiKeys, DEFAULT_BASE_URLS.gemini),
-              openai: extractNewConfig(ps.openai, ps.openaiKeys, DEFAULT_BASE_URLS.openai),
-              anthropic: extractNewConfig(ps.anthropic, ps.anthropicKeys, DEFAULT_BASE_URLS.anthropic),
-              moonshot: extractNewConfig(ps.moonshot, null, DEFAULT_BASE_URLS.moonshot),
-              spacexai: extractNewConfig(ps.spacexai, null, DEFAULT_BASE_URLS.spacexai),
-              zhipuai: extractNewConfig(ps.zhipuai, null, DEFAULT_BASE_URLS.zhipuai),
-              activeProvider: ['openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'].includes(activeProvider || '') ? (activeProvider as ProviderId) : 'gemini'
-            });
-          } else {
-            applyLoadedState(DEFAULT_PROVIDER_STATE);
-          }
-        } else if (response.status === 404) {
-          applyLoadedState(DEFAULT_PROVIDER_STATE);
-        } else {
-          throw new Error(`Firestore load failed (${response.status})`);
-        }
-      } catch (err) {
-        if (!cancelled && (err as Error)?.name !== 'AbortError') {
-          console.error('[Settings] Failed to load provider configuration:', err);
-        }
-      }
-      if (!cancelled && providerStateUidRef.current === uid) setIsLoadingKeys(false);
-    };
-    
-    void loadKeys();
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [user?.uid]);
-
-  const [tempKeyInput, setTempKeyInput] = React.useState('');
-  const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
-
-  const handleUpdateConfig = async (provider: ProviderId, config: ProviderConfig) => {
-    const activeUser = user;
-    const uid = activeUser?.uid ?? null;
-    if (providerStateUidRef.current !== uid) return;
-    const newState = {
-      ...providerStateRef.current,
-      [provider]: config
-    };
-
-    providerEditVersionRef.current += 1;
-    providerStateRef.current = newState;
-    setProviderState(newState);
-    cacheProviderState(uid ?? GUEST_PROVIDER_SCOPE, newState);
-    // Sync baseUrl into modelConfig so streaming callers can access it. This
-    // runs unconditionally: when the field is cleared we must overwrite the
-    // previous custom URL with the official default, otherwise the stale
-    // gateway stays live even though the input looks empty.
-    setModelConfig((prev: any) => ({
-      ...prev,
-      [provider]: { ...prev[provider], baseUrl: resolveBaseUrl(provider, config.baseUrl) },
-      providerProfiles: (prev.providerProfiles || []).map((profile: any) => profile.id === DEFAULT_PROFILE_IDS[provider]
-        ? { ...profile, baseUrl: resolveBaseUrl(provider, config.baseUrl), updatedAt: Date.now() }
-        : profile),
-    }));
-    window.dispatchEvent(new Event('apikeys-updated'));
-    // Guest keys stay on this device — there is no account document to sync to.
-    if (activeUser) {
-      scheduleProviderSave({
-        uid: activeUser.uid,
-        state: newState,
-        getIdToken: () => activeUser.getIdToken()
-      });
-    }
-  };
 
   // Delete account handler
   const handleDeleteAccount = async () => {
@@ -794,180 +434,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       setDeleteError(`Delete failed: ${err.code || err.message}`);
     }
   };
-
-  const GEMINI_MODELS = [
-    {
-        id: 'gemini-embedding-2',
-        name: 'Gemini Embedding 2',
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None',
-        capabilities: ['embedding']
-    },
-    { 
-        id: 'gemini-3.7-flash',
-        name: 'Gemini 3.7 Flash',
-        maxLevels: 3,
-        hasNone: false,
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    { 
-        id: 'gemini-3.6-flash',
-        name: 'Gemini 3.6 Flash',
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    {
-        id: 'gemini-3.5-flash',
-        name: 'Gemini 3.5 Flash',
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    { 
-        id: 'gemini-3.5-flash-lite',
-        name: 'Gemini 3.5 Flash Lite',
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None',
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    { 
-        id: 'gemini-3.1-pro-preview', 
-        name: 'Gemini 3.1 Pro', 
-        maxLevels: 3,
-        hasNone: false,
-        levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' }
-    },
-    {
-        id: 'gemma-4-26b-a4b-it',
-        name: 'Gemma 4 26B A4B IT',
-        maxLevels: 1,
-        hasNone: true,
-        noneLabel: 'Minimal',
-        levelLabels: { 1: 'High' },
-        reasoningEfforts: [
-            { id: 'gemma-4-26b-a4b-it-effort-0', level: 0, label: 'Minimal', value: 'minimal' },
-            { id: 'gemma-4-26b-a4b-it-effort-1', level: 1, label: 'High', value: 'high' },
-        ]
-    },
-    {
-        id: 'gemma-4-31b-it',
-        name: 'Gemma 4 31B IT',
-        maxLevels: 1,
-        hasNone: true,
-        noneLabel: 'Minimal',
-        levelLabels: { 1: 'High' },
-        reasoningEfforts: [
-            { id: 'gemma-4-31b-it-effort-0', level: 0, label: 'Minimal', value: 'minimal' },
-            { id: 'gemma-4-31b-it-effort-1', level: 1, label: 'High', value: 'high' },
-        ]
-    },
-    { 
-        id: 'gemini-2.5-flash-lite', 
-        name: 'Gemini 2.5 Flash Lite', 
-        maxLevels: 3,
-        hasNone: true,
-        noneLabel: 'None (Disabled)',
-        levelLabels: { 1: '8k Tokens', 2: '16k Tokens', 3: '24k Tokens' }
-    },
-    { 
-        id: 'gemini-3-pro-image-preview', 
-        name: 'Nano Banana Pro', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'gemini-3.1-flash-image-preview', 
-        name: 'Nano Banana 2', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'gemini-3.1-flash-lite-image', 
-        name: 'Nano Banana Lite', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'omni-flash', 
-        name: 'Gemini Omni Flash 1', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'omni-flash-1.1', 
-        name: 'Gemini Omni Flash 1.1', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'lyria-3-pro', 
-        name: 'Lyria 3 Pro', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'lyria-3', 
-        name: 'Lyria 3', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'veo-3.1-fast', 
-        name: 'Veo 3.1 Fast', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'veo-3.1', 
-        name: 'Veo 3.1', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'veo-3.1-lite', 
-        name: 'Veo 3.1 Lite', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'gemini-3.1-flash-live-preview', 
-        name: 'Gemini 3.1 Flash Live', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None'
-    },
-    { 
-        id: 'gemini-3.5-transcribe', 
-        name: 'Gemini 3.5 Transcribe', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None',
-        capabilities: ['audio']
-    },
-    { 
-        id: 'gemini-3.5-transcribe-live', 
-        name: 'Gemini 3.5 Transcribe Live', 
-        maxLevels: 0,
-        hasNone: true,
-        noneLabel: 'None',
-        capabilities: ['audio']
-    }
-  ];
 
   // Effect: Ensure valid thinkingLevel when model changes for Gemini
   useEffect(() => {
@@ -1024,7 +490,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 customIconInitial={workspaceInitial}
              />
              <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
-             <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => setActiveTab('governance')} />
+             {/* Agents ships opt-in, so its governance tab hides with it. */}
+             {isAgentsEnabled && (
+               <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => setActiveTab('governance')} />
+             )}
 
              <SettingsSectionTitle title="Account" />
              <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />

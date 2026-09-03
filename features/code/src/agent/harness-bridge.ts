@@ -28,6 +28,9 @@ import type {
 import { resolveBinding, type ProviderKeys } from './model-binding';
 import { clearRequestLog, dumpRequestLog, requestLog } from './harness/runtime/request-log';
 import type { CodexEffort } from './harness/overlay/effort';
+import type { ModeKind } from './harness/overlay/collaboration-mode';
+import { GoalRuntime, type ThreadGoal } from './harness/runtime/goal';
+import type { RequestUserInputSink } from './harness/runtime/request-user-input';
 import {
   applyHarnessEvent,
   beginTurn,
@@ -394,6 +397,31 @@ export interface CodexTurnOptions {
   apiKeys: ProviderKeys;
   /** Codex-ladder reasoning effort. Clamped per model by `resolveBinding`. */
   effort?: CodexEffort;
+  /**
+   * Collaboration mode. Defaults to `'default'`, as upstream does.
+   *
+   * `'plan'` is upstream's Plan mode: a developer message from the vendored
+   * template, `update_plan` refused, mutation declined, `request_user_input`
+   * available, and the plan delivered as a `<proposed_plan>` block.
+   */
+  mode?: ModeKind;
+  /**
+   * The objective for Goal mode, and the goal it resumes.
+   *
+   * Supplying `objective` starts a goal at the mode boundary — which is where
+   * upstream's `/goal` command creates it, and deliberately not left to the
+   * model's `create_goal` call: that tool's own description says to create a
+   * goal only when explicitly asked, so a compliant model handed "Goal mode is
+   * on" would correctly decline and the mode would sit inert.
+   *
+   * `resume` carries a goal already in flight, so continuations survive a
+   * reload.
+   */
+  goal?: { objective?: string; resume?: ThreadGoal | null };
+  /** Every goal transition, so the host can persist it with the session. */
+  onGoal?: (goal: ThreadGoal | null) => void;
+  /** How `request_user_input` reaches the user. Plan mode needs this. */
+  requestUserInput?: RequestUserInputSink;
   signal?: AbortSignal;
   /** Prose, as it streams. The sidebar owns the message body. */
   onText: (chunk: string) => void;
@@ -410,6 +438,16 @@ export interface CodexTurnOptions {
     reason: 'complete' | 'cancelled' | 'error';
     error?: string;
     text: string;
+    /**
+     * Why the loop stopped, when it was not the model finishing.
+     *
+     * The caller needs this to distinguish a turn that finished from one that
+     * ran out of rounds — both used to report `'complete'`, so there was no way
+     * to know whether to offer "continue".
+     */
+    stopReason?: string;
+    /** The goal as it stands, for a Goal mode turn. */
+    goal?: ThreadGoal | null;
   }) => void;
 }
 
@@ -485,6 +523,29 @@ export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
 
   let transcript = '';
 
+  /*
+   * Goal mode, when the caller asked for it.
+   *
+   * The runtime is created here rather than inside `runTurn` so the same object
+   * survives across the automatic continuations *and* across a reload: the host
+   * persists whatever `onGoal` hands it and passes it back as `resume`.
+   */
+  const goalRuntime =
+    options.goal && (options.goal.objective || options.goal.resume)
+      ? new GoalRuntime(options.goal.resume ?? null, (goal) => options.onGoal?.(goal))
+      : undefined;
+
+  if (goalRuntime && options.goal?.objective) {
+    const invalid = goalRuntime.ensureGoal(options.goal.objective);
+    if (invalid) {
+      // A 4,000-character cap and a non-empty rule are upstream's, and both are
+      // things the user can fix — so this is reported rather than swallowed.
+      options.onDone({ reason: 'error', error: invalid, text: '' });
+      endTurn(options.turnId, invalid);
+      return;
+    }
+  }
+
   await runTurn({
     prompt: options.prompt,
     history: options.history,
@@ -492,6 +553,9 @@ export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
     writeFiles: (next) => writeWorkbenchFiles(options.workbench, next),
     model: binding,
     signal: options.signal,
+    mode: options.mode ?? 'default',
+    goal: goalRuntime,
+    requestUserInput: options.requestUserInput,
     extraTools: [runCommandTool(options.workbench), computerUseTool(options.apiKeys)],
     onEvent: (event: HarnessEvent) => {
       if (event.type === 'text') {
@@ -502,12 +566,19 @@ export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
         applyHarnessEvent(options.turnId, event);
         return;
       }
+      if (event.type === 'goal') {
+        options.onGoal?.(event.goal);
+        applyHarnessEvent(options.turnId, event);
+        return;
+      }
       if (event.type === 'turn-end') {
         endTurn(options.turnId, event.error);
         options.onDone({
           reason: event.reason,
           error: event.error,
           text: stripLooseCode(transcript),
+          stopReason: event.stopReason,
+          goal: goalRuntime?.current() ?? null,
         });
         return;
       }

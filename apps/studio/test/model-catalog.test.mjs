@@ -8,6 +8,14 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..');
 const catalog = await importTs(path.join(repoRoot, 'platform', 'core', 'src', 'model-catalog.ts'));
 const storage = await importTs(path.join(repoRoot, 'apps', 'studio', 'src', 'app', 'model-catalog-storage.ts'));
 
+/*
+ * The offered-model roster and its pricing table, which several assertions below
+ * read as source text. Named once because it moves: it lived inside
+ * `SettingsModal.tsx` and `ModelsTab.tsx` until the standalone Models & API page
+ * needed the same roster and it became a module both surfaces import.
+ */
+const CATALOG_SOURCE = path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'provider-models.ts');
+
 const model = (providerId, id, modelId, name, extra = {}) => ({
   id,
   modelId,
@@ -89,24 +97,75 @@ it('offers GLM 5.3 with Zhipu AI\'s supported effort roster', () => {
   assert.match(chat, /thinking: \{ type: 'enabled' \}/);
 });
 
-it('does not offer Gemini 3.7 Flash the Minimal effort', () => {
-  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
-  const efforts = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'models', 'efforts.ts'), 'utf8');
+/*
+ * The Flash releases that start at Low rather than Minimal.
+ *
+ * Three places have to agree or the picker offers an effort the request cannot
+ * send: the settings catalogue (`hasNone: false`), the effort picker, and the
+ * clamp in chat.ts. The last two now read one exported list instead of matching
+ * a hardcoded id, so this asserts membership rather than the old literals.
+ */
+/*
+ * Every model the settings UI offers must have an explicit pricing entry.
+ *
+ * `getModelPricing` used to fall back to a provider-typical token pair, so a
+ * model added to the catalogue without a price silently rendered a plausible
+ * wrong number — which is how all three GPT-5.6 models came to be labelled
+ * $2.50/$10.00. The fallback is now an empty string, and this asserts the
+ * catalogue is covered so the empty case only ever means "custom model".
+ *
+ * A deliberately blank entry is allowed: a model the provider has announced but
+ * not priced is a real state, and blank shows the category badge alone.
+ */
+it('prices every model the catalogue offers', async () => {
+  const models = await importTs(CATALOG_SOURCE);
+  const catalogSource = fs.readFileSync(CATALOG_SOURCE, 'utf8');
+
+  for (const [provider, options] of Object.entries(models.PROVIDER_MODEL_OPTIONS)) {
+    for (const option of options) {
+      assert.ok(
+        new RegExp(`'${option.id.replace(/\./g, '\\.')}':`).test(catalogSource),
+        `${provider} model ${option.id} has no entry in MODEL_PRICES`,
+      );
+    }
+  }
+
+  // An unknown id gets nothing, never a guess.
+  assert.equal(models.getModelPricing('some-custom-model'), '');
+  assert.equal(models.getModelPricing('gpt-5.6-sol'), '$4.00/$20.00');
+  // Per-generation models carry their real unit, not an invented token pair.
+  assert.equal(models.getModelPricing('veo-3.1'), '$0.40/video');
+  assert.equal(models.getModelPricing('lyria-3'), '$0.04/clip');
+  assert.equal(models.getModelPricing('grok-voice'), '$0.08/min');
+});
+
+it('starts Gemini 3.7 and 3.8 Flash at Low, with no Minimal effort', async () => {
+  const catalogSource = fs.readFileSync(CATALOG_SOURCE, 'utf8');
   const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
-  assert.match(settings, /id: 'gemini-3\.7-flash',[\s\S]{0,160}?hasNone: false/);
-  assert.match(efforts, /identity\.includes\('gemini-3\.7-flash'\)\) return false/);
-  assert.match(chat, /model === 'gemini-3\.7-flash' && options\.thinkingLevel === 0/);
+  const efforts = await importTs(path.join(repoRoot, 'platform', 'ai', 'src', 'models', 'efforts.ts'));
+
+  for (const id of ['gemini-3.7-flash', 'gemini-3.8-flash']) {
+    assert.match(catalogSource, new RegExp(`id: '${id.replace('.', '\\.')}',[\\s\\S]{0,160}?hasNone: false`));
+    assert.ok(efforts.GEMINI_FLASH_WITHOUT_MINIMAL.includes(id));
+    assert.equal(efforts.geminiFlashStartsAtLow(id), true);
+    assert.equal(efforts.modelSupportsNoThinking({ provider: 'gemini', modelId: id, name: id }), false);
+  }
+  // Other Flash generations keep their level-0 `minimal` mapping.
+  assert.equal(efforts.geminiFlashStartsAtLow('gemini-3.6-flash'), false);
+  assert.equal(efforts.modelSupportsNoThinking({ provider: 'gemini', modelId: 'gemini-3.6-flash' }), true);
+  // And the request layer floors them off the same list.
+  assert.match(chat, /geminiFlashStartsAtLow\(model\) && options\.thinkingLevel === 0/);
 });
 
 it('offers Gemma 4 models with Minimal and High reasoning efforts', () => {
-  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
+  const catalogSource = fs.readFileSync(CATALOG_SOURCE, 'utf8');
   const modelsTab = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'ModelsTab.tsx'), 'utf8');
   const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
   for (const [id, name] of [
     ['gemma-4-26b-a4b-it', 'Gemma 4 26B A4B IT'],
     ['gemma-4-31b-it', 'Gemma 4 31B IT'],
   ]) {
-    assert.match(settings, new RegExp(`id: '${id}',\\s*name: '${name}',[\\s\\S]{0,180}?maxLevels: 1,[\\s\\S]{0,100}?noneLabel: 'Minimal',[\\s\\S]{0,100}?levelLabels: \\{ 1: 'High' \\}`));
+    assert.match(catalogSource, new RegExp(`id: '${id}',\\s*name: '${name}',[\\s\\S]{0,180}?maxLevels: 1,[\\s\\S]{0,100}?noneLabel: 'Minimal',[\\s\\S]{0,100}?levelLabels: \\{ 1: 'High' \\}`));
   }
   assert.match(modelsTab, /thinkingLevel: selectedModel\.maxLevels/);
   assert.match(modelsTab, /selectedModel\.reasoningEfforts/);
@@ -132,13 +191,13 @@ it('uses the same order for Media while routing image models there', () => {
 });
 
 it('offers Gemini 3.5 Transcribe models for voice transcription and keeps them out of chat', () => {
-  const settings = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'SettingsModal.tsx'), 'utf8');
-  const modelsTab = fs.readFileSync(path.join(repoRoot, 'apps', 'studio', 'src', 'settings', 'tabs', 'ModelsTab.tsx'), 'utf8');
+  const catalogSource = fs.readFileSync(CATALOG_SOURCE, 'utf8');
   const transcriptionSource = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'transcription.ts'), 'utf8');
-  assert.match(settings, /id:\s*'gemini-3\.5-transcribe',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe'/);
-  assert.match(settings, /id:\s*'gemini-3\.5-transcribe-live',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe Live'/);
-  assert.match(modelsTab, /'gemini-3\.5-transcribe':\s*'\$2\.00\/\$12\.00'/);
-  assert.match(modelsTab, /'gemini-3\.5-transcribe-live':\s*'\$3\.50\/\$21\.00'/);
+  assert.match(catalogSource, /id:\s*'gemini-3\.5-transcribe',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe'/);
+  assert.match(catalogSource, /id:\s*'gemini-3\.5-transcribe-live',[\s\S]{0,180}?name:\s*'Gemini 3\.5 Transcribe Live'/);
+  // Google's published audio-in / text-out rates for the two transcribe SKUs.
+  assert.match(catalogSource, /'gemini-3\.5-transcribe':\s*'\$2\.50\/\$12\.00'/);
+  assert.match(catalogSource, /'gemini-3\.5-transcribe-live':\s*'\$3\.50\/\$21\.00'/);
   assert.match(transcriptionSource, /v1beta\/interactions/);
   assert.match(transcriptionSource, /extractInteractionTranscript/);
   assert.equal(catalog.isChatCapableModel({ id: 'transcribe', modelId: 'gemini-3.5-transcribe', name: 'Gemini 3.5 Transcribe' }), false);

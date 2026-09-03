@@ -22,6 +22,7 @@ import {
   Palette,
   Image as ImageIcon,
   FlaskConical,
+  Target,
   X,
   Globe,
   Terminal,
@@ -95,10 +96,17 @@ import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/co
 import { runCodexTurn, type WorkbenchFiles } from '../agent/harness-bridge';
 import {
   agentEngaged,
+  collaborationMode,
+  dismissUserInput,
   effectiveEffort,
+  goalIsRunning,
   nextTurnId,
+  requestUserInputSink,
   setAgentEngaged,
+  setCollaborationMode,
+  setThreadGoal,
   setUltraEngaged,
+  threadGoal,
   turnCalls,
   ultraEngaged,
 } from '../agent/agent-store';
@@ -106,6 +114,7 @@ import type { Message } from '../agent/harness/runtime/protocol';
 import { LiveTurnActivity, SettledTurnActivity } from '../agent/ui/TurnActivity';
 import {
   expandCommand,
+  matchCommandSubmission,
   matchSlashCommands,
   type SlashCommand,
 } from '../agent/slash-commands';
@@ -211,11 +220,34 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [promptValue, setPromptValue] = useState('');
 
   /*
+   * Agent tool: the collaboration mode and the thread goal.
+   *
+   * Both are sticky, as upstream's are: a mode holds until it is changed, and a
+   * goal persists across turns — which is the entire point of one, since the
+   * harness keeps steering turns at it until the objective is true.
+   */
+  const mode = useStore(collaborationMode);
+  const goal = useStore(threadGoal);
+
+  /**
+   * An objective typed this turn, before the goal exists.
+   *
+   * `/goal <objective>` has to reach `startCodexGeneration`, which runs after
+   * several `await`s — so it cannot be read back off the composer, which has
+   * already been cleared. A ref rather than state because nothing renders from
+   * it and a re-render between the two would be wasted.
+   */
+  const pendingGoalObjectiveRef = useRef<string | null>(null);
+  const setPendingGoalObjective = (objective: string | null): void => {
+    pendingGoalObjectiveRef.current = objective;
+  };
+
+  /*
    * Agent tool: slash commands.
    *
-   * They expand into the composer rather than doing anything themselves, so the
+   * Most expand into the composer rather than doing anything themselves, so the
    * user can edit before sending and the harness stays the only thing deciding
-   * what runs. `/clear` is the one action.
+   * what runs. Four are actions: `/clear`, and the three that change mode.
    *
    * Gated on the Agent tool. With it off `slashMatches` is always empty, which
    * makes both the menu and the keydown interception below dead code — typing a
@@ -229,6 +261,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     if (command.action === 'clear') {
       setPromptValue('');
       handleNewChat();
+      return;
+    }
+
+    /*
+     * The mode commands, which are not templates.
+     *
+     * `/plan` and `/code` take effect immediately — there is nothing to send,
+     * the mode *is* the change. `/goal` needs an objective, so it leaves the
+     * composer primed for one and `handleSendMessage` picks it up.
+     */
+    if (command.action === 'plan-mode' || command.action === 'default-mode') {
+      setCollaborationMode(command.action === 'plan-mode' ? 'plan' : 'default');
+      setPromptValue('');
+      return;
+    }
+
+    if (command.action === 'goal-mode') {
+      setPromptValue('/goal ');
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+      });
       return;
     }
 
@@ -1451,6 +1507,24 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     setCurrentStreamingResponse('');
     setPromptValue('');
 
+    /*
+     * A goal belongs to a thread, not to the app.
+     *
+     * Upstream's `ThreadGoal` carries a `thread_id` and its runtime is
+     * registered per thread. Left standing across a new chat, a goal about the
+     * previous conversation's work would keep starting continuation turns
+     * against a project it no longer describes — and the objective is what
+     * those turns are steered by, so they would pursue the wrong thing
+     * confidently.
+     *
+     * The collaboration mode is deliberately *not* reset. It is a preference
+     * rather than thread data, upstream persists it across sessions, and the
+     * composer shows which one is active.
+     */
+    setThreadGoal(null);
+    setPendingGoalObjective(null);
+    dismissUserInput();
+
     // Clear thinking state
     setIsCurrentlyGenerating(false);
     setIsCurrentlyThinking(false);
@@ -1832,6 +1906,43 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     if (hasUnsaved) return; // Block sending when unsaved changes exist
     if (!text.trim() && attachments.length === 0) return;
 
+    /*
+     * Agent tool: a mode command submitted as a whole line.
+     *
+     * `/goal ship the checkout flow` is a complete instruction someone can type
+     * and send without touching the menu, and `matchSlashCommands` stops
+     * matching at the first space — so submission is the only place it can be
+     * caught. Handled before anything else because a mode change is not a
+     * message: nothing is added to the transcript and no turn starts.
+     */
+    if (isAgent) {
+      const submitted = matchCommandSubmission(text);
+      if (submitted?.command.action === 'plan-mode') {
+        setCollaborationMode('plan');
+        setPromptValue('');
+        return;
+      }
+      if (submitted?.command.action === 'default-mode') {
+        setCollaborationMode('default');
+        setPromptValue('');
+        return;
+      }
+      if (submitted?.command.action === 'goal-mode') {
+        // A bare `/goal` with no objective is a request for the affordance, not
+        // a goal. Leave the composer primed rather than starting an empty one —
+        // upstream's `validate_thread_goal_objective` rejects it anyway.
+        if (!submitted.argument) {
+          setPromptValue('/goal ');
+          return;
+        }
+        setPendingGoalObjective(submitted.argument);
+        setPromptValue('');
+        // Fall through with the objective as the prompt: the first goal turn is
+        // an ordinary turn that happens to have a goal attached.
+        text = submitted.argument;
+      }
+    }
+
     // Process attachments
     const processedAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [];
     
@@ -2019,6 +2130,30 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       selectedModelId,
       apiKeys,
       effort: codexEffort,
+      /*
+       * Plan mode and Goal mode, as upstream defines them.
+       *
+       * `mode` selects the vendored `<collaboration_mode>` document and, with
+       * it, the whole of Plan mode's behaviour: `update_plan` refused, mutation
+       * declined, `request_user_input` available, the plan delivered as a
+       * `<proposed_plan>` block.
+       *
+       * `goal` is separate and composes with the mode — a goal is normally
+       * pursued in Default mode. `resume` is what makes continuations survive a
+       * reload, and it is only passed while the goal is still live: handing
+       * back a `complete` goal would let `create_goal` fire against a finished
+       * one.
+       */
+      mode,
+      goal:
+        pendingGoalObjectiveRef.current || goalIsRunning(goal)
+          ? {
+              objective: pendingGoalObjectiveRef.current ?? undefined,
+              resume: goalIsRunning(goal) ? goal : null,
+            }
+          : undefined,
+      onGoal: setThreadGoal,
+      requestUserInput: requestUserInputSink,
       signal: abortController.signal,
       onText: (chunk) => {
         if (abortController.signal.aborted || !isCurrentRun()) return;
@@ -2041,6 +2176,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       onDone: ({ reason, error, text: finalText }) => {
         if (!isCurrentRun()) return;
 
+        // Consumed. Leaving it set would start a *second* goal on the next
+        // ordinary message, with the previous turn's objective.
+        setPendingGoalObjective(null);
+
         // The harness's cleaned transcript, not the raw stream: file contents
         // the model wrote as prose have been re-sent as a patch, and the
         // original block is replaced so the message does not show the same file
@@ -2048,6 +2187,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         responseText = finalText || responseText;
 
         if (reason === 'cancelled') {
+          // A question left outstanding would block every later turn behind a
+          // prompt whose card is no longer on screen.
+          dismissUserInput();
           setCurrentStreamingResponse('');
           setIsCurrentlyGenerating(false);
           setIsCurrentlyThinking(false);
@@ -4508,6 +4650,49 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                              </>
                            )}
                         </button>
+
+                        {/*
+                          * The collaboration-mode and goal indicators.
+                          *
+                          * Upstream puts both in the TUI footer
+                          * (`CollaborationModeIndicator::Plan`,
+                          * `GoalStatusIndicator`), and they are not decoration:
+                          * Plan mode silently declines every edit, so a user who
+                          * cannot see that they are in it experiences the agent
+                          * refusing to work. Same for a goal — it starts turns
+                          * nobody sent.
+                          *
+                          * Both are click-to-exit, because the mode document
+                          * says the user can "easily switch out of Plan mode",
+                          * and a mode with no visible way out is a trap.
+                          */}
+                        {isAgent && mode === 'plan' && (
+                          <button
+                            onClick={() => setCollaborationMode('default')}
+                            disabled={hasUnsaved}
+                            title="In Plan mode — exploring and designing, changing nothing. Click to start building."
+                            className="flex h-[36px] shrink-0 items-center gap-2 rounded-full bg-[#a8c7fa]/15 px-3 text-[13px] font-medium text-[#a8c7fa] transition-colors hover:bg-[#a8c7fa]/25"
+                          >
+                            <FileText size={15} />
+                            {!isCompact && <span>Plan</span>}
+                            <X size={13} className="opacity-60" />
+                          </button>
+                        )}
+
+                        {isAgent && goalIsRunning(goal) && goal && (
+                          <button
+                            onClick={() => setThreadGoal(null)}
+                            disabled={hasUnsaved}
+                            title={`Goal (${goal.status}): ${goal.objective}\n\nClick to stop pursuing it.`}
+                            className="flex h-[36px] min-w-0 shrink items-center gap-2 rounded-full bg-[#3b82f6]/15 px-3 text-[13px] font-medium text-[#93c5fd] transition-colors hover:bg-[#3b82f6]/25"
+                          >
+                            <Target size={15} className="shrink-0" />
+                            {!isCompact && (
+                              <span className="truncate max-w-[140px]">{goal.objective}</span>
+                            )}
+                            <X size={13} className="shrink-0 opacity-60" />
+                          </button>
+                        )}
                      </div>
                   </div>
                   

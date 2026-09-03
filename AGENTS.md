@@ -159,19 +159,20 @@ and `platform/storage/src/project-contributors.ts` for the established pattern.
 
 ### Where the diagram doesn't hold yet
 
-The strict rule above is clean. The `features/ → apps/` arrow is not: four
+The strict rule above is clean. The `features/ → apps/` arrow is not: six
 features import *upward* from `apps/studio` — verified, not hypothetical:
 
 | Importer | What it pulls from `apps/studio` |
 | --- | --- |
-| `features/code`, `features/media`, `features/projects`, `features/chat` | `useBackground` / `BackgroundType` from `shell/BackgroundContext` |
-| `features/projects` | `ViewType` from `shell/sidebar/Sidebar` |
+| `features/code`, `features/chat`, `features/design`, `features/media`, `features/projects` | `useBackground` / `BackgroundType` from `shell/BackgroundContext` |
+| `features/notebooks` | `SectionHeader` / `SidebarItem` from `shell/sidebar/SidebarPrimitives` |
 | `features/media` | `RECENT_PROJECTS` from `shell/sample-projects` |
+| `features/code` | `settings/SettingsModal.css` |
 
-Seven of the nine import sites are the background context. The clean fix is to move
-`BackgroundContext`, `ViewType` and `sample-projects` down into `platform/*`,
-which would leave the rule true as written. Until someone does that, don't cite
-the diagram as if it already holds — and don't add new upward imports.
+Nine of the twelve import sites are the background context. The clean fix is to
+move `BackgroundContext`, the sidebar primitives and `sample-projects` down into
+`platform/*`, which would leave the rule true as written. Until someone does that,
+don't cite the diagram as if it already holds — and don't add new upward imports.
 
 `platform/projects` and `platform/storage` also import each other
 (`storage → projects/registry`, `projects/rename → storage/indexeddb`). The cycle

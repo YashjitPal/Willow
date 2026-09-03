@@ -70,6 +70,35 @@ it('assigns an active Spark run to exactly one response', () => {
   assert.equal(lifecycle.isSparkTurnResponseStreaming(followUpRun, latest), true);
 });
 
+/*
+ * The Like / Dislike / Copy row waits for the reveal, not for generation.
+ *
+ * `StreamingMarkdown` paces text through its own queue, so it keeps animating
+ * after the final token arrives. Gating the row on task status alone popped it
+ * in while the text was still writing itself. Two halves have to hold together:
+ * both action rows consult `responseActionsReady`, and a response that never
+ * streamed in this session is exempt — otherwise a task opened from disk renders
+ * `reveal={false}`, no completion callback ever fires, and the row stays hidden
+ * for good.
+ */
+it('holds the response action row until the reveal animation finishes', () => {
+  assert.match(
+    detailSource,
+    /const responseActionsReady = \(key: string, text: string\) =>\s*\n?\s*!streamedRevealKeysRef\.current\.has\(key\) \|\| revealedLengths\[key\] === text\.length/,
+  );
+  // Both rows gated: the root exchange and each follow-up.
+  assert.match(detailSource, /responseActionsReady\(rootRevealKey, response\)/);
+  assert.match(detailSource, /responseActionsReady\(turn\.id, turnResponse\)/);
+  // Fed by StreamingMarkdown's own completion signal, not by a timer.
+  assert.match(detailSource, /onRevealComplete=\{handleRevealComplete\}/);
+  // Length is part of the key's satisfaction so a retry cannot reuse the
+  // previous run's completion.
+  assert.match(detailSource, /onRevealed\(revealKey, text\.length\)/);
+  // Only responses seen streaming are gated at all.
+  assert.match(detailSource, /streamedRevealKeysRef\.current\.add\(`root:\$\{currentTask\.id\}`\)/);
+  assert.match(detailSource, /streamedRevealKeysRef\.current\.add\(turn\.id\)/);
+});
+
 it('clears a follow-up processing phase when undefined is explicitly supplied', () => {
   assert.match(
     storeSource,

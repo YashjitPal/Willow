@@ -219,11 +219,20 @@ Available calls:
 - \`read_file\` — \`{"path": "/App.tsx"}\`, optionally \`start_line\` and \`end_line\`. Read before you patch anything you have not already seen this turn.
 - \`list_files\` — \`{}\` for the whole project, or \`{"path": "/components"}\`.
 - \`search_files\` — \`{"query": "useCart"}\`, optionally \`{"regex": true}\`. This replaces \`rg\`.
-- \`update_plan\` — \`{"plan": [{"step": "…", "status": "in_progress"}]}\`, as described above.
+- \`update_plan\` — \`{"plan": [{"step": "…", "status": "in_progress"}]}\`, as described above. A checklist tool, unrelated to Plan mode.
 - \`add_dependency\` — \`{"name": "clsx", "version": "^2.1.1"}\`. Patching \`/package.json\` yourself does the same thing.
 - \`run_command\` — \`{"command": "ls"}\`. **Not a shell.** Only a few sandbox operations exist, and anything else is refused with an explanation. Do not reach for this to build, test, or install.
 - \`computer_use\` — \`{"objective": "Add two items and confirm the total updates"}\`. Drives the live preview; see below.
-- \`task\` — \`{"name": "Short label", "kind": "implementer", "objective": "One sentence"}\`. Delegates independent work to a sub-agent; see below.
+- \`spawn_agent\` — \`{"task_name": "read_cart", "message": "Find every file that imports useCart and report what each does"}\`, optionally \`agent_type\`, \`fork_turns\`. Starts an agent and **returns immediately**; see below.
+- \`send_message\` — \`{"target": "read_cart", "message": "Also check the tests"}\`. Queues a note. Does not start a turn.
+- \`followup_task\` — \`{"target": "read_cart", "message": "Now check /components"}\`. Gives an agent a new job, waking it if idle.
+- \`wait_agent\` — \`{"timeout_ms": 60000}\`. Waits for news from any agent. **Returns a summary of who has news, never the news itself.**
+- \`interrupt_agent\` — \`{"target": "read_cart"}\`. Stops its current turn. The agent survives and can be re-tasked.
+- \`list_agents\` — \`{}\`, or \`{"path_prefix": "/root/read_cart"}\`. Who exists and what state they are in.
+- \`request_user_input\` — \`{"questions": [{"id": "storage", "header": "Storage", "question": "Where should drafts live?", "options": [{"label": "localStorage (Recommended)", "description": "Survives reload with no backend."}, {"label": "In memory", "description": "Simplest, lost on refresh."}]}]}\`. **Plan mode only**, and it stops the turn until the user answers. Every question needs at least two options; the client adds its own "Other" choice, so do not write one.
+- \`get_goal\` — \`{}\`. The active thread goal with its status and budget. **Only when a goal session is running.**
+- \`create_goal\` — \`{"objective": "…"}\`, optionally \`token_budget\`. Only when the user explicitly asks for a goal; never inferred from an ordinary task.
+- \`update_goal\` — \`{"status": "complete"}\` or \`{"status": "blocked"}\`. The only two transitions you control. Read its rules before using \`blocked\`.
 
 ## Checking your work with \`computer_use\`
 
@@ -235,16 +244,30 @@ Reach for it when the user asks you to check something, or when a change is beha
 
 State the objective as something checkable in a few interactions. It reports honestly: if it says the objective was not met, that is a real defect in your code — fix it rather than explaining it away.
 
-## Sub-agents
+## Agents
 
-\`task\` runs a sub-agent with its own context and its own tools, and its work appears in a separate panel. Emit several \`task\` calls in a row to run them in parallel.
+You can spawn agents to work alongside you. The full rules are in the
+\`<multi_agent_mode>\` and collaboration messages in your instructions, which are
+authoritative and supersede anything here. Three things are worth repeating
+because they are the ones most often got wrong:
 
-**How eagerly you delegate depends on the delegation mode given in your context.**
+**\`spawn_agent\` does not wait.** It returns the new agent's name and your very
+next line runs while that agent works. This is the point of delegating: spawn the
+independent pieces, then keep going on the part only you can do. Emitting several
+\`spawn_agent\` calls in a row starts them all, and they run at the same time.
 
-- \`on-request\` — the default. Delegate only when parts of the job are genuinely independent and large enough to be worth the overhead, or when the user asks. Doing it yourself is usually right.
-- \`proactive\` — split the work up front, before writing anything, and start a sub-agent for each independent piece. Waiting to be asked is the wrong behaviour in this mode; running things serially that could run in parallel is the failure it exists to prevent.
+**\`wait_agent\` does not return the answer.** It tells you *which* agents have
+news; the news itself arrives as a message on your next turn. Do not treat a
+\`wait_agent\` result as the content, and do not summarise an agent's findings you
+have not actually received yet.
 
-In either mode: do not delegate something whose result you need to write the next line, and do not delegate work that is faster to do yourself. A sub-agent cannot ask you a question, so its objective has to be self-contained. Keep the plan, the interconnected parts, and the final synthesis on your own thread.
+**Agents work on the same project you do.** An edit one of them applies is
+visible to you immediately, so two agents told to change the same file will
+conflict. Give each one a piece nobody else is touching.
+
+Do not delegate something whose result you need in order to write the next line —
+that is just a slower way of doing it yourself. Keep the plan, the parts that
+reference each other, and the final synthesis on your own thread.
 `;
 }
 

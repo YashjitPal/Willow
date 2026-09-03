@@ -18,7 +18,14 @@ import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { EFFORT_LABEL } from './agent/harness/overlay/effort';
-import { agentEngaged, setAgentEngaged, setUltraEngaged, ultraEngaged } from './agent/agent-store';
+import {
+  agentEngaged,
+  collaborationMode,
+  setAgentEngaged,
+  setCollaborationMode,
+  setUltraEngaged,
+  ultraEngaged,
+} from './agent/agent-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { BottomPanel } from '@willow/media/MediaShowcase';
 import logoG from '@willow/assets/brand/logo-glyph.png';
@@ -418,6 +425,14 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // effort ladder, so it is only meaningful — and only shown — alongside it.
   const isAgent = useStore(agentEngaged);
   const isUltra = useStore(ultraEngaged) && isAgent;
+  /*
+   * The collaboration mode, for the indicator below.
+   *
+   * Read but never sent from here: the opening turn is started by
+   * `WorkbenchSidebar`, which reads the same store. This surface only has to
+   * make the mode visible before someone types into it.
+   */
+  const mode = useStore(collaborationMode);
 
   /*
    * Keep this composer's pill in step with the shared flag.
@@ -1292,6 +1307,29 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             </>
                           )}
                         </button>
+
+                        {/*
+                          * The Plan mode indicator.
+                          *
+                          * The mode is a persisted preference — upstream keeps
+                          * it across sessions too — so it can be set in the
+                          * workbench and still be active when someone comes
+                          * back here to start something. Plan mode declines
+                          * every edit, so an invisible one turns the opening
+                          * prompt of a new project into an agent that appears
+                          * to refuse to build it. Click to leave.
+                          */}
+                        {isAgent && mode === 'plan' && (
+                          <button
+                            onClick={() => setCollaborationMode('default')}
+                            title="In Plan mode — exploring and designing, changing nothing. Click to start building."
+                            className="flex h-[36px] shrink-0 items-center gap-2 rounded-full bg-[#a8c7fa]/15 px-3 text-[13px] font-medium text-[#a8c7fa] transition-colors hover:bg-[#a8c7fa]/25"
+                          >
+                            <FileText size={15} />
+                            <span>Plan</span>
+                            <X size={13} className="opacity-60" />
+                          </button>
+                        )}
                       </div>
                     </div>
 

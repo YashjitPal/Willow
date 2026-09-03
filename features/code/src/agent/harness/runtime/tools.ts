@@ -99,7 +99,22 @@ const listFiles: ToolHandler = {
   id: 'list_files',
   async run(args, context): Promise<ToolResult> {
     const files = context.readFiles();
-    const prefix = args.path ? normalizePath(asString(args.path)) : '/';
+
+    /*
+     * `normalizePath` rejects `..` and absolute filesystem paths by throwing.
+     *
+     * `read_file` has always caught that and returned the message as a failed
+     * observation; this handler did not, so the same bad argument produced
+     * "ERROR list_files threw: …" here and a clean explanation there. Same
+     * mistake, two different shapes of answer — and the `threw` wording reads
+     * like a harness defect rather than a bad path.
+     */
+    let prefix: string;
+    try {
+      prefix = args.path ? normalizePath(asString(args.path)) : '/';
+    } catch (error) {
+      return { observation: (error as Error).message, failed: true };
+    }
 
     const paths = Object.keys(files)
       .filter((path) => path.startsWith(prefix === '/' ? '/' : `${prefix}/`) || path === prefix)
@@ -388,9 +403,23 @@ export const FILE_TOOLS: ToolHandler[] = [
   addDependency,
 ];
 
-export function toolRegistry(extra: ToolHandler[] = []): Map<string, ToolHandler> {
+/**
+ * Builds the registry for one turn.
+ *
+ * `allowed` filters the built-in file tools the same way `runTurn` filters the
+ * ones it constructs, so a mode that withholds a tool withholds it from both
+ * lists. Omitting it registers everything, which is what the tests and the
+ * sub-agent path want.
+ */
+export function toolRegistry(
+  extra: ToolHandler[] = [],
+  allowed?: ReadonlySet<string>,
+): Map<string, ToolHandler> {
   const map = new Map<string, ToolHandler>();
-  for (const handler of [...FILE_TOOLS, ...extra]) map.set(handler.id, handler);
+  for (const handler of [...FILE_TOOLS, ...extra]) {
+    if (allowed && !allowed.has(handler.id)) continue;
+    map.set(handler.id, handler);
+  }
   return map;
 }
 

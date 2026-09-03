@@ -61,13 +61,41 @@ Labs flag. The clone is gone; only the harness survived, as `src/agent/`.
 
 | Path | Role |
 | --- | --- |
-| `src/agent/agent-store.ts` | Tool calls and sub-agents per turn, plus the `agentEngaged` / `ultraEngaged` flags. |
+| `src/agent/agent-store.ts` | Tool calls and sub-agents per turn, plus `agentEngaged` / `ultraEngaged`, the collaboration mode, the thread goal, and the `request_user_input` round-trip. |
 | `src/agent/harness-bridge.ts` | The seam: file-map ↔ sandpack store, plus the `run_command` and `computer_use` tools. |
-| `src/agent/harness/` | The turn loop, V4A patcher, text protocol, and the vendored upstream prompt. |
+| `src/agent/harness/` | The turn loop, V4A patcher, text protocol, Plan mode, Goal mode, and the vendored upstream documents. |
 | `src/agent/ui/` | The transcript timeline: tool cards, diffs, terminal output, sub-agent chips. |
 | `src/agent/model-binding.ts` | Resolves the selected model to a provider binding, clamping effort. |
-| `src/agent/slash-commands.ts` | `/`-triggered composer templates. |
+| `src/agent/slash-commands.ts` | `/`-triggered composer templates, plus the three that change mode. |
 | `src/agent/agent.css` | Design tokens, all scoped under `.cb-root`. |
+
+### Four subsystems, all upstream's
+
+The Agent tool carries four things people reach for by name, and all four are
+real Codex subsystems rather than prompt shapes:
+
+- **Plan mode** (`/plan`) — a collaboration mode. Vendored 9KB developer
+  document, `update_plan` refused, mutation declined, `request_user_input`
+  available and blocking, the plan delivered as a `<proposed_plan>` block.
+- **Goal mode** (`/goal <objective>`) — the `ext/goal` extension. Three tools,
+  six statuses, a token budget, and automatic continuation turns until the
+  objective is verifiably true.
+- **Collaboration** — multi-agent V2. Six tools (`spawn_agent`, `send_message`,
+  `followup_task`, `wait_agent`, `interrupt_agent`, `list_agents`), agents
+  addressed as `/root/explore/deeper`, non-blocking spawn, unbounded nesting,
+  and `fork_turns` to choose how much context a child inherits.
+- **Ultra** — not more reasoning. It lowers to the model's ceiling on the wire
+  and switches delegation to proactive, which is the only thing it changes.
+
+Three of the four began life as something much thinner, and the thin versions
+are worth knowing about because each one looked fine: `/plan` was a composer
+template that told the model to "Use update_plan" — the exact tool Plan mode
+refuses; `/goal` was a template with no goal object and no continuation; and
+delegation was one blocking tool called `task` that exists nowhere in codex-rs.
+
+Read [the harness docs](src/agent/harness/AGENTS.md#the-four-subsystems) before
+changing any of them. Each has a short list of places the browser forced a
+divergence, and everything else is a transcription.
 
 **`agentEngaged` is the only switch.** Three things read it, and all three are
 inert when it is false: the send routing in `handleSendMessage`, the slash-command
@@ -87,8 +115,14 @@ Two things to know before editing here:
   `harness/overlay/` and are applied at runtime.
 
 Unlike the rest of this directory, this subsystem *is* covered:
-`apps/studio/test/agent-*.test.mjs` is 112 tests over the patcher, effort ladder,
-turn loop, timeline, and prompt composition.
+`apps/studio/test/agent-*.test.mjs` is 176 tests over the patcher, effort ladder,
+turn loop, timeline, prompt composition, Plan mode, Goal mode and multi-agent
+collaboration.
+
+`agent-modes.test.mjs` is the one to read first if you are changing the modes.
+Every assertion in it that quotes a string quotes upstream's, and the file names
+the `codex-rs` path each one came from — so an upgrade that changes upstream's
+wording fails here with a pointer to what to re-check.
 
 ## The runtime
 

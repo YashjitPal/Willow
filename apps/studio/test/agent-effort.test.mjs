@@ -106,8 +106,64 @@ it('lowers ultra to the model ceiling without calling it a clamp', () => {
   assert.equal(onGeminiPro.clamped, false);
 
   // The mode is delivered in full on both.
-  assert.equal(onFrontier.harness.delegation, 'proactive');
-  assert.equal(onGeminiPro.harness.delegation, 'proactive');
+  assert.equal(onFrontier.harness.multiAgentMode.kind, 'proactive');
+  assert.equal(onGeminiPro.harness.multiAgentMode.kind, 'proactive');
+});
+
+it('lowers ultra to max wherever max is a real token, as client.rs does', () => {
+  /*
+   * Upstream is unconditional:
+   *
+   *     ReasoningEffortConfig::Ultra => ReasoningEffortConfig::Max
+   *
+   * It can be, because it talks to one backend. Willow talks to six and
+   * `chat.ts` forwards `reasoningEffort` verbatim to Gemini as
+   * `thinking_level`, where `max` is not a valid value — so the lowering
+   * targets the model's real ceiling instead. Everywhere `max` exists, the two
+   * agree exactly.
+   */
+  for (const model of [
+    { providerId: 'openai', modelId: 'gpt-5.5-codex' },
+    { providerId: 'anthropic', modelId: 'claude-opus-5' },
+  ]) {
+    assert.equal(
+      resolveEffort('ultra', model).effective,
+      'max',
+      `${model.modelId} should match upstream's Ultra -> Max exactly`,
+    );
+  }
+});
+
+it('never offers Gemini an effort its thinking_level vocabulary rejects', () => {
+  /*
+   * `chat.ts` passes `options.reasoningEffort` straight through:
+   *
+   *     geminiThinkingLevel = options.reasoningEffort.trim();
+   *
+   * So an effort name that is not in Gemini's vocabulary is not a silent
+   * downgrade — it is an invalid enum value and the request fails. Gemini's
+   * scale is minimal/low/medium/high, and `chat.ts`'s own numeric table agrees
+   * (`flashMap = { 0: 'minimal', … }`), so `none` must never be offered.
+   */
+  for (const model of [
+    { providerId: 'gemini', modelId: 'gemini-3-pro' },
+    { providerId: 'gemini', modelId: 'gemini-3-flash' },
+  ]) {
+    const allowed = new Set(['minimal', 'low', 'medium', 'high']);
+    for (const level of supportedEfforts(model)) {
+      assert.ok(
+        allowed.has(level),
+        `${model.modelId} must not be sent ${level}; Gemini has no such thinking_level`,
+      );
+    }
+    // And resolution never produces one either, at any request.
+    for (const requested of CODEX_EFFORTS) {
+      assert.ok(
+        allowed.has(resolveEffort(requested, model).effective),
+        `${requested} on ${model.modelId} resolved outside Gemini's vocabulary`,
+      );
+    }
+  }
 });
 
 it('still clamps ordinary levels, which is a real loss', () => {
@@ -119,34 +175,69 @@ it('still clamps ordinary levels, which is a real loss', () => {
 });
 
 it('makes proactive delegation exclusive to ultra', () => {
+  // `session/multi_agents.rs`:
+  //   Some(ReasoningEffort::Ultra) => MultiAgentMode::Proactive,
+  //   _ => MultiAgentMode::ExplicitRequestOnly,
   for (const level of CODEX_EFFORTS) {
-    const expected = level === 'ultra' ? 'proactive' : 'on-request';
+    const expected = level === 'ultra' ? 'proactive' : 'explicit-request-only';
     assert.equal(
-      harnessEffort(level).delegation,
+      harnessEffort(level).multiAgentMode.kind,
       expected,
       `${level} should be ${expected}`,
     );
   }
 });
 
-it('tells the agent to delegate proactively, and the prompt explains both modes', () => {
-  const agent = fs.readFileSync(
-    path.join(repoRoot, 'features', 'code', 'src', 'agent', 'harness', 'runtime', 'agent.ts'),
-    'utf8',
+it("uses upstream's own multi-agent mode wording, not a local paraphrase", async () => {
+  /*
+   * These two strings are `PROACTIVE_MULTI_AGENT_MODE_TEXT` and
+   * `EXPLICIT_REQUEST_ONLY_MULTI_AGENT_MODE_TEXT` from
+   * `codex-rs/core/src/context/multi_agent_mode_instructions.rs`.
+   *
+   * The "no longer applies" clause in each is the part worth pinning. Upstream
+   * re-sends this fragment whenever the mode changes, so each text has to
+   * revoke the other — rewriting them into something that reads better
+   * standalone is what would break switching modes mid-session.
+   */
+  const multiAgent = await importTs(
+    path.join(
+      repoRoot, 'features', 'code', 'src', 'agent', 'harness', 'overlay', 'multi-agent-mode.ts',
+    ),
   );
-  assert.match(agent, /<delegation>proactive/);
-  assert.match(agent, /without being asked/);
 
-  // The tool description has to cover both modes, since that is what the model
-  // reads when deciding whether to fan out.
+  assert.equal(
+    multiAgent.PROACTIVE_TEXT,
+    'Proactive multi-agent delegation is active. Any earlier instruction requiring an ' +
+      'explicit user request before spawning sub-agents no longer applies. Use sub-agents ' +
+      'when parallel work would materially improve speed or quality. This mode remains ' +
+      'active until a later multi-agent mode developer message changes it.',
+  );
+  assert.equal(
+    multiAgent.EXPLICIT_REQUEST_ONLY_TEXT,
+    'Any earlier instruction enabling proactive multi-agent delegation no longer applies. ' +
+      'Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions ' +
+      'explicitly ask for sub-agents, delegation, or parallel agent work.',
+  );
+
+  // Delivered in upstream's tags, so the mode document's claim that the mode
+  // changes only on a later such message is true.
+  const proactive = multiAgent.multiAgentModeSection(multiAgent.PROACTIVE);
+  assert.ok(proactive.startsWith('<multi_agent_mode>'));
+  assert.ok(proactive.trimEnd().endsWith('</multi_agent_mode>'));
+
+  // An empty custom hint means "send no fragment", not "send the default one".
+  assert.equal(multiAgent.multiAgentModeSection({ kind: 'custom', hintText: '' }), '');
+});
+
+it('defers delegation eagerness to the multi_agent_mode message', () => {
   const overlay = fs.readFileSync(
     path.join(repoRoot, 'features', 'code', 'src', 'agent', 'harness', 'overlay', 'prompt-overlay.ts'),
     'utf8',
   );
-  // Backticks are escaped inside the template literal, so match the words.
-  assert.match(overlay, /on-request/);
-  assert.match(overlay, /proactive/);
-  assert.match(overlay, /split the work up front/i);
+  // The prompt used to describe the two modes itself, which duplicated — and
+  // could contradict — the fragment that actually sets them.
+  assert.match(overlay, /multi_agent_mode/);
+  assert.match(overlay, /authoritative and supersede/i);
 });
 
 it('sends the effort name explicitly, not just the numeric level', () => {
@@ -173,16 +264,15 @@ it('sends the effort name explicitly, not just the numeric level', () => {
 it('runs the harness at the requested level whatever the wire value', () => {
   /*
    * Effort is two things. The API parameter is model-dependent; the harness
-   * half — loop budget, delegation mode, working guidance — is Willow's own and
-   * works on any model. That split is what lets Ultra mean the same thing
-   * everywhere even though its wire value differs per model.
+   * half — the loop bound and the multi-agent mode — is derived from what was
+   * *requested* and works on any model. That split is what lets Ultra mean the
+   * same thing everywhere even though its wire value differs per model.
    */
   const onGeminiPro = resolveEffort('ultra', { providerId: 'gemini', modelId: 'gemini-3-pro' });
 
   assert.equal(onGeminiPro.effective, 'high', "wire value is the model's ceiling");
   assert.equal(onGeminiPro.harness.maxIterations, harnessEffort('ultra').maxIterations);
-  assert.equal(onGeminiPro.harness.delegation, 'proactive');
-  assert.match(onGeminiPro.harness.guidance, /proactive delegation mode/i);
+  assert.equal(onGeminiPro.harness.multiAgentMode.kind, 'proactive');
 });
 
 it('gives higher effort a larger tool-call budget', () => {
@@ -202,46 +292,39 @@ it('gives higher effort a larger tool-call budget', () => {
   assert.match(agent, /iteration < budget/);
 });
 
-it('tells the agent the requested level and how to work at it', () => {
+it('derives nothing from effort but the loop bound and the multi-agent mode', () => {
+  /*
+   * Upstream derives exactly one prompt-visible thing from reasoning effort:
+   * the `<multi_agent_mode>` fragment. It never tells the model its effort and
+   * has no per-rung guidance text.
+   *
+   * This harness used to invent both — an `<effort>` line, a `<delegation>`
+   * line, and a `<how-to-work>` block from a table in `effort.ts`. That was not
+   * harmless: the guidance named tools ("verify the result with computer_use",
+   * "plan before acting"), which made both unconditional at the higher rungs
+   * and overrode upstream's own rules for when to plan and when to validate —
+   * rules that say outright not to plan single-step work. Raising effort
+   * therefore changed behaviour the user had not asked for.
+   */
+  for (const level of CODEX_EFFORTS) {
+    assert.deepEqual(
+      Object.keys(harnessEffort(level)).sort(),
+      ['maxConcurrentAgents', 'maxIterations', 'multiAgentMode'],
+      `${level} must derive nothing else from effort`,
+    );
+  }
+
   const agent = fs.readFileSync(
     path.join(repoRoot, 'features', 'code', 'src', 'agent', 'harness', 'runtime', 'agent.ts'),
     'utf8',
   );
-  // The requested level, not the clamped one — this section governs behaviour.
-  assert.match(agent, /working at \$\{effort\.requested\} effort/);
-  assert.match(agent, /<how-to-work>/);
-  // But it must be honest that the API call itself was capped.
-  assert.match(agent, /caps reasoning at/);
+  const code = agent.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
+  assert.doesNotMatch(code, /<how-to-work>/, 'invented guidance must not return');
+  assert.doesNotMatch(code, /<delegation>/, 'delegation is a multi_agent_mode fragment now');
+  assert.doesNotMatch(code, /effortSection/, 'the effort section is gone');
 
-  // It is standing guidance, so it belongs in the system prompt. On the user's
-  // message it read as an instruction attached to whatever they typed, and made
-  // a greeting look like a build request.
-  assert.match(agent, /\[profile\.systemPrompt, effortSection\(options\.model\)\]/);
-  // And it must say plainly that it only governs work the user asked for.
-  assert.match(agent, /A greeting, a/);
-});
-
-it('sets how much care to take without ordering tools to be used', () => {
-  /*
-   * The guidance used to say "Plan before acting with `update_plan`" and
-   * "Verify the result with `computer_use`", which made both unconditional:
-   * every build opened with a plan and closed with a browser session whatever
-   * the user asked for.
-   *
-   * Upstream already decides both, and better than a blanket rule can — its
-   * planning section says outright not to plan simple work, and validation is
-   * explicitly a judgement call. Naming a tool here overrode all of it.
-   */
-  for (const level of effort.CODEX_EFFORTS) {
-    const { guidance } = effort.harnessEffort(level);
-    if (level === 'ultra') continue; // Delegation *is* what Ultra selects.
-
-    assert.doesNotMatch(guidance, /update_plan/, `${level} must not mandate planning`);
-    assert.doesNotMatch(guidance, /computer_use/, `${level} must not mandate verification`);
-    assert.doesNotMatch(guidance, /\bPlan before\b/i, `${level} must not order a plan`);
-  }
-
-  // And upstream's own judgement rules must still be in the composed prompt.
+  // And upstream's own judgement rules must still be in the composed prompt,
+  // since they are what now governs planning and validation.
   const upstream = fs.readFileSync(
     path.join(
       repoRoot,
@@ -251,6 +334,34 @@ it('sets how much care to take without ordering tools to be used', () => {
     'utf8',
   );
   assert.match(upstream, /Do not use plans for simple or single-step queries/);
+});
+
+it("uses upstream's one concurrency limit, unscaled by effort", () => {
+  /*
+   * `DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION` is 4, and it is
+   * a single session config value — effort does not touch it. Ultra changes the
+   * *mode*, not the ceiling.
+   *
+   * This used to scale from 1 at `none` to 4 at `ultra`, which was invented and
+   * made low effort quietly worse at a job the user had explicitly delegated.
+   */
+  for (const level of CODEX_EFFORTS) {
+    assert.equal(
+      harnessEffort(level).maxConcurrentAgents,
+      4,
+      `${level} must use upstream's single limit`,
+    );
+  }
+
+  // And the limit has to be enforced by the runtime, not merely reported.
+  const collaboration = fs.readFileSync(
+    path.join(
+      repoRoot, 'features', 'code', 'src', 'agent', 'harness', 'runtime', 'collaboration.ts',
+    ),
+    'utf8',
+  );
+  assert.match(collaboration, /running >= this\.maxConcurrent/);
+  assert.match(collaboration, /DEFAULT_MAX_CONCURRENT_AGENTS/);
 });
 
 it('offers computer_use rather than expecting it', () => {

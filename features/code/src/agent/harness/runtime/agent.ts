@@ -26,8 +26,35 @@
  */
 
 import type { AiOptions } from '@willow/ai/chat';
-import { getHarnessProfile } from '../overlay/profile';
-import { isAllowed, refusalFor } from '../overlay/tool-policy';
+import { composeSystemPrompt, getHarnessProfile } from '../overlay/profile';
+import {
+  COLLABORATION_TOOLS,
+  GOAL_TOOLS,
+  isAllowed,
+  refusalFor,
+  toolsForTurn,
+  type ToolId,
+} from '../overlay/tool-policy';
+import {
+  ROOT_USAGE_HINT,
+  SHARED_USAGE_HINT,
+  SUBAGENT_USAGE_HINT,
+  WAIT_AGENT_USAGE_HINT,
+} from '../overlay/collaboration-tools';
+import { CollaborationRuntime, renderEnvelope } from './collaboration';
+import { ROOT_PATH as ROOT_AGENT_PATH } from './agent-path';
+import {
+  isMutatingTool,
+  planModeMutationRefusal,
+  requestUserInputUnavailableMessage,
+  PLAN_MODE_PATCH_REFUSAL,
+  UPDATE_PLAN_IN_PLAN_MODE_ERROR,
+  type ModeKind,
+} from '../overlay/collaboration-mode';
+import {
+  EXPLICIT_REQUEST_ONLY,
+  type MultiAgentMode,
+} from '../overlay/multi-agent-mode';
 import {
   applyPatch,
   normalizePath,
@@ -46,20 +73,62 @@ import { CONTINUE_OBSERVATION, announcedWithoutActing } from './stalled';
 import { beginToolLog, instrumentTransport } from './request-log';
 import { compactForHistory } from './history';
 import { nextId, toolRegistry } from './tools';
+import { ProposedPlanParser } from './proposed-plan';
+import { GoalRuntime, isGoalFinished } from './goal';
+import { makeRequestUserInputTool, type RequestUserInputSink } from './request-user-input';
 import type {
-  AgentKind,
+  CallSink,
   EditCall,
+  GoalCall,
   HarnessEvent,
+  IterationResult,
   Message,
-  SubAgent,
+  ProposedPlanCall,
   ToolCall,
   ToolContext,
   ToolHandler,
   ToolResult,
+  TurnGates,
+  UserInputCall,
 } from './protocol';
 
 const MAX_ITERATIONS = 12;
 const MAX_SUBAGENT_ITERATIONS = 6;
+
+/**
+ * How many automatic goal-continuation turns one `runTurn` will start.
+ *
+ * Upstream has no such limit: `continue_if_idle` fires for as long as the goal
+ * is `Active`, and the user stops it from a terminal. A browser tab has no
+ * terminal and no bill it can see, so an unbounded loop there is a way to spend
+ * someone's API budget while they are on another page. The cap is generous
+ * enough that reaching it is itself informative — a goal that has not converged
+ * in this many turns is not going to — and hitting it leaves the goal `active`,
+ * so the user can resume rather than start over.
+ */
+const MAX_GOAL_CONTINUATIONS = 12;
+
+/*
+ * `TurnGates` now lives in `protocol.ts`, beside `CallSink`, for the same
+ * reason: `collaboration.ts` has to pass one when it runs an agent.
+ *
+ * It is carried as a value rather than read off `options` so an agent can
+ * inherit its parent's mutation boundary without inheriting its plan card —
+ * those two are the same setting upstream and different here, because the
+ * `<proposed_plan>` block belongs to the root.
+ */
+
+const DEFAULT_GATES: TurnGates = {
+  mode: 'default',
+  refuseMutation: false,
+  streamProposedPlan: false,
+};
+
+const gatesFor = (mode: ModeKind, isRootThread = true): TurnGates => ({
+  mode,
+  refuseMutation: mode === 'plan',
+  streamProposedPlan: mode === 'plan' && isRootThread,
+});
 
 export interface ModelBinding {
   /** Passed through to `streamChat`. */
@@ -76,20 +145,21 @@ export interface ModelBinding {
     effective: string;
     clamped: boolean;
     /**
-     * Loop budget and working guidance, derived from the *requested* level
-     * rather than the clamped one. This half is model-agnostic — it is Willow's
-     * own loop and prompt — which is what lets Ultra mean something on a model
-     * whose API tops out lower.
+     * The half of effort that is not a wire parameter, derived from the
+     * *requested* level rather than the clamped one. This half is
+     * model-agnostic, which is what lets Ultra mean something on a model whose
+     * API tops out lower.
      */
     harness?: {
+      /** Willow's own loop bound. Upstream has no counterpart; see `effort.ts`. */
       maxIterations: number;
-      guidance: string;
       /**
-       * Upstream derives this from effort: `ultra` → proactive, everything
-       * else → on request. It is what Ultra actually *is* — the reasoning
-       * parameter is already at the model's ceiling by then.
+       * Upstream's `MultiAgentMode`, derived from effort exactly as
+       * `session/multi_agents.rs` derives it: `ultra` → Proactive, everything
+       * else → ExplicitRequestOnly. This is what Ultra actually *is* — the
+       * reasoning parameter is already at the model's ceiling by then.
        */
-      delegation?: 'proactive' | 'on-request';
+      multiAgentMode?: MultiAgentMode;
       maxConcurrentAgents?: number;
     };
   };
@@ -131,6 +201,39 @@ export interface TurnOptions {
    * Kept out of `tools.ts` so the harness stays independent of Willow.
    */
   extraTools?: ToolHandler[];
+  /**
+   * Collaboration mode for this turn. Defaults to `'default'`, which is
+   * upstream's default too.
+   *
+   * The mode governs the developer message, whether `update_plan` and mutating
+   * tools are refused, and whether `request_user_input` exists. See
+   * `../overlay/collaboration-mode.ts`.
+   */
+  mode?: ModeKind;
+  /**
+   * The live goal, when Goal mode is running.
+   *
+   * Passing one turns on the three goal tools *and* the automatic continuation
+   * loop — a goal that is still `active` when the model stops starts another
+   * turn. The caller owns the object so it can persist across turns; the
+   * harness only advances it.
+   */
+  goal?: GoalRuntime;
+  /** Overrides `MAX_GOAL_CONTINUATIONS`, for tests and for a host with its own cap. */
+  maxGoalContinuations?: number;
+  /**
+   * How `request_user_input` reaches the user. Required for the tool to work in
+   * Plan mode; without it the tool reports itself unavailable rather than
+   * fabricating an answer.
+   */
+  requestUserInput?: RequestUserInputSink;
+  /**
+   * Tokens the last request consumed, if the provider reported a number.
+   *
+   * Only ever used to advance a goal's budget, and only when it is a real
+   * figure — see `goal.ts` on why an estimate is not acceptable there.
+   */
+  reportedTokens?: () => number | undefined;
 }
 
 /**
@@ -193,61 +296,23 @@ function projectContext(files: FileMap): string {
   return `<project>\nFiles currently in the project:\n${listing}\n</project>`;
 }
 
-/**
- * Tells the model what effort it is running at.
+/*
+ * There is deliberately no `effortSection` any more.
  *
- * Upstream's prompt is written assuming the agent knows — it talks about being
- * thorough or quick without ever stating which it is. Naming the level makes
- * that guidance actionable instead of ambient, and it is how the same prompt
- * produces genuinely different behaviour at `low` and at `ultra`.
+ * This file used to build one: `<effort>You are working at max effort</effort>`,
+ * a `<delegation>` line, and a `<how-to-work>` block whose text came from a
+ * per-rung table in `effort.ts`. None of it exists upstream. Codex tells the
+ * model nothing about its reasoning effort — the effort is a request parameter,
+ * and the only thing derived from it in the prompt is the `<multi_agent_mode>`
+ * fragment, which `composeSystemPrompt` now appends with upstream's own wording.
  *
- * It goes in the system prompt, with the rest of the standing guidance. On the
- * user's message it behaved as an instruction attached to whatever they said,
- * and turned a greeting into a build order. It also says *how* to do work, not
- * that there is work: upstream's own guidance about answering conversational
- * messages conversationally still governs whether any of this applies.
+ * It was not harmless. The guidance strings named tools ("verify with
+ * computer_use", "plan before acting"), which made both unconditional at the
+ * higher rungs and overrode upstream's own rules for when to plan and when to
+ * validate — rules that say outright not to plan single-step work. Raising
+ * effort therefore changed behaviour in ways the user had not asked for and
+ * could not see.
  */
-function effortSection(model: ModelBinding): string {
-  const effort = model.effort;
-  if (!effort) return '';
-
-  const lines = [
-    '# Effort',
-    '',
-    'How to approach work that the user has actually asked for. A greeting, a',
-    'question, or a remark is not work; answer it directly.',
-    '',
-    // The *requested* level is stated, not the wire value, because this section
-    // governs how the agent works rather than what the API was told.
-    `<effort>You are working at ${effort.requested} effort.</effort>`,
-  ];
-
-  // Proactive delegation is the whole of Ultra. Stating it as a mode, ahead of
-  // the general guidance, is what makes the agent fan out on its own rather
-  // than treating sub-agents as an option it might get around to.
-  if (effort.harness?.delegation === 'proactive') {
-    lines.push(
-      `<delegation>proactive — spawn sub-agents on your own judgement, up to ` +
-        `${effort.harness.maxConcurrentAgents ?? 3} at once, without being asked.</delegation>`,
-    );
-  }
-
-  if (effort.harness?.guidance) {
-    lines.push(`<how-to-work>\n${effort.harness.guidance}\n</how-to-work>`);
-  }
-
-  // Only a genuine loss of reasoning depth is worth flagging. Ultra lowering to
-  // the model's ceiling is its designed behaviour, not a downgrade, and
-  // `clamped` is false in that case.
-  if (effort.clamped) {
-    lines.push(
-      `<note>This model's API caps reasoning at ${effort.effective}, so the ` +
-        `request was sent at that level. Work to the standard above regardless.</note>`,
-    );
-  }
-
-  return lines.join('\n');
-}
 
 /* ------------------------------------------------------------------------ */
 /* One streamed response                                                     */
@@ -258,26 +323,16 @@ interface PendingCall {
   body: string;
 }
 
-interface IterationResult {
-  /** Everything the model said, envelopes stripped. */
-  text: string;
-  /**
-   * Everything the model emitted, envelopes included.
-   *
-   * This, not `text`, is what goes back as the assistant turn. Feeding back the
-   * stripped prose hid the model's own tool calls from it: the transcript then
-   * showed it narrating, followed by an observation with nothing that could
-   * have produced it. Models reconcile that by trying to close an envelope they
-   * cannot see, and the transcript fills with orphan `*** End Call` markers.
-   */
-  raw: string;
-  /** Observations to feed back, in order. */
-  observations: string[];
-  /** True when anything actually ran or changed a file this iteration. */
-  didWork: boolean;
-  /** True when the model emitted at least one call needing a result. */
-  wantsMore: boolean;
-}
+/*
+ * `IterationResult` now lives in `protocol.ts` — see `CallSink` above.
+ *
+ * One field is worth restating here because it is easy to "simplify": `raw`,
+ * not `text`, is what goes back as the assistant turn. Feeding back the
+ * stripped prose hid the model's own tool calls from it, so the transcript
+ * showed it narrating followed by an observation with nothing that could have
+ * produced it. Models reconcile that by trying to close an envelope they cannot
+ * see, and the transcript fills with orphan `*** End Call` markers.
+ */
 
 /**
  * Streams one model response and handles everything it emits.
@@ -291,6 +346,7 @@ async function runIteration(
   options: TurnOptions,
   sink: CallSink,
   registry: Map<string, ToolHandler>,
+  planMode: TurnGates = DEFAULT_GATES,
 ): Promise<IterationResult> {
   throwIfAborted(options.signal);
 
@@ -299,6 +355,51 @@ async function runIteration(
   let text = '';
   /** Prose *and* envelopes — what the model is shown of its own turn. */
   let raw = '';
+
+  /*
+   * `<proposed_plan>` handling, in Plan mode only.
+   *
+   * Upstream gates this the same way — `stream_events_utils.rs` computes
+   * `let plan_mode = ctx.turn_context.mode() == Plan` before emitting plan
+   * deltas — and the gate matters in both directions. Outside Plan mode the
+   * block has no meaning and a model that mentions the tag in prose would open
+   * a card for it; inside Plan mode the block is the deliverable and has to be
+   * lifted out of the prose rather than read as part of it.
+   */
+  const planParser = planMode.streamProposedPlan ? new ProposedPlanParser() : null;
+  let planCardId: string | null = null;
+  let planMarkdown = '';
+
+  const emitPlanSegments = (chunk: ReturnType<ProposedPlanParser['push']>): void => {
+    for (const segment of chunk.extracted) {
+      if (segment.kind === 'normal') {
+        text += segment.text;
+        sink.onText(segment.text);
+      } else if (segment.kind === 'start') {
+        planMarkdown = '';
+        const call: ProposedPlanCall = {
+          id: nextId('call'),
+          kind: 'proposed-plan',
+          status: 'running',
+          startedAt: Date.now(),
+          markdown: '',
+        };
+        planCardId = sink.emit(call);
+        sink.activity('Writing the plan');
+      } else if (segment.kind === 'delta') {
+        planMarkdown += segment.text;
+        if (planCardId) sink.patch(planCardId, { markdown: planMarkdown } as Partial<ToolCall>);
+      } else if (planCardId) {
+        sink.patch(planCardId, {
+          markdown: planMarkdown,
+          status: 'success',
+          endedAt: Date.now(),
+        } as Partial<ToolCall>);
+        planCardId = null;
+        sink.activity(null);
+      }
+    }
+  };
 
   /*
    * One card per file in the envelope, in the order their headers arrived.
@@ -314,15 +415,24 @@ async function runIteration(
 
   const parser = new ResponseStreamParser({
     onText: (chunk) => {
+      if (planParser) {
+        emitPlanSegments(planParser.push(chunk));
+        return;
+      }
       text += chunk;
       sink.onText(chunk);
     },
 
     onPatchOpen: () => {
-      sink.activity('Editing files');
+      sink.activity(planMode.refuseMutation ? 'Responding' : 'Editing files');
     },
 
     onPatchLine: (line) => {
+      // In Plan mode nothing will be written, so no edit card is opened. A card
+      // that appeared and then failed would read as a broken patch rather than
+      // as the mode declining it.
+      if (planMode.refuseMutation) return;
+
       // Surface the target file as soon as its header arrives, so the card
       // appears with a real name rather than "writing…".
       const header = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line.trim());
@@ -357,6 +467,23 @@ async function runIteration(
     },
 
     onPatchClose: (envelope) => {
+      /*
+       * The half of the Plan mode boundary that instructions cannot cover.
+       *
+       * Upstream can leave "do not perform mutating actions" to the mode
+       * document, because its `apply_patch` is a tool call it can refuse before
+       * running. Willow's patches apply the instant the envelope closes,
+       * mid-stream, to make the preview feel live — so by the time anything
+       * could refuse, the files would already be written. Declining here is the
+       * same outcome upstream gets from its read-only sandbox policy, and the
+       * model is told plainly that nothing was written.
+       */
+      if (planMode.refuseMutation) {
+        patchObservations.push(PLAN_MODE_PATCH_REFUSAL);
+        liveEdits = [];
+        return;
+      }
+
       const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
       liveEdits = [];
@@ -399,13 +526,30 @@ async function runIteration(
   );
 
   parser.end();
+  // Resolves a half-buffered final line and closes an unterminated plan block,
+  // so a stream that dies mid-plan still leaves a complete, rendered card.
+  if (planParser) emitPlanSegments(planParser.finish());
   throwIfAborted(options.signal);
 
   const observations = [...patchObservations];
 
+  /*
+   * Calls run in the order the model emitted them, one at a time.
+   *
+   * This used to batch consecutive `task` calls into a `Promise.all`, because
+   * `task` blocked and batching was the only way to get two helpers running at
+   * once. `spawn_agent` returns immediately, so parallelism now comes from the
+   * tool itself rather than from the dispatcher — which is both upstream's
+   * design and strictly better: the model gets its agents running *and* keeps
+   * its remaining calls in the order it wrote them.
+   *
+   * Order matters for the rest: two `read_file` calls the model emitted in
+   * sequence may well be sequenced on purpose, and a `run_command` reordered
+   * against a patch would be a different program.
+   */
   for (const call of pending) {
     throwIfAborted(options.signal);
-    observations.push(await runCall(call, registry, options, sink));
+    observations.push(await runCall(call, registry, options, sink, planMode));
   }
 
   /*
@@ -565,11 +709,61 @@ async function runCall(
   registry: Map<string, ToolHandler>,
   options: TurnOptions,
   sink: CallSink,
+  planMode: TurnGates = DEFAULT_GATES,
 ): Promise<string> {
   const name = call.name.trim();
 
   const refusal = refusalFor(name);
   if (refusal) return `ERROR ${name}: ${refusal}`;
+
+  /*
+   * `apply_patch` is allowed, has no call handler, and never did.
+   *
+   * It is applied from the patch envelope mid-stream, so `registry` has no
+   * entry for it — and a model that wrapped a patch in `*** Call: apply_patch`
+   * used to get "Unknown tool "apply_patch". Available tools: read_file, …",
+   * which lists `apply_patch` nowhere and reads as though patching were
+   * impossible. Models responded by giving up on the edit or by pasting the
+   * file into their reply. Naming the actual mistake costs one branch.
+   */
+  if (name === 'apply_patch') {
+    return (
+      'ERROR apply_patch is not invoked through a call envelope. Emit the patch ' +
+      'directly, starting with `*** Begin Patch` on its own line and ending with ' +
+      '`*** End Patch`, with no `*** Call:` wrapper and no code fence around it.'
+    );
+  }
+
+  // Plan mode's tool half. `update_plan` gets its own message because upstream
+  // gives it one and the mode document promises that exact error.
+  if (planMode.refuseMutation) {
+    if (name === 'update_plan') return `ERROR ${UPDATE_PLAN_IN_PLAN_MODE_ERROR}`;
+    if (isMutatingTool(name)) return `ERROR ${planModeMutationRefusal(name)}`;
+  }
+
+  /*
+   * A tool that exists but is not available this turn.
+   *
+   * The distinction is the whole reason `ALLOWED_TOOLS` is a superset of what
+   * `toolsForTurn` registers. `request_user_input` in Default mode used to come
+   * back as `Unknown tool "request_user_input". Available tools: read_file, …`
+   * — a list that does not contain it, from a harness that plainly does. A
+   * model reading that concludes the capability does not exist; a model told
+   * "unavailable in Default mode" knows to carry on without it, which is
+   * exactly what upstream's message is for.
+   */
+  if (isAllowed(name) && !registry.has(name)) {
+    const unavailable = requestUserInputUnavailableMessage(planMode.mode);
+    if (name === 'request_user_input' && unavailable) {
+      return `ERROR ${unavailable}`;
+    }
+    if (GOAL_TOOLS.includes(name as ToolId)) {
+      return (
+        `ERROR ${name} is unavailable because this thread has no goal session. ` +
+        'Goal mode is started by the user, not from here.'
+      );
+    }
+  }
 
   if (!isAllowed(name) || !registry.has(name)) {
     return (
@@ -620,27 +814,34 @@ const ACTIVITY: Record<string, string> = {
   search_files: 'Searching',
   update_plan: 'Planning',
   add_dependency: 'Adding a dependency',
-  task: 'Starting sub-agents',
+  request_user_input: 'Waiting for you',
+  get_goal: 'Checking the goal',
+  create_goal: 'Setting the goal',
+  update_goal: 'Updating the goal',
+  spawn_agent: 'Starting an agent',
+  send_message: 'Messaging an agent',
+  followup_task: 'Re-tasking an agent',
+  interrupt_agent: 'Interrupting an agent',
+  list_agents: 'Checking on agents',
+  /*
+   * `wait_agent` deliberately has no label.
+   *
+   * It is the one tool whose whole job is to do nothing for a while, and an
+   * activity line saying so would sit there for up to an hour looking stuck.
+   * Spark's runtime doc records the same rule for the same reason.
+   */
 };
 
 /* ------------------------------------------------------------------------ */
 /* Call sinks                                                                */
 /* ------------------------------------------------------------------------ */
 
-/**
- * Where a running agent's output goes.
+/*
+ * `CallSink` now lives in `protocol.ts`.
  *
- * The main turn writes into the transcript; a sub-agent writes into its own
- * card. Both run the identical loop, and this indirection is the only
- * difference between them.
+ * It is the seam `collaboration.ts` runs agents through, and both modules
+ * importing it from the protocol is what keeps them from importing each other.
  */
-interface CallSink {
-  onText: (chunk: string) => void;
-  onThought: (chunk: string) => void;
-  emit: (call: ToolCall) => string;
-  patch: (id: string, patch: Partial<ToolCall>) => void;
-  activity: (label: string | null) => void;
-}
 
 function mainSink(onEvent: (event: HarnessEvent) => void): CallSink {
   return {
@@ -655,222 +856,108 @@ function mainSink(onEvent: (event: HarnessEvent) => void): CallSink {
   };
 }
 
-function agentSink(
-  agentId: string,
-  onEvent: (event: HarnessEvent) => void,
-  state: { calls: ToolCall[] },
-): CallSink {
-  const flush = (patch: Partial<SubAgent>) =>
-    onEvent({ type: 'agent-progress', id: agentId, patch });
-
-  return {
-    // A sub-agent's prose is its reasoning, not the user's answer. It drives
-    // the activity line instead of being spliced into the main transcript.
-    onText: () => {},
-    onThought: () => {},
-    emit: (call) => {
-      state.calls = [...state.calls, call];
-      flush({ calls: state.calls });
-      return call.id;
-    },
-    patch: (id, patch) => {
-      state.calls = state.calls.map((call) =>
-        call.id === id ? ({ ...call, ...patch } as ToolCall) : call,
-      );
-      flush({ calls: state.calls });
-    },
-    activity: (label) => flush({ activity: label ?? undefined }),
-  };
-}
+/*
+ * `agentSink` used to live here. It is now `CollaborationRuntime`'s own private
+ * method, because an agent's card is the runtime's business — it owns the
+ * record, so it owns the writes to it.
+ */
 
 /* ------------------------------------------------------------------------ */
 /* Sub-agents                                                                */
 /* ------------------------------------------------------------------------ */
 
-const AGENT_KINDS: AgentKind[] = ['explorer', 'implementer', 'reviewer', 'researcher'];
-
 /**
- * The `task` tool.
+ * Builds the collaboration runtime for one turn.
  *
- * Built per turn rather than declared statically because it closes over the
- * turn's options and event sink. Sub-agents get every tool except `task`
- * itself — unbounded recursion in a browser tab is not a feature.
+ * This replaced a single `task` tool that blocked until its helper finished.
+ * See `collaboration.ts` for why that could not stand — briefly: `task` exists
+ * nowhere in codex-rs, and a blocking helper cannot deliver the one thing
+ * delegation is for, which is that the parent keeps working.
+ *
+ * Every agent, at every depth, gets the same six tools. That is upstream's rule
+ * and it is what makes the tree deeper than one level.
  */
-function makeTaskTool(options: TurnOptions, systemPrompt: string): ToolHandler {
-  return {
-    id: 'task',
-    async run(args): Promise<ToolResult> {
-      const name = typeof args.name === 'string' ? args.name.trim() : 'Sub-agent';
-      const objective = typeof args.objective === 'string' ? args.objective.trim() : '';
-      const kindRaw = typeof args.kind === 'string' ? args.kind : 'implementer';
-      const kind = (AGENT_KINDS as string[]).includes(kindRaw)
-        ? (kindRaw as AgentKind)
-        : 'implementer';
+function makeCollaboration(
+  options: TurnOptions,
+  baseSystemPrompt: string,
+  allowed: ReadonlySet<string>,
+): CollaborationRuntime {
+  const runtime: CollaborationRuntime = new CollaborationRuntime({
+    runIteration: (conversation, systemPrompt, sink, registry, gates) =>
+      runIteration(conversation, systemPrompt, options, sink, registry, gates),
 
-      if (!objective) {
-        return {
-          observation: 'task requires an "objective" describing what the sub-agent should do.',
-          failed: true,
-        };
-      }
+    buildRegistry: (collaborationTools, agentPath) =>
+      toolRegistry(
+        [
+          ...collaborationTools,
+          // Host tools travel down too: an agent that cannot look at the
+          // preview cannot check its own work.
+          ...(options.extraTools ?? []),
+        ].filter((tool) => allowed.has(tool.id)),
+        // `request_user_input` is withheld from every non-root agent, exactly
+        // as upstream withholds it: `session_source.is_non_root_agent()` gets
+        // "can only be used by the root thread". A delegated agent has no user.
+        new Set([...allowed].filter((id) => id !== 'request_user_input')),
+      ),
 
-      const agent: SubAgent = {
-        id: nextId('agent'),
-        name,
-        kind,
-        objective,
-        status: 'running',
-        startedAt: Date.now(),
-        progress: 0,
-        calls: [],
-        model: options.model.label,
-        tokensUsed: 0,
-      };
+    systemPromptFor: (agentPath) =>
+      [
+        baseSystemPrompt,
+        '# Multi-agent collaboration',
+        '',
+        `<multi_agent_identity>You are \`${agentPath}\`.</multi_agent_identity>`,
+        '',
+        SUBAGENT_USAGE_HINT,
+        '',
+        WAIT_AGENT_USAGE_HINT,
+        '',
+        SHARED_USAGE_HINT,
+      ].join('\n'),
 
-      options.onEvent({ type: 'agents-start', agents: [agent] });
+    projectContext: () => projectContext(options.files()),
+    compactForHistory,
+    onEvent: options.onEvent,
+    modelLabel: options.model.label,
+    maxConcurrent: options.model.effort?.harness?.maxConcurrentAgents,
+    maxIterations: MAX_SUBAGENT_ITERATIONS,
+    gates: gatesFor(options.mode ?? 'default', /* isRootThread */ false),
+    signal: options.signal,
+  });
 
-      const state = { calls: [] as ToolCall[] };
-      const sink = agentSink(agent.id, options.onEvent, state);
-      // Sub-agents get the host tools too — a reviewer that cannot look at the
-      // preview is not much of a reviewer — but never `task`, because
-      // unbounded recursion in a browser tab is not a feature.
-      const registry = toolRegistry(options.extraTools ?? []);
-
-      const subPrompt =
-        `${systemPrompt}\n\n# You are a sub-agent\n\n` +
-        'You have been delegated one specific piece of a larger task. Do only ' +
-        'that piece. You cannot ask questions and you cannot delegate further. ' +
-        'When finished, write a two-sentence report of what you changed — that ' +
-        'report is all the main agent will see.';
-
-      const conversation: { role: 'user' | 'assistant'; content: string }[] = [
-        {
-          role: 'user',
-          content: `${projectContext(options.files())}\n\nYour objective: ${objective}`,
-        },
-      ];
-
-      let report = '';
-
-      try {
-        for (let step = 0; step < MAX_SUBAGENT_ITERATIONS; step += 1) {
-          options.onEvent({
-            type: 'agent-progress',
-            id: agent.id,
-            patch: { progress: step / MAX_SUBAGENT_ITERATIONS },
-          });
-
-          const iteration = await runIteration(
-            conversation,
-            subPrompt,
-            options,
-            sink,
-            registry,
-          );
-          report = iteration.text.trim() || report;
-
-          if (!iteration.wantsMore) break;
-
-          conversation.push({ role: 'assistant', content: compactForHistory(iteration.raw) });
-          conversation.push({
-            role: 'user',
-            content: iteration.observations.join('\n\n---\n\n'),
-          });
-        }
-
-        options.onEvent({
-          type: 'agent-progress',
-          id: agent.id,
-          patch: {
-            status: 'success',
-            endedAt: Date.now(),
-            progress: 1,
-            activity: undefined,
-            result: report.slice(0, 400),
-            tokensUsed: state.calls.length * 1200,
-          },
-        });
-
-        return {
-          observation:
-            `Sub-agent "${name}" finished.\n\n${report.slice(0, 1200)}\n\n` +
-            `It made ${state.calls.length} tool call(s). The project files now ` +
-            'reflect its work; read anything you need before building on it.',
-        };
-      } catch (error) {
-        if (error instanceof Cancelled) {
-          options.onEvent({
-            type: 'agent-progress',
-            id: agent.id,
-            patch: { status: 'cancelled', endedAt: Date.now(), activity: undefined },
-          });
-          throw error;
-        }
-
-        const message = (error as Error).message;
-        options.onEvent({
-          type: 'agent-progress',
-          id: agent.id,
-          patch: {
-            status: 'error',
-            endedAt: Date.now(),
-            activity: undefined,
-            result: message,
-          },
-        });
-        return { observation: `Sub-agent "${name}" failed: ${message}`, failed: true };
-      }
-    },
-  };
+  return runtime;
 }
 
 /* ------------------------------------------------------------------------ */
 /* Public entry point                                                        */
 /* ------------------------------------------------------------------------ */
 
+/** Why one bounded iteration loop stopped. */
+type StopReason = 'model-finished' | 'iteration-budget';
+
 /**
- * Runs one user turn to completion.
+ * Runs the bounded iteration loop until the model stops calling tools.
  *
- * Resolves normally on cancellation — a cancelled turn is a user action, not an
- * error — and reports everything else through a `turn-end` event so the UI has
- * exactly one place to handle failure.
+ * Extracted from `runTurn` because Goal mode needs to run it more than once:
+ * the user's turn is one pass, and each automatic continuation is another. The
+ * conversation array is shared across passes, which is what makes a
+ * continuation a continuation rather than a fresh session.
  */
-export async function runTurn(options: TurnOptions): Promise<void> {
-  const profile = getHarnessProfile();
-  const sink = mainSink(options.onEvent);
-
-  /*
-   * The user's message carries the file listing and nothing else.
-   *
-   * How-to-work guidance used to be prepended there too, which meant "heyaa"
-   * reached the model as a manifest, an effort level, and "Plan before acting"
-   * wrapped around one word. That reads as a work order however the greeting is
-   * phrased, and the model duly planned and built an app. Standing guidance
-   * belongs in the system prompt beside upstream's own — which already says to
-   * answer a greeting conversationally — not stapled to whatever was typed.
+async function runIterations(
+  conversation: { role: 'user' | 'assistant'; content: string }[],
+  systemPrompt: string,
+  options: TurnOptions,
+  sink: CallSink,
+  registry: Map<string, ToolHandler>,
+  planMode: TurnGates,
+  /**
+   * The collaboration tree, so the root's mailbox can be drained between
+   * iterations. Without this an agent's final answer would never reach the
+   * agent that spawned it.
    */
-  const systemPrompt = [profile.systemPrompt, effortSection(options.model)]
-    .filter(Boolean)
-    .join('\n\n');
-
-  const registry = toolRegistry([
-    makeTaskTool(options, systemPrompt),
-    ...(options.extraTools ?? []),
-  ]);
-
-  const conversation: { role: 'user' | 'assistant'; content: string }[] = [];
-  for (const message of options.history) {
-    const text = messageText(message);
-    if (text) conversation.push({ role: message.role, content: text });
-  }
-
-  conversation.push({
-    role: 'user',
-    content: [projectContext(options.files()), options.prompt]
-      .filter(Boolean)
-      .join('\n\n'),
-  });
-
+  collaboration: CollaborationRuntime | undefined,
+  /** Stops early once the model has ended the goal, so a `complete` call is final. */
+  shouldStop: () => boolean = () => false,
+): Promise<StopReason> {
   // Effort buys tool-call rounds, not just a bigger reasoning parameter. At
   // `low` a turn that keeps calling tools is usually stuck; at `ultra` it is
   // usually working. One fixed ceiling cannot serve both.
@@ -879,56 +966,364 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   /** Whether the "you announced but did not act" nudge has been spent. */
   let nudged = false;
 
+  for (let iteration = 0; iteration < budget; iteration += 1) {
+    const result = await runIteration(
+      conversation,
+      systemPrompt,
+      options,
+      sink,
+      registry,
+      planMode,
+    );
+
+    /*
+     * The root's mailbox.
+     *
+     * Agents post here when they finish, and `send_message` posts here when one
+     * agent writes to another. Draining it into this iteration's observations
+     * is how a delegated result actually reaches the agent that asked for it —
+     * `wait_agent` only ever reports *that* there is news.
+     */
+    const inbound = collaboration?.takeMailbox(ROOT_AGENT_PATH) ?? [];
+
+    if (!result.wantsMore && inbound.length === 0) {
+      /*
+       * A response with no tool call is normally the answer. But a model on a
+       * text protocol can describe the envelope instead of emitting one, and
+       * end its message mid-flow — "Let's start by creating the project
+       * plan." — which ends the turn looking successful with nothing written.
+       *
+       * One nudge, and only when nothing ran this iteration. If it still
+       * emits nothing it has nothing to emit, and asking twice would spend
+       * the user's budget on it.
+       *
+       * Not in Plan mode: there, announcing without acting is the *correct*
+       * behaviour. The mode forbids acting.
+       */
+      if (
+        !nudged &&
+        !planMode.refuseMutation &&
+        !result.didWork &&
+        announcedWithoutActing(result.text)
+      ) {
+        nudged = true;
+        options.onEvent({ type: 'text', chunk: '\n\n' });
+        conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
+        conversation.push({ role: 'user', content: CONTINUE_OBSERVATION });
+        continue;
+      }
+
+      /*
+       * The model is done, but its agents may not be.
+       *
+       * Upstream would end the turn here and let them run on, because its
+       * session outlives the turn and the user can watch them. Willow has
+       * nowhere to watch: resolving now unlocks the composer and reports the
+       * turn finished, and the agents would then rewrite the user's files
+       * afterwards. So the turn stays open until the tree is quiet, and the
+       * results come back as one more iteration.
+       */
+      if (collaboration?.hasLiveAgents()) {
+        options.onEvent({ type: 'activity', label: 'Waiting for agents' });
+        await collaboration.drain();
+        const settled = collaboration.takeMailbox(ROOT_AGENT_PATH);
+        if (settled.length > 0) {
+          conversation.push({
+            role: 'assistant',
+            content: compactForHistory(result.raw),
+          });
+          conversation.push({
+            role: 'user',
+            content: settled.map(renderEnvelope).join('\n\n---\n\n'),
+          });
+          options.onEvent({ type: 'activity', label: null });
+          continue;
+        }
+        options.onEvent({ type: 'activity', label: null });
+      }
+
+      return 'model-finished';
+    }
+
+    // The next iteration's prose streams straight onto the end of this one's.
+    // Without a break the two run together mid-sentence — "…before scaffolding
+    // the application.I will now set up…" — because each iteration is a
+    // separate completion but one continuous transcript.
+    if (result.text.trim() !== '') {
+      options.onEvent({ type: 'text', chunk: '\n\n' });
+    }
+
+    // `raw`, not `text`: the model must see the envelopes it emitted, or it
+    // cannot tell what produced the observation that follows.
+    conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
+    conversation.push({
+      role: 'user',
+      content: [...result.observations, ...inbound.map(renderEnvelope)].join('\n\n---\n\n'),
+    });
+
+    // A `update_goal` call that landed ends the turn now rather than after
+    // another round of the model narrating what it just did.
+    if (shouldStop()) return 'model-finished';
+  }
+
+  return 'iteration-budget';
+}
+
+/**
+ * Runs one user turn to completion.
+ *
+ * Resolves normally on cancellation — a cancelled turn is a user action, not an
+ * error — and reports everything else through a `turn-end` event so the UI has
+ * exactly one place to handle failure.
+ *
+ * ## In Goal mode this is more than one turn
+ *
+ * With `options.goal` set, the loop below is upstream's `continue_if_idle`: the
+ * model stops, the goal is still `active`, so another turn begins whose only
+ * input is the rendered `continuation.md`. It ends when the model marks the goal
+ * `complete` or `blocked`, when the budget runs out, or when the continuation
+ * cap is reached.
+ */
+export async function runTurn(options: TurnOptions): Promise<void> {
+  const sink = mainSink(options.onEvent);
+  const mode: ModeKind = options.mode ?? 'default';
+  const goal = options.goal;
+  /**
+   * Declared out here so the `catch` can abort the tree.
+   *
+   * A failed or cancelled root turn must not leave agents running: they hold
+   * the file map and would keep writing into a project whose turn already
+   * ended.
+   */
+  let collaboration: CollaborationRuntime | undefined;
+
   try {
-    for (let iteration = 0; iteration < budget; iteration += 1) {
-      const result = await runIteration(
+    /*
+     * Inside the `try`, and this is the fix for a real hang.
+     *
+     * `getHarnessProfile()` throws `OverlayAnchorError` when an upstream
+     * upgrade moves a section the overlay depends on — which is by design, it
+     * is the loud failure the overlay exists to produce. But it used to be
+     * called *above* the try, so the rejection escaped `runTurn` entirely: no
+     * `turn-end` event was ever emitted, the caller's `onDone` never ran, and
+     * the composer sat spinning on a turn that had already failed. The error
+     * belongs in the transcript like any other.
+     */
+    const goalContext = goal?.contextSection();
+    const systemPrompt = composeSystemPrompt({
+      mode,
+      multiAgentMode: options.model.effort?.harness?.multiAgentMode ?? EXPLICIT_REQUEST_ONLY,
+      goalContext,
+    });
+
+    /*
+     * The root's identity, and its own usage hint.
+     *
+     * Upstream sends `ROOT_AGENT_USAGE_HINT` to the root and
+     * `SUBAGENT_USAGE_HINT` to everyone else. They differ in more than tone:
+     * the root's says "At the start of your turn, you are the active agent" and
+     * lists two message types, while an agent's says its final channel is
+     * delivered to its parent and lists three. Sending the wrong one leaves the
+     * model wrong about who it is talking to.
+     */
+    const rootPrompt = [
+      systemPrompt,
+      '# Multi-agent collaboration',
+      '',
+      ROOT_USAGE_HINT,
+      '',
+      WAIT_AGENT_USAGE_HINT,
+      '',
+      SHARED_USAGE_HINT,
+    ].join('\n');
+
+    const planMode = gatesFor(mode);
+
+    /*
+     * Only the tools this turn is entitled to.
+     *
+     * `toolsForTurn` is the gate; everything it excludes still resolves to a
+     * mode-aware refusal in `runCall`, because "unavailable in Default mode" is
+     * a recoverable answer and "unknown tool" is not.
+     */
+    const allowed = new Set(
+      toolsForTurn({ mode, goalActive: Boolean(goal) }) as string[],
+    );
+
+    /*
+     * The collaboration tree for this turn.
+     *
+     * Created before the registry because the root's own six tools come out of
+     * it, bound to `/root` — which is what makes a relative target like
+     * `explore` resolve to `/root/explore` for the root and to
+     * `/root/explore/x` for an agent one level down.
+     */
+    collaboration = makeCollaboration(options, systemPrompt, allowed);
+
+    /*
+     * Declared before the registry, and read through a thunk.
+     *
+     * `spawn_agent`'s `fork_turns` slices whatever the root's conversation is
+     * *at the moment of the call*, so the tool cannot be handed a snapshot
+     * taken when the registry was built — that array is still empty here.
+     */
+    const conversation: { role: 'user' | 'assistant'; content: string }[] = [];
+
+    const registry = toolRegistry(
+      [
+        ...collaboration.tools(ROOT_AGENT_PATH, () => conversation),
+        makeRequestUserInputTool(mode, options.requestUserInput),
+        ...(goal ? goalTools(goal, sink) : []),
+        ...(options.extraTools ?? []),
+      ].filter((tool) => allowed.has(tool.id)),
+      allowed,
+    );
+
+    for (const message of options.history) {
+      const text = messageText(message);
+      if (text) conversation.push({ role: message.role, content: text });
+    }
+
+    conversation.push({
+      role: 'user',
+      content: [projectContext(options.files()), options.prompt]
+        .filter(Boolean)
+        .join('\n\n'),
+    });
+
+    goal?.beginTurn();
+
+    const stopped = await runIterations(
+      conversation,
+      rootPrompt,
+      options,
+      sink,
+      registry,
+      planMode,
+      collaboration,
+      () => Boolean(goal?.wasEndedByModel()),
+    );
+
+    if (!goal) {
+      finishTurn(options, stopped);
+      return;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Goal mode: automatic continuations                                  */
+    /* ------------------------------------------------------------------ */
+
+    goal.finishTurn(options.reportedTokens?.());
+    if (!goal.wasEndedByModel()) goal.noteTurnWithoutBlockedClaim();
+    options.onEvent({ type: 'goal', goal: goal.current() });
+
+    const limit = options.maxGoalContinuations ?? MAX_GOAL_CONTINUATIONS;
+
+    for (let index = 1; index <= limit; index += 1) {
+      throwIfAborted(options.signal);
+      if (goal.wasEndedByModel() || isGoalFinished(goal.current())) break;
+
+      const steering = goal.nextSteeringPrompt();
+      if (!steering) break;
+
+      // `budget_limited` gets exactly one wrap-up turn. Noting it before the
+      // turn runs means the loop stops after it rather than steering again on
+      // a status that has not changed.
+      const wasBudgetLimited = goal.current()?.status === 'budget_limited';
+
+      options.onEvent({ type: 'goal-continuation', index, limit });
+      options.onEvent({ type: 'text', chunk: '\n\n' });
+
+      conversation.push({ role: 'user', content: steering });
+
+      goal.beginTurn();
+      /*
+       * The pass's own stop reason is deliberately discarded.
+       *
+       * A continuation that exhausts its iteration budget is not the end of the
+       * goal — the goal decides that, and the next pass picks up where this one
+       * stopped. What ends the loop is the goal's status or the cap below.
+       */
+      await runIterations(
         conversation,
-        systemPrompt,
+        // Re-composed each pass: the goal's budget has moved, and the
+        // continuation document quotes it. The collaboration hints are
+        // re-appended for the same reason the mode is — every turn carries them.
+        [
+          composeSystemPrompt({
+            mode,
+            multiAgentMode:
+              options.model.effort?.harness?.multiAgentMode ?? EXPLICIT_REQUEST_ONLY,
+            goalContext: goal.contextSection(),
+          }),
+          '# Multi-agent collaboration',
+          '',
+          ROOT_USAGE_HINT,
+          '',
+          WAIT_AGENT_USAGE_HINT,
+          '',
+          SHARED_USAGE_HINT,
+        ].join('\n'),
         options,
         sink,
         registry,
+        planMode,
+        collaboration,
+        () => goal.wasEndedByModel(),
       );
+      goal.finishTurn(options.reportedTokens?.());
+      if (!goal.wasEndedByModel()) goal.noteTurnWithoutBlockedClaim();
+      options.onEvent({ type: 'goal', goal: goal.current() });
 
-      if (!result.wantsMore) {
-        /*
-         * A response with no tool call is normally the answer. But a model on a
-         * text protocol can describe the envelope instead of emitting one, and
-         * end its message mid-flow — "Let's start by creating the project
-         * plan." — which ends the turn looking successful with nothing written.
-         *
-         * One nudge, and only when nothing ran this iteration. If it still
-         * emits nothing it has nothing to emit, and asking twice would spend
-         * the user's budget on it.
-         */
-        if (!nudged && !result.didWork && announcedWithoutActing(result.text)) {
-          nudged = true;
-          options.onEvent({ type: 'text', chunk: '\n\n' });
-          conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
-          conversation.push({ role: 'user', content: CONTINUE_OBSERVATION });
-          continue;
-        }
-
-        options.onEvent({ type: 'turn-end', reason: 'complete' });
-        return;
-      }
-
-      // The next iteration's prose streams straight onto the end of this one's.
-      // Without a break the two run together mid-sentence — "…before scaffolding
-      // the application.I will now set up…" — because each iteration is a
-      // separate completion but one continuous transcript.
-      if (result.text.trim() !== '') {
-        options.onEvent({ type: 'text', chunk: '\n\n' });
-      }
-
-      // `raw`, not `text`: the model must see the envelopes it emitted, or it
-      // cannot tell what produced the observation that follows.
-      conversation.push({ role: 'assistant', content: compactForHistory(result.raw) });
-      conversation.push({
-        role: 'user',
-        content: result.observations.join('\n\n---\n\n'),
-      });
+      if (wasBudgetLimited) break;
     }
 
+    const finalGoal = goal.current();
+    if (finalGoal && !isGoalFinished(finalGoal) && finalGoal.status === 'active') {
+      // The cap, not the goal, ended this. Say so — the goal is still live and
+      // the user can resume it, which is different from it having failed.
+      options.onEvent({
+        type: 'text',
+        chunk:
+          `\n\nI stopped after ${limit} automatic turns on this goal. The goal is ` +
+          'still active and the work so far is applied — send a message to continue it.',
+      });
+      options.onEvent({
+        type: 'turn-end',
+        reason: 'complete',
+        stopReason: 'goal-continuation-budget',
+      });
+      return;
+    }
+
+    options.onEvent({ type: 'turn-end', reason: 'complete', stopReason: 'goal-ended' });
+  } catch (error) {
+    // Agents outlive the statement that started them, so they have to be
+    // stopped explicitly. Left running they would keep writing into a project
+    // whose turn has already ended.
+    collaboration?.cancelAll();
+
+    if (error instanceof Cancelled || options.signal?.aborted) {
+      options.goal?.stopForError('blocked');
+      options.onEvent({ type: 'goal', goal: options.goal?.current() ?? null });
+      options.onEvent({ type: 'turn-end', reason: 'cancelled' });
+      return;
+    }
+    // A goal that keeps steering into the same failing request would spend the
+    // user's budget on it, so a hard error stops the goal too.
+    options.goal?.stopForError('blocked');
+    if (options.goal) options.onEvent({ type: 'goal', goal: options.goal.current() });
+    options.onEvent({
+      type: 'turn-end',
+      reason: 'error',
+      error: (error as Error).message,
+    });
+  }
+}
+
+/** The non-goal ending, with the stop reason the caller could not infer before. */
+function finishTurn(options: TurnOptions, stopped: StopReason): void {
+  if (stopped === 'iteration-budget') {
     // Budget exhausted. Tell the model's audience, not just the console.
     options.onEvent({
       type: 'text',
@@ -936,16 +1331,48 @@ export async function runTurn(options: TurnOptions): Promise<void> {
         '\n\nI stopped after reaching the tool-call limit for one turn. ' +
         'The work so far is applied — send another message to continue.',
     });
-    options.onEvent({ type: 'turn-end', reason: 'complete' });
-  } catch (error) {
-    if (error instanceof Cancelled || options.signal?.aborted) {
-      options.onEvent({ type: 'turn-end', reason: 'cancelled' });
-      return;
-    }
     options.onEvent({
       type: 'turn-end',
-      reason: 'error',
-      error: (error as Error).message,
+      reason: 'complete',
+      stopReason: 'iteration-budget',
     });
+    return;
   }
+  options.onEvent({ type: 'turn-end', reason: 'complete', stopReason: 'model-finished' });
+}
+
+/**
+ * Wraps the goal tools so each call also leaves a card in the transcript.
+ *
+ * A goal that changed state invisibly would be the worst version of this
+ * feature: the harness would keep starting turns the user did not send, with
+ * nothing in the transcript explaining why.
+ */
+function goalTools(goal: GoalRuntime, sink: CallSink): ToolHandler[] {
+  const ACTIONS = { get_goal: 'get', create_goal: 'create', update_goal: 'update' } as const;
+
+  return goal.tools().map((tool) => ({
+    id: tool.id,
+    async run(args, context) {
+      const result = await tool.run(args, context);
+      const snapshot = goal.current();
+
+      const card: GoalCall = {
+        id: nextId('call'),
+        kind: 'goal',
+        action: ACTIONS[tool.id as keyof typeof ACTIONS] ?? 'get',
+        status: result.failed ? 'error' : 'success',
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+        error: result.failed ? result.observation : undefined,
+        objective: snapshot?.objective,
+        goalStatus: snapshot?.status,
+        tokenBudget: snapshot?.tokenBudget,
+        tokensUsed: snapshot?.tokensUsed,
+      };
+      sink.emit(card);
+
+      return result;
+    },
+  }));
 }

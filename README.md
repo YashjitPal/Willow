@@ -50,11 +50,10 @@ in a folder *you* pick on your own disk, through the browser's File System
 Access API. Willow never uploads your work, and there is no analytics or
 telemetry of any kind.
 
-Signing in is **optional** and is backed by Firebase. If you stay signed out,
-everything — including your API keys — stays on your machine. If you do sign in,
-please read [the note on API keys](#api-keys-and-what-leaves-your-machine)
-first: today they sync to that Firebase project in plaintext, and that is being
-changed.
+Signing in is **optional** and is backed by Firebase, which stores your profile
+and a little non-secret UI state. **Your API keys are not part of that** — they
+never leave your machine, signed in or out. See
+[API keys](#api-keys-and-what-leaves-your-machine).
 
 <br />
 
@@ -250,6 +249,30 @@ cares which one you picked — and adding a third is a single file.
 
 <br />
 
+### API keys, and what leaves your machine
+
+**Your provider keys are stored on your device and nowhere else.** They sit in
+your browser's `localStorage` and go straight from your browser to whichever
+provider you're calling. They are never sent to Willow, and signing in does not
+change that.
+
+| You are | Where your keys live | Do they leave your machine? |
+| :-- | :-- | :-- |
+| **Signed out** | Your browser's `localStorage` | **No** |
+| **Signed in** | Your browser's `localStorage` | **No** |
+
+Signing in syncs your profile and some non-secret UI state — the model you last
+picked, and similar — and nothing else.
+
+> Earlier alpha builds did upload keys: a signed-in user's keys were written to
+> their Firestore document in plaintext, where the project owner could read
+> them. That was wrong and it is gone. The first time you open a build from
+> **3 Sep 2026** onward while signed in, Willow reads those keys back onto your
+> device and then **deletes them from the database**. If you handed a key to an
+> earlier build and would rather not rely on that cleanup, rotate it.
+
+<br />
+
 ---
 
 ## Under the hood
@@ -302,30 +325,6 @@ Moonshot and Zhipu are all under testing and may not behave as intended** —
 expect rough edges around tool calls, streamed reasoning, grounded search and
 attachments in particular. If something misbehaves on another provider, try the
 same prompt on Gemini before assuming the feature itself is broken.
-
-### API keys, and what leaves your machine
-
-**If you sign in, your API keys are currently synced to Willow's Firebase
-project in plaintext.** This is the most serious known issue in the alpha and it
-is being fixed — key storage is moving to local-only for everyone. Until that
-ships, be aware of exactly what happens:
-
-| You are | Where your keys are stored | Do they leave your machine? |
-| :-- | :-- | :-- |
-| **Signed out** | Your browser's `localStorage` | **No — never** |
-| **Signed in** | Your browser, **and** the `users/{uid}` document in Firestore, as readable strings | **Yes** |
-
-Signed in, the project owner can read those keys in the Firebase console. Willow
-does not use them for anything other than your own requests, but you should not
-have to take that on trust — so, until the fix lands, pick whichever of these
-suits you:
-
-- **Use Willow signed out.** Bring-your-own-key works fully without an account;
-  nothing about the model surfaces requires signing in.
-- **Or use a disposable, spend-capped key** that you can revoke at any time.
-
-Your chats, projects and generated media are *not* affected either way — those
-are plain files in the folder you chose, and they are never uploaded.
 
 **Not every feature is finished.**
 

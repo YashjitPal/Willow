@@ -167,6 +167,10 @@ const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').t
 const ConnectedAppsTab = React.lazy(() =>
   import('../settings/tabs/connected-apps/ConnectedAppsTab').then((m) => ({ default: m.ConnectedAppsTab }))
 );
+const ModelsApiPage = React.lazy(() =>
+  import('../settings/tabs/models-api/ModelsApiPage').then((m) => ({ default: m.ModelsApiPage }))
+);
+const LabsPage = React.lazy(() => import('../settings/tabs/labs/LabsPage').then((m) => ({ default: m.LabsPage })));
 const ProjectsPage = React.lazy(() => import('@willow/project-browser/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const LoginPage = React.lazy(() => import('@willow/account/LoginPage'));
 const Onboarding = React.lazy(() => import('@willow/onboarding/Onboarding').then((m) => ({ default: m.Onboarding })));
@@ -292,6 +296,7 @@ const App: React.FC = () => {
   const experiments = useStore(experimentsStore);
   const isDesignEnabled = experiments['design-surface'];
   const isAgentsEnabled = experiments['agents-surface'];
+  const isProjectsPanelEnabled = experiments['projects-panel'];
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
@@ -303,6 +308,8 @@ const App: React.FC = () => {
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
+    if (location.pathname === '/models-settings') return 'models-api';
+    if (location.pathname === '/labs') return 'labs';
     if (location.pathname === '/design' && isExperimentEnabled('design-surface')) return 'design';
     if (location.pathname.startsWith('/gems')) return 'gems';
     const notebookRoute = matchNotebookRoute(location.pathname);
@@ -722,6 +729,7 @@ const App: React.FC = () => {
     if (view === currentView) return true;
     if (view === 'design' && !isDesignEnabled) return false;
     if (view === 'agents' && !isAgentsEnabled) return false;
+    if (view === 'projects' && !isProjectsPanelEnabled) return false;
     const sequence = ++viewChangeSequenceRef.current;
     viewChangeIntentRef.current = view;
     // Before the first `startTopLoading` below, which would otherwise raise the
@@ -746,6 +754,8 @@ const App: React.FC = () => {
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
+    else if (view === 'models-api') navigate('/models-settings');
+    else if (view === 'labs') navigate('/labs');
     else if (view === 'design') navigate('/design');
     else if (view === 'gems') navigate('/gems');
     else if (view === 'notebooks') navigate('/notebooks/view');
@@ -762,6 +772,8 @@ const App: React.FC = () => {
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
       location.pathname === '/connected-apps' ||
+      location.pathname === '/models-settings' ||
+      location.pathname === '/labs' ||
       location.pathname === '/design' ||
       location.pathname === '/gems' ||
       matchNotebookRoute(location.pathname) !== null
@@ -770,7 +782,7 @@ const App: React.FC = () => {
     }
     commitView(view);
     return true;
-  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, navigate, searchParams, startTopLoading, location.pathname]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, navigate, searchParams, startTopLoading, location.pathname]);
 
   /*
    * Bounce off a Labs-gated URL. The sync effects below simply decline to enter
@@ -785,6 +797,16 @@ const App: React.FC = () => {
       navigate('/', { replace: true });
     }
   }, [isAgentsEnabled, isDesignEnabled, location.pathname, navigate, searchParams]);
+
+  /*
+   * Projects is the one gated surface with no URL — it is only ever entered from
+   * the sidebar row — so the bounce above cannot cover it. Without this, turning
+   * `projects-panel` off while sitting on the page leaves the shell rendering a
+   * surface that nothing links to any more.
+   */
+  React.useEffect(() => {
+    if (currentView === 'projects' && !isProjectsPanelEnabled) commitView('home');
+  }, [commitView, currentView, isProjectsPanelEnabled]);
 
   /**
    * Open one notebook.
@@ -845,6 +867,8 @@ const App: React.FC = () => {
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
         (intent === 'memory' && location.pathname === '/memory') ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
+        (intent === 'models-api' && location.pathname === '/models-settings') ||
+        (intent === 'labs' && location.pathname === '/labs') ||
         (intent === 'design' && location.pathname === '/design') ||
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
         (intent === 'home' && location.pathname === '/');
@@ -878,6 +902,14 @@ const App: React.FC = () => {
       if (currentView !== 'connected-apps') {
         commitView('connected-apps');
       }
+    } else if (location.pathname === '/models-settings') {
+      if (currentView !== 'models-api') {
+        commitView('models-api');
+      }
+    } else if (location.pathname === '/labs') {
+      if (currentView !== 'labs') {
+        commitView('labs');
+      }
     } else if (location.pathname === '/design' && isDesignEnabled) {
       if (currentView !== 'design') {
         commitView('design');
@@ -898,6 +930,8 @@ const App: React.FC = () => {
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
+      currentView === 'models-api' ||
+      currentView === 'labs' ||
       currentView === 'design' ||
       currentView === 'gems' ||
       currentView === 'notebooks' ||
@@ -1220,6 +1254,13 @@ const App: React.FC = () => {
         currentView={currentView}
         setCurrentView={handleViewChange}
         modelConfig={modelConfig}
+        /*
+         * Only the sidebar's gear menu reaches this — the profile menu's
+         * "Settings" calls it with no `tabId` and lands in the modal below, and
+         * the composer's own "Add new" has its own handler. So `models` opening
+         * the standalone page does not move the modal's Models & API tab, which
+         * is still where Settings → Models & API goes.
+         */
         onSettingsClick={(tabId) => {
           if (tabId === 'intelligence') {
             handleViewChange('personal-intelligence');
@@ -1227,6 +1268,10 @@ const App: React.FC = () => {
             handleViewChange('activity');
           } else if (tabId === 'gems') {
             handleViewChange('gems');
+          } else if (tabId === 'models') {
+            handleViewChange('models-api');
+          } else if (tabId === 'labs') {
+            handleViewChange('labs');
           } else {
             if (tabId) setSettingsInitialTab(tabId as any);
             setIsSettingsOpen(true);
@@ -1438,6 +1483,22 @@ const App: React.FC = () => {
           }>
             <ConnectedAppsTab />
           </Suspense>
+        ) : currentView === 'models-api' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <ModelsApiPage modelConfig={modelConfig} setModelConfig={setModelConfig} />
+          </Suspense>
+        ) : currentView === 'labs' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <LabsPage />
+          </Suspense>
         ) : currentView === 'gems' ? (
           <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
             <GemsView />
@@ -1496,7 +1557,7 @@ const App: React.FC = () => {
               <div className="h-full w-full" />
             </StudioLoadingFallback>
           }>
-            <ProjectsPage view={currentView} onOpenDriveSettings={openDriveSettings} />
+            <ProjectsPage onOpenDriveSettings={openDriveSettings} />
           </Suspense>
         )}
       </StudioLayout>
@@ -1517,6 +1578,8 @@ const App: React.FC = () => {
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/memory" element={mainAppShell} />
            <Route path="/connected-apps" element={mainAppShell} />
+           <Route path="/models-settings" element={mainAppShell} />
+           <Route path="/labs" element={mainAppShell} />
            <Route path="/design" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />

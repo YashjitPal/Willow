@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import type {
   SparkReaction,
@@ -21,6 +21,7 @@ import {
 import { GeminiThinkingVisualizer } from '@willow/chat/GeminiThinkingVisualizer';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { sparkAccentVars } from './spark-accent';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
@@ -47,6 +48,142 @@ const TASK_FILTERS: readonly SparkTaskFilter[] = [
   'In progress',
   'Completed',
 ];
+
+/*
+ * Where a sent follow-up comes to rest, measured down from the top of the
+ * conversation scrollport.
+ *
+ * Deliberately **not** Chat's 72. That number is Chat's own thread top padding,
+ * and its scroller is unmasked, so a bubble parked at 72 sits clean. Spark's
+ * scroller is a different box on both counts:
+ *
+ *  - it pads `35px` at the top, so 35 is the position the *root* prompt rests at
+ *    when the thread is unscrolled, and
+ *  - it carries a scroll-edge mask that ramps transparent → opaque over
+ *    `--fade-distance` (48px) the moment `scrollTop > 0`.
+ *
+ * Anchoring is a scroll, so the mask is always live by the time the prompt
+ * settles — parking it at 35 would leave its top third dissolved into the fade.
+ * 48 is the first offset that clears the ramp entirely, so it is the smallest
+ * value that both reads as "near the top" and paints at full opacity. If either
+ * the padding or `--fade-distance` changes, this is the max of the two.
+ */
+const SPARK_ANCHOR_OFFSET = 48;
+
+/**
+ * The visible run between an anchored prompt and the composer — i.e. how tall
+ * the reply's area should be held open.
+ *
+ * `paddingBottom` is `--spark-followup-inset`, the composer's own measured
+ * height. It has to be subtracted because Spark docks the composer as an
+ * absolute overlay rather than as a flex sibling, so unlike Chat this
+ * scroller's `clientHeight` still counts the strip the composer covers.
+ */
+const measureAnchorReserve = (scroller: HTMLDivElement, turnId: string): number | null => {
+  const row = scroller.querySelector<HTMLElement>(`[data-spark-anchor="${turnId}"]`);
+  if (!row) return null;
+  const composerInset = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+  return Math.max(
+    0,
+    scroller.clientHeight - composerInset - SPARK_ANCHOR_OFFSET - row.offsetHeight,
+  );
+};
+
+/** cubic-bezier solver, so the glide below can share Material's emphasised curve. */
+const cubicBezierEase = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const atX = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const slopeX = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    let t = x;
+    for (let i = 0; i < 5; i += 1) {
+      const slope = slopeX(t);
+      if (Math.abs(slope) < 1e-6) break;
+      t -= (atX(t) - x) / slope;
+    }
+    const clamped = Math.min(1, Math.max(0, t));
+    return ((ay * clamped + by) * clamped + cy) * clamped;
+  };
+};
+
+const emphasisedEase = cubicBezierEase(0.2, 0, 0, 1);
+
+/**
+ * Glide a just-sent follow-up from the composer's edge up to the anchor.
+ *
+ * A plain `scrollTo({ behavior: 'smooth' })` is enough only when the previous
+ * reply was long enough to push the new prompt below the fold. When the previous
+ * reply was short — which is the common case, since its own reserve was still
+ * holding space open — the new prompt is laid out directly beneath it and so
+ * *enters* partway up the pane. The scroll then carries it the short rest of the
+ * way, and it reads as the message materialising where the last response ended
+ * and jumping, rather than rising from where it was typed.
+ *
+ * So the entering pair is additionally offset down to the composer's edge and
+ * that offset is animated out on the **same eased clock** that drives the
+ * scroll. One clock for both is the whole point: a CSS transition plus a native
+ * smooth scroll are two durations and two curves, and the seam between them
+ * shows as a rate change mid-flight. This is what Chat's `runTurnEntrance` does
+ * for the identical case.
+ */
+const runFollowUpEntrance = (
+  scroller: HTMLDivElement,
+  entering: HTMLElement[],
+  toScrollTop: number,
+  entranceOffset: number,
+) => {
+  const fromScrollTop = scroller.scrollTop;
+  const travel = Math.abs(toScrollTop - fromScrollTop) + entranceOffset;
+  const duration = Math.min(520, Math.max(240, 240 + travel * 0.28));
+  const startedAt = performance.now();
+  let frame = 0;
+  let stopped = false;
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (frame) window.cancelAnimationFrame(frame);
+    entering.forEach((el) => {
+      el.style.transform = '';
+      el.style.willChange = '';
+    });
+    scroller.removeEventListener('wheel', stop);
+    scroller.removeEventListener('touchstart', stop);
+    window.removeEventListener('keydown', stop);
+  };
+
+  entering.forEach((el) => {
+    el.style.willChange = 'transform';
+    el.style.transform = `translateY(${entranceOffset}px)`;
+  });
+
+  const tick = (now: number) => {
+    if (stopped) return;
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = emphasisedEase(progress);
+    const nextTop = fromScrollTop + (toScrollTop - fromScrollTop) * eased;
+    // Monotonic. A reserve collapsing mid-flight must never rewind the scroll.
+    if (nextTop > scroller.scrollTop) scroller.scrollTop = nextTop;
+    const offset = entranceOffset * (1 - eased);
+    entering.forEach((el) => {
+      el.style.transform = offset > 0.5 ? `translateY(${offset}px)` : '';
+    });
+    if (progress < 1) frame = window.requestAnimationFrame(tick);
+    else stop();
+  };
+
+  // A user who starts scrolling mid-flight is not argued with.
+  scroller.addEventListener('wheel', stop, { passive: true });
+  scroller.addEventListener('touchstart', stop, { passive: true });
+  window.addEventListener('keydown', stop);
+  frame = window.requestAnimationFrame(tick);
+  return { cancel: stop };
+};
 
 const updateScrollFade = (list: HTMLDivElement) => {
   list.style.setProperty('--fade-progress', list.scrollTop > 0 ? '1' : '0');
@@ -194,14 +331,30 @@ const SparkSentMessage: React.FC<{
 const SparkAssistantResponse: React.FC<{
   text: string;
   isStreaming: boolean;
-}> = ({ text, isStreaming }) => (
-  <StreamingMarkdown
-    text={text}
-    isStreaming={isStreaming}
-    animate={isStreaming}
-    reveal={isStreaming}
-  />
-);
+  /** Identifies this response in the reveal-completion map. */
+  revealKey: string;
+  onRevealed: (key: string, length: number) => void;
+}> = ({ text, isStreaming, revealKey, onRevealed }) => {
+  /*
+   * `StreamingMarkdown` paces text through its own reveal queue, so it is still
+   * animating for a while after the last token has arrived. The length is
+   * reported alongside the key so a retry — which streams new text under the
+   * same key — cannot be satisfied by the previous run's completion.
+   */
+  const handleRevealComplete = React.useCallback(
+    () => onRevealed(revealKey, text.length),
+    [onRevealed, revealKey, text.length],
+  );
+  return (
+    <StreamingMarkdown
+      text={text}
+      isStreaming={isStreaming}
+      animate={isStreaming}
+      reveal={isStreaming}
+      onRevealComplete={handleRevealComplete}
+    />
+  );
+};
 
 const GEMINI_DOCS_LOGO = 'https://www.gstatic.com/images/branding/productlogos/docs_2026/v2/web-96dp/logo_docs_2026_color_2x_web_96dp.png';
 
@@ -1866,15 +2019,227 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     return () => document.removeEventListener('keydown', handleDialogKeyDown, true);
   }, [renameOpen, deleteOpen]);
 
+  /*
+   * Sending a follow-up anchors it near the top of the thread and holds the rest
+   * of the visible pane open underneath, so the reply arrives into a settled area
+   * instead of being appended at the bottom edge.
+   *
+   * This used to be a single `scrollTo({ top: scrollHeight })`, which is why a
+   * new turn simply appeared at the bottom. The shape below is Chat's, but none
+   * of its numbers transfer — see `SPARK_ANCHOR_OFFSET` and the reserve maths,
+   * both of which are derived from Spark's own scroller.
+   */
+  const lastTurn = currentTask.turns?.at(-1) ?? null;
+  const lastTurnId = lastTurn?.id ?? null;
+  /** The turn whose response area is currently being held open, if any. */
+  const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
+  /**
+   * Height the anchored turn's response area is floored at.
+   *
+   * Applied as `min-height` on the turn itself rather than as a spacer below it,
+   * and that is load-bearing. A spacer has to be *measured* back into shape —
+   * ResizeObserver, state, render — so collapsing the processing steps shrank
+   * the turn in CSS while the spacer was still sized for the tall version, and
+   * the thread's total height dipped for a frame. Anchoring leaves `scrollTop`
+   * exactly at its maximum, so any dip made the browser clamp it, and the clamp
+   * was never undone once the spacer came back: the whole thread ended up
+   * permanently lower. Expanding never showed it because that transient grows
+   * the thread instead, and growth cannot clamp.
+   *
+   * `min-height` floors the box in the same layout pass, with no JS in the loop,
+   * so there is no frame for a dip to happen in. It also removes the need to
+   * detect the release at all: once the reply is taller than the floor the
+   * declaration is simply inert.
+   */
+  const [anchorReserve, setAnchorReserve] = useState(0);
+  const openedTaskIdRef = useRef<string | null>(null);
+  const handledTurnIdRef = useRef<string | null>(null);
+  const entranceGlideRef = useRef<{ cancel: () => void } | null>(null);
+
+  /** Text length each response had when its reveal animation finished. */
+  const [revealedLengths, setRevealedLengths] = useState<Record<string, number>>({});
+  /** Responses seen streaming in this session, i.e. the ones with a reveal to wait for. */
+  const streamedRevealKeysRef = useRef<Set<string>>(new Set());
+  const markResponseRevealed = React.useCallback((key: string, length: number) => {
+    setRevealedLengths((current) => (
+      current[key] === length ? current : { ...current, [key]: length }
+    ));
+  }, []);
+  /** Set when an open needs its anchor restored once the reserve has committed. */
+  const pendingOpenAnchorRef = useRef<string | null>(null);
+
+  // A glide writes `transform` straight onto live nodes, so it has to be stopped
+  // if this view goes away underneath it.
+  useEffect(() => () => entranceGlideRef.current?.cancel(), []);
+
+  /*
+   * Note which responses are streaming, so `responseActionsReady` knows which
+   * ones have a reveal animation coming. Recorded rather than derived because by
+   * the time the row is decided, streaming is already over.
+   */
   useEffect(() => {
-    if (!currentTask.turns?.length) return;
-    window.requestAnimationFrame(() => {
-      conversationRef.current?.scrollTo({
-        top: conversationRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
+    if (isSparkRootResponseStreaming(currentTask)) {
+      streamedRevealKeysRef.current.add(`root:${currentTask.id}`);
+    }
+    (currentTask.turns ?? []).forEach((turn) => {
+      if (isSparkTurnResponseStreaming(currentTask, turn)) {
+        streamedRevealKeysRef.current.add(turn.id);
+      }
     });
-  }, [currentTask.id, currentTask.turns?.length]);
+  }, [currentTask]);
+
+  useLayoutEffect(() => {
+    const scroller = conversationRef.current;
+    if (!scroller) return;
+
+    /*
+     * An opened task lands at the bottom; it does not travel. Its newest turn is
+     * marked handled so only turns added from here on animate — otherwise
+     * reopening a task would replay an anchor the user never triggered.
+     */
+    if (openedTaskIdRef.current !== currentTask.id) {
+      openedTaskIdRef.current = currentTask.id;
+      handledTurnIdRef.current = lastTurnId;
+      entranceGlideRef.current?.cancel();
+      entranceGlideRef.current = null;
+
+      /*
+       * Reopening restores the view the user left, held-open gap included.
+       *
+       * The reserve is React state, so a refresh or a trip out of the task used
+       * to drop it and the thread collapsed to its natural height — the gap the
+       * user had just been looking at vanished. Recomputing it here is what
+       * makes the reserve survive a reload.
+       *
+       * Instant, never glided: an open lands, it does not travel. The scroll
+       * itself is issued from the sync effect below, because the spacer has to
+       * exist before there is anything to scroll into.
+       */
+      const reopenReserve = lastTurnId ? measureAnchorReserve(scroller, lastTurnId) : null;
+      if (lastTurnId && reopenReserve !== null) {
+        pendingOpenAnchorRef.current = lastTurnId;
+        setAnchorReserve(reopenReserve);
+        setAnchoredTurnId(lastTurnId);
+        return;
+      }
+
+      setAnchoredTurnId(null);
+      /*
+       * No follow-ups to anchor, so land at the end instead. That takes more
+       * than one write: the thread settles over the next frame or two — streamed
+       * markdown, the response action row, generated-file cards — and each grows
+       * `scrollHeight` after the first assignment, which left an open a little
+       * short of the bottom. Two frames costs ~32ms, too fast to fight a scroll.
+       */
+      let frames = 0;
+      const landAtBottom = () => {
+        const el = conversationRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        updateScrollFade(el);
+        if (frames++ < 2) window.requestAnimationFrame(landAtBottom);
+      };
+      landAtBottom();
+      return;
+    }
+
+    if (!lastTurnId || handledTurnIdRef.current === lastTurnId) return;
+    handledTurnIdRef.current = lastTurnId;
+
+    /*
+     * One frame late, deliberately. The row has to be laid out before it can be
+     * measured, and the reserve has to be committed before the scroll is issued
+     * or there is nothing below the prompt to scroll into.
+     */
+    window.requestAnimationFrame(() => {
+      const el = conversationRef.current;
+      if (!el) return;
+      const reserve = measureAnchorReserve(el, lastTurnId);
+      if (reserve === null) return;
+      flushSync(() => {
+        setAnchorReserve(reserve);
+        setAnchoredTurnId(lastTurnId);
+      });
+      const row = el.querySelector<HTMLElement>(`[data-spark-anchor="${lastTurnId}"]`);
+      if (!row) return;
+      // Measured off rects rather than `offsetTop`: the thread column carries a
+      // `translateX`, and the nearest positioned ancestor is the panel, not this
+      // scroller, so `offsetTop` is not relative to what we scroll.
+      const enteredAt = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      const target = Math.max(0, Math.min(
+        el.scrollTop + (enteredAt - SPARK_ANCHOR_OFFSET),
+        el.scrollHeight - el.clientHeight,
+      ));
+
+      /*
+       * How far above the composer the prompt entered. Positive means it landed
+       * inside the visible pane rather than below the fold — the short-previous-
+       * reply case — so scrolling alone would only move it that little distance.
+       * Carry it down to the composer's edge and glide the whole way up.
+       */
+      const composerInset = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+      const entranceOffset = Math.round((el.clientHeight - composerInset) - enteredAt);
+
+      entranceGlideRef.current?.cancel();
+      entranceGlideRef.current = null;
+      if (entranceOffset <= 8) {
+        // Already below the fold: a full pane of scrolling reads as the rise.
+        el.scrollTo({ top: target, behavior: 'smooth' });
+        return;
+      }
+      const turnEl = row.nextElementSibling as HTMLElement | null;
+      entranceGlideRef.current = runFollowUpEntrance(
+        el,
+        turnEl ? [row, turnEl] : [row],
+        target,
+        entranceOffset,
+      );
+    });
+  }, [currentTask.id, lastTurnId]);
+
+  /*
+   * Keep the floor honest while it is held: the composer grows as the user types
+   * into it, and the panel resizes when the side pane or library toggles. Both
+   * change how much visible run there is between the prompt and the composer.
+   */
+  useLayoutEffect(() => {
+    if (!anchoredTurnId) return;
+    const scroller = conversationRef.current;
+    if (!scroller) return;
+
+    const sync = () => {
+      const reserve = measureAnchorReserve(scroller, anchoredTurnId);
+      if (reserve !== null) setAnchorReserve(reserve);
+      updateScrollFade(scroller);
+    };
+
+    sync();
+
+    /*
+     * The open-restore scroll, issued here rather than in the effect above
+     * because the spacer only exists once the reserve has committed — until
+     * then there is no scroll range to move into. Still inside the layout
+     * phase, so nothing paints between the reserve appearing and this landing.
+     */
+    if (pendingOpenAnchorRef.current === anchoredTurnId) {
+      pendingOpenAnchorRef.current = null;
+      const row = scroller.querySelector<HTMLElement>(`[data-spark-anchor="${anchoredTurnId}"]`);
+      if (row) {
+        const enteredAt = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        scroller.scrollTop = Math.max(0, Math.min(
+          scroller.scrollTop + (enteredAt - SPARK_ANCHOR_OFFSET),
+          scroller.scrollHeight - scroller.clientHeight,
+        ));
+        updateScrollFade(scroller);
+      }
+    }
+    // Only the scroller. The turn no longer needs watching — CSS floors it.
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(sync);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [anchoredTurnId]);
+
 
   useEffect(() => {
     if (!followUpBlocked) return;
@@ -2002,8 +2367,28 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     || (currentTask.activityLog?.length ?? 0) > 0
     || (currentTask.subagents?.length ?? 0) > 0
     || currentProcessingTools.length > 0;
+  /*
+   * The action row waits for the *reveal* to finish, not for generation.
+   *
+   * `StreamingMarkdown` paces text through a queue, so it keeps animating after
+   * the final token lands — gating on the task's status alone popped Like /
+   * Dislike / Copy in while the text was still writing itself. Chat solves this
+   * the same way, via `onRevealComplete`.
+   *
+   * A response that never streamed here — a task opened from disk renders
+   * settled, with `reveal={false}` — must not wait for an animation that will
+   * not run, so only responses seen streaming in this session are gated. That is
+   * Chat's `!msg.isNew` guard; without it, reopening a task would either hide
+   * the row or flash it in one frame late.
+   */
+  const rootRevealKey = `root:${currentTask.id}`;
+  const responseActionsReady = (key: string, text: string) =>
+    !streamedRevealKeysRef.current.has(key) || revealedLengths[key] === text.length;
+
   const hasRootResponseActions = needsApproval(currentTask) || (
-    Boolean(response) && ['complete', 'failed', 'cancelled'].includes(taskStatus(currentTask))
+    Boolean(response)
+    && ['complete', 'failed', 'cancelled'].includes(taskStatus(currentTask))
+    && responseActionsReady(rootRevealKey, response)
   );
   const generatedFiles = Array.from(new Map([
     ...(currentTask.generatedFiles ?? []),
@@ -2112,7 +2497,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   return (
     <div
       className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${computerUse ? ' has-computer-use' : ''}`}
-      style={{ '--spark-task-detail-accent': taskDetailGlowAccent } as React.CSSProperties}
+      style={{
+        ...sparkAccentVars(userProfile?.workspaceColor),
+        '--spark-task-detail-accent': taskDetailGlowAccent,
+      } as React.CSSProperties}
     >
       <aside
         className="spark-task-detail__library"
@@ -2596,6 +2984,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     <SparkAssistantResponse
                       text={response}
                       isStreaming={rootResponseStreaming}
+                      revealKey={rootRevealKey}
+                      onRevealed={markResponseRevealed}
                     />
                   </div>
                 )}
@@ -2688,7 +3078,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 const turnResponse = turn.response || turnFallback;
                 return (
                   <React.Fragment key={turn.id}>
-                    <div className="spark-task-detail__user-row spark-task-detail__local-turn">
+                    <div
+                      className="spark-task-detail__user-row spark-task-detail__local-turn"
+                      data-spark-anchor={turn.id}
+                    >
                       <SparkSentMessage
                         text={turn.prompt}
                         attachments={turn.attachments}
@@ -2701,6 +3094,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       className={`spark-task-detail__assistant-turn spark-task-detail__local-response${turnIsPending ? ' is-active' : ''}`}
                       aria-label="Spark follow-up response"
                       aria-busy={turnIsPending}
+                      /* Holds the anchored prompt's response area open. Inert
+                         once the reply is taller than it, so the thread then
+                         grows normally. */
+                      style={anchoredTurnId === turn.id ? { minHeight: anchorReserve } : undefined}
                     >
                       {((turn.activityLog?.length ?? 0) > 0 || (turn.subagents?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
                         <SparkProcessingState
@@ -2721,6 +3118,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           <SparkAssistantResponse
                             text={turnResponse}
                             isStreaming={turnIsStreaming}
+                            revealKey={turn.id}
+                            onRevealed={markResponseRevealed}
                           />
                         </div>
                       )}
@@ -2733,7 +3132,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                             onClose={(id) => setDismissedGeneratedFileIds((ids) => new Set([...ids, id]))}
                           />
                         ))}
-                      {turnResponse && !turnIsPending && (
+                      {turnResponse && !turnIsPending && responseActionsReady(turn.id, turnResponse) && (
                         <SparkResponseActions
                           responseText={turnResponse}
                           reaction={turn.reaction ?? null}
@@ -2752,6 +3151,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </React.Fragment>
                 );
               })}
+
             </div>
           </div>
 

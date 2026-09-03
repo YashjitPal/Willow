@@ -10,6 +10,7 @@ import type {
 import { formatSparkRelativeTime } from './spark-types';
 import { formatSparkScheduleTime } from './SparkScheduleEditor';
 import { useSparkNow } from './useSparkNow';
+import { useSparkAccentVars } from './spark-accent';
 import type { RecommendedSkill } from './spark-recommended-skills';
 import './SparkCustomisePages.css';
 
@@ -510,6 +511,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
   const headingId = useId();
   const ongoingHeadingId = useId();
   const now = useSparkNow();
+  const accentVars = useSparkAccentVars();
   const [scheduleToDelete, setScheduleToDelete] = useState<SparkSchedule | null>(null);
   const [visibleScheduleCount, scheduleListRef, scheduleSentinelRef] = useIncrementalRows(schedules.length, 88);
 
@@ -517,6 +519,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
     <main
       className={`spark-customise-page spark-customise-page--narrow ${className}`.trim()}
       aria-labelledby={headingId}
+      style={accentVars}
     >
       <div className="spark-customise-page__narrow-inner">
         <SparkPageHeader
@@ -776,6 +779,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   const headingId = useId();
   const activeHeadingId = useId();
   const recommendedHeadingId = useId();
+  const accentVars = useSparkAccentVars();
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
   const [recommendedSkills, setRecommendedSkills] = useState<readonly RecommendedSkill[] | null>(null);
   const [skillToDelete, setSkillToDelete] = useState<SparkSkill | null>(null);
@@ -847,6 +851,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
     <main
       className={`spark-customise-page spark-customise-page--skills ${className}`.trim()}
       aria-labelledby={headingId}
+      style={accentVars}
     >
       <div className="spark-customise-page__narrow-inner">
         <SparkPageHeader
@@ -1200,6 +1205,7 @@ export const ConnectedAppsPage: React.FC<ConnectedAppsPageProps> = ({
   const headingId = useId();
   const customAppUrlId = useId();
   const customAppErrorId = useId();
+  const accentVars = useSparkAccentVars();
   const [customAppUrl, setCustomAppUrl] = useState('');
   const [customAppError, setCustomAppError] = useState('');
   const [customAppToDelete, setCustomAppToDelete] = useState<SparkCustomApp | null>(null);
@@ -1223,6 +1229,7 @@ export const ConnectedAppsPage: React.FC<ConnectedAppsPageProps> = ({
     <main
       className={`spark-customise-page spark-customise-page--apps ${className}`.trim()}
       aria-labelledby={headingId}
+      style={accentVars}
     >
       <div className="spark-connected-page__inner">
         <header className="spark-connected-header">

@@ -7,8 +7,6 @@ import {
   Search, 
   SquarePen,
   LayoutGrid, 
-  Star, 
-  Users, 
   PanelLeft,
   ArrowUpRight,
   LogIn,
@@ -21,7 +19,7 @@ import logo from '@willow/assets/brand/logo.png';
 import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
-import { experimentsStore } from '@willow/core/experiments-store';
+import { experimentsStore, type ExperimentId } from '@willow/core/experiments-store';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
@@ -112,19 +110,30 @@ type GeminiSettingsItem = {
   id: string;
   label: string;
   icon: string;
-  iconFamily?: 'luminous' | 'google-symbols' | 'avatar' | 'spark-settings' | 'custom';
+  /*
+   * `material-rounded` is the only family here that is NOT subsetted — it comes
+   * from a full Google Fonts stylesheet — so it is the one that can name a glyph
+   * the other two faces do not carry, without regenerating a subset URL.
+   */
+  iconFamily?: 'luminous' | 'google-symbols' | 'material-rounded' | 'spark-settings' | 'custom';
   trailingArrow?: boolean;
   /* Opens a hover flyout instead of doing anything on click. Gemini's Theme row only. */
   submenu?: 'theme';
   action?: 'settings';
   url?: string;
+  /*
+   * Hidden unless this Labs flag is on. A surface that ships opt-in has to hide
+   * its settings row too, or the rail says the feature does not exist while this
+   * pane offers to configure it.
+   */
+  requiresExperiment?: ExperimentId;
 };
 
 const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'activity', label: 'Activity', icon: 'history', iconFamily: 'luminous', action: 'settings' },
   { id: 'intelligence', label: 'Personal Intelligence', icon: 'personal_recommendations', iconFamily: 'luminous', action: 'settings' },
   { id: 'memory', label: 'Import memory to Willow', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
-  { id: 'avatar', label: 'Avatar', icon: 'likeness_lumi_icon', iconFamily: 'avatar', action: 'settings' },
+  { id: 'labs', label: 'Labs', icon: 'experiment', iconFamily: 'material-rounded', action: 'settings' },
   { id: 'limits', label: 'Usage limits', icon: 'donut_large', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'scheduled', label: 'Scheduled actions', icon: 'schedule', iconFamily: 'luminous', action: 'settings' },
   { id: 'skills', label: 'Skills', icon: 'contract', iconFamily: 'luminous', action: 'settings' },
@@ -132,26 +141,12 @@ const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'links', label: 'Your public links', icon: 'link', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'theme', label: 'Theme', icon: 'routine', iconFamily: 'google-symbols', trailingArrow: true, submenu: 'theme' },
   { id: 'spark-settings', label: 'Willow Spark settings', icon: 'agent_mode_spark', iconFamily: 'spark-settings', action: 'settings' },
-  { id: 'agents-settings', label: 'Agents Settings', icon: 'agent', iconFamily: 'custom', action: 'settings' },
+  { id: 'agents-settings', label: 'Agents Settings', icon: 'agent', iconFamily: 'custom', action: 'settings', requiresExperiment: 'agents-surface' },
   { id: 'models', label: 'Models', icon: 'spark', iconFamily: 'luminous', action: 'settings' },
   { id: 'notebook', label: 'Willow Notebook', icon: 'notebook_lm', iconFamily: 'luminous', action: 'settings' },
   { id: 'github', label: 'Github Repository', icon: 'github', iconFamily: 'custom', trailingArrow: true, url: 'https://github.com/YashjitPal/Willow-Code' },
   { id: 'discord', label: 'Discord', icon: 'discord', iconFamily: 'custom', trailingArrow: true },
 ];
-
-const GeminiAvatarSettingsIcon: React.FC = () => (
-  <svg aria-hidden="true" className="h-6 w-6 shrink-0" viewBox="0 0 28 28" fill="none">
-    <path d="M14,24.5C8.201,24.5 3.5,19.799 3.5,14C3.5,8.201 8.201,3.5 14,3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    <path d="M17.281,11.666m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M19.25,4.907m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M23.093,8.751m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M24.499,14m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M23.092,19.249m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M19.249,23.091m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M10.719,11.666m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" fill="currentColor" />
-    <path d="M17.5,16.916C15.469,18.472 12.531,18.472 10.5,16.916" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
 
 const GeminiSparkSettingsIcon: React.FC = () => (
   <svg aria-hidden="true" className="h-6 w-6 shrink-0" viewBox="0 0 20 20" fill="none">
@@ -163,7 +158,6 @@ const GeminiSparkSettingsIcon: React.FC = () => (
 );
 
 const GeminiSettingsItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }) => {
-  if (item.iconFamily === 'avatar') return <GeminiAvatarSettingsIcon />;
   if (item.iconFamily === 'spark-settings') return <GeminiSparkSettingsIcon />;
   if (item.iconFamily === 'custom') {
     if (item.icon === 'agent') return <AgentIcon size={19} className="ml-[2px] mr-[2px] shrink-0" />;
@@ -345,6 +339,11 @@ const SidebarGlyph: React.FC<{ name: string; className?: string }> = ({ name, cl
 
 const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const experiments = useStore(experimentsStore);
+  const items = useMemo(
+    () => GEMINI_SETTINGS_ITEMS.filter((item) => !item.requiresExperiment || experiments[item.requiresExperiment]),
+    [experiments],
+  );
 
   // Gemini's pane does not vanish on close: `_mat-menu-exit` fades it over 100ms while
   // Angular keeps the node mounted, then removes it. Unmounting on `!isOpen` skips that
@@ -502,7 +501,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           pointerEvents: phase === 'closing' ? 'none' : undefined,
         }}
       >
-      {GEMINI_SETTINGS_ITEMS.map((item) => (
+      {items.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -598,7 +597,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'starred' | 'shared' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -1148,7 +1147,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [shouldRenderMenu, isMenuClosing]);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
-  const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [recentsExpanded, setRecentsExpanded] = useState(true);
 
   // ── Recents windowing ──────────────────────────────────────────────────────
@@ -1916,61 +1914,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => onViewChange('design')}
               />
             )}
+            {/*
+              * A destination rather than a mode, but it belongs in this block so
+              * that it keeps a rail icon when collapsed — every section below
+              * folds away with the labels that explain it.
+              *
+              * Behind `projects-panel` because the page's search box and its
+              * sort, visibility, status and creator filters are still inert.
+              * App.tsx reads the same flag; hiding the row is not the gate.
+              */}
+            {experiments['projects-panel'] && (user || isLocalFolderConnected) && (
+              <SidebarItem
+                flushRight
+                icon={LayoutGrid}
+                label="Projects"
+                isCollapsed={isCollapsed}
+                active={currentView === 'projects'}
+                onClick={() => onViewChange('projects')}
+              />
+            )}
           </div>
 
           {(user || isLocalFolderConnected) && (
             <>
-              <SectionHeader
-                title="Projects"
-                isCollapsed={isCollapsed}
-                isExpanded={projectsExpanded}
-                onToggle={() => setProjectsExpanded((expanded) => !expanded)}
-                controlsId="willow-projects-section"
-              />
-              {/*
-                * Collapsed, the rail carries the modes and nothing else — the
-                * sub-navigation folds away with the labels that explain it.
-                * `!isCollapsed` in the row condition is the same guard Recents
-                * already used; Projects was the one section missing it, so its
-                * three rows stayed on the rail as unlabelled glyphs.
-                */}
-              <div
-                id="willow-projects-section"
-                className="grid min-h-0"
-                aria-hidden={isCollapsed || !projectsExpanded}
-                style={{
-                  gridTemplateRows: !isCollapsed && projectsExpanded ? '1fr' : '0fr',
-                  transition: railToggling ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
-                }}
-              >
-                <div className="min-h-0 overflow-hidden space-y-0">
-                <SidebarItem 
-                  flushRight
-                  icon={LayoutGrid} 
-                  label="All projects" 
-                  isCollapsed={isCollapsed} 
-                  active={currentView === 'projects'}
-                  onClick={() => onViewChange('projects')}
-                />
-                <SidebarItem 
-                  flushRight
-                  icon={Star} 
-                  label="Starred" 
-                  isCollapsed={isCollapsed} 
-                  active={currentView === 'starred'}
-                  onClick={() => onViewChange('starred')} 
-                />
-                <SidebarItem 
-                  flushRight
-                  icon={Users} 
-                  label="Shared with me" 
-                  isCollapsed={isCollapsed} 
-                  active={currentView === 'shared'}
-                  onClick={() => onViewChange('shared')} 
-                />
-                </div>
-              </div>
-
               {/*
                 * Notebooks sits between Projects and Recents, which is where
                 * Gemini puts it: its rail runs Notebooks (y=336) then Recents

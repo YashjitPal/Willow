@@ -17,6 +17,13 @@
 import { atom, map } from 'nanostores';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { levelToEffort, type CodexEffort } from './harness/overlay/effort';
+import { parseModeKind, type ModeKind } from './harness/overlay/collaboration-mode';
+import type { ThreadGoal } from './harness/runtime/goal';
+import type {
+  RequestUserInputSink,
+  UserInputAnswer,
+  UserInputQuestion,
+} from './harness/runtime/request-user-input';
 
 /* ---------------------------------------------------------------------- */
 /* Stores                                                                  */
@@ -98,6 +105,135 @@ export function effectiveEffort(
   return ultra ? 'ultra' : levelToEffort(thinkingLevel);
 }
 
+/* ---------------------------------------------------------------------- */
+/* Collaboration mode                                                      */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The collaboration mode the next turn runs in.
+ *
+ * A **mode**, not a prompt — which is the correction this replaced. `/plan` and
+ * `/goal` used to be composer templates that expanded into a paragraph of
+ * instructions, and one of them told the model to "Use update_plan", which is
+ * the exact opposite of what Plan mode does: upstream refuses `update_plan`
+ * there and says so in the mode document.
+ *
+ * Upstream persists the mode on the thread and changes it only on an explicit
+ * developer message, so it is sticky here too: a mode survives until the user
+ * changes it, and `<collaboration_mode>` is re-sent every turn.
+ */
+const MODE_KEY = 'willow:code:collaboration-mode';
+
+function readStoredMode(): ModeKind {
+  try {
+    return parseModeKind(localStorage.getItem(MODE_KEY));
+  } catch {
+    return 'default';
+  }
+}
+
+export const collaborationMode = atom<ModeKind>(readStoredMode());
+
+export function setCollaborationMode(mode: ModeKind): void {
+  collaborationMode.set(mode);
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    /* Not worth failing a click over. */
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Goal mode                                                               */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The live thread goal, if there is one.
+ *
+ * Goal mode is not a mode in upstream's `ModeKind` sense — it is an extension
+ * that installs three tools and an idle-continuation loop — so it is tracked
+ * separately from `collaborationMode` and the two compose. A goal can be
+ * pursued in Default mode, which is the normal case.
+ *
+ * Persisted because continuations are the point: a goal that did not survive a
+ * reload would be a long prompt with extra steps.
+ */
+const GOAL_KEY = 'willow:code:thread-goal';
+
+function readStoredGoal(): ThreadGoal | null {
+  try {
+    const raw = localStorage.getItem(GOAL_KEY);
+    return raw ? (JSON.parse(raw) as ThreadGoal) : null;
+  } catch {
+    return null;
+  }
+}
+
+export const threadGoal = atom<ThreadGoal | null>(readStoredGoal());
+
+export function setThreadGoal(goal: ThreadGoal | null): void {
+  threadGoal.set(goal);
+  try {
+    if (goal) localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
+    else localStorage.removeItem(GOAL_KEY);
+  } catch {
+    /* Not worth failing a turn over. */
+  }
+}
+
+/** True when a goal is live enough to keep steering turns. */
+export const goalIsRunning = (goal: ThreadGoal | null): boolean =>
+  Boolean(goal && goal.status !== 'complete' && goal.status !== 'blocked');
+
+/* ---------------------------------------------------------------------- */
+/* request_user_input                                                      */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The question the turn is currently blocked on, and how to answer it.
+ *
+ * A store rather than a prop because the tool runs inside the harness, far from
+ * React's tree — the same reason `previewFrame` is one.
+ *
+ * `resolve` is the tool's own promise. Calling it with `null` is a dismissal,
+ * which upstream distinguishes from an empty answer set: the first is
+ * "cancelled before receiving a response", the second is "continue with best
+ * judgement".
+ */
+export interface PendingUserInput {
+  questions: UserInputQuestion[];
+  blocking: boolean;
+  resolve: (answers: UserInputAnswer[] | null) => void;
+}
+
+export const pendingUserInput = atom<PendingUserInput | null>(null);
+
+/**
+ * The `RequestUserInputSink` the harness is handed.
+ *
+ * Resolves exactly once, and always clears the store — a stranded pending
+ * question would block every later turn behind a prompt nobody can see.
+ */
+export const requestUserInputSink: RequestUserInputSink = ({ questions, isBlocking }) =>
+  new Promise((resolve) => {
+    let settled = false;
+    pendingUserInput.set({
+      questions,
+      blocking: isBlocking,
+      resolve: (answers) => {
+        if (settled) return;
+        settled = true;
+        pendingUserInput.set(null);
+        resolve(answers);
+      },
+    });
+  });
+
+/** Cancels an outstanding question, e.g. because the turn was aborted. */
+export function dismissUserInput(): void {
+  pendingUserInput.get()?.resolve(null);
+}
+
 /** Every tool call ever made this session, flat and keyed by id. */
 export const calls = map<Record<string, ToolCall>>({});
 
@@ -131,6 +267,22 @@ export interface TurnActivity {
   /** Narration and work, interleaved. */
   timeline: TurnSegment[];
   error?: string;
+  /**
+   * The thread goal, when this turn is running under Goal mode.
+   *
+   * Null once the goal is cleared. Kept on the turn as well as handed to the
+   * host so the transcript can name the objective a run of continuations is
+   * pursuing.
+   */
+  goal?: import('./harness/runtime/goal').ThreadGoal | null;
+  /**
+   * Which automatic continuation is in flight, and the cap.
+   *
+   * Set when the harness starts a turn the user did not send. Surfacing it is
+   * not optional: without it the agent appears to carry on after finishing,
+   * which reads as a runaway loop rather than as Goal mode working.
+   */
+  goalContinuation?: { index: number; limit: number };
 }
 
 export const turns = map<Record<string, TurnActivity>>({});
@@ -298,6 +450,26 @@ export function applyHarnessEvent(turnId: string, event: HarnessEvent): void {
 
     case 'activity':
       patchTurn(turnId, (turn) => ({ ...turn, activity: event.label }));
+      break;
+
+    case 'goal':
+      // Kept on the turn, not just handed to the host, so the transcript can
+      // say which goal a run of continuations belongs to.
+      patchTurn(turnId, (turn) => ({ ...turn, goal: event.goal }));
+      break;
+
+    case 'goal-continuation':
+      /*
+       * The harness is about to start a turn the user did not send.
+       *
+       * That has to be visible. Without it the transcript shows the agent
+       * carrying on after it appeared to finish, which reads as a bug rather
+       * than as Goal mode working.
+       */
+      patchTurn(turnId, (turn) => ({
+        ...turn,
+        goalContinuation: { index: event.index, limit: event.limit },
+      }));
       break;
 
     default:

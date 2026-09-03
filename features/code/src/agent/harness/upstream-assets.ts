@@ -11,6 +11,11 @@
 import promptWithApplyPatch from './upstream/prompt_with_apply_patch_instructions.md?raw';
 import applyPatchInstructions from './upstream/apply_patch_tool_instructions.md?raw';
 import applyPatchGrammar from './upstream/apply_patch.lark?raw';
+import collaborationModePlan from './upstream/collaboration_mode_plan.md?raw';
+import collaborationModeDefault from './upstream/collaboration_mode_default.md?raw';
+import goalContinuation from './upstream/goal_continuation.md?raw';
+import goalBudgetLimit from './upstream/goal_budget_limit.md?raw';
+import goalObjectiveUpdated from './upstream/goal_objective_updated.md?raw';
 import manifest from './upstream/MANIFEST.json';
 
 export interface UpstreamManifest {
@@ -29,6 +34,29 @@ export const UPSTREAM = {
   applyPatchInstructions,
   /** Lark grammar for the freeform apply_patch tool. */
   applyPatchGrammar,
+  /**
+   * The two collaboration-mode templates, from
+   * `codex-rs/collaboration-mode-templates/templates/`.
+   *
+   * These are the whole of Plan mode upstream: the mode is a developer message
+   * carrying one of these documents, not a code path. `default.md` carries a
+   * `{{KNOWN_MODE_NAMES}}` placeholder; everything else is literal.
+   */
+  collaborationMode: {
+    plan: collaborationModePlan,
+    default: collaborationModeDefault,
+  },
+  /**
+   * The goal-steering templates, from `codex-rs/ext/goal/templates/goals/`.
+   *
+   * Each is rendered with the live goal's objective and budget and submitted as
+   * the sole input of an automatic continuation turn — see `runtime/goal.ts`.
+   */
+  goal: {
+    continuation: goalContinuation,
+    budgetLimit: goalBudgetLimit,
+    objectiveUpdated: goalObjectiveUpdated,
+  },
   manifest: manifest as unknown as UpstreamManifest,
 } as const;
 
