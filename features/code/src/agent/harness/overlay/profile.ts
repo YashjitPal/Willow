@@ -84,6 +84,22 @@ export interface TurnPromptOptions {
   multiAgentMode: MultiAgentMode;
   /** `<thread_goal>` block for a live goal, or empty. */
   goalContext?: string;
+  /**
+   * The skills catalog — one line per skill, from `renderSkillsSection`.
+   *
+   * In the prompt rather than behind a tool because selection happens before
+   * any tool call: the model has to know a skill exists to decide to read it.
+   * Upstream calls the two-step progressive disclosure.
+   */
+  skillsCatalog?: string;
+  /**
+   * The MCP tool list, from `renderMcpSection`.
+   *
+   * Separate from the tool-protocol section because it is per-turn — it depends
+   * on which servers the user has connected right now — while the rest of the
+   * tool documentation is fixed for the session.
+   */
+  mcpCatalog?: string;
   /** Appended last, so it is the most recent thing the model read. */
   turnContext?: string;
 }
@@ -103,6 +119,8 @@ export function composeSystemPrompt(options: TurnPromptOptions): string {
     getHarnessProfile().systemPrompt,
     collaborationModeSection(options.mode),
     multiAgentModeSection(options.multiAgentMode),
+    options.skillsCatalog,
+    options.mcpCatalog,
     options.goalContext,
     options.turnContext,
   ]

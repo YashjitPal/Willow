@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { formatSparkRelativeTime, type SparkTask } from './spark-types';
+import { useSparkAccentVars } from './spark-accent';
 import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
 import './SparkTaskDetail.css';
@@ -52,6 +53,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   onTogglePin,
   onDeleteTask,
 }) => {
+  const accentVars = useSparkAccentVars();
   const [filter, setFilter] = useState<TaskFilter>('Recent');
   const [filterOpen, setFilterOpen] = useState(false);
   const [openTaskMenuId, setOpenTaskMenuId] = useState<string | null>(null);
@@ -290,7 +292,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   };
 
   return (
-    <section className="spark-all-tasks" aria-label="Spark tasks">
+    <section className="spark-all-tasks" aria-label="Spark tasks" style={accentVars}>
       <div className="spark-all-tasks__content">
         <div
           className="spark-task-detail__new-composer spark-all-tasks__composer-anchor"

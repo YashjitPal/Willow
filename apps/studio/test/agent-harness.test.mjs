@@ -181,6 +181,8 @@ it('allows exactly the tools the runtime implements', () => {
       'run_command',
       'search_files',
       'send_message',
+      'skills.list',
+      'skills.read',
       'spawn_agent',
       'update_goal',
       'update_plan',

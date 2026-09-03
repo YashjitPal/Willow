@@ -256,7 +256,7 @@ it('echoes a silent tool turn back with null content', async () => {
 
 it('streams every round into one reply, and reports the phases in order', async () => {
   const { text, phases } = await runTurn([CHAT_TOOL_ROUND, CHAT_ANSWER_ROUND]);
-  assert.equal(text, 'Rewriting it. Done — it flaps faster now.');
+  assert.equal(text, 'Rewriting it.\n\nDone — it flaps faster now.');
   assert.ok(phases.includes('tooling'), 'the card cannot appear mid-stream without it');
   assert.ok(phases.includes('responding'));
   assert.ok(!phases.includes('executing'), 'a canvas write must never claim to be running code');
@@ -597,7 +597,7 @@ it('does the Responses tool handshake on call_id', async () => {
   assert.equal(output.type, 'function_call_output');
   assert.equal(output.call_id, 'call_resp');
   assert.match(output.output, /Document updated/);
-  assert.equal(text, 'Rewriting it. Done — it flaps faster now.');
+  assert.equal(text, 'Rewriting it.\n\nDone — it flaps faster now.');
 });
 
 it('declares functions to the Responses API in its flat shape', async () => {

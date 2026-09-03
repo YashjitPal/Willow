@@ -30,6 +30,7 @@ import { findSimilarElements } from './element-family';
 import { viewCodeForSourceLocation } from './view-code';
 import { computePromptBoxPosition } from './prompt-box-position';
 import type { AiOptions } from '@willow/ai/chat';
+import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
 
 // Darker blue color for selection/hover
 const SELECTION_COLOR = '#1e40af';
@@ -1393,9 +1394,11 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       return;
     }
 
-    // Get the API key for the provider
-    const providerKeys = apiKeys[selectedModel.provider];
-    const apiKey = providerKeys?.[0];
+    /* Endpoint, wire format and tool policy come from the live profile, never from
+       the saved model — see `resolveProviderBinding`. */
+    const binding = resolveProviderBinding(modelConfig, selectedModel.provider, selectedModel);
+    const bucketKeys = apiKeysForBinding(binding, selectedModel.provider, apiKeys);
+    const apiKey = bucketKeys[0];
 
     if (!apiKey) {
       setEditError(`No API key configured for ${selectedModel.provider}`);
@@ -1408,10 +1411,8 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
       model: selectedModel.modelId,
       apiKey,
       thinkingLevel: selectedModel.thinkingLevel,
-      baseUrl: selectedModel.baseUrl || modelConfig?.[selectedModel.provider]?.baseUrl,
-      apiFormat: selectedModel.apiFormat,
-      toolPolicy: selectedModel.toolPolicy,
-      profileId: selectedModel.profileId,
+      apiKeyFallbacks: bucketKeys.slice(1),
+      ...binding,
     };
 
     // Store for queue processing

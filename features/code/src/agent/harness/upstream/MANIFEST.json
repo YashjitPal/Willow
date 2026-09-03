@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "ref": "rust-v0.147.0",
   "commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "fetchedAt": "2026-09-02T23:44:55.468Z",
+  "fetchedAt": "2026-09-03T10:03:56.146Z",
   "files": [
     {
       "upstream": "codex-rs/core/prompt_with_apply_patch_instructions.md",

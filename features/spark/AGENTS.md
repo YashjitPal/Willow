@@ -80,14 +80,45 @@ Two things the conversion needed beyond the props above:
 
 - **`disabled` on `InputBar`**, covering the textarea, the plus menu, the mic, the send slot
   and the fullscreen toggle, with the guard repeated in the submit path so Enter cannot
-  bypass it. The follow-up box locks entirely while its task is running
-  (`followUpBlocked = isTaskActive(task)`). This is deliberately *not* `isGenerating`, which
-  keeps the box live and turns send into stop.
+  bypass it. It is now reserved for `followUpLocked` — an approval the task is waiting on,
+  where there is nothing to stop and the thing to do is answer the prompt above the box.
+  A task that is merely *working* uses `isGenerating` instead, which keeps the box live and
+  turns send into stop. See below.
 - **`onSubmitFiles`**, an alternative to `onSubmitTask` that hands over the raw files. The
   follow-up path is keyed to a specific task and aborts if the user navigates away
   mid-upload, and it reads a boolean back from the store to decide whether the turn was
   accepted. Rather than grow `SparkComposer` a callback per race, that site keeps its own
   pipeline intact.
+
+### A working task takes a draft, and send becomes stop
+
+Gemini locks its whole follow-up box while a task runs, and Willow used to as well
+(`disabled={followUpBlocked}`). It no longer does — **this is a deliberate deviation,
+asked for by name**, and it mirrors Chat: you can write the next message while Spark
+finishes, and the send slot is a stop control until it does.
+
+`followUpBlocked` still means what it always did and still drives the placeholder, the
+status chrome and `aria-busy`. What narrowed is the composer's hard lock, now
+`followUpLocked` — approval states only.
+
+**Sending is still refused until the run ends,** by three guards, none of which is the
+textarea's `disabled`: `SparkComposer.submit`, `InputBar`'s submit path (which is what
+makes Enter safe), and `submitFollowUp` in `SparkWorkspace`, which returns `false` for a
+`running`/`queued` task. There is **no queue** — a draft waits in the box until the run
+finishes, and Spark still runs one turn per task.
+
+**The part that is easy to get wrong is the stop, not the unlock.** `stopTask` only
+aborts the run's `AbortController`; the run's own catch block settles the task. Before
+this, that catch marked the sub-agents cancelled and `return`ed **with the status still
+`running`** — which is exactly what the composer reads, so a stopped task would have
+stayed stopped-but-busy and re-locked the box. Both catches now finalise to `'cancelled'`,
+a status that already had a label, an icon, a message and a retry affordance.
+
+`isCurrentRun()` is what makes finalising there safe. A user stop leaves the run current,
+so it settles. A *preempted* run does not: `beginSparkRun` aborts the previous controller
+before installing the new one, so the run being replaced sees `isCurrentRun() === false`
+and leaves the status to whichever run took over. Whatever text had streamed is kept, as
+Chat keeps a partial reply.
 
 **Blanket focus rules reach into the composer too.** `SparkTaskDetail.css` carried
 `.spark-task-detail :is(button, textarea, input):focus-visible { outline: 2px solid #a8c7fa }`,
@@ -113,6 +144,102 @@ the wrapper class survives as a positioning hook, so those selectors keep matchi
 and mic with no live control and mount send only on typing; Chat's keeps its model pill and
 its "Ask Willow" placeholder. `116-followup-composer.cjs` covers the follow-up box's
 placement, elevation and that its lock is consistent across every control.
+
+### The composer and its glow are one node each, moved between routes
+
+`SparkWorkspace` creates two detached hosts once — `.spark-connected-composer` and
+`.spark-connected-glow` — and `attachSharedComposer` / `attachSharedGlow` `appendChild`
+them into whichever `[data-spark-new-composer-anchor]` / `[data-spark-glow-anchor]` the
+current route rendered. That is what lets both slide across a task navigation instead of
+being torn down and rebuilt: `transitionTaskNavigation` measures them, re-attaches inside
+`startViewTransition`, and `liveMove` animates the delta. A new Spark route joins in by
+rendering the anchor attributes — it does not render a composer of its own.
+
+**The trap: re-inserting a node restarts its CSS animations.** Anything on these hosts
+that animates replays on every re-parent, so `attachSharedGlow` adds `is-settled` on each
+attach after the first, pinning the reveal's end frame and setting `animation: none`.
+Those values are *duplicated* from the keyframe's 100% and have to move with it — the
+base rule is the pre-animation box (800×160), and it was the `both` fill mode that had
+been holding the smaller settled size, so removing the animation alone jumps the glow
+*larger* rather than leaving it put.
+
+### Never let the "Loading task…" frame render between two tasks
+
+That branch is the reason anchors get recreated, and it is worth understanding because
+it breaks more than the glow. The task list holds summary records (`bodyLoaded: false`),
+so navigating to a task before its body is read renders a tree that is **not** the detail
+and carries **no composer anchor** — React unmounts `SparkTaskDetail` and rebuilds it a
+microtask later.
+
+What replays on that rebuild:
+
+- **The shared composer glow**, re-parented into the newly built anchor.
+- **The shared composer itself**, which is why the prompt box once animated toward zero
+  width and snapped: `liveMove` measured a destination that had just been detached.
+- **The wide wash** below — until its entrance animation was removed outright.
+
+The fix is the same on both open paths in `openTaskWithTransition` — call the synchronous
+`ensureSparkTaskBodyLoaded(taskId)` *before* `goToSparkTask(taskId)`, so the store update
+and the route change land in one render and the loading branch is never reached. The
+entering path always did this; the task→task branch did not, which is why switching
+between tasks flickered while entering from the list looked right.
+
+If you add another way to open a task, it needs the same pairing.
+
+### The prompt-box glow is two layers, on both routes
+
+Debugging it as one thing is what makes it confusing. Behind the Spark composer there are:
+
+1. **`.spark-connected-glow`** — the tight pill, a single node that travels between route
+   anchors (above).
+2. **A wide background wash** — `.spark-task-detail::before` on the detail route and
+   `.spark-all-tasks::before` on the list route, blurred 200px and reaching well up over
+   the composer.
+
+The wash used to exist **only** on the task-detail route, which is what its own comment
+describes: it "lets the task-detail glow continue past the library". So closing a task
+unmounted it and left the list route lit by the pill alone — the glow visibly dimmed and
+*stayed* dim until a task was opened again. Both routes now carry both layers.
+
+Two things follow, and they are easy to undo by accident:
+
+- **Neither wash animates in.** Once both routes have one, a fade-in on arrival dips a
+  layer that was already on screen, which is a flicker rather than an entrance. The
+  detail wash's `spark-task-detail-background-grow` was deleted for this reason.
+- **Both washes must state their settled values, including `translate(-50%, -45%)`.** The
+  detail wash's authored `opacity: 0.7` and `translateX(-50%)` were being overridden by
+  the grow keyframes' 100% frame, so removing the animation without writing those values
+  back drops the wash 45% of its own height. The list copy matches it deliberately; if the
+  two disagree, crossing routes shifts the glow.
+
+The washes differ in exactly two places: `left: 15%` on the detail route (the composer
+sits in the left 41.5% library pane) versus `left: 50%` on the list, and `z-index: 0`
+versus `-1` — the list route needs the negative index for the same reason its pill does,
+so the wash stays above that element's opaque fill but behind the task rows.
+
+`--spark-task-detail-accent` comes from `sparkAccentVars` so both routes light from one
+source; it used to be computed separately in `SparkTaskDetail`.
+
+### `@starting-style` has to be scoped to the state you mean
+
+`@starting-style` supplies a start value whenever an element has **no previous computed
+style** — which is *insertion*, not just a `display: none` → visible flip. So an
+unscoped block animates the element every time it mounts, whether you wanted an entrance
+or not.
+
+The status pill had one written against its plain selector, so the "Complete" chip played
+a 300ms fade-and-scale on arrival. It also did not need it: the animation it was written
+for is the progress panel hiding and showing the pill, and coming back from `.is-hidden`
+already has a real previous style (`opacity: 0`, `scale: 0.9`) to transition out of, which
+is all a transition needs. `allow-discrete` in the `transition` handles the `display` half.
+The values now live on `.is-hidden`, so the panel animation survives and the mount does
+not animate.
+
+Compare the progress panel's own block, which is correct: it is scoped to
+`.spark-task-detail__progress-panel.is-open`, so it applies only to the open state and
+the panel's default closed state mounts inert. **Scope the block to a state class unless
+you genuinely want an entrance on mount** — and in Spark you usually do not, because the
+task-detail pane mounts more often than a user would call it an arrival.
 
 ## Gemini Spark is codenamed "remy"
 
@@ -330,11 +457,22 @@ track and `::after` the selected one, cross-faded on opacity:
 
 | | track | handle |
 | --- | --- | --- |
-| off | #444746 | 16×16 in #8e918f |
-| on | #a8c7fa | 24×24 in #062e6f |
+| off | #444746, with a 2px #8e918f ring | 16×16 in #8e918f |
+| on | #a8c7fa, no ring | 24×24 in #062e6f |
 
 Track is 52×32 and fully rounded, and **the handle grows** from 16px to 24px when
-switched on. The off state is a *filled* grey track; Willow had drawn an outlined one.
+switched on.
+
+The off track is filled grey **and** ringed. Read the history in order or the two
+halves look contradictory: Willow first drew the ring with nothing behind it, and the
+fill was added to correct that — but the ring itself does belong there, and the
+settings page's copy of this switch (`.ca-switch-track` in `ConnectedAppsTab.css`) had
+always drawn it, which is how the two surfaces came to disagree. Switched on, the blue
+fill is the whole affordance and the ring is dropped.
+
+The ring is an `inset` box-shadow, not a `border`: the thumb is absolutely positioned
+against the padding box, so a real border would shift it 2px up and left under the
+page-wide `box-sizing: border-box`.
 
 There is **no caption beside it.** `.opt-in-container` holds the 32px logo and a bare
 `mat-slide-toggle` pushed right. Willow rendered a "Use as context" label from an
@@ -386,6 +524,31 @@ Both are `transition: background 0.15s`.
   and `cursor: default`) that expands into the earlier steps plus one tool block per
   capability. `SparkProcessingState` in `SparkTaskDetail.tsx` is that row; the
   slide-out panel remains for the full timeline.
+
+### A run of same-label tool rows collapses to one
+
+`groupSparkActivity` drops a tool entry whose `getTimelineToolLabel` matches the
+row before it, and `groupSparkSubagentTimeline` does the same for a sub-agent's
+timeline. A model firing three `google_search` calls to assemble one answer drew
+three "Google Search" rows; it now draws one.
+
+**Adjacency is the whole test, and it is already the right one.** Narration
+entries are the model's own work-log lines, and `SparkWorkspace` appends both
+them and tool rows to `activityLog` in stream order — so a search that follows a
+line the model wrote is not adjacent to the previous search and keeps its own
+row. Only an uninterrupted run collapses. Nothing needs to track text offsets.
+
+This generalises the rule it replaced, which collapsed consecutive *file* tools.
+Every file tool renders as "Files", so that was already a same-label case and
+comparing the label covers it too. Two consequences worth knowing:
+
+- **It is presentational only.** `activityLog` still holds every call, and the
+  harness still emits one `call-start` per provider tool call — the dedup in
+  `platform/ai` is a different thing, and suppresses a *repeated delta for one
+  search step* rather than a second real search. Don't "fix" the duplicate rows
+  upstream in `publishUsedTool`; that would throw the calls away.
+- **The entry kept is the first**, which is what the file rule did, so the icon a
+  collapsed run shows is the first call's.
 
 ### Sending a follow-up anchors it and holds its response area open
 

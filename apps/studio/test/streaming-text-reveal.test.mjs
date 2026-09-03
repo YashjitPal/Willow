@@ -252,6 +252,34 @@ describe('Gemini-style streaming text reveal', () => {
     );
   });
 
+  it('keeps an already-visible word painted when the tree reshapes under it', () => {
+    const styles = fs.readFileSync(
+      path.join(root, 'platform/ui/src/streaming-markdown-styles.ts'),
+      'utf8',
+    );
+
+    // A word re-created under a new inline parent (plain `**Item ` becoming
+    // `strong` on the next promotion, or a link closing) mounts with
+    // `.smd-settled`, which sets `animation: none`. The hidden start state
+    // must therefore exclude settled leaves, or nothing lifts them back to
+    // opacity 1 until the whole response leaves `.smd-streaming`.
+    assert.match(
+      styles,
+      /\.smd-streaming \.smd-reveal-block:not\(\.smd-settled\) \.smd-w:not\(\.smd-settled\),/,
+      'the hidden start state must not apply to a settled word inside a live block',
+    );
+    assert.match(
+      styles,
+      /\.smd-streaming \.smd-reveal-block:not\(\.smd-settled\) \.smd-h:not\(\.smd-settled\) \{/,
+      'heading words follow the same rule',
+    );
+    assert.doesNotMatch(
+      styles,
+      /\.smd-reveal-block:not\(\.smd-settled\) \.smd-w,/,
+      'an unqualified .smd-w in the hidden rule strands re-mounted words at opacity 0',
+    );
+  });
+
   it('appends grounding pills without remounting the existing paragraph words', () => {
     const ui = fs.readFileSync(
       path.join(root, 'platform/ui/src/StreamingMarkdown.tsx'),

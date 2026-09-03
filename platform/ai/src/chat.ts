@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
+import { DEFAULT_BASE_URLS, isOfficialEndpoint, resolveEndpointTransport, type ProviderId } from "./providers/endpoints";
 import { defaultApiFormatForProvider, nativeToolFormatForProvider, type ProviderApiFormat, type ProviderToolPolicy } from './providers/profiles';
 import { geminiFlashStartsAtLow } from './models/efforts';
 import { mergeCitations, namesUrlCitation, namesWebSearch, pickGroundingMetadata, resolveAnthropicCitations, resolveCitations, resolveCompatCitations, type AnthropicCitedBlock, type CompatSearchHarvest, type GroundingCitation, type MessageCitations } from "./grounding";
@@ -67,6 +67,12 @@ export interface AiOptions {
   provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
   model: string;
   apiKey: string;
+  /**
+   * Further keys for the same bucket, tried in order if `apiKey` is rejected as
+   * a credential. This is what makes the Settings field's "separate multiple keys
+   * with commas" promise true; see the rotation loop in `streamChat`.
+   */
+  apiKeyFallbacks?: string[];
   thinkingLevel?: number;
   includeThoughts?: boolean;
   enableSearch?: boolean;
@@ -209,6 +215,44 @@ const namesRejectedParameter = (error: any, parameter: RegExp): boolean => {
 };
 
 /**
+ * Drop the space a model puts at the front of a continuation.
+ *
+ * Used only where a paragraph break has just been inserted between two rounds of
+ * a tool loop. A model that narrates before calling a tool ends round one with
+ * `…look that up.` and opens round two with `` Done — …`` — that leading space is
+ * its attempt to join the two into one sentence, which is precisely what the break
+ * replaces. Left in, it renders as an indented second paragraph.
+ */
+const stripLeadingSpace = (text: string): string => text.replace(/^[^\S\r\n]+/, '');
+
+/**
+ * True when a failure means "this credential is finished", and not merely that
+ * this request failed.
+ *
+ * Drives the key rotation in `streamChat`, so the bar is deliberately high: a
+ * false positive spends one of the user's other keys on a problem that key does
+ * not fix. Status is checked first because it is unambiguous where it is present,
+ * and Gemini is the reason the message test exists at all — it reports a bad key
+ * as a 400 `API_KEY_INVALID` rather than a 401. Rate limits and quota exhaustion
+ * are explicitly NOT auth failures: the key is valid and the next one is likely
+ * to be throttled too, so those surface as-is rather than burning the rotation.
+ */
+const namesAuthRejection = (error: any): boolean => {
+  const status = Number(error?.status ?? error?.response?.status ?? 0);
+  const parts = [
+    error?.message,
+    error?.error?.message,
+    error?.error?.status,
+    error?.error?.code,
+    error?.response?.data?.error?.message,
+  ].filter((part) => typeof part === 'string');
+  const text = parts.join(' ');
+  if (/quota|rate.?limit|too many requests|overloaded|429/i.test(text)) return false;
+  if (status === 401 || status === 403) return true;
+  return /api[\s._-]*key|unauthenticated|unauthorized|invalid.{0,20}credential|permission[\s._-]*denied/i.test(text);
+};
+
+/**
  * Runs a streaming request with server-side search attached, and once more
  * without it if the endpoint rejects the search parameter.
  *
@@ -225,12 +269,22 @@ const createWithSearchFallback = async <T>(
   searchRequested: boolean,
   signal?: AbortSignal,
 ): Promise<T> => {
-  if (!searchRequested) return attempt(false);
+  if (!searchRequested) {
+    console.warn('[AI] Server-side search was not requested for this turn — see `openaiSearchEnabled`.');
+    return attempt(false);
+  }
   try {
     return await attempt(true);
   } catch (error: any) {
     throwIfAborted(signal);
     if (isAbortError(error) || !namesSearchToolRejection(error)) throw error;
+    /* Logged because the degrade is otherwise invisible: the retry succeeds, the
+       answer looks normal, and the only symptom is a model that says it has no
+       search tool. Every other degrade path in this file announces itself. */
+    console.warn(
+      '[AI] Endpoint rejected the server-side search tool; retrying without it.',
+      String(error?.message ?? error),
+    );
     return attempt(false);
   }
 };
@@ -360,12 +414,26 @@ function getAttachmentFingerprint(att: Attachment): string {
   return `${att.mimeType}:${att.data.length}:${att.data.substring(0, 32)}`;
 }
 
+/**
+ * Where the Files API lives for this turn.
+ *
+ * Both calls below used to name `generativelanguage.googleapis.com` outright, so
+ * attaching a file on a profile pointed at a private gateway sent the key and the
+ * file to Google anyway — the one direct call a custom base URL exists to prevent.
+ * It also could not work against a relay that does proxy the Files API. Resolved
+ * from the profile now, exactly like every other Gemini request; a relay that does
+ * not implement it fails the upload and `resolveGeminiFilePart` falls back inline.
+ */
+const geminiFilesOrigin = (baseUrl: string | undefined, endpointProvider: ProviderId): string =>
+  resolveEndpointTransport(endpointProvider, baseUrl, 'origin').url;
+
 async function uploadToGeminiFiles(
   apiKey: string,
   base64Data: string,
   mimeType: string,
   displayName: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  filesOrigin: string = DEFAULT_BASE_URLS.gemini,
 ): Promise<string> {
   // Convert base64 to bytes
   const binaryString = atob(base64Data);
@@ -376,7 +444,7 @@ async function uploadToGeminiFiles(
 
   // Step 1: Start resumable upload
   const startResponse = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+    `${filesOrigin}/upload/v1beta/files?key=${apiKey}`,
     {
       method: 'POST',
       headers: {
@@ -433,7 +501,7 @@ async function uploadToGeminiFiles(
     const resourceName = uploadedFile.name;
     if (!resourceName) break;
     const statusResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${resourceName}?key=${apiKey}`,
+      `${filesOrigin}/v1beta/${resourceName}?key=${apiKey}`,
       { signal },
     );
     if (!statusResponse.ok) {
@@ -448,14 +516,22 @@ async function uploadToGeminiFiles(
   return fileUri;
 }
 
-async function resolveGeminiFilePart(apiKey: string, att: Attachment, signal?: AbortSignal): Promise<any> {
+async function resolveGeminiFilePart(
+  apiKey: string,
+  att: Attachment,
+  signal?: AbortSignal,
+  filesOrigin: string = DEFAULT_BASE_URLS.gemini,
+): Promise<any> {
   throwIfAborted(signal);
   if (att.type === 'text') {
     const label = att.name || att.mimeType || 'text attachment';
     return { text: `\n\n[Contents of ${label}]\n${att.data}` };
   }
   if (!att.data) throw new Error(`Attachment data is unavailable for ${att.name || att.mimeType}`);
-  const fingerprint = getAttachmentFingerprint(att);
+  /* Keyed by origin as well as content: a `files/...` URI is issued by one
+     endpoint and means nothing to another, so a cache hit carried across a base-URL
+     change would reference a file the new endpoint has never seen. */
+  const fingerprint = `${filesOrigin}::${getAttachmentFingerprint(att)}`;
   const cachedUri = geminiFileCache.get(fingerprint);
 
   if (cachedUri) {
@@ -463,7 +539,7 @@ async function resolveGeminiFilePart(apiKey: string, att: Attachment, signal?: A
   }
 
   try {
-    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'attachment', signal);
+    const fileUri = await uploadToGeminiFiles(apiKey, att.data, att.mimeType, att.name || 'attachment', signal, filesOrigin);
     geminiFileCache.set(fingerprint, fileUri);
     console.log(`[AI] Uploaded to Gemini Files: ${att.name} -> ${fileUri}`);
     return { fileData: { fileUri, mimeType: att.mimeType } };
@@ -1479,6 +1555,9 @@ const streamChatImpl: any = async (
 
   if (usesGeminiAdapter) {
     const genAI = getGeminiClient(apiKey);
+    /* Attachments upload to whichever endpoint this profile names, not to Google
+       regardless of it — see `geminiFilesOrigin`. */
+    const filesOrigin = geminiFilesOrigin(options.baseUrl, provider as ProviderId);
     
     // Map numeric UI levels to Gemini string labels
     let geminiThinkingLevel: string = model.includes('flash') ? 'high' : 'low';
@@ -1518,20 +1597,27 @@ const streamChatImpl: any = async (
       tools.push({ codeExecution: {} });
     }
 
-    // Personalization tools (retrieval + connected-product actions), built by
-    // @willow/personal and passed in ready to push. Empty blocks are filtered so
-    // the array never holds a promise of tools that were deliberately skipped.
-    for (const block of options.personalTools ?? []) {
-      if (block?.functionDeclarations?.length) tools.push(block);
-    }
-    for (const block of options.toolDeclarations ?? []) {
-      if (block?.functionDeclarations?.length) tools.push(block);
+    /* Personalization tools (retrieval + connected-product actions), built by
+       @willow/personal and passed in ready to push. Empty blocks are filtered so
+       the array never holds a promise of tools that were deliberately skipped.
+
+       Gated on `toolsAllowed`, like the OpenAI and Anthropic paths below. Without
+       the gate `disabled` withheld only the built-ins here, so the one dropdown
+       meant "no tools at all" on two providers and "no search" on this one — the
+       exact per-provider divergence `nativeToolsAllowed` was written to end. */
+    if (toolsAllowed) {
+      for (const block of options.personalTools ?? []) {
+        if (block?.functionDeclarations?.length) tools.push(block);
+      }
+      for (const block of options.toolDeclarations ?? []) {
+        if (block?.functionDeclarations?.length) tools.push(block);
+      }
     }
 
     // The media-agent harness tools, offered only when the caller can execute
     // them. Chat mode leaves this off so the model reaches for search instead of
     // announcing an image generation nothing is wired to perform.
-    const mediaToolsEnabled = options.enableMediaTools === true;
+    const mediaToolsEnabled = toolsAllowed && options.enableMediaTools === true;
     if (mediaToolsEnabled) tools.push({
       functionDeclarations: [
         {
@@ -1861,7 +1947,7 @@ Adhere to the following rules and guidelines:
                 partsList.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
               }
             }
-            partsList.push(await resolveGeminiFilePart(apiKey, att as any, signal));
+            partsList.push(await resolveGeminiFilePart(apiKey, att as any, signal, filesOrigin));
           }
         }
         historyContents.push({
@@ -1884,7 +1970,7 @@ Adhere to the following rules and guidelines:
               initialParts.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
             }
           }
-          initialParts.push(await resolveGeminiFilePart(apiKey, att, signal));
+          initialParts.push(await resolveGeminiFilePart(apiKey, att, signal, filesOrigin));
         }
       }
     }
@@ -1898,6 +1984,8 @@ Adhere to the following rules and guidelines:
     // Iterative processing loop to handle arbitrary sequential tool calls without recursion (prevents compiler/runtime stack overflow)
     let keepRunning = true;
     let toolIterations = 0;
+    /* Turn-level, unlike the per-iteration flags inside the loop. */
+    let hasEmittedAnyAnswerText = false;
     let hasEmittedAnyThought = false;
     // Grounding metadata can be repeated across streamed responses. Report each
     // native Google Search query once, while still retaining every metadata
@@ -1986,6 +2074,9 @@ Adhere to the following rules and guidelines:
       const pendingFunctionCalls: any[] = [];
       const rawResponseParts: any[] = [];
       let hasEmittedThoughtThisIteration = false;
+      /* Distinct from `hasEmittedText`, which a bare `functionCall` part also sets
+         — that flag means "something happened", not "the answer has text in it". */
+      let hasEmittedTextThisIteration = false;
 
       // Segment offsets are relative to *this* response's own text, so the
       // iteration's start in the combined answer is the shift to apply.
@@ -2108,12 +2199,20 @@ Adhere to the following rules and guidelines:
 
           // --- Plain text ------------------------------------------------------
           if (typeof part?.text === 'string' && part.text.length > 0) {
+            /* New paragraph when a later iteration speaks after an earlier one did
+               — same rule as the thought summaries above. A model that narrates
+               before a function call answers in the next iteration, and without
+               this the two run together as one sentence. */
+            const separator = hasEmittedAnyAnswerText && !hasEmittedTextThisIteration ? '\n\n' : '';
             if (!hasEmittedText) {
               hasEmittedText = true;
               onPhase?.('responding');
             }
-            iterationText += part.text;
-            emitToken(part.text);
+            hasEmittedTextThisIteration = true;
+            hasEmittedAnyAnswerText = true;
+            const emitted = separator ? separator + stripLeadingSpace(part.text) : part.text;
+            iterationText += emitted;
+            emitToken(emitted);
           }
         }
       }
@@ -2461,6 +2560,19 @@ Adhere to the following rules and guidelines:
     const openaiHarvest: CompatSearchHarvest = { annotations: [], sources: [] };
     let openaiAnswerText = '';
 
+    /* One line saying what this turn is actually asking for. A model reporting
+       that it has no search tool is indistinguishable, from the outside, between
+       "Willow never sent one", "the endpoint rejected it" and "the endpoint
+       accepted it and ignored it" — and those have three different fixes. */
+    console.log('[AI] %s turn: format=%s toolPolicy=%s search=%s builtIns=%s functions=%d', provider, configuredFormat,
+      options.toolPolicy ?? '(default)',
+      openaiSearchEnabled,
+      openaiSearchEnabled
+        ? (configuredFormat === 'openai-responses' ? openaiResponsesSearchTools : XAI_SEARCH_SHAPES[0].tools ?? [])
+          .map((tool: any) => tool.type).join('+') || '(top-level params)'
+        : 'none',
+      openaiDeclarations.reduce((total, block: any) => total + (block?.functionDeclarations?.length ?? 0), 0));
+
     if (configuredFormat === 'openai-responses' || model === "gpt-5.5-pro" || hasOpenAIFileInput) {
       /*
        * The Responses path, in two modes and one loop.
@@ -2478,6 +2590,8 @@ Adhere to the following rules and guidelines:
        */
       const background = model === 'gpt-5.5-pro';
       const responsesInput: any[] = Array.isArray(responseInput) ? [...responseInput] : responseInput;
+      /* Turn-level, unlike `hasEmittedResponseText` inside each round. */
+      let hasEmittedAnyResponseText = false;
 
       for (let round = 0; ; round += 1) {
         const pendingCalls: { id: string; callId: string; name: string; args: string }[] = [];
@@ -2519,8 +2633,10 @@ Adhere to the following rules and guidelines:
           const content = response.output_text || "";
           if (content) {
             onPhase?.('responding');
-            onToken(content);
-            openaiAnswerText += content;
+            const emitted = hasEmittedAnyResponseText ? `\n\n${stripLeadingSpace(content)}` : content;
+            hasEmittedAnyResponseText = true;
+            onToken(emitted);
+            openaiAnswerText += emitted;
           }
         } else {
           const stream = await createWithSearchFallback(
@@ -2539,19 +2655,28 @@ Adhere to the following rules and guidelines:
           );
 
           let hasEmittedResponseText = false;
+          /* Every event this loop does not recognise is dropped on the floor, so a
+             stream in an unexpected shape ends the turn with an empty reply and no
+             error anywhere. Recording the types is the only way to tell that apart
+             from a model that genuinely said nothing. */
+          const seenEventTypes = new Set<string>();
           for await (const rawEvent of stream as any) {
             throwIfAborted(signal);
             const event = rawEvent as any;
             const type = String(event?.type ?? '');
+            seenEventTypes.add(type || '(untyped)');
             if (type === 'response.output_text.delta') {
               const delta = typeof event.delta === 'string' ? event.delta : '';
               if (!delta) continue;
+              const separator = !hasEmittedResponseText && hasEmittedAnyResponseText ? '\n\n' : '';
               if (!hasEmittedResponseText) {
                 hasEmittedResponseText = true;
                 onPhase?.('responding');
               }
-              onToken(delta);
-              openaiAnswerText += delta;
+              hasEmittedAnyResponseText = true;
+              const emitted = separator ? separator + stripLeadingSpace(delta) : delta;
+              onToken(emitted);
+              openaiAnswerText += emitted;
             } else if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
               /* The only reasoning this API exposes is its summary; a model that
                  emits none simply never sends these. */
@@ -2574,6 +2699,13 @@ Adhere to the following rules and guidelines:
             } else if (type === 'error') {
               throw new Error(String(event.message || event.error?.message || 'The response stream failed.'));
             }
+          }
+
+          if (!hasEmittedResponseText && !pendingCalls.length) {
+            console.warn(
+              '[AI] Responses stream produced no answer text and no tool call. Event types seen: %s',
+              [...seenEventTypes].join(', ') || '(the stream was empty)',
+            );
           }
         }
 
@@ -2665,6 +2797,8 @@ Adhere to the following rules and guidelines:
        * been emitted, so no retry can duplicate output.
        */
       let searchWanted = openaiSearchEnabled;
+      /* Turn-level, unlike `hasEmittedText` below, which resets every round. */
+      let hasEmittedAnyAnswerText = false;
 
       for (let round = 0; ; round += 1) {
         const openChatStream = async (): Promise<any> => {
@@ -2700,10 +2834,18 @@ Adhere to the following rules and guidelines:
                 && namesRejectedParameter(error, /live_search|search_parameters|web_search|x_search|tools/i)
               ) {
                 xaiSearchAttempt += 1;
+                console.warn(
+                  `[AI] xAI rejected search shape ${xaiSearchAttempt} of ${XAI_SEARCH_SHAPES.length}; trying the next spelling.`,
+                  String(error?.message ?? error),
+                );
                 continue;
               }
               if (searchWanted && namesSearchToolRejection(error)) {
                 searchWanted = false;
+                console.warn(
+                  '[AI] Endpoint rejected the server-side search tool; continuing without search.',
+                  String(error?.message ?? error),
+                );
                 continue;
               }
               if (sendsStreamOptions && namesRejectedParameter(error, /stream_options|include_usage/i)) {
@@ -2753,15 +2895,27 @@ Adhere to the following rules and guidelines:
 
           const content = delta.content || "";
           if (content) {
+            /* A round that speaks after an earlier round already spoke starts a new
+               paragraph. Models that narrate before calling a tool ("I'll look that
+               up.") answer in the NEXT round, and the two arrive as one unbroken
+               string — `…look that up.Here is what I found` — because each round
+               streams straight through `onToken`. Same rule the thought summaries
+               above already use. Counted into `openaiAnswerText` as well, since the
+               annotation offsets index the answer the user actually reads. */
+            const separator = !hasEmittedText && hasEmittedAnyAnswerText ? '\n\n' : '';
             if (!hasEmittedText) {
               hasEmittedText = true;
               onPhase?.('responding');
             }
-            onToken(content);
+            hasEmittedAnyAnswerText = true;
+            const emitted = separator ? separator + stripLeadingSpace(content) : content;
+            onToken(emitted);
+            /* `roundText` is the assistant message echoed back to the endpoint for
+               this round, so it holds the model's own text without the break. */
             roundText += content;
             // Accumulated because the annotation offsets index into the answer,
             // and they arrive at the end of the stream when the text is complete.
-            openaiAnswerText += content;
+            openaiAnswerText += emitted;
           }
         }
 
@@ -2873,8 +3027,14 @@ Adhere to the following rules and guidelines:
     // replies through a gateway ever look templated and identical, turn search off
     // before looking anywhere else.
     const anthropicSearchEnabled = nativeToolsAllowed && options.enableSearch !== false;
-    const anthropicTools = [
-      ...(anthropicSearchEnabled ? [{ type: 'web_search_20250305', name: 'web_search' }] : []),
+    /* Set by the degrade ladder below when the endpoint rejects the search tool, so
+       the retry rebuilds `tools` without it. Rebuilt per attempt rather than
+       computed once for exactly that reason. */
+    let anthropicSearchDropped = false;
+    const buildAnthropicTools = () => [
+      ...(anthropicSearchEnabled && !anthropicSearchDropped
+        ? [{ type: 'web_search_20250305', name: 'web_search' }]
+        : []),
       /* Personal tools AND the canvas tools: both arrive as Gemini-shaped
          declarations and both are executed by the same provider-agnostic
          `onFunctionCall`, so there is nothing provider-specific left to gate on. */
@@ -2958,7 +3118,10 @@ Adhere to the following rules and guidelines:
             : {}),
           // @ts-ignore
           messages: conversation,
-          ...(anthropicTools.length ? { tools: anthropicTools as any } : {}),
+          ...((() => {
+            const tools = buildAnthropicTools();
+            return tools.length ? { tools: tools as any } : {};
+          })()),
           ...(thinking ? { thinking: { type: 'enabled', budget_tokens: budget } } : {}),
           stream: true as const,
         };
@@ -2971,8 +3134,18 @@ Adhere to the following rules and guidelines:
           const status = Number(error?.status ?? 0);
           const malformed = status === 400 || status === 422;
           let dropped = '';
-          if (malformed && attempt < 3) {
-            if (anthropicCacheSystem && /cache|ephemeral|system/i.test(message)) {
+          if (malformed && attempt < 4) {
+            /* The search tool comes off FIRST, because it is the one thing here a
+               relay is most likely not to implement: `web_search_20250305` is a
+               server-side tool, not a request field, and an endpoint that merely
+               proxies the Messages shape has nothing behind it. Without this step a
+               relay that 400s on the tool type failed the whole turn, where every
+               other unsupported feature degraded — so Claude on a custom base URL
+               was the one configuration that could not answer at all. */
+            if (anthropicSearchEnabled && !anthropicSearchDropped && /web_search|server_tool|tool.{0,20}type|tools\[/i.test(message)) {
+              anthropicSearchDropped = true;
+              dropped = 'server-side web search';
+            } else if (anthropicCacheSystem && /cache|ephemeral|system/i.test(message)) {
               anthropicCacheSystem = false;
               dropped = 'prompt caching';
             } else if (thinking && /thinking|budget|reasoning/i.test(message)) {
@@ -3004,6 +3177,9 @@ Adhere to the following rules and guidelines:
       const assistantBlocks: any[] = [];
       const blocksByIndex = new Map<number, any>();
       const argumentJson = new Map<number, string>();
+      /* `hasEmittedAnthropicText` is turn-level, so this is the per-round half the
+         paragraph rule needs — see the same rule on the other two adapters. */
+      let hasEmittedTextThisRound = false;
       const toolUses: { index: number; id: string; name: string }[] = [];
       let stopReason: string | null = null;
       let textBlock: { type: 'text'; text: string } | null = null;
@@ -3058,13 +3234,22 @@ Adhere to the following rules and guidelines:
         } else if (event.type === 'content_block_delta') {
           const delta = event.delta;
           if (delta?.type === 'text_delta') {
+            /* New paragraph when a later round speaks after an earlier one did.
+               Counted into `anthropicTextLength` too, because the citation spans
+               index the answer the user reads and would otherwise sit two
+               characters upstream of the text they underline. */
+            const separator = hasEmittedAnthropicText && !hasEmittedTextThisRound && delta.text ? '\n\n' : '';
             if (!hasEmittedAnthropicText && delta.text) {
               hasEmittedAnthropicText = true;
               onPhase?.('responding');
             }
-            onToken(delta.text);
+            if (delta.text) hasEmittedTextThisRound = true;
+            const emitted = separator ? separator + stripLeadingSpace(delta.text) : delta.text;
+            onToken(emitted);
+            /* The block is echoed back to Anthropic verbatim, so it keeps the
+               model's own text; only what the reader sees carries the break. */
             if (textBlock) textBlock.text += delta.text;
-            anthropicTextLength += delta.text.length;
+            anthropicTextLength += emitted.length;
             if (currentBlock) currentBlock.end = anthropicTextLength;
           } else if (delta?.type === 'thinking_delta') {
             if (!hasEmittedAnthropicText) onPhase?.('thinking');
@@ -3191,18 +3376,52 @@ Adhere to the following rules and guidelines:
  * failure that happens to race an abort is still debuggable.
  */
 export const streamChat: any = async (...args: any[]) => {
-  const signal: AbortSignal | undefined = args[1]?.signal;
-  try {
-    return await streamChatImpl(...args);
-  } catch (error) {
-    if (signal?.aborted && !isAbortError(error)) {
-      throw Object.assign(
-        new DOMException('The AI request was cancelled.', 'AbortError'),
-        { cause: error },
-      );
+  const options = args[1] ?? {};
+  const signal: AbortSignal | undefined = options.signal;
+
+  /*
+   * Keys are tried left to right when one is rejected — the behaviour the Settings
+   * field has always described and never had.
+   *
+   * Safe only while nothing has been emitted. An auth rejection arrives with the
+   * response head, before the first token, so a second attempt cannot duplicate
+   * output; `emitted` enforces that rather than assuming it, so a 401 that somehow
+   * arrives mid-stream is rethrown instead of replayed. An abort is never a
+   * rejected credential and is rethrown untouched.
+   *
+   * `onStart` is fired at most once across the whole rotation: it raises the
+   * caller's thinking state, and a retry is not a second turn.
+   */
+  const rotation = [options.apiKey, ...(options.apiKeyFallbacks ?? [])]
+    .map((key: unknown) => (typeof key === 'string' ? key.trim() : ''))
+    .filter(Boolean);
+  const attempts: string[] = rotation.length ? rotation : [options.apiKey];
+
+  let started = false;
+  for (let index = 0; index < attempts.length; index += 1) {
+    let emitted = false;
+    const forwarded = [...args];
+    forwarded[1] = { ...options, apiKey: attempts[index] };
+    forwarded[2] = (token: string) => { emitted = true; args[2]?.(token); };
+    forwarded[3] = () => { if (!started) { started = true; args[3]?.(); } };
+
+    try {
+      return await streamChatImpl(...forwarded);
+    } catch (error) {
+      if (signal?.aborted && !isAbortError(error)) {
+        throw Object.assign(
+          new DOMException('The AI request was cancelled.', 'AbortError'),
+          { cause: error },
+        );
+      }
+      const isLastKey = index === attempts.length - 1;
+      if (emitted || isLastKey || isAbortError(error) || !namesAuthRejection(error)) throw error;
+      console.warn(`[AI] API key ${index + 1} of ${attempts.length} was rejected; trying the next one.`);
     }
-    throw error;
   }
+
+  // Unreachable: the loop either returns or throws on its last attempt.
+  throw new Error(`API Key for ${options.provider} is missing.`);
 };
 
 // Fast session title generator using gemini-3.1-flash-lite with minimal thinking effort.

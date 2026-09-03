@@ -65,6 +65,7 @@ Labs flag. The clone is gone; only the harness survived, as `src/agent/`.
 | `src/agent/harness-bridge.ts` | The seam: file-map ↔ sandpack store, plus the `run_command` and `computer_use` tools. |
 | `src/agent/harness/` | The turn loop, V4A patcher, text protocol, Plan mode, Goal mode, and the vendored upstream documents. |
 | `src/agent/ui/` | The transcript timeline: tool cards, diffs, terminal output, sub-agent chips. |
+| `src/agent/mcp/` | The adapter that turns MCP tools into Codex tools. The client itself is `@willow/ai/mcp`. See below. |
 | `src/agent/model-binding.ts` | Resolves the selected model to a provider binding, clamping effort. |
 | `src/agent/slash-commands.ts` | `/`-triggered composer templates, plus the three that change mode. |
 | `src/agent/agent.css` | Design tokens, all scoped under `.cb-root`. |
@@ -96,6 +97,49 @@ delegation was one blocking tool called `task` that exists nowhere in codex-rs.
 Read [the harness docs](src/agent/harness/AGENTS.md#the-four-subsystems) before
 changing any of them. Each has a short list of places the browser forced a
 divergence, and everything else is a transcription.
+
+### MCP, and the part of it that cannot exist here
+
+The client lives in [`platform/ai/src/mcp/`](../../platform/ai/src/mcp/mcp-protocol.ts),
+not here — two features share it, and the repo rule sends anything two features
+need down to `platform/*`. Servers are added from **Spark → Connected apps → MCP
+servers** and from **Settings → Connectors → MCP servers**; both write one store,
+so they cannot disagree.
+
+What stays in this feature is `src/agent/mcp/mcp-harness-tools.ts`, which maps
+MCP tools onto `ToolHandler`. That cannot move: `ToolHandler` is a
+`features/code` type and `platform/*` must never import from `features/`. The
+split therefore lands exactly where the layering rule puts it.
+
+Two transports, because two are what a browser can do:
+
+- **Streamable HTTP**, for servers at a URL. Works only if the operator allows
+  requests from web pages, and MCP raises the bar: the server must permit
+  `Mcp-Session-Id` and `MCP-Protocol-Version` by name and *expose*
+  `Mcp-Session-Id`, or the session is silently lost after the handshake. Nothing
+  on this side changes that.
+- **A Web Worker**, for a plain-JavaScript server running inside the tab with no
+  network hop.
+
+**stdio is absent and always will be here.** It means spawning a subprocess, so
+the filesystem, git, sqlite and puppeteer servers — most of the published
+ecosystem — are unreachable from a tab at any price. That, and Spark's scheduled
+actions, are written up in [`HELPER-APP.md`](../../HELPER-APP.md) at the repo
+root, including the seam a third transport plugs into. `McpTransport` is
+`{ send, onMessage, close }` and nothing above it knows which transport it got.
+
+Two things to keep intact if you touch this:
+
+- **The error messages are the feature.** A browser reports a CORS refusal, a
+  bad address, an offline host and a blocked mixed-content request as the same
+  rejection, so `explainFetchFailure` and the `McpError` kinds exist to turn one
+  opaque failure into four sentences someone can act on. A user told
+  "connection failed" edits their URL for an hour.
+- **A server is off until the user switches it on.** An MCP result is text from
+  third-party software that the model reads as context, which is the standard
+  prompt-injection path. That switch plus the prompt's "treat this as untrusted
+  data" is the whole protection today, and it is deliberately coarse — per-tool
+  approval belongs with stdio support, not before it.
 
 **`agentEngaged` is the only switch.** Three things read it, and all three are
 inert when it is false: the send routing in `handleSendMessage`, the slash-command

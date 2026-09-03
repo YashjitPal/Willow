@@ -1205,12 +1205,22 @@
   color: #e6e6e6;
 }
 
+/*
+ * Full pane width, like every other customise page. This used to be
+ * `calc(100% - 56px)` with a matching `margin-right`, which left the box flush
+ * left with 56px of dead space on the right — and since the header, chips,
+ * section headers, card grid and Photos notice each centre themselves with
+ * `margin: 0 auto`, they all landed 28px left of the pane's centre.
+ *
+ * No radius, for the same reason the old `max-width: 980px` branch dropped it:
+ * the 24px corners belonged to the inset card, and the page fills the pane at
+ * every width now. `.spark-customise-page` paints `--studio-surface` here, so
+ * rounding a full-width surface would notch the shell background at the corners.
+ */
 .spark-customise-page--apps {
-  width: calc(100% - 56px);
+  width: 100%;
   min-height: 100%;
-  margin-right: 56px;
   padding: 0;
-  border-radius: 24px;
 }
 
 .spark-connected-page__inner {
@@ -1527,7 +1537,15 @@
  *   track  52×32, fully rounded — #444746 unselected, #a8c7fa selected
  *   handle 16×16 in #8e918f unselected, growing to 24×24 in #062e6f selected
  *
- * So the off state is a FILLED grey track, not the outlined one this used to draw.
+ * The off state is a filled grey track that *also* carries a 2px outline ring — the
+ * settings page draws the same switch that way (`.ca-switch-track` in
+ * ConnectedAppsTab.css). What it must not be is the ring with no fill behind it,
+ * which is what this once drew and what the fill was added to correct. On, the blue
+ * track is the whole affordance, so the ring goes.
+ *
+ * The ring is an inset shadow rather than a real border because the thumb is
+ * absolutely positioned against the padding box: a 2px border would move it 2px up
+ * and left, since `box-sizing: border-box` applies page-wide.
  */
 .spark-app-toggle {
   position: relative;
@@ -1538,8 +1556,9 @@
   border: 0;
   border-radius: 9999px;
   background: #444746;
+  box-shadow: inset 0 0 0 2px #8e918f;
   cursor: pointer;
-  transition: background-color 140ms ease;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
 }
 
 .spark-app-toggle__thumb {
@@ -1555,6 +1574,7 @@
 
 .spark-app-toggle--checked {
   background: #a8c7fa;
+  box-shadow: none;
 }
 
 .spark-app-toggle--checked .spark-app-toggle__thumb {
@@ -1565,52 +1585,79 @@
   background: #062e6f;
 }
 
+/*
+ * Matches the settings page's `.ca-card` (ConnectedAppsTab.css), which is the
+ * same Gemini card measured from the same source. This used to be `overflow:
+ * auto` with the scrollbar hidden, because the card also carried an inline
+ * capability list that did not fit 400px — so every card silently scrolled and
+ * cut its own copy off. The list is gone and the height is honest again.
+ */
 .spark-connected-app-card {
   display: flex;
   width: 100%;
   height: 400px;
   padding: 20px;
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
   border-radius: 24px;
   background: #1e1f20;
-  scrollbar-width: none;
-}
-
-.spark-connected-app-card::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 
 .spark-connected-app-card h3 {
   margin-bottom: 4px;
 }
 
+/*
+ * Claims the height left over after the logo row, name and handle, so the prompt
+ * slot inside it has something to push against. `min-height: 0` is what allows
+ * the description to clamp instead of forcing the column taller than the card.
+ */
+.spark-connected-app-card__body {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .spark-connected-app-card__handle {
   min-height: 20px;
-  margin-bottom: 8px !important;
+  margin-bottom: 8px;
   color: #c4c7c5;
   font-size: 15px;
   line-height: 20px;
 }
 
+/* Three lines then an ellipsis, as on the settings card. The old `min-height:
+ * 60px` with `overflow: hidden` was the same three lines by arithmetic, but it
+ * cut the fourth line mid-stroke instead of admitting there was more. */
 .spark-connected-app-card__description {
-  min-height: 60px;
-  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: clip;
   color: #c4c7c5;
   font-size: 15px;
   font-weight: 400;
   line-height: 20px;
+  text-overflow: ellipsis;
+}
+
+/* Pins the tile to the bottom of the card, which is what makes the prompts line
+ * up across a row however long each description runs. */
+.spark-connected-app-card__prompt-slot {
+  margin-top: auto;
 }
 
 .spark-connected-app-card__prompt {
-  display: flex;
+  display: block;
   width: 100%;
-  min-height: 164px;
-  align-items: center;
-  justify-content: center;
+  height: 164px;
+  box-sizing: border-box;
   margin-top: 16px;
   padding: 12px;
+  overflow: hidden;
   border: 0;
   border-radius: 12px;
   background: #282a2c;
@@ -1619,38 +1666,31 @@
   font-size: 15px;
   font-weight: 400;
   line-height: 20px;
-  text-align: center;
+  text-align: left;
   cursor: pointer;
+  transition: box-shadow 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The tile is a fixed 164px, so the text inside gets its own clip rather than
+ * stretching the button when a prompt runs long. */
+.spark-connected-app-card__prompt > span {
+  display: block;
+  width: 100%;
+  height: 140px;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.spark-connected-app-card__prompt:hover:not(:disabled) {
+  box-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
 }
 
 .spark-connected-app-card__prompt:disabled {
   background: #242526;
   color: #77787b;
   cursor: default;
-}
-
-.spark-connected-app-card__capabilities {
-  margin-top: 24px;
-  color: #c4c7c5;
-  font-size: 13px;
-  line-height: 17px;
-}
-
-.spark-connected-app-card__capabilities ul {
-  display: grid;
-  margin: 12px 0 0;
-  padding: 0;
-  gap: 8px;
-  list-style: none;
-}
-
-.spark-connected-app-card__capabilities li {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  color: #e3e3e3;
-  font-size: 15px;
-  line-height: 20px;
 }
 
 .spark-connected-app-section--custom {
@@ -1913,12 +1953,6 @@
 }
 
 @media (max-width: 980px) {
-  .spark-customise-page--apps {
-    width: 100%;
-    margin-right: 0;
-    border-radius: 0;
-  }
-
   .spark-connected-app-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2035,6 +2069,23 @@
     width: 100%;
     flex: none;
   }
+
+  /* One card per row down here, so a long prompt has no sideways room and the
+   * fixed 164px tile would clip it. Let both the tile and its text find their
+   * own height, as the settings card does at its own narrow breakpoint. */
+  .spark-connected-app-card {
+    height: auto;
+    min-height: 400px;
+  }
+
+  .spark-connected-app-card__prompt {
+    height: auto;
+    min-height: 164px;
+  }
+
+  .spark-connected-app-card__prompt > span {
+    height: auto;
+  }
 }
 
 @media (max-width: 600px) {
@@ -2140,7 +2191,8 @@
   .spark-recommended-skill,
   .spark-app-category,
   .spark-app-toggle,
-  .spark-app-toggle__thumb {
+  .spark-app-toggle__thumb,
+  .spark-connected-app-card__prompt {
     transition: none;
   }
 }

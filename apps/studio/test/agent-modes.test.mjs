@@ -133,7 +133,12 @@ it('renders the Default document, including its mode-name placeholder', () => {
   // `{{KNOWN_MODE_NAMES}}` exists so the list is written once. An unrendered
   // placeholder reaching the model is worse than no sentence at all.
   assert.doesNotMatch(section, /\{\{/, 'no placeholder may survive rendering');
-  assert.match(section, /Known mode names are Default, Plan\./);
+  // Upstream has *two* mode-name formatters and they differ. `format_mode_names`
+  // (collaboration_mode_presets.rs) joins a pair with " and "; the separate
+  // `format_allowed_modes` (request_user_input_spec.rs) yields "Default or Plan
+  // mode". Collapsing them to one helper put the wrong sentence in a document
+  // whose whole job is telling the model which modes exist.
+  assert.match(section, /Known mode names are Default and Plan\./);
 });
 
 it('refuses update_plan in Plan mode, with upstream\'s exact message', async () => {
@@ -348,9 +353,18 @@ it('blocks the turn on a question in Plan mode, and not in Default', async () =>
   assert.equal(asked.length, 1, 'the sink must not be reached in Default mode');
 });
 
-it('treats no answer as "use your judgement" and a dismissal as cancelled', async () => {
-  // `default.md`: "If `request_user_input` returns no answers, continue with
-  // best judgment instead of asking again or treating the turn as blocked."
+it('reports no answer as an empty map and a dismissal as cancelled', async () => {
+  /*
+   * An empty answer set is a legitimate outcome, and upstream reports it as an
+   * empty map with no commentary attached — `RequestUserInputResponse` is a
+   * `HashMap`, so zero answers serialise to `{}`.
+   *
+   * This assertion used to require the phrase "best judgement", citing
+   * `default.md`. That sentence is not in `default.md`, nor in `plan.md`; it
+   * was invented and then pinned. The guidance it reached for is already in
+   * `plan.md` in upstream's own words, so the model has read it — it does not
+   * need a paraphrase competing with it from inside a tool result.
+   */
   const empty = await run(
     [
       `*** Call: request_user_input
@@ -362,7 +376,7 @@ it('treats no answer as "use your judgement" and a dismissal as cancelled', asyn
     {},
     { mode: 'plan', requestUserInput: async () => [] },
   );
-  assert.match(observationsSent(empty.transport), /best judgement/i);
+  assert.match(observationsSent(empty.transport), /\{"answers":\{\}\}/);
   assert.doesNotMatch(observationsSent(empty.transport), /cancelled/);
 
   const dismissed = await run(

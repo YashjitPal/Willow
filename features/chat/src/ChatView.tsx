@@ -54,6 +54,13 @@ import {
   playLiveSessionCue,
   primeLiveSessionCues,
 } from '@willow/ai/live';
+import { runWebSearch, webSearchToolDeclaration } from '@willow/ai/web-search-tool';
+import {
+  apiKeysForBinding,
+  defaultApiFormatForProvider,
+  nativeToolFormatForProvider,
+  resolveProviderBinding,
+} from '@willow/ai/providers/profiles';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
@@ -2523,7 +2530,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (hasRunningTurnForChat(chatTitle || chatSessionId) || sendInFlightRef.current) return;
       if (countRunningChatTurns() >= MAX_CONCURRENT_CHAT_TURNS) return;
 
-      const { provider, model, thinkingLevel, apiKey, modelLabel, baseUrl, apiFormat, toolPolicy, profileId, reasoningEffort } = resolveModel();
+      const { provider, model, thinkingLevel, apiKey, apiKeyFallbacks, modelLabel, baseUrl, apiFormat, toolPolicy, profileId, reasoningEffort } = resolveModel();
       sendInFlightRef.current = true;
       // A send lands at the bottom of the thread, so anything still hidden by a
       // mid-flight reveal must be materialised now — otherwise the reply streams
@@ -2717,11 +2724,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const canvasInventory = [...canvasDocs.values()]
         .sort((a, b) => a.lastTouchedIndex - b.lastTouchedIndex);
 
+      /*
+       * Willow's own web search, declared as a client tool when this endpoint is
+       * not being sent a server-side one.
+       *
+       * Exactly one search mechanism per turn. `web_search` is also the name of
+       * Anthropic's and OpenAI's built-ins, so declaring ours alongside theirs
+       * would put two tools of the same name in one request — hence the condition
+       * is the exact negation of "a native search tool is going out".
+       * `nativeToolFormatForProvider` is the same predicate `chat.ts` gates its
+       * OpenAI path on, and it is null for Moonshot, which has no verified shape.
+       *
+       * This is what finally makes Tool translation = "Function calling" mean
+       * something: it is the setting for a relay that proxies the wire format but
+       * not the provider's built-ins, and it now buys Willow's own search instead
+       * of silently buying no search at all. Gated on a Gemini key because that is
+       * what answers the call — a declared tool with no executor is worse than no
+       * tool, since the model announces a search it cannot run.
+       */
+      const searchBinding = resolveProviderBinding(modelConfig, 'gemini');
+      const searchBackendKey = apiKeysForBinding(searchBinding, 'gemini', apiKeys)[0];
+      const endpointRunsOwnSearch = toolPolicy !== 'function-calling'
+        && !!nativeToolFormatForProvider(provider, apiFormat ?? defaultApiFormatForProvider(provider));
+      const clientSearchEnabled = toolPolicy !== 'disabled'
+        && !endpointRunsOwnSearch
+        && !!searchBackendKey;
+
       await runChatTurn(record, {
         options: {
           provider,
           model,
           apiKey,
+          apiKeyFallbacks,
           thinkingLevel,
           baseUrl,
           apiFormat,
@@ -2759,6 +2793,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
         personalTools,
         canvasTools,
         canvasHost: canvasEnabled ? { chatKey, priorDocs: canvasDocs } : undefined,
+        webSearchTools: clientSearchEnabled ? webSearchToolDeclaration() : undefined,
+        runWebSearch: clientSearchEnabled
+          ? (query: string) => runWebSearch({
+            query,
+            apiKey: searchBackendKey,
+            baseUrl: searchBinding.baseUrl,
+          })
+          : undefined,
         history,
         attachmentPersistence,
         currentScopeId: () => chatScopeIdRef.current,

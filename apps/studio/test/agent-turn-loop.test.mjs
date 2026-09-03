@@ -220,7 +220,7 @@ it('adds a dependency by writing package.json', async () => {
   assert.equal(card.name, 'clsx');
 });
 
-it('records a plan without echoing it back into the transcript', async () => {
+it('records a plan and answers with upstream\'s exact message', async () => {
   const { events, transport } = await run([
     `*** Call: update_plan
 {"plan": [{"step": "Write App.tsx", "status": "in_progress"}, {"step": "Style it", "status": "pending"}]}
@@ -234,7 +234,17 @@ it('records a plan without echoing it back into the transcript', async () => {
   assert.equal(plan.steps.length, 2);
   assert.equal(plan.steps[0].status, 'in_progress');
 
-  assert.match(transport.conversations[1].at(-1).content, /Do not repeat it back/);
+  /*
+   * `PLAN_UPDATED_MESSAGE` in `codex-rs/core/src/tools/handlers/plan.rs` is
+   * exactly `"Plan updated"` — no counts, no instruction not to repeat it.
+   *
+   * This test used to assert a longer local string that added both. The counts
+   * were harmless; the appended "Do not repeat it back to the user" was not,
+   * because it is guidance the prompt already gives and repeating it in a tool
+   * result puts it in the transcript on every plan update, where the model then
+   * has to reconcile an instruction with an observation.
+   */
+  assert.equal(transport.conversations[1].at(-1).content, 'Plan updated');
 });
 
 it('runs an agent and surfaces its work separately from the main thread', async () => {

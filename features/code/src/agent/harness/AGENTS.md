@@ -119,6 +119,7 @@ approximated. What each one actually is:
 | **Plan mode** | `ModeKind::Plan`. A 9KB developer document, `update_plan` refused, mutation forbidden, `request_user_input` available and *blocking*, output wrapped in `<proposed_plan>`. | `overlay/collaboration-mode.ts` + the vendored document. `runtime/proposed-plan.ts` is a port of upstream's streaming parser. |
 | **Goal mode** | The `ext/goal` crate. Three tools, six statuses, a token budget, and `continue_if_idle` restarting the turn until the objective is *true*. | `runtime/goal.ts`, and the continuation loop at the bottom of `runTurn`. |
 | **Collaboration** | Multi-agent V2. Six tools, agent addresses, non-blocking spawn, unbounded nesting, `fork_turns`, a message envelope. | `runtime/collaboration.ts` + `runtime/agent-path.ts`, described by `overlay/collaboration-tools.ts`. |
+| **Skills** | `SKILL.md` folders, a prompt catalog, `$mentions`, and `skills.list` / `skills.read`. | `runtime/skills.ts` + `overlay/skills-prompt.ts`, over `@willow/core/skill-{frontmatter,library}`. |
 | **Ultra** | Not more reasoning. `client.rs` lowers it to `Max`; what it selects is `MultiAgentMode::Proactive`. | `overlay/effort.ts` + `overlay/multi-agent-mode.ts`, which holds upstream's two mode texts verbatim. |
 
 ### Why collaboration and Ultra are one story
@@ -199,11 +200,12 @@ Six tools, and the three properties that make them worth having:
   parent may name its own child relatively; anyone else needs the full path.
   `runtime/agent-path.ts` is that port, and its naming rules are strict because
   a path arrives as model-supplied text and is then used as a map key.
-- **Nesting is unbounded.** `collab_tools_enabled` only depth-limits multi-agent
-  **V1**; V2 has no limit, and both `spawn_agent`'s description and the
-  sub-agent role hint say children may spawn children. **Spark's harness gets
-  this wrong** — it strips `spawn_agent` from children, which is why its
-  `nested delegation` test fails. Do not copy it.
+- **Nesting is unbounded here.** `collab_tools_enabled` only depth-limits
+  multi-agent **V1**; V2 has no limit, and both `spawn_agent`'s description and
+  the sub-agent role hint say children may spawn children. Spark caps it at one
+  level on purpose — it runs unattended on a schedule, where an unbounded tree
+  spends tokens with nobody watching. **The two harnesses differ here
+  deliberately; do not change either to match the other.**
 - **`wait_agent` is a doorbell, not a mailbox.** It reports *that* there is
   news; the news arrives as an envelope on the next turn. A model that thinks
   otherwise summarises findings it has not received.
@@ -212,6 +214,43 @@ The concurrency cap is 4 — `DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_
 — and it is **the same at every effort**, because upstream's is one session
 config value. It briefly scaled from 1 at `none` to 4 at `ultra` here, which was
 invented and made low effort worse at a job the user had explicitly delegated.
+
+### Skills, in one screen
+
+A skill is a folder with a `SKILL.md`: YAML frontmatter (`name`, `description`,
+`metadata.short-description`) then instructions, plus whatever `references/` or
+`assets/` it ships.
+
+The harness shows the model **one line per skill** in the system prompt and
+nothing more; bodies are fetched with `skills.read`. That split is the point —
+upstream calls it progressive disclosure, and it exists because a skill can be a
+folder of documents that would cost more context than the task.
+
+- **`$` is the sigil, not `@`.** `TOOL_MENTION_SIGIL` in `mentions.rs`. The
+  linked form `[$Name](skill://id)` is what a menu inserts. Twelve shell
+  variables (`$PATH`, `$HOME`, …) are excluded, because a prompt about shell
+  config is full of them.
+- **A mention is squashed before matching.** A mention ends at the first
+  character outside `[A-Za-z0-9_:-]`, so a skill called "Brand voice" *cannot*
+  be written `$Brand voice` — only `$BrandVoice`. Both sides drop separators
+  before comparing, or upstream's own trigger rule is unsatisfiable for every
+  multi-word name.
+- **`wait_agent`'s sibling trap:** `skills.read` returns the document
+  *including* frontmatter, because the catalog text tells the model to read it
+  "completely".
+
+The parser is in `platform/core` rather than here because three surfaces need
+it. It is line-oriented rather than a YAML library, which means upstream's
+90-line `repair_frontmatter_scalar_fields` is not ported — that pass exists only
+to re-quote prose `serde_yaml` rejects (`description: Build for AWS: ECS`), and
+taking everything after the first `: ` makes the whole failure class impossible.
+
+**Where skills live is Willow's decision, not Codex's.** They are the workspace's
+`Skills/` folder, which Spark registers and owns; `platform/core/src/skill-library.ts`
+is the shared read seam that Spark's own registration always anticipated
+("workspace-level so Chat can consume the same library later"). The harness
+takes a `LibrarySkill[]` and knows nothing about any of that, the same way it
+takes `extraTools`.
 
 ## What is a port, not a copy
 

@@ -114,6 +114,23 @@ function formatAllowedModes(availableModes: ModeKind[]): string {
   return `modes: ${names.join(',')}`;
 }
 
+/**
+ * `format_mode_names`, which is **not** `format_allowed_modes`.
+ *
+ * Upstream has two of these and they differ in both separator and suffix: the
+ * allowed-modes list reads "Default or Plan mode", while the known-modes list
+ * reads "Default and Plan". Collapsing them to one helper puts the wrong
+ * sentence in `default.md`, which is a document that tells the model which
+ * modes exist — so the drift is small to read and load-bearing to the model.
+ */
+function formatModeNames(modes: ModeKind[]): string {
+  const names = modes.map((mode) => MODE_DISPLAY_NAME[mode]);
+  if (names.length === 0) return 'none';
+  if (names.length === 1) return names[0]!;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return names.join(', ');
+}
+
 /** `request_user_input_tool_description`. */
 export const requestUserInputToolDescription = (
   availableModes: ModeKind[] = REQUEST_USER_INPUT_MODES,
@@ -138,8 +155,9 @@ export const COLLABORATION_MODE_CLOSE_TAG = '</collaboration_mode>';
  */
 export function collaborationModeInstructions(mode: ModeKind): string {
   const template = mode === 'plan' ? UPSTREAM.collaborationMode.plan : UPSTREAM.collaborationMode.default;
-  const knownModeNames = COLLABORATION_MODES.map((known) => MODE_DISPLAY_NAME[known]).join(', ');
-  return template.replace(/\{\{\s*KNOWN_MODE_NAMES\s*\}\}/g, knownModeNames).trim();
+  return template
+    .replace(/\{\{\s*KNOWN_MODE_NAMES\s*\}\}/g, formatModeNames(COLLABORATION_MODES))
+    .trim();
 }
 
 /**

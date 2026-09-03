@@ -221,7 +221,7 @@ it('feeds the result back under the id the model can match', async () => {
 
 it('streams the text of every round into one reply', async () => {
   const { text } = await runTurn([TOOL_ROUND, ANSWER_ROUND]);
-  assert.equal(text, 'Updating the game now. Done — the pelican flaps now.');
+  assert.equal(text, 'Updating the game now.\n\nDone — the pelican flaps now.');
 });
 
 /*
@@ -308,7 +308,7 @@ it('resumes a paused search turn instead of ending it', async () => {
     { query: 'pelican flight speed' },
     'including the search it already ran, reassembled from its fragments',
   );
-  assert.equal(text, 'Looking that up. Done — the pelican flaps now.');
+  assert.equal(text, 'Looking that up.\n\nDone — the pelican flaps now.');
 });
 
 it('keeps the sources it found across the pause', async () => {

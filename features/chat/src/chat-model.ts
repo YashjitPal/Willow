@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
-import { profileForModel, type ProviderApiFormat, type ProviderToolPolicy } from '@willow/ai/providers/profiles';
+import { apiKeysForBinding, resolveProviderBinding, type ProviderApiFormat, type ProviderToolPolicy } from '@willow/ai/providers/profiles';
 import {
   savedInfoStore,
   savedInstructionDate,
@@ -810,6 +810,8 @@ export interface ResolvedChatModel {
   model: string;
   thinkingLevel: number;
   apiKey: string | undefined;
+  /** The rest of the bucket, tried in order if `apiKey` is rejected. */
+  apiKeyFallbacks: string[];
   baseUrl?: string;
   apiFormat?: ProviderApiFormat;
   toolPolicy?: ProviderToolPolicy;
@@ -865,7 +867,7 @@ export const resolveChatModel = ({
   }
 
   const provider = (sel?.provider ?? 'gemini') as ChatProvider;
-  const profile = profileForModel(modelConfig, provider, sel?.profileId);
+  const binding = resolveProviderBinding(modelConfig, provider, sel);
   const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
   const thinkingLevel: number = explicitThinkingLevel ?? sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
   const reasoningEffort = Array.isArray(sel?.reasoningEfforts)
@@ -880,7 +882,8 @@ export const resolveChatModel = ({
   }
 
   const keyMap = apiKeys as Record<string, string[] | undefined> | undefined;
-  const apiKey: string | undefined = keyMap?.[profile?.apiKeyId || provider]?.[0] ?? keyMap?.[provider]?.[0];
+  const bucketKeys = apiKeysForBinding(binding, provider, keyMap);
+  const apiKey: string | undefined = bucketKeys[0];
   const dummyObj = { ...sel, thinkingLevel, provider };
   // No-thinking selections add nothing to the label — see use-composer-models.
   const effortLabel = sel && !isNonThinkingEffort(dummyObj) ? getThinkingEffortLabel(dummyObj) : '';
@@ -891,11 +894,12 @@ export const resolveChatModel = ({
     model,
     thinkingLevel,
     apiKey,
+    apiKeyFallbacks: bucketKeys.slice(1),
     modelLabel,
-    baseUrl: profile?.baseUrl || modelConfig?.[provider]?.baseUrl,
-    apiFormat: profile?.apiFormat,
-    toolPolicy: profile?.toolPolicy,
-    profileId: profile?.id,
+    baseUrl: binding.baseUrl,
+    apiFormat: binding.apiFormat,
+    toolPolicy: binding.toolPolicy,
+    profileId: binding.profileId,
     reasoningEffort,
   };
 };

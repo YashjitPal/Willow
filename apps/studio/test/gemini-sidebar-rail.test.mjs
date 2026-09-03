@@ -45,6 +45,32 @@ describe('nav row selection and hover', () => {
     assert.match(codeOnly(SIDEBAR()), /active \? 'bg-\[#171717\]' : ''/);
   });
 
+  it('clears every Spark row once a settings view is on screen', () => {
+    // Spark's pages all render at `currentView === 'home'`, and the rail keeps
+    // listing them while a settings view is open. `sparkLocation` records where
+    // Spark was, not whether it is visible, so a row that reads only the location
+    // stays highlighted behind Personalization — which the Chat rows, gated on
+    // `currentView`, do not do. Every Spark row must carry the view test.
+    const s = codeOnly(SIDEBAR());
+    assert.match(s, /const isSparkWorkspaceOpen = studioExperience === 'spark' && currentView === 'home'/);
+
+    // Tasks covers three pages, so its gate wraps a parenthesised group.
+    assert.match(s, /active=\{\s*isSparkWorkspaceOpen\s*&& \(\s*currentSparkLocation\.page === 'home'/);
+    for (const page of ['schedules', 'skills', 'apps']) {
+      assert.match(
+        s,
+        new RegExp(`active=\\{isSparkWorkspaceOpen && currentSparkLocation\\.page === '${page}'\\}`),
+        `the ${page} row must test the view as well as the location`,
+      );
+    }
+
+    // The one that catches a regression whatever the rows are called.
+    assert.ok(
+      !/active=\{\s*currentSparkLocation/.test(s),
+      'a Spark row decides its indicator from the Spark location alone',
+    );
+  });
+
   it('bolds the selected label — a deliberate deviation from Gemini', () => {
     // Gemini keeps the active label at weight 400 / #e6e6e6; only the background
     // changes. The weight bump is Willow's, kept because it was asked for by name.

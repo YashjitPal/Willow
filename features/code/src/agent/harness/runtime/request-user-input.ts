@@ -67,6 +67,29 @@ export interface UserInputAnswer {
 }
 
 /**
+ * `RequestUserInputResponse`, exactly as upstream serialises it.
+ *
+ * Upstream's shape is a **map from question id to `{ answers: [...] }`** —
+ * `HashMap<String, RequestUserInputAnswer>` in
+ * `codex-rs/protocol/src/request_user_input.rs`, pinned by a round-trip test
+ * that expects `{"answers":{"confirm_path":{"answers":["yes"]}}}`.
+ *
+ * Two details are easy to get wrong and both are load-bearing, because this is
+ * the JSON the model actually reads back:
+ *
+ * - It is keyed by id, not a positional array. The model chose those ids and
+ *   the schema calls them "stable identifier for mapping answers", so a flat
+ *   list makes the mapping the model was promised its own job again.
+ * - Each answer is a **list**, because upstream questions can be multi-select.
+ *   Willow's card is single-choice, so the list always holds one entry — but
+ *   the shape stays upstream's, so a model that iterates it works either way.
+ */
+const responsePayload = (answers: UserInputAnswer[]): string =>
+  JSON.stringify({
+    answers: Object.fromEntries(answers.map((entry) => [entry.id, { answers: [entry.answer] }])),
+  });
+
+/**
  * How the harness reaches the user.
  *
  * Resolving with `null` means the request was cancelled or went unanswered,
@@ -216,22 +239,19 @@ export function makeRequestUserInputTool(
 
       /*
        * An empty answer set is a legitimate outcome, not a failure — the user
-       * dismissed the prompt. `default.md` says what to do about it: "If
-       * `request_user_input` returns no answers, continue with best judgment
-       * instead of asking again or treating the turn as blocked." The plan
-       * document says the same in its own words, so it is restated here for
-       * both modes.
+       * dismissed the prompt — and upstream reports it as an empty map with no
+       * commentary attached.
+       *
+       * An earlier version appended "The user did not answer. Continue with
+       * your best judgement…" here and attributed it to `default.md`. That
+       * sentence is not in either mode template; it was invented. The guidance
+       * it was reaching for is already in `plan.md`, which says that when a
+       * preference question goes unanswered the agent should "proceed with the
+       * recommended option and record it as an assumption in the final plan" —
+       * so the model has already read it, in upstream's own words, and does not
+       * need a paraphrase competing with it from inside a tool result.
        */
-      if (answers.length === 0) {
-        return {
-          observation:
-            JSON.stringify({ answers: [] }) +
-            '\n\nThe user did not answer. Continue with your best judgement, proceed with ' +
-            'the option you recommended, and record it as an assumption. Do not ask again.',
-        };
-      }
-
-      return { observation: JSON.stringify({ answers }) };
+      return { observation: responsePayload(answers) };
     },
   };
 }

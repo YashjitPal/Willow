@@ -77,9 +77,18 @@ const STYLE_CSS = [
   // Each paragraph or list item owns one reveal slot. Words and the item's
   // marker inherit the same delay, so no nested opacity layer can overtake an
   // earlier block or make a marker appear ahead of its text.
+  //
+  // The leaf-level `:not(.smd-settled)` is load-bearing. A word can be flagged
+  // settled while its block is not: the markdown tree reshapes between two
+  // reveal promotions (`**Item ` parses as plain text, then as `strong` once the
+  // closer lands; a `[link](url)` is text until its `)` arrives), and React
+  // re-creates the already-visible word under the new inline parent. That mount
+  // gets `.smd-settled`, whose `animation: none` below removes the fill that
+  // would have lifted this `opacity: 0` -- so without the exclusion the word
+  // stayed invisible until the root left `.smd-streaming`, then popped in.
   '.smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before,',
-  '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-w,',
-  '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-h {',
+  '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-w:not(.smd-settled),',
+  '.smd-streaming .smd-reveal-block:not(.smd-settled) .smd-h:not(.smd-settled) {',
   '  opacity: 0;',
   '}',
   '.smd-streaming .smd-settled { animation: none; }',

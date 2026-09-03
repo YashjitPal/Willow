@@ -20,6 +20,7 @@ import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { experimentsStore, type ExperimentId } from '@willow/core/experiments-store';
+import { locationStore, requestUserLocation } from '@willow/core/location-store';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
@@ -340,6 +341,34 @@ const SidebarGlyph: React.FC<{ name: string; className?: string }> = ({ name, cl
 const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const experiments = useStore(experimentsStore);
+  const { location, status: locationStatus, error: locationError } = useStore(locationStore);
+  /*
+   * Both lines of the location row, for every state it has.
+   *
+   * "Not set" is the honest default and the one a fresh profile sees: Willow has
+   * no location until the user grants one, and the second line says so rather
+   * than leaving a bare heading that reads like a failure.
+   */
+  const locationRow = useMemo(() => {
+    if (locationStatus === 'locating') {
+      return { title: 'Finding your location…', detail: 'Waiting for this device', known: false };
+    }
+    if (locationStatus === 'denied' || locationStatus === 'unavailable') {
+      return {
+        title: locationStatus === 'denied' ? 'Location not shared' : 'Location unavailable',
+        detail: locationError ?? '',
+        known: false,
+      };
+    }
+    if (location) {
+      return {
+        title: location.label,
+        detail: location.approximate ? 'Approximate, from this device' : 'From this device',
+        known: true,
+      };
+    }
+    return { title: 'Location not set', detail: 'Willow does not know where you are', known: false };
+  }, [location, locationStatus, locationError]);
   const items = useMemo(
     () => GEMINI_SETTINGS_ITEMS.filter((item) => !item.requiresExperiment || experiments[item.requiresExperiment]),
     [experiments],
@@ -546,6 +575,14 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
         * Rows: about-item 54px tall, padding 8px; update-item 36px, padding 0 8px;
         * both radius 12px, text 13px. Name is --gem-sys-color--primary (#a8c7fa),
         * source #e6e6e6.
+        *
+        * The measurements are Gemini's; the CONTENT is not. Gemini reads a city off
+        * the account's saved Maps places, which Willow has no access to, so these
+        * rows are driven by `location-store` and start empty. They previously
+        * displayed a hardcoded "Kolkata, West Bengal, India / Based on your places
+        * (Home)" — copied in with the layout — which every install showed no matter
+        * where its user was. The accent colour is now applied only to a real fix, so
+        * the empty state does not read as data.
         */}
       <div role="menuitem" className="flex h-[54px] items-center overflow-hidden rounded-xl p-2 text-[13px]">
         <span
@@ -559,15 +596,21 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           circle
         </span>
         <span className="min-w-0 leading-[17px]">
-          <span className="block truncate text-[#a8c7fa]">Kolkata, West Bengal, India</span>
-          <span className="block truncate text-[#e6e6e6]">Based on your places (Home)</span>
+          <span className={`block truncate ${locationRow.known ? 'text-[#a8c7fa]' : 'text-[#e6e6e6]'}`}>
+            {locationRow.title}
+          </span>
+          <span className="block truncate text-[#e6e6e6]">{locationRow.detail}</span>
         </span>
       </div>
       <button
         type="button"
         role="menuitem"
-        aria-label="Update location"
-        className="flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left text-[13px] text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]"
+        aria-label={location ? 'Update location' : 'Set location'}
+        disabled={locationStatus === 'locating'}
+        // Deliberately does not close the menu: the row above is what changes,
+        // and dismissing it would hide the permission outcome the click asked for.
+        onClick={() => { void requestUserLocation(); }}
+        className="flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left text-[13px] text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
       >
         {/* Hidden, not absent: it reserves the 9px + 12px the row above spends on its dot. */}
         <span
@@ -575,7 +618,9 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           className="mr-3 inline-flex h-[9px] w-[9px] shrink-0 items-center justify-center text-[9px] leading-[9px]"
           style={{ visibility: 'hidden' }}
         />
-        <span className="min-w-0 truncate">Update location</span>
+        <span className="min-w-0 truncate">
+          {locationStatus === 'locating' ? 'Locating…' : location ? 'Update location' : 'Set location'}
+        </span>
       </button>
       </div>
 
@@ -797,6 +842,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useLocalFS();
 
   const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
+
+  /*
+   * Every Spark page renders at `currentView === 'home'`, and the rail keeps
+   * listing them while a settings view such as Personalization is open. So a
+   * Spark row has to test the view as well as the Spark location: reading the
+   * location alone left the last-visited row highlighted behind Settings, since
+   * `sparkLocation` remembers where Spark was rather than whether it is on
+   * screen. The Chat rows already gate on `currentView` and so clear correctly.
+   */
+  const isSparkWorkspaceOpen = studioExperience === 'spark' && currentView === 'home';
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [codeChatVersion, setCodeChatVersion] = useState(0);
@@ -1767,9 +1822,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             symbol="edit_rectangle"
             isCollapsed={isCollapsed}
             active={
-              currentSparkLocation.page === 'home'
-              || currentSparkLocation.page === 'all-tasks'
-              || currentSparkLocation.page === 'task'
+              isSparkWorkspaceOpen
+              && (
+                currentSparkLocation.page === 'home'
+                || currentSparkLocation.page === 'all-tasks'
+                || currentSparkLocation.page === 'task'
+              )
             }
             onClick={() => {
               onStudioExperienceChange('spark');
@@ -1788,7 +1846,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             label="Schedules"
             symbol="schedule"
             isCollapsed={isCollapsed}
-            active={currentSparkLocation.page === 'schedules'}
+            active={isSparkWorkspaceOpen && currentSparkLocation.page === 'schedules'}
             onClick={() => {
               onStudioExperienceChange('spark');
               onViewChange('home');
@@ -1799,7 +1857,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             label="Skills"
             symbol="contract"
             isCollapsed={isCollapsed}
-            active={currentSparkLocation.page === 'skills'}
+            active={isSparkWorkspaceOpen && currentSparkLocation.page === 'skills'}
             onClick={() => {
               onStudioExperienceChange('spark');
               onViewChange('home');
@@ -1810,7 +1868,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             label="Connected apps"
             symbol="extension"
             isCollapsed={isCollapsed}
-            active={currentSparkLocation.page === 'apps'}
+            active={isSparkWorkspaceOpen && currentSparkLocation.page === 'apps'}
             onClick={() => {
               onStudioExperienceChange('spark');
               onViewChange('home');

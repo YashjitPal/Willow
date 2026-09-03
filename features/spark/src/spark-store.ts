@@ -1,4 +1,5 @@
 import { atom, computed } from 'nanostores';
+import { publishSkills } from '@willow/core/skill-library';
 import type {
   SparkConnectedAppId,
   SparkCustomApp,
@@ -15,6 +16,9 @@ import type {
   SparkActivityEntry,
   SparkPlanStep,
   SparkSubAgent,
+  SparkPendingQuestion,
+  SparkQuestion,
+  SparkQuestionDraft,
 } from './spark-types';
 
 export type {
@@ -33,6 +37,10 @@ export type {
   SparkActivityEntry,
   SparkPlanStep,
   SparkSubAgent,
+  SparkPendingQuestion,
+  SparkQuestion,
+  SparkQuestionOption,
+  SparkQuestionDraft,
 } from './spark-types';
 
 export interface SparkState {
@@ -136,6 +144,33 @@ const createInitialState = (): SparkState => ({
 
 export const sparkState = atom<SparkState>(createInitialState());
 
+/*
+ * Mirror the skill collection into the shared library.
+ *
+ * Spark owns skills — the editor UI, the CRUD above, and the
+ * `registerSyncedFolder('skills', 'Skills', …)` registration in `register.ts`,
+ * whose own comment says the folder is "workspace-level so Chat can consume the
+ * same library later". This is that consumption seam, and the Code tab's Agent
+ * harness is its first user.
+ *
+ * Publishing rather than moving the store keeps one owner: the synced-folder
+ * registry rejects a second registration of `Skills/`, so a reader must not try
+ * to own it. `publishSkills` skips identical writes, which matters because this
+ * subscription fires on *every* Spark state change — task edits, run progress,
+ * schedule ticks — and re-setting the array would wake every reader each time.
+ */
+sparkState.subscribe((state) => {
+  publishSkills(
+    state.skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      instructions: skill.instructions,
+      enabled: skill.enabled,
+    })),
+  );
+});
+
 // Set only after the persisted Spark snapshot has been read and published.
 // The customise pages use this instead of a presentation-only timeout.
 export const sparkHydrationScope = atom<string | null>(null);
@@ -165,6 +200,187 @@ export const sparkLocation = computed(sparkState, ({ location }) => location);
 export const sparkTasks = computed(sparkState, ({ tasks }) => tasks);
 export const sparkSchedules = computed(sparkState, ({ schedules }) => schedules);
 export const sparkSkills = computed(sparkState, ({ skills }) => skills);
+
+/* ---------------------------------------------------------------------- */
+/* request_user_input                                                     */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * Live questions, keyed by task.
+ *
+ * A separate atom rather than a field on `SparkTask`, for the reason given on
+ * `SparkPendingQuestion`: this holds the tool's promise resolver, and
+ * `sparkState` is persisted. Keyed by task because Spark can have more than one
+ * task running, and each gets its own composer.
+ */
+const pendingResolvers = new Map<string, (answers: SparkQuestionAnswer[] | null) => void>();
+
+export const sparkPendingQuestions = atom<Record<string, SparkPendingQuestion>>({});
+
+export interface SparkQuestionAnswer {
+  id: string;
+  answer: string;
+}
+
+/** First option pre-selected, as the Codex app does — the model is told to put the recommended one first. */
+const initialDrafts = (questions: SparkQuestion[]): SparkQuestionDraft[] =>
+  questions.map((question) => ({
+    optionLabel: question.options[0]?.label ?? null,
+    freeformText: '',
+  }));
+
+/**
+ * Tells the user a task is waiting on them.
+ *
+ * The Codex app has a toggle for this — "Show alerts when input is needed to
+ * continue" — and it matters more in Spark than it does there, because Spark
+ * runs tasks on a schedule. A question raised by a 3am run is otherwise
+ * invisible until someone happens to open the task.
+ *
+ * Two layers, and the first is the one that always works:
+ *
+ * 1. **The unread marker.** `hasUnreadCompletion` already paints a dot on the
+ *    task row, and it needs no permission. It is set explicitly here because
+ *    `updateSparkTask` only derives it for `complete`.
+ * 2. **An OS notification**, when the user has already granted permission.
+ *    Permission is deliberately *not* requested: a prompt that appears because
+ *    a background task had a question is the kind of thing that gets
+ *    permission denied permanently.
+ */
+const announcePendingQuestion = (taskId: string, question: SparkQuestion | undefined): void => {
+  updateSparkTask(taskId, { hasUnreadCompletion: true });
+
+  try {
+    const api = globalThis.Notification;
+    if (typeof api !== 'function' || api.permission !== 'granted') return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+    const task = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
+    // eslint-disable-next-line no-new -- the handle is not needed; the OS owns it.
+    new api(task?.title || 'Spark needs your input', {
+      body: question?.question || 'A task is waiting on your answer.',
+      tag: `spark-question-${taskId}`,
+    });
+  } catch {
+    // Notification can throw in embedded or permission-restricted contexts, and
+    // a failed alert must never take the turn down with it.
+  }
+};
+
+const clearPendingQuestion = (taskId: string): void => {
+  pendingResolvers.delete(taskId);
+  const next = { ...sparkPendingQuestions.get() };
+  delete next[taskId];
+  sparkPendingQuestions.set(next);
+};
+
+/**
+ * The sink handed to the harness for one task.
+ *
+ * Resolves exactly once and always clears the entry: a stranded question would
+ * leave the task's composer showing a prompt nobody can answer, with the turn
+ * behind it waiting forever.
+ */
+export const createSparkQuestionSink = (taskId: string) =>
+  (request: { questions: SparkQuestion[]; isBlocking: boolean }): Promise<SparkQuestionAnswer[] | null> =>
+    new Promise((resolve) => {
+      let settled = false;
+      pendingResolvers.set(taskId, (answers) => {
+        if (settled) return;
+        settled = true;
+        clearPendingQuestion(taskId);
+        resolve(answers);
+      });
+      sparkPendingQuestions.set({
+        ...sparkPendingQuestions.get(),
+        [taskId]: {
+          taskId,
+          questions: request.questions,
+          blocking: request.isBlocking,
+          index: 0,
+          drafts: initialDrafts(request.questions),
+        },
+      });
+      // The task is waiting on the user, and the task list should say so.
+      updateSparkTask(taskId, { status: 'needs-input' });
+      announcePendingQuestion(taskId, request.questions[0]);
+    });
+
+/** Moves the stepper. Drafts are preserved, so stepping back is lossless. */
+export const stepSparkQuestion = (taskId: string, delta: number): void => {
+  const pending = sparkPendingQuestions.get()[taskId];
+  if (!pending) return;
+  const index = Math.max(0, Math.min(pending.questions.length - 1, pending.index + delta));
+  if (index === pending.index) return;
+  sparkPendingQuestions.set({
+    ...sparkPendingQuestions.get(),
+    [taskId]: { ...pending, index },
+  });
+};
+
+/**
+ * Records a draft for the question on screen.
+ *
+ * Selecting an option clears the freeform text and vice versa: upstream treats
+ * them as alternatives, and the Codex app derives "freeform is active" from
+ * exactly this — no option selected *and* text present.
+ */
+export const draftSparkQuestionAnswer = (
+  taskId: string,
+  draft: Partial<SparkQuestionDraft>,
+): void => {
+  const pending = sparkPendingQuestions.get()[taskId];
+  if (!pending) return;
+  const drafts = pending.drafts.map((entry, position) => {
+    if (position !== pending.index) return entry;
+    if (draft.optionLabel !== undefined) return { optionLabel: draft.optionLabel, freeformText: '' };
+    if (draft.freeformText !== undefined) {
+      return { optionLabel: null, freeformText: draft.freeformText };
+    }
+    return entry;
+  });
+  sparkPendingQuestions.set({
+    ...sparkPendingQuestions.get(),
+    [taskId]: { ...pending, drafts },
+  });
+};
+
+/**
+ * The three exits, which upstream distinguishes and the Codex app gives
+ * separate handlers for (`onSubmit`, `onSkip`, `onEscapeDismiss`).
+ *
+ * - **Submit** returns the answers.
+ * - **Skip** returns an empty set, which the tool reports as `{"answers":{}}` —
+ *   "the user declined to answer, carry on".
+ * - **Dismiss** returns `null`, which the tool reports as "cancelled before
+ *   receiving a response". Different from skipping, and the model is meant to
+ *   read it differently.
+ */
+export const submitSparkQuestion = (taskId: string): void => {
+  const pending = sparkPendingQuestions.get()[taskId];
+  const resolve = pendingResolvers.get(taskId);
+  if (!pending || !resolve) return;
+  const answers = pending.questions.flatMap((question, position) => {
+    const draft = pending.drafts[position];
+    const value = draft?.optionLabel ?? draft?.freeformText.trim() ?? '';
+    return value ? [{ id: question.id, answer: value }] : [];
+  });
+  updateSparkTask(taskId, { status: 'running' });
+  resolve(answers);
+};
+
+export const skipSparkQuestion = (taskId: string): void => {
+  const resolve = pendingResolvers.get(taskId);
+  if (!resolve) return;
+  updateSparkTask(taskId, { status: 'running' });
+  resolve([]);
+};
+
+export const dismissSparkQuestion = (taskId: string): void => {
+  const resolve = pendingResolvers.get(taskId);
+  if (!resolve) return;
+  updateSparkTask(taskId, { status: 'running' });
+  resolve(null);
+};
 
 const cleanSingleLine = (value: string) => value.replace(/\s+/g, ' ').trim();
 

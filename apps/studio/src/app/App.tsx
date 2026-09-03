@@ -26,7 +26,7 @@ import { sparkLocation } from '@willow/spark/spark-store';
 import { startNotebookChat } from '@willow/notebooks/notebook-chat-store';
 import type { StudioExperience } from '@willow/core/types';
 import { experimentsStore, isExperimentEnabled } from '@willow/core/experiments-store';
-import { createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
+import { PROFILE_SCHEMA_VERSION, createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
 import { CHROME_NATIVE_TRANSCRIPTION_MODEL } from '@willow/ai/transcription';
 import {
   MODEL_CATALOG_UPDATED_EVENT,
@@ -513,6 +513,10 @@ const App: React.FC = () => {
       spacexai: 'https://api.x.ai/v1',
       zhipuai: 'https://open.bigmodel.cn/api/paas/v4',
     }),
+    // Stamped, so the normalizer below reads this state as current. Without it
+    // every boot looks unversioned and the one-time tool-policy migration runs
+    // again, overwriting the two values a user is allowed to pick by hand.
+    profileSchemaVersion: PROFILE_SCHEMA_VERSION,
     resources: [],
     modelOrder: [] as string[],
   };
@@ -575,6 +579,7 @@ const App: React.FC = () => {
             const normalizedProfiles = normalizeProviderProfileState({
               profiles: Array.isArray(parsed.providerProfiles) ? parsed.providerProfiles : parsed.profiles,
               resources: parsed.resources,
+              schemaVersion: parsed.profileSchemaVersion,
             }, {
             gemini: 'https://generativelanguage.googleapis.com',
             openai: 'https://api.openai.com/v1',
@@ -586,6 +591,7 @@ const App: React.FC = () => {
             return {
               providerProfiles: normalizedProfiles.profiles,
               resources: normalizedProfiles.resources,
+              profileSchemaVersion: normalizedProfiles.schemaVersion,
             };
           })(),
         };

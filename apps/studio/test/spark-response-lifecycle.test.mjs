@@ -139,6 +139,31 @@ it('keeps an active work phase visible after response text has started', () => {
   );
 });
 
+it('collapses a run of same-label timeline tools that no work-log line interrupts', () => {
+  // A model firing several searches back to back drew one "Google Search" row
+  // per call. Comparing the rendered label subsumes the file-tool rule this
+  // replaced, since every file tool already renders as "Files".
+  assert.match(
+    detailSource,
+    /entry\.kind === 'tool'\s*&& last\?\.kind === 'tool'\s*&& getTimelineToolLabel\(last\.entry\.tool\) === getTimelineToolLabel\(entry\.tool\)/,
+  );
+  assert.doesNotMatch(detailSource, /isFileTimelineTool\(last\.entry\.tool\)/);
+  assert.match(
+    detailSource,
+    /if \(tool && previousTool && getTimelineToolLabel\(tool\) === getTimelineToolLabel\(previousTool\)\) return;/,
+  );
+
+  // Adjacency is the whole test, so narration has to be grouped before the
+  // collapse runs: a work-log line between two searches leaves a narration
+  // group last, and the next search is no longer adjacent to a tool row.
+  const groupStart = detailSource.indexOf('const groupSparkActivity =');
+  const narrationBranch = detailSource.indexOf("kind: 'narration', entries: [entry]", groupStart);
+  const collapseBranch = detailSource.indexOf('getTimelineToolLabel(last.entry.tool)', groupStart);
+  assert.notEqual(groupStart, -1);
+  assert.notEqual(narrationBranch, -1);
+  assert.ok(narrationBranch < collapseBranch);
+});
+
 it('ends the planning phase when the plan call completes', () => {
   assert.match(
     workspaceSource,

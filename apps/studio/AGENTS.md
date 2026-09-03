@@ -306,19 +306,32 @@ and the composer's send button — keep them distinct, or a button reads as anot
 icon tile. The defaults in `ModelsApiPage.css` are Willow Green's; do not
 hardcode a hex anywhere else in that file.
 
-**They must not each own the keys.** Three pieces are therefore module-scope in
+**They must not each own the keys.** Two pieces are therefore module-scope in
 `settings/provider-settings.ts`, not component state:
 
 - the `$providerState` atom both surfaces render from,
-- the Firestore load, single-flighted per uid,
-- the 400ms debounced save.
+- the Firestore eviction, single-flighted per uid.
 
 `SettingsModal` stays mounted after its first open (the `hasOpenedSettings` latch
 in `App.tsx`), so both surfaces are alive at once. Two copies of this would mean
-two loads of `users/{uid}`, a key typed on one surface invisible on the other, and
-two debounced writers racing on one field — where the loser's 400ms-old snapshot
-silently overwrites the key just typed. `useProviderSettings` is only a
-subscription; call it from as many surfaces as you like.
+two loads of `users/{uid}` and a key typed on one surface invisible on the other.
+`useProviderSettings` is only a subscription; call it from as many surfaces as you
+like.
+
+**There is no debounce.** This section used to describe a "400ms debounced save"
+and two writers racing over a 400ms-old snapshot. Neither has ever existed in the
+file — `updateProviderConfig` writes `$providerState`, both localStorage keys and
+`modelConfig` synchronously on every keystroke. What actually prevents the race is
+that all three writers pass an updater function to `setModelConfig` rather than a
+computed object, so each one reads the latest state. Keep it that way; a debounce
+added later would reintroduce exactly the hazard the old text imagined.
+
+**The key field holds a list.** `splitApiKeys` splits it on commas and newlines at
+the point it is cached, so the bucket is a real array — it used to store the whole
+string as one element, which is how `"sk-aaa, sk-bbb"` came to be sent verbatim as
+a single credential. `streamChat` then tries them in order, and only on an auth
+rejection arriving before the first token. Both halves are needed for the hint
+under the field to be true.
 
 The offered-model roster and its pricing table are shared for the same reason, in
 `settings/provider-models.ts`: a model added on either surface lands in the one
