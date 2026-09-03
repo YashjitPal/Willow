@@ -25,16 +25,28 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
-const UPSTREAM_DIR = path.join(
-  REPO_ROOT,
-  'features',
-  'code',
-  'src',
-  'agent',
-  'harness',
-  'upstream'
-);
-const MANIFEST_PATH = path.join(UPSTREAM_DIR, 'MANIFEST.json');
+
+/**
+ * Every harness that vendors upstream, in priority order.
+ *
+ * There are two, because the Code tab's harness and Spark's are separate forks
+ * that each compose the prompt themselves. They must be pinned to the *same*
+ * commit — a Spark agent running an older Codex prompt than the Code agent is
+ * exactly the kind of silent divergence this script exists to prevent.
+ *
+ * This used to point at Code's folder alone, and Spark's copy was made by hand.
+ * The predictable happened: Code moved to ten vendored files and Spark still had
+ * five, so Spark's Plan mode had no mode template to compose. Writing every
+ * directory from one list is what stops that recurring.
+ *
+ * The first entry owns the canonical `MANIFEST.json`; the rest receive an
+ * identical copy, and `check()` verifies all of them.
+ */
+const UPSTREAM_DIRS = [
+  path.join(REPO_ROOT, 'features', 'code', 'src', 'agent', 'harness', 'upstream'),
+  path.join(REPO_ROOT, 'features', 'spark', 'src', 'harness', 'upstream'),
+];
+const MANIFEST_PATH = path.join(UPSTREAM_DIRS[0], 'MANIFEST.json');
 
 const GITHUB_REPO = 'openai/codex';
 const UA = { 'User-Agent': 'willow-codex-sync' };
@@ -103,8 +115,22 @@ const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
 const args = process.argv.slice(2);
 const wantsUpdate = args.includes('--update');
+
+/**
+ * The ref to vendor, if one was named.
+ *
+ * A bare positional counts as well as `--ref <tag>`, because **npm eats the
+ * flag**. `npm run codex:update -- --ref rust-v0.147.0` — the form this repo's
+ * docs give — reaches the script as `--update rust-v0.147.0`, with npm warning
+ * that it treated `--ref` as its own unknown config. Reading only `--ref` meant
+ * that command silently vendored *latest* instead of the tag asked for, which
+ * is the worst possible outcome for a pin: it moves without being asked to.
+ */
 const refIndex = args.indexOf('--ref');
-const explicitRef = refIndex !== -1 ? args[refIndex + 1] : null;
+const explicitRef =
+  (refIndex !== -1 ? args[refIndex + 1] : null)
+  ?? args.find((arg) => /^rust-v\d/.test(arg))
+  ?? null;
 
 async function getJson(url) {
   const response = await fetch(url, { headers: UA });
@@ -147,11 +173,42 @@ async function update() {
   const { ref, commit } = await resolveRef();
   console.log(`Vendoring ${GITHUB_REPO} @ ${ref} (${commit.slice(0, 12)})`);
 
-  await mkdir(UPSTREAM_DIR, { recursive: true });
+  /*
+   * Fetch everything before touching the disk.
+   *
+   * This used to clear the vendored folders first and fetch second, which meant
+   * a single moved path took out every harness and left the repo with no
+   * vendored prompt at all — the harness cannot compose a system prompt without
+   * it, so the app was broken until someone restored from git. And a moved path
+   * is not an edge case: it is the *expected* failure whenever the pin moves,
+   * and it is the one this script is designed to report.
+   *
+   * Fetching into memory first makes the operation all-or-nothing. A 404 now
+   * costs a re-run rather than a `git checkout`.
+   */
+  const fetched = [];
+  for (const item of TRACKED) {
+    const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/${commit}/${item.upstream}`;
+    try {
+      const text = await getText(url);
+      fetched.push({ item, text });
+      console.log(`  got  ${item.local}  (${Buffer.byteLength(text, 'utf8')} bytes)`);
+    } catch (error) {
+      console.error(`  FAIL ${item.upstream}`);
+      console.error(`       ${error.message}`);
+      console.error(
+        '       The path likely moved upstream. Locate it in the new tree and\n' +
+          '       update TRACKED in this script, then re-run.\n' +
+          '       Nothing was written; the vendored folders are untouched.'
+      );
+      process.exitCode = 2;
+      return;
+    }
+  }
 
   /*
-   * Clear previously vendored files so a path that disappears upstream does not
-   * linger and quietly keep feeding the harness stale text.
+   * Now clear, so a path that disappears upstream does not linger and quietly
+   * keep feeding the harness stale text.
    *
    * `KEEP` is Willow's own files in that folder. `.gitattributes` is not
    * optional: it carries `* -text`, which is what stops git rewriting LF to
@@ -160,32 +217,21 @@ async function update() {
    * vendored file rather than a missing exemption.
    */
   const KEEP = new Set(['AGENTS.md', '.gitattributes']);
-  for (const entry of existsSync(UPSTREAM_DIR) ? await readdir(UPSTREAM_DIR) : []) {
-    if (KEEP.has(entry)) continue;
-    await rm(path.join(UPSTREAM_DIR, entry), { recursive: true, force: true });
+  for (const dir of UPSTREAM_DIRS) {
+    await mkdir(dir, { recursive: true });
+    for (const entry of existsSync(dir) ? await readdir(dir) : []) {
+      if (KEEP.has(entry)) continue;
+      await rm(path.join(dir, entry), { recursive: true, force: true });
+    }
   }
 
   const files = [];
-  for (const item of TRACKED) {
-    const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/${commit}/${item.upstream}`;
-    let text;
-    try {
-      text = await getText(url);
-    } catch (error) {
-      console.error(`  FAIL ${item.upstream}`);
-      console.error(`       ${error.message}`);
-      console.error(
-        '       The path likely moved upstream. Locate it in the new tree and\n' +
-          '       update TRACKED in this script, then re-run.'
-      );
-      process.exitCode = 2;
-      return;
+  for (const { item, text } of fetched) {
+    // Written verbatim, into every harness. Normalising line endings here would
+    // change the string the model actually receives.
+    for (const dir of UPSTREAM_DIRS) {
+      await writeFile(path.join(dir, item.local), text, 'utf8');
     }
-
-    // Written verbatim. Normalising line endings here would change the string
-    // the model actually receives.
-    const target = path.join(UPSTREAM_DIR, item.local);
-    await writeFile(target, text, 'utf8');
     files.push({
       upstream: item.upstream,
       local: item.local,
@@ -193,7 +239,7 @@ async function update() {
       bytes: Buffer.byteLength(text, 'utf8'),
       sha256: sha256(Buffer.from(text, 'utf8')),
     });
-    console.log(`  ok   ${item.local}  (${Buffer.byteLength(text, 'utf8')} bytes)`);
+    console.log(`  ok   ${item.local}`);
   }
 
   const manifest = {
@@ -207,8 +253,12 @@ async function update() {
     files,
   };
 
-  await writeFile(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  console.log(`\nWrote ${path.relative(REPO_ROOT, MANIFEST_PATH)}`);
+  const serialised = `${JSON.stringify(manifest, null, 2)}\n`;
+  for (const dir of UPSTREAM_DIRS) {
+    const target = path.join(dir, 'MANIFEST.json');
+    await writeFile(target, serialised, 'utf8');
+    console.log(`\nWrote ${path.relative(REPO_ROOT, target)}`);
+  }
   console.log(
     '\nNext: run `npm run codex:check`, then review overlay anchors in\n' +
       'features/code/src/agent/harness/overlay/prompt-overlay.ts.'
@@ -226,23 +276,48 @@ async function check() {
   console.log(`Pinned to ${manifest.ref} (${manifest.commit.slice(0, 12)})`);
 
   let drifted = 0;
-  for (const file of manifest.files) {
-    const target = path.join(UPSTREAM_DIR, file.local);
-    if (!existsSync(target)) {
-      console.error(`  MISSING  ${file.local}`);
-      drifted += 1;
-      continue;
-    }
-    const actual = sha256(await readFile(target));
-    if (actual !== file.sha256) {
-      console.error(`  EDITED   ${file.local}`);
-      console.error(
-        '           Vendored files are byte-for-byte upstream. Move this change\n' +
-          '           into ../overlay/ and restore the file with --update.'
-      );
+  for (const dir of UPSTREAM_DIRS) {
+    console.log(`\n${path.relative(REPO_ROOT, dir)}`);
+
+    /*
+     * Every harness carries an identical copy of the manifest, so a fork left
+     * on an older pin is caught here rather than at runtime. This is the check
+     * that would have reported Spark sitting on five vendored files while Code
+     * had ten.
+     */
+    const localManifestPath = path.join(dir, 'MANIFEST.json');
+    if (!existsSync(localManifestPath)) {
+      console.error('  MISSING  MANIFEST.json');
       drifted += 1;
     } else {
-      console.log(`  ok       ${file.local}`);
+      const local = JSON.parse(await readFile(localManifestPath, 'utf8'));
+      if (local.commit !== manifest.commit) {
+        console.error(
+          `  PIN      MANIFEST.json is at ${local.ref} (${String(local.commit).slice(0, 12)}), ` +
+            `canonical is ${manifest.ref} (${manifest.commit.slice(0, 12)})`
+        );
+        drifted += 1;
+      }
+    }
+
+    for (const file of manifest.files) {
+      const target = path.join(dir, file.local);
+      if (!existsSync(target)) {
+        console.error(`  MISSING  ${file.local}`);
+        drifted += 1;
+        continue;
+      }
+      const actual = sha256(await readFile(target));
+      if (actual !== file.sha256) {
+        console.error(`  EDITED   ${file.local}`);
+        console.error(
+          '           Vendored files are byte-for-byte upstream. Move this change\n' +
+            '           into ../overlay/ and restore the file with --update.'
+        );
+        drifted += 1;
+      } else {
+        console.log(`  ok       ${file.local}`);
+      }
     }
   }
 

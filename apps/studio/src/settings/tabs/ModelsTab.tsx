@@ -16,6 +16,7 @@ import {
   SPACEXAI_MODELS,
   getConfiguredThinkingLabel,
   getModelPricing,
+  toolPolicyHint,
   type ProviderModelOption,
 } from '../provider-models';
 
@@ -149,7 +150,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     const modelId = customModelDraft.modelId.trim();
     if (!name || !modelId) return;
     const profileId = DEFAULT_PROFILE_IDS[managingProvider as keyof typeof DEFAULT_PROFILE_IDS];
-    const profile = providerProfiles.find((candidate: any) => candidate.id === profileId);
     const reasoningEfforts = Array.from(new Map(customReasoningEfforts
       .map((effort) => ({
         id: `${modelId}-effort-${Number(effort.level)}`,
@@ -182,9 +182,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
             effortLabel: defaultEffort?.label,
             reasoningEfforts,
             capabilities,
-            baseUrl: profile?.baseUrl,
-            apiFormat: profile?.apiFormat,
-            toolPolicy: profile?.toolPolicy,
+            /* `profileId` above is the whole binding. Copying the profile's
+               baseUrl/apiFormat/toolPolicy onto the model froze them at the moment
+               it was added, so editing the dropdowns afterwards changed the screen
+               and not the request. The profile is read live now. */
           },
         ],
       },
@@ -447,6 +448,16 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 </select>
               </div>
             </div>
+            <p className="text-[11px] text-zinc-500">
+              {toolPolicyHint(
+                managingProvider as ProviderId,
+                providerProfiles.find((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider])?.apiFormat
+                  || defaultApiFormatForProvider(managingProvider as ProviderId),
+                providerProfiles.find((profile: any) => profile.id === DEFAULT_PROFILE_IDS[managingProvider])?.toolPolicy
+                  || defaultToolPolicyForProvider(managingProvider as ProviderId),
+                Boolean(providerState.gemini.apiKey.trim()),
+              )}
+            </p>
           </div>
           <p className="text-[12px] text-zinc-500 mt-4">
             Keys are stored on this device only. They are never sent to Willow, and they go straight from your browser

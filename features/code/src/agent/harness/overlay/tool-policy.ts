@@ -40,7 +40,15 @@ export type ToolId =
   | 'followup_task'
   | 'wait_agent'
   | 'interrupt_agent'
-  | 'list_agents';
+  | 'list_agents'
+  /**
+   * Skills, namespaced as upstream namespaces them
+   * (`SKILLS_NAMESPACE = "skills"`). The dotted names are the ones upstream's
+   * own catalog text tells the model to call — `skills.read({"package": …})` —
+   * so keeping them means that guidance stays true.
+   */
+  | 'skills.list'
+  | 'skills.read';
 
 export interface DeniedTool {
   /** Names the model is likely to try, including upstream's own spellings. */
@@ -84,7 +92,18 @@ export const ALLOWED_TOOLS: ToolId[] = [
   'wait_agent',
   'interrupt_agent',
   'list_agents',
+  'skills.list',
+  'skills.read',
 ];
+
+/**
+ * The two skill tools, offered only when the library has something in it.
+ *
+ * Withheld on an empty library rather than left in place returning nothing: the
+ * catalog section is also absent then, so a model offered `skills.read` with no
+ * catalog would have nothing to pass it.
+ */
+export const SKILL_TOOLS: ToolId[] = ['skills.list', 'skills.read'];
 
 /** The three goal tools, as one group — they are only ever offered together. */
 export const GOAL_TOOLS: ToolId[] = ['get_goal', 'create_goal', 'update_goal'];
@@ -98,8 +117,12 @@ export const GOAL_TOOLS: ToolId[] = ['get_goal', 'create_goal', 'update_goal'];
  * subagents" — and repeated in the sub-agent role hint. `collab_tools_enabled`
  * only applies a depth limit under multi-agent **V1**; V2 has none.
  *
- * Spark's harness gets this wrong today: it strips `spawn_agent` from children,
- * which is why its `nested delegation` test fails. Do not copy that.
+ * Spark's harness caps delegation at one level by withholding `spawn_agent`
+ * from children. That is a deliberate product decision there, not a defect, and
+ * it is the right one for a surface that runs unattended on a schedule — an
+ * unbounded tree spending tokens with nobody watching is a different risk from
+ * one a user is sitting in front of. The two harnesses differ here on purpose;
+ * do not "fix" either to match the other.
  */
 export const COLLABORATION_TOOLS: ToolId[] = [
   'spawn_agent',
@@ -127,10 +150,13 @@ export const COLLABORATION_TOOLS: ToolId[] = [
 export function toolsForTurn(options: {
   mode: 'plan' | 'default';
   goalActive: boolean;
+  /** True when the skill library has at least one enabled skill. */
+  skillsAvailable?: boolean;
 }): ToolId[] {
   return ALLOWED_TOOLS.filter((tool) => {
     if (tool === 'request_user_input') return options.mode === 'plan';
     if (GOAL_TOOLS.includes(tool)) return options.goalActive;
+    if (SKILL_TOOLS.includes(tool)) return options.skillsAvailable === true;
     return true;
   });
 }
@@ -181,6 +207,23 @@ export function refusalFor(toolName: string): string | null {
   return null;
 }
 
+/**
+ * `mcp__<server>__<tool>`, upstream's flattened MCP tool name.
+ *
+ * Matched by prefix rather than listed, because the set is whatever the user
+ * connected and is not knowable at build time. Kept in step with
+ * `MCP_TOOL_PREFIX`/`MCP_TOOL_DELIMITER` in `@willow/ai/mcp/mcp-protocol`, and
+ * duplicated as a literal here so this module stays free of an import into the
+ * MCP subsystem — the policy has no business depending on the transport.
+ */
+const MCP_TOOL_NAME = /^mcp__[^_]/;
+
+export const isMcpTool = (toolName: string): boolean => MCP_TOOL_NAME.test(toolName);
+
 export function isAllowed(toolName: string): toolName is ToolId {
+  // An MCP tool is allowed if a server offered it. Whether it is *registered*
+  // is decided per turn by what is connected, and `runCall` reports an
+  // unregistered one as unknown — which is the truth: the server is gone.
+  if (isMcpTool(toolName)) return true;
   return (ALLOWED_TOOLS as string[]).includes(toolName);
 }

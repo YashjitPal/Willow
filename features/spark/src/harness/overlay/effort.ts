@@ -36,6 +36,12 @@
  * So Ultra is offered everywhere, and only the ordinary API levels clamp.
  */
 
+import {
+  EXPLICIT_REQUEST_ONLY,
+  multiAgentModeForEffort,
+  type MultiAgentMode,
+} from './multi-agent-mode';
+
 export type CodexEffort =
   | 'none'
   | 'minimal'
@@ -97,6 +103,19 @@ const LEVEL_TO_EFFORT: Record<number, CodexEffort> = {
   6: 'ultra',
 };
 
+/*
+ * `minimal` maps to 0 alongside `none`, and that is a lossy rung rather than a
+ * mistake.
+ *
+ * Willow persists effort as a number 0-6 with seven slots for Codex's eight
+ * rungs, so one pair has to share. `none` and `minimal` are the pair that costs
+ * least: both mean "do not think about this", and `LEVEL_TO_EFFORT` resolves 0
+ * back to `none`, which is the safer of the two to land on.
+ *
+ * The consequence worth knowing: **`minimal` cannot survive a round trip
+ * through the numeric level.** A caller that needs it must pass the
+ * `CodexEffort` through directly rather than via `effortToLevel`.
+ */
 const EFFORT_TO_LEVEL: Record<CodexEffort, number> = {
   none: 0,
   minimal: 0,
@@ -238,86 +257,69 @@ export function selectableEfforts(model: {
  * So the requested level drives the harness, and only the clamped level goes on
  * the wire. That is what makes Ultra mean something everywhere.
  */
+/**
+ * `DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION`, which is 4
+ * (`codex-rs/core/src/config/mod.rs`).
+ *
+ * **The same for every rung**, because upstream is: it is one config value on
+ * the session, and effort does not touch it. Ultra changes the *mode*, not the
+ * ceiling.
+ */
+export const DEFAULT_MAX_CONCURRENT_AGENTS = 4;
+
 export interface HarnessEffort {
-  /** Appended to the turn's context, telling the agent how to work. */
-  guidance: string;
   /**
-   * Upstream's two delegation modes, derived from effort exactly as
-   * `#29899` describes: `ultra` → proactive, everything else → on request.
+   * Upstream's `MultiAgentMode`, derived from effort exactly as it derives it.
+   *
+   * This replaced a `delegation: 'proactive' | 'on-request'` pair and a
+   * `guidance` string. The guidance was invented: there is no per-effort
+   * guidance text anywhere in `codex-rs` — the model is not told "work
+   * carefully" at high and "be exhaustive" at max. What upstream sends is a
+   * `<multi_agent_mode>` developer fragment and nothing else.
    */
-  delegation: 'proactive' | 'on-request';
-  /** Codex model-catalog protocol selected for collaboration tools. */
+  multiAgentMode: MultiAgentMode;
+  /** Sub-agents allowed to run at once. See the constant above. */
+  maxConcurrentAgents: number;
+  /**
+   * Codex model-catalog protocol selected for collaboration tools.
+   *
+   * Kept deliberately, and it is the one place Spark is *more* faithful than
+   * the Code harness: upstream's `effective_multi_agent_mode` returns `None`
+   * when the turn is not eligible for multi-agent V2, so no
+   * `<multi_agent_mode>` fragment is sent at all. Upstream pins that with
+   * `ultra_on_multi_agent_v1_uses_max_without_mode_instructions`.
+   */
   multiAgentVersion?: MultiAgentVersion | null;
 }
 
-const ON_REQUEST = 'on-request' as const;
-
 /*
- * Guidance sets how much care to take. It does not order tools to be used.
+ * `MultiAgentMode::from_effort`, i.e. upstream's own `match`, and nothing else.
  *
- * These strings used to read "Plan before acting with `update_plan`" and
- * "Verify the result with `computer_use`", which made both unconditional: every
- * build opened with a plan and closed with a browser session, whatever the user
- * asked for. That is not what effort means, and it is not what upstream does.
+ * This table used to carry a `guidance` string per rung — "Work carefully" at
+ * high, "Be exhaustive" at max. Those were invented. Upstream derives exactly
+ * one thing from effort beyond the API value, and that one thing is the
+ * multi-agent mode.
  *
- * Upstream already decides both, on its own terms, and better than a blanket
- * rule can: its planning section says outright not to plan simple or
- * single-step work, and its validation guidance is explicitly a judgement call.
- * Naming a tool here overrode all of that. So these describe depth — how much
- * to read, how much to consider — and leave *which* tools that calls for to the
- * prompt that already has rules for it.
+ * An earlier version also named tools in that guidance ("Plan before acting
+ * with `update_plan`", "Verify the result with `computer_use`"), which made
+ * both unconditional — every run opened with a plan and closed with a browser
+ * session, whatever the user had asked for. Upstream's own prompt already
+ * decides both, and decides them better: its planning section says outright
+ * not to plan simple or single-step work, and its validation guidance is
+ * explicitly a judgement call. Naming a tool here overrode all of it.
+ *
+ * Derived from the rule rather than written out as eight rows, so there is no
+ * table left to fall out of step with `multiAgentModeForEffort`.
  */
-const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = {
-  none: {
-    delegation: ON_REQUEST,
-    guidance: 'Answer immediately, with the shortest thing that is correct.',
-  },
-  minimal: {
-    delegation: ON_REQUEST,
-    guidance: 'Make the smallest change that satisfies the request, and stop there.',
-  },
-  low: {
-    delegation: ON_REQUEST,
-    guidance: 'Act directly. Prefer the shortest path that actually works.',
-  },
-  medium: {
-    delegation: ON_REQUEST,
-    guidance: 'Read what you are about to change before changing it.',
-  },
-  high: {
-    delegation: ON_REQUEST,
-    guidance:
-      'Work carefully. Read what you are changing, and keep it consistent with the ' +
-      'code around it.',
-  },
-  xhigh: {
-    delegation: ON_REQUEST,
-    guidance:
-      'Be thorough. Read what you touch and its neighbours, and consider the states ' +
-      'nobody asked about — empty, loading, error.',
-  },
-  max: {
-    delegation: ON_REQUEST,
-    guidance:
-      'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
-      'nobody asked about, and when you find a problem, fix it rather than ' +
-      'reporting it.',
-  },
-  /*
-   * Ultra. The distinguishing behaviour is delegation, not depth — see the
-   * module comment. Reasoning is already at the model's ceiling by this point;
-   * what changes is that the agent fans work out on its own rather than waiting
-   * to be told.
-   */
-  ultra: {
-    delegation: 'proactive',
-    guidance:
-      'Be exhaustive. Read what you touch and its neighbours, consider the states ' +
-      'nobody asked about, and when you find a problem, fix it rather than reporting ' +
-      'it. Use proactive delegation when parallel work would materially improve ' +
-      'speed or quality; keep planning, verification, and tool choice judgment-based.',
-  },
-};
+const HARNESS_EFFORT: Record<CodexEffort, HarnessEffort> = Object.fromEntries(
+  CODEX_EFFORTS.map((effort) => [
+    effort,
+    {
+      multiAgentMode: multiAgentModeForEffort(effort),
+      maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
+    },
+  ]),
+) as Record<CodexEffort, HarnessEffort>;
 
 export const harnessEffort = (effort: CodexEffort): HarnessEffort => HARNESS_EFFORT[effort];
 
@@ -377,9 +379,20 @@ export function resolveEffort(
    */
   if (requested === 'ultra') {
     const ceiling = supported[supported.length - 1] ?? 'high';
+    /*
+     * The V2 gate, which is upstream's and is not cosmetic.
+     *
+     * `effective_multi_agent_mode` bails out before deriving anything when the
+     * turn is not eligible for multi-agent V2, so Ultra on V1 gets the API
+     * value and *no* mode fragment — pinned upstream by
+     * `ultra_on_multi_agent_v1_uses_max_without_mode_instructions`. Falling
+     * back to the explicit-request-only text instead would send a paragraph
+     * upstream never sends, telling the model not to do something it was never
+     * invited to do.
+     */
     const harness = multiAgentVersion === 'v2'
       ? { ...harnessEffort(requested), multiAgentVersion }
-      : { ...harnessEffort(requested), delegation: ON_REQUEST, multiAgentVersion };
+      : { ...harnessEffort(requested), multiAgentMode: EXPLICIT_REQUEST_ONLY, multiAgentVersion };
     return {
       requested,
       effective: ceiling,

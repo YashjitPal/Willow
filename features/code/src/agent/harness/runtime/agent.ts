@@ -43,6 +43,11 @@ import {
 } from '../overlay/collaboration-tools';
 import { CollaborationRuntime, renderEnvelope } from './collaboration';
 import { ROOT_PATH as ROOT_AGENT_PATH } from './agent-path';
+import { makeSkillTools, skillsMentionedIn } from './skills';
+import { renderSkillsSection } from '../overlay/skills-prompt';
+import type { LibrarySkill } from '@willow/core/skill-library';
+import { makeMcpToolHandlers, renderMcpSection } from '../../mcp/mcp-harness-tools';
+import type { McpBoundTool } from '@willow/ai/mcp/mcp-store';
 import {
   isMutatingTool,
   planModeMutationRefusal,
@@ -234,6 +239,22 @@ export interface TurnOptions {
    * figure — see `goal.ts` on why an estimate is not acceptable there.
    */
   reportedTokens?: () => number | undefined;
+  /**
+   * The skills this turn may use, already filtered to the enabled ones.
+   *
+   * A snapshot, taken once per turn: the catalog is baked into the system
+   * prompt, so a skill appearing or vanishing mid-turn would make
+   * `skills.read` disagree with what the model was told it had.
+   */
+  skills?: LibrarySkill[];
+  /**
+   * Tools from connected MCP servers, already flattened.
+   *
+   * A snapshot for the same reason as `skills`: the tool list goes into the
+   * system prompt, so a server dropping mid-turn would leave the model holding
+   * names it can no longer call.
+   */
+  mcpTools?: McpBoundTool[];
 }
 
 /**
@@ -814,6 +835,8 @@ const ACTIVITY: Record<string, string> = {
   search_files: 'Searching',
   update_plan: 'Planning',
   add_dependency: 'Adding a dependency',
+  'skills.list': 'Listing skills',
+  'skills.read': 'Reading a skill',
   request_user_input: 'Waiting for you',
   get_goal: 'Checking the goal',
   create_goal: 'Setting the goal',
@@ -1110,9 +1133,16 @@ export async function runTurn(options: TurnOptions): Promise<void> {
      * belongs in the transcript like any other.
      */
     const goalContext = goal?.contextSection();
+    const skills = options.skills ?? [];
+    const skillsCatalog = renderSkillsSection(skills);
+    const mcpTools = options.mcpTools ?? [];
+    const mcpCatalog = renderMcpSection(mcpTools);
+
     const systemPrompt = composeSystemPrompt({
       mode,
       multiAgentMode: options.model.effort?.harness?.multiAgentMode ?? EXPLICIT_REQUEST_ONLY,
+      skillsCatalog,
+      mcpCatalog,
       goalContext,
     });
 
@@ -1146,9 +1176,16 @@ export async function runTurn(options: TurnOptions): Promise<void> {
      * mode-aware refusal in `runCall`, because "unavailable in Default mode" is
      * a recoverable answer and "unknown tool" is not.
      */
-    const allowed = new Set(
-      toolsForTurn({ mode, goalActive: Boolean(goal) }) as string[],
-    );
+    const allowed = new Set([
+      ...(toolsForTurn({
+        mode,
+        goalActive: Boolean(goal),
+        skillsAvailable: skills.length > 0,
+      }) as string[]),
+      // MCP tools are whatever the user connected, so they join the allow-set
+      // for this turn rather than being listed at build time.
+      ...mcpTools.map((tool) => tool.qualifiedName),
+    ]);
 
     /*
      * The collaboration tree for this turn.
@@ -1174,6 +1211,8 @@ export async function runTurn(options: TurnOptions): Promise<void> {
         ...collaboration.tools(ROOT_AGENT_PATH, () => conversation),
         makeRequestUserInputTool(mode, options.requestUserInput),
         ...(goal ? goalTools(goal, sink) : []),
+        ...makeSkillTools(skills),
+        ...makeMcpToolHandlers(mcpTools),
         ...(options.extraTools ?? []),
       ].filter((tool) => allowed.has(tool.id)),
       allowed,
@@ -1184,9 +1223,27 @@ export async function runTurn(options: TurnOptions): Promise<void> {
       if (text) conversation.push({ role: message.role, content: text });
     }
 
+    /*
+     * Skills the user named with `$name`.
+     *
+     * The catalog's trigger rules already say a named skill "must" be used this
+     * turn, but a mention is a stronger signal than a description match and
+     * upstream treats it as one — so the resolved names are restated with the
+     * locator the model needs to fetch them. Without the locator it has to
+     * scan the catalog to turn `$BrandVoice` back into `skill://brand-voice`,
+     * which it sometimes gets wrong when two skills share a word.
+     */
+    const mentioned = skills.length > 0 ? skillsMentionedIn(options.prompt, skills) : [];
+    const mentionNote =
+      mentioned.length > 0
+        ? `<mentioned_skills>\nThe user named ${mentioned.length === 1 ? 'this skill' : 'these skills'}. Read ${mentioned.length === 1 ? 'it' : 'them'} with \`skills.read\` before acting:\n` +
+          mentioned.map((skill) => `- ${skill.name} — package: skill://${skill.id}`).join('\n') +
+          '\n</mentioned_skills>'
+        : '';
+
     conversation.push({
       role: 'user',
-      content: [projectContext(options.files()), options.prompt]
+      content: [projectContext(options.files()), mentionNote, options.prompt]
         .filter(Boolean)
         .join('\n\n'),
     });
@@ -1254,6 +1311,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
             mode,
             multiAgentMode:
               options.model.effort?.harness?.multiAgentMode ?? EXPLICIT_REQUEST_ONLY,
+            skillsCatalog,
             goalContext: goal.contextSection(),
           }),
           '# Multi-agent collaboration',

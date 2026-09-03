@@ -179,6 +179,62 @@ export interface SparkSchedule {
   updatedAt: string;
 }
 
+/* ---------------------------------------------------------------------- */
+/* request_user_input                                                      */
+/* ---------------------------------------------------------------------- */
+
+/** One choice. Both fields are required by upstream's schema. */
+export interface SparkQuestionOption {
+  /** User-facing label, 1-5 words. The recommended one comes first. */
+  label: string;
+  /** One sentence on what choosing this means. */
+  description: string;
+}
+
+export interface SparkQuestion {
+  /** Stable identifier the model chose, used to key the answer back. */
+  id: string;
+  /** Short header label, 12 chars or fewer. */
+  header: string;
+  question: string;
+  options: SparkQuestionOption[];
+}
+
+/**
+ * What the user has entered for one question, before submitting.
+ *
+ * Kept per question rather than per panel so stepping back and forth through a
+ * multi-question request does not lose earlier choices — which is how the Codex
+ * app behaves (`{ selectedOptionId, freeformText }` per entry).
+ *
+ * `optionLabel` is null while the freeform field is in use: typing there
+ * deselects the chosen option, since the two are alternatives rather than
+ * additions.
+ */
+export interface SparkQuestionDraft {
+  optionLabel: string | null;
+  freeformText: string;
+}
+
+/**
+ * A live `request_user_input` round.
+ *
+ * Not part of `SparkTask` because `resolve` is a promise callback and
+ * `sparkState` is persisted — a serialised resolver is a function that no
+ * longer resolves anything, and the turn behind it would hang forever after a
+ * reload.
+ */
+export interface SparkPendingQuestion {
+  taskId: string;
+  questions: SparkQuestion[];
+  /** True in Plan mode, where the turn genuinely stops for the answer. */
+  blocking: boolean;
+  /** Index of the question on screen, for the "1 of 3" stepper. */
+  index: number;
+  /** Per-question drafts, parallel to `questions`. */
+  drafts: SparkQuestionDraft[];
+}
+
 export type SparkSkillSource = 'manual' | 'gemini' | 'upload' | 'recommended';
 
 export interface SparkSkill {

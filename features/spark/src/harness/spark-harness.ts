@@ -5,6 +5,8 @@ import { createSparkHarnessProfile, type SparkProfileContext } from './overlay/s
 import { createSparkCapabilityTools, type SparkCapabilityContext } from './spark-tools';
 import { createOpfsWorkspace, emptySparkWorkspace, type SparkWorkspace } from './workspace/workspace';
 import { goalToolDeclarations, SparkGoalRuntime, type SparkThreadGoal } from './runtime/goal';
+import type { ModeKind } from './overlay/collaboration-mode';
+import type { RequestUserInputSink } from './runtime/request-user-input';
 
 export interface SparkHarnessOptions {
   prompt: string;
@@ -17,6 +19,16 @@ export interface SparkHarnessOptions {
   workspace?: SparkWorkspace;
   goal?: SparkThreadGoal | null;
   onGoalChange?: (goal: SparkThreadGoal | null) => void;
+  /**
+   * How Plan mode asks the user a question.
+   *
+   * Optional: without it `request_user_input` still registers in Plan mode and
+   * tells the model the affordance is unwired, which is honest. Spark runs
+   * tasks on a schedule, so an unattended run legitimately has nobody to ask.
+   */
+  requestUserInput?: RequestUserInputSink;
+  /** Labs `request-user-input`: lets the agent ask outside Plan mode, non-blocking. */
+  askOutsidePlanMode?: boolean;
   /** Injectable provider transport for focused harness tests. */
   transport?: Transport;
   onEvent: (event: HarnessEvent) => void;
@@ -57,7 +69,29 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
     options.onGoalChange?.(goal);
     emit({ type: 'goal-updated', goal });
   });
-  if (options.capabilities.selectedCapabilities?.includes('goal')) {
+  /*
+   * The composer's Plan chip selects upstream's Plan collaboration mode.
+   *
+   * Upstream treats the mode as sticky session state that only a new developer
+   * message changes; Spark's equivalent of "the user chose a mode" is the chip
+   * recorded on the task, so it is read per turn from there.
+   */
+  const mode: ModeKind = options.capabilities.selectedCapabilities?.includes('plan')
+    ? 'plan'
+    : 'default';
+
+  /*
+   * Goal mode does not activate in Plan mode.
+   *
+   * Upstream's idle-continuation gate rejects a turn outright when the thread
+   * is in Plan mode and the input carries no user text
+   * (`TryStartTurnIfIdleRejectionReason::PlanMode` in
+   * `codex-rs/core/src/session/inject.rs`), and its goal accounting skips plan
+   * turns entirely. A Plan-mode turn produces a plan for the user to approve —
+   * looping it against a persisted objective would have it re-plan forever
+   * without ever being allowed to do the work.
+   */
+  if (mode !== 'plan' && options.capabilities.selectedCapabilities?.includes('goal')) {
     goalRuntime.ensureGoal(options.prompt);
   }
   const transport: Transport = options.transport ?? (async (
@@ -108,8 +142,16 @@ export const runSparkHarnessTurn = async (options: SparkHarnessOptions): Promise
       pendingWrite = pendingWrite.then(() => workspace.writeFiles(files));
     },
     model: binding,
-    profile: createSparkHarnessProfile(options.capabilities),
+    // The flag has to reach the prompt as well as the registry, or the model
+    // reads "only available in Plan mode" and declines a tool it now has.
+    profile: createSparkHarnessProfile({
+      ...options.capabilities,
+      askOutsidePlanMode: options.askOutsidePlanMode,
+    }),
     extraTools: capabilityTools,
+    mode,
+    requestUserInput: options.requestUserInput,
+    askOutsidePlanMode: options.askOutsidePlanMode,
     goalRuntime,
     collaborationThreadId: options.threadId ?? options.scope,
     toolDeclarations: [goalToolDeclarations()],

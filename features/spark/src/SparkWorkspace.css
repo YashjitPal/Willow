@@ -102,6 +102,27 @@
   width: calc(100% + var(--spark-live-dw, 0px));
   min-height: 65.6px;
   transform: translate(var(--spark-live-dx, 0px), var(--spark-live-dy, 0px));
+  /*
+   * The transform above is why this needs a z-index at all.
+   *
+   * A non-`none` transform makes this host a stacking context, and with
+   * `z-index: auto` the whole thing paints in DOM order — before the task list
+   * that follows it. So the composer's own `z-20` and the plus menu's `z-[100]`
+   * were sealed inside a layer that the list painted over, and opening the menu
+   * put it *under* the rows. Raising the host is the fix; raising anything inside
+   * it cannot be, because the boundary is the host itself.
+   *
+   * 24 clears the highest list chrome on both routes that use this host — an open
+   * row (20) and its menu (22) — and stays under the dialog overlays at 40. It
+   * deliberately does not try to outrank the task-detail divider (28) or thinking
+   * panel (34): those live in a later sibling subtree and paint above the library
+   * pane regardless, which is what they are for.
+   *
+   * The glow is unaffected. It is a separate host at `z-index: -1` resolving
+   * against the route root, so it stays behind the rows and keeps the translucent
+   * darkening described in `SparkAllTasks.css`.
+   */
+  z-index: 24;
 }
 
 .spark-connected-composer .spark-composer-host {
@@ -162,6 +183,26 @@
     height: 100px;
     opacity: 1;
   }
+}
+
+/*
+ * The reveal above is an entrance, and it has to stop behaving like one after the
+ * first play. The glow is a single node that Spark moves between route anchors,
+ * and re-inserting a node restarts its CSS animations — so it re-ignited whenever
+ * an anchor was recreated. Opening a task did exactly that: the list holds summary
+ * records, so `SparkWorkspace` shows its loading branch, which carries no anchor at
+ * all, and then mounts a fresh task-detail pane once the body loads.
+ *
+ * These values are the reveal's 100% frame, and they have to be repeated rather
+ * than inherited: the base rule is the *pre-animation* box (800x160), and it was
+ * the `both` fill mode that had been holding the smaller settled size. Change the
+ * keyframe and this has to move with it.
+ */
+.spark-connected-glow.is-settled {
+  width: 600px;
+  height: 100px;
+  opacity: 1;
+  animation: none;
 }
 
 .spark-connected-loading {

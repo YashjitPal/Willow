@@ -1,0 +1,304 @@
+/*
+ * The question panel, sized to sit inside the composer.
+ *
+ * Geometry follows the Codex app's own panel where its class names record it:
+ * option rows are `min-h-8 rounded-xl px-2 py-1.5 text-left text-sm` with a
+ * hover fill at 5% foreground and a focus ring, and the head row carries a top
+ * divider (`border-token-border/70 pt-4 pr-3 pb-2 pl-4`). Colours are Spark's,
+ * taken from the surfaces already measured off Gemini in this feature rather
+ * than invented: #1e1f20 composer surface, #e6e6e6 on-surface text,
+ * rgba(255,255,255,.55) secondary.
+ */
+
+/*
+ * The panel is a composer-family surface, because it stands in for the
+ * composer. Every value here is Chat's `chatVariant` box or Spark's own
+ * override of it, not a new look:
+ *
+ * - `#1e1f21` and `border-radius: 32px` and the `14px / 15px` asymmetric inset
+ *   are `Composer.tsx`'s chat variant, verbatim.
+ * - The shadow is Spark's **level 1 elevation**, `0 0 20px 0 rgba(0,0,0,.28)`,
+ *   not Chat's `0 2px 8px -2px rgba(0,0,0,.16)`. Spark's own notes are explicit
+ *   about why: Chat's tighter shadow reads correctly against a page background
+ *   and vanishes against this panel's `#1f1f1f`, which made the composer look
+ *   like it had no boundary at all. The fix is elevation, never a lighter fill.
+ * - `min-height: 65.6px` matches the composer it replaces, so swapping between
+ *   them cannot make the footer jump.
+ */
+.spark-question {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 65.6px;
+  padding: 14px 15px 12px 14px;
+  gap: 8px;
+  border-radius: 32px;
+  background: #1e1f21;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  animation: spark-question-enter 220ms cubic-bezier(0, 0, 0.2, 1);
+  /* It grows downward out of the composer's slot, so the top edge stays put. */
+  transform-origin: 50% 0;
+}
+
+/*
+ * The panel takes the composer's place, and the swap needs to read as one
+ * surface changing rather than two surfaces trading.
+ *
+ * So it is a rise and a settle, not a pop: `scale(0.8)` is Spark's *menu*
+ * entrance — right for something that springs from a corner, wrong for
+ * something that replaces a box already sitting there. The curve is
+ * `cubic-bezier(0, 0, 0.2, 1)`, the standard-decelerate every other Spark
+ * entrance uses, and the shadow lifts from nothing to level 1 so the panel
+ * appears to rise off the panel behind it rather than blink onto it.
+ *
+ * 220ms rather than the menus' 120ms: this is a taller surface travelling
+ * further, and at 120ms the height change still reads as a jump.
+ */
+@keyframes spark-question-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.96);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  }
+}
+
+/*
+ * Stepping between questions.
+ *
+ * Keyed on the question index, so React remounts this block and the animation
+ * replays. Shorter and flatter than the panel's own entrance — the surface is
+ * not moving, only its contents, and matching the entrance duration here made
+ * pressing Next feel like the whole panel had been rebuilt.
+ */
+.spark-question__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: spark-question-step 160ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes spark-question-step {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Reduced motion gets the end state immediately.
+ *
+ * `animation: none` rather than a zero duration: a `both`-filled animation with
+ * no duration holds its from-state, which would leave the panel invisible.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .spark-question,
+  .spark-question__body {
+    animation: none;
+  }
+}
+
+.spark-question__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.spark-question__header {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.spark-question__stepper {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.spark-question__count {
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.spark-question__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: background-color 0.15s linear, color 0.15s linear;
+}
+
+.spark-question__step:hover:not(:disabled) {
+  background: rgba(230, 230, 230, 0.08);
+  color: #e6e6e6;
+}
+
+/* Disabled rather than hidden, so the stepper does not change width mid-run. */
+.spark-question__step:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+/*
+ * One chevron, rotated, which is what the Codex app does (`rotate-90` and
+ * `-rotate-90` on the same icon). It also sidesteps this repo's icon-ligature
+ * trap — see the comment at the call site.
+ */
+.spark-question__chevron--prev {
+  transform: rotate(90deg);
+}
+
+.spark-question__chevron--next {
+  transform: rotate(-90deg);
+}
+
+.spark-question__prompt {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: #e6e6e6;
+}
+
+.spark-question__options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spark-question__option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s linear;
+}
+
+.spark-question__option:hover {
+  background: rgba(230, 230, 230, 0.05);
+}
+
+.spark-question__option:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 1px var(--spark-accent-bright, #3186ff);
+}
+
+.spark-question__option--selected {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-question__option-label {
+  font-size: 14px;
+  line-height: 20px;
+  color: #e6e6e6;
+}
+
+.spark-question__option-description {
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/*
+ * The free-text field is the composer's textarea in spirit, so it is drawn flat
+ * rather than as a second inset box — a bordered input inside an already-inset
+ * composer reads as two nested prompt boxes. The subtle fill is only there to
+ * say it is typable.
+ */
+.spark-question__freeform {
+  width: 100%;
+  min-height: 32px;
+  max-height: 96px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(230, 230, 230, 0.04);
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  resize: none;
+}
+
+.spark-question__freeform::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.spark-question__freeform:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 1px var(--spark-accent-bright, #3186ff);
+}
+
+.spark-question__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+
+.spark-question__skip,
+.spark-question__submit {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s linear, color 0.15s linear;
+}
+
+.spark-question__skip {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.spark-question__skip:hover {
+  background: rgba(230, 230, 230, 0.08);
+  color: #e6e6e6;
+}
+
+.spark-question__submit {
+  background: var(--spark-accent, #1f3b9b);
+  color: #e6e6e6;
+}
+
+.spark-question__submit:hover:not(:disabled) {
+  background: var(--spark-accent-hover, #24469b);
+}
+
+.spark-question__submit:disabled {
+  background: rgba(230, 230, 230, 0.12);
+  color: rgba(255, 255, 255, 0.3);
+  cursor: default;
+}

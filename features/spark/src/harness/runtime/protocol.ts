@@ -236,6 +236,38 @@ export interface McpCall extends CallBase {
   output?: string;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Plan mode                                                               */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * A `<proposed_plan>` block, streaming.
+ *
+ * Not a tool call — the model writes it as prose — but it is rendered as its own
+ * card, which is what the mode document means by "wrap it in a
+ * `<proposed_plan>` block so the client can render it specially". `markdown`
+ * grows as deltas arrive.
+ */
+export interface ProposedPlanCall extends CallBase {
+  kind: 'proposed-plan';
+  markdown: string;
+}
+
+/** One `request_user_input` round. Resolved by the user, not by a tool. */
+export interface UserInputCall extends CallBase {
+  kind: 'user-input';
+  questions: {
+    id: string;
+    header: string;
+    question: string;
+    options: { label: string; description: string }[];
+  }[];
+  /** Filled in once answered; absent while the turn is waiting. */
+  answers?: { id: string; answer: string }[];
+  /** True in Plan mode, where the turn genuinely stops for the answer. */
+  blocking: boolean;
+}
+
 export type ToolCall =
   | EditCall
   | ReadCall
@@ -250,7 +282,9 @@ export type ToolCall =
   | ThinkCall
   | TaskCall
   | AppCall
-  | McpCall;
+  | McpCall
+  | ProposedPlanCall
+  | UserInputCall;
 
 /* ------------------------------------------------------------------------ */
 /* Sub-agents                                                                */
@@ -337,6 +371,15 @@ export interface ToolHandler {
   id: ToolId;
   /** Parsed from the JSON body of a `*** Call:` envelope. */
   run: (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>;
+}
+
+/** What the collaboration mode changes about one iteration. */
+export interface TurnGates {
+  mode: 'plan' | 'default';
+  /** Plan mode: patches and mutating tools are declined. */
+  refuseMutation: boolean;
+  /** Plan mode, root only: lift `<proposed_plan>` into its own card. */
+  streamProposedPlan: boolean;
 }
 
 /* ------------------------------------------------------------------------ */

@@ -58,6 +58,7 @@ export interface ChatTurnRunnerDeps {
     provider: string;
     model: string;
     apiKey: string;
+    apiKeyFallbacks?: string[];
     thinkingLevel: number;
     baseUrl?: string;
     apiFormat?: ProviderApiFormat;
@@ -287,6 +288,7 @@ export const runChatTurn = async (
       provider: options.provider,
       model: options.model,
       apiKey: options.apiKey,
+      apiKeyFallbacks: options.apiKeyFallbacks,
       thinkingLevel: options.thinkingLevel,
       includeThoughts: options.thinkingLevel > 0,
       enableSearch: true,

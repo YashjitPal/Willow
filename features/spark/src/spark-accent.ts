@@ -18,6 +18,8 @@ import { getWorkspaceTheme } from '@willow/core/workspace-theme';
  *   --spark-accent-hover   sendButton.hover  that CTA's hover
  *   --spark-accent-bright  creamy.hex        the pastel Spark lifts to — the
  *                                            indicator on hover, the working glyph
+ *   --spark-task-detail-accent  glowAccent   the prompt-box glow and the wide
+ *                                            background wash behind it
  *
  * Every stylesheet reads these through `var(…, <the measured Gemini blue>)`, so
  * an unthemed render is byte-identical to what the fidelity harness in
@@ -33,6 +35,7 @@ export const sparkAccentVars = (workspaceColor?: string | null): React.CSSProper
     '--spark-accent': theme.sendButton.bg,
     '--spark-accent-hover': theme.sendButton.hover,
     '--spark-accent-bright': theme.creamy.hex,
+    '--spark-task-detail-accent': theme.glowAccent,
   } as React.CSSProperties;
 };
 

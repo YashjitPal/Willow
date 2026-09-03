@@ -3,7 +3,8 @@ import { nextId } from './runtime/tools';
 import type { AppCall, CommandCall, McpCall, ToolHandler, ToolResult } from './runtime/protocol';
 
 export interface SparkCapabilityContext {
-  skills: readonly { name: string; instructions: string }[];
+  /** See `SparkProfileContext.skills` — `description` drives selection. */
+  skills: readonly { name: string; description?: string; instructions: string }[];
   connectedApps: readonly { id: string; label: string }[];
   mcp?: readonly { name: string; description?: string; call: (args: Record<string, unknown>) => Promise<unknown> }[];
   onCapability?: (name: string) => void;

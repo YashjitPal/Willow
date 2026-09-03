@@ -209,7 +209,7 @@ it('does not impose a Spark-specific ceiling on one parallel agent batch', async
   assert.equal(childCalls, 6);
 });
 
-it('gives child agents the native collaboration declarations for nested delegation', async () => {
+it('gives child agents every collaboration declaration except spawn_agent', async () => {
   let childDeclarations = [];
   const scripted = async (messages, options, onToken, _onStart, _system, _onPhase, onToolCall) => {
     if (messages.at(-1)?.content.includes('Task name:')) {
@@ -235,9 +235,30 @@ it('gives child agents the native collaboration declarations for nested delegati
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.ok(childDeclarations.includes('spawn_agent'));
+  /*
+   * Spark's agent tree is one level deep, on purpose.
+   *
+   * This assertion used to require the opposite — that a child could itself
+   * call `spawn_agent` — and it had been failing since the cap was introduced,
+   * because the runtime refuses nested delegation in four places at once: it
+   * filters `spawn_agent` out of the child's tools, deletes it from the child
+   * registry, filters it out of the declarations checked here, and tells the
+   * child in its own prompt that it "cannot start another sub-agent".
+   *
+   * Upstream Codex does allow deeper trees — it tracks a `depth` and joins
+   * `AgentPath`s — so this is a deliberate divergence rather than a port gap.
+   * The reason is the runtime, not fidelity: every nested agent spends the
+   * user's tokens, and a browser tab has no terminal to interrupt a tree that
+   * decides to keep fanning out. Lifting the cap is a cost decision, and it
+   * needs to be made deliberately rather than by relaxing a test.
+   *
+   * Everything else a child needs to collaborate is still declared, which is
+   * what the rest of this assertion pins.
+   */
+  assert.ok(!childDeclarations.includes('spawn_agent'), 'a child must not be able to delegate further');
   assert.ok(childDeclarations.includes('send_message'));
   assert.ok(childDeclarations.includes('wait_agent'));
+  assert.ok(childDeclarations.includes('list_agents'));
 });
 
 it('reuses a sub-agent identity and conversation on a later Spark turn', async () => {
@@ -304,7 +325,10 @@ it('preserves native Goal lifecycle and Ultra mode semantics', async () => {
   const ultra = resolveEffort('ultra', { providerId: 'gemini', modelId: 'gemini-3-pro' });
   assert.equal(ultra.effective, 'high');
   assert.equal(ultra.clamped, false);
-  assert.equal(ultra.harness.delegation, 'proactive');
+  // What Ultra selects is upstream's `MultiAgentMode`, not a `delegation`
+  // string: `effective_multi_agent_mode` maps Ultra to Proactive and every
+  // other rung to ExplicitRequestOnly. See `overlay/multi-agent-mode.ts`.
+  assert.deepEqual(ultra.harness.multiAgentMode, { kind: 'proactive' });
   assert.equal(typeof current.goalId, 'string');
 });
 
@@ -387,7 +411,11 @@ it('uses each model declared effort roster before provider defaults', () => {
   const ultra = resolveEffort('ultra', futureGemini);
   assert.equal(ultra.effective, 'xhigh');
   assert.equal(ultra.level, 4);
-  assert.equal(ultra.harness.delegation, 'proactive');
+  assert.deepEqual(ultra.harness.multiAgentMode, { kind: 'proactive' });
+  // One session value, not a per-rung ladder — upstream's
+  // DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION is 4.
+  assert.equal(ultra.harness.maxConcurrentAgents, 4);
+  assert.equal(resolveEffort('low', futureGemini).harness.maxConcurrentAgents, 4);
 
   const compactModel = {
     providerId: 'gemini',
@@ -450,11 +478,38 @@ it('requires an explicit skill call and reports only the skill actually used', a
   assert.match(result.observation, /Use concise headings and clean spacing/);
   assert.deepEqual(used, ['skill:Document polish']);
 
+  /*
+   * The catalog line carries the description, and that is the point of it.
+   *
+   * Upstream's is `- {name}: {description} ({locator})`, and the description is
+   * the whole selection signal — the `SKILL.md` body is withheld until the
+   * skill is invoked precisely because the description is enough to choose by.
+   * This assertion used to require only the `use_skill` locator, which is why a
+   * catalog of bare names passed for so long.
+   */
   const profile = createSparkHarnessProfile({
-    skills: [{ name: 'Document polish', instructions: 'Use concise headings and clean spacing.' }],
+    skills: [{
+      name: 'Document polish',
+      description: 'Tidy headings and spacing in a written document.',
+      instructions: 'Use concise headings and clean spacing.',
+    }],
     connectedApps: [],
   });
-  assert.match(profile.systemPrompt, /call `use_skill` with \{"skill":"Document polish"\} before applying it/);
+  assert.match(
+    profile.systemPrompt,
+    /- Document polish: Tidy headings and spacing in a written document\./,
+    'the catalog must state what the skill is for, not just its name',
+  );
+  assert.match(profile.systemPrompt, /call `use_skill` with \{"skill":"Document polish"\}/);
+  // The body stays out of the catalog: that is progressive disclosure.
+  assert.doesNotMatch(profile.systemPrompt, /Use concise headings and clean spacing/);
+
+  // A record with no description still renders, just without the summary.
+  const bare = createSparkHarnessProfile({
+    skills: [{ name: 'Legacy skill', instructions: 'Do the thing.' }],
+    connectedApps: [],
+  });
+  assert.match(bare.systemPrompt, /- Legacy skill \(call `use_skill`/);
 });
 
 it('keeps Spark workspace calls on the Codex text protocol', async () => {

@@ -239,9 +239,18 @@ const searchFiles: ToolHandler = {
 /* update_plan                                                               */
 /* ------------------------------------------------------------------------ */
 
+/** `PLAN_UPDATED_MESSAGE` in `codex-rs/core/src/tools/handlers/plan.rs`. */
+export const PLAN_UPDATED_MESSAGE = 'Plan updated';
+
 /**
  * Mirrors upstream's `update_plan`. Kept deliberately close to the vendored
  * prompt's description of it, since that text is what the model is following.
+ *
+ * The argument parsing is looser than upstream's `deny_unknown_fields` struct
+ * on purpose: upstream receives a validated JSON tool call, whereas this
+ * harness parses text the model wrote by hand, so `steps` for `plan` and a
+ * bare string for `{ step, status }` are common enough to accept rather than
+ * spend a round trip rejecting. What the model is *told* stays upstream's.
  */
 const updatePlan: ToolHandler = {
   id: 'update_plan',
@@ -289,10 +298,17 @@ const updatePlan: ToolHandler = {
     });
     context.patch(id, { status: 'success', endedAt: Date.now() });
 
-    const done = steps.filter((step) => step.status === 'completed').length;
-    return {
-      observation: `Plan updated (${done}/${steps.length} complete). Do not repeat it back to the user.`,
-    };
+    /*
+     * `PLAN_UPDATED_MESSAGE` in `codex-rs/core/src/tools/handlers/plan.rs`, and
+     * deliberately nothing more.
+     *
+     * A previous version returned a progress count and told the model not to
+     * repeat the plan back. Both were additions, and the second was already
+     * covered: upstream's own planning guidance in the vendored prompt tells
+     * the model not to narrate its plan. Restating it in a tool result is a
+     * second, slightly different instruction competing with the first.
+     */
+    return { observation: PLAN_UPDATED_MESSAGE };
   },
 };
 

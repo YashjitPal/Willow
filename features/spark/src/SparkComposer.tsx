@@ -60,8 +60,19 @@ export interface SparkComposerProps {
   onAuthRequired?: () => void;
   placeholder?: string;
   className?: string;
-  /** Locks the box. The follow-up composer uses this while its task is still running. */
+  /**
+   * Locks the box outright. The follow-up composer uses this only for the states
+   * where a reply genuinely cannot be accepted — an approval it is waiting on.
+   * A task that is merely still working uses `isGenerating` instead.
+   */
   disabled?: boolean;
+  /**
+   * The task is still working: the box stays live so a reply can be drafted, and
+   * the send slot becomes stop. `InputBar` also refuses Enter while this is set,
+   * so the draft cannot be submitted into a run that has not finished.
+   */
+  isGenerating?: boolean;
+  onStopGenerating?: () => void;
   /** Lets the page fill the box — Spark's Suggested cards write a prompt into it. */
   composerRef?: React.MutableRefObject<ComposerHandle | null>;
 }
@@ -78,6 +89,8 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   placeholder = 'Describe a task',
   className = '',
   disabled = false,
+  isGenerating = false,
+  onStopGenerating,
   composerRef,
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
@@ -98,7 +111,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
    * cleanup it schedules revokes the object URLs, not the `File` handles themselves.
    */
   const submit = (prompt: string, attachments: readonly Attachment[], tool?: string | null) => {
-    if (!prompt || disabled || submitInFlightRef.current) return;
+    if (!prompt || disabled || isGenerating || submitInFlightRef.current) return;
     const files = attachments.map((attachment) => attachment.file).filter((file): file is File => !!file);
     const tools = tool ? [tool] : [];
 
@@ -150,6 +163,8 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
         sparkToolsEnabled
         composerRef={composerRef}
         disabled={disabled}
+        isGenerating={isGenerating}
+        onStopGenerating={onStopGenerating}
         placeholder={placeholder}
         currentMode="chat"
         onModeChange={() => undefined}

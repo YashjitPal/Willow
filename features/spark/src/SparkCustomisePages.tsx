@@ -12,6 +12,7 @@ import { formatSparkScheduleTime } from './SparkScheduleEditor';
 import { useSparkNow } from './useSparkNow';
 import { useSparkAccentVars } from './spark-accent';
 import type { RecommendedSkill } from './spark-recommended-skills';
+import { SparkMcpSection } from './SparkMcpSection';
 import './SparkCustomisePages.css';
 
 const formatScheduleRunLabel = (schedule: SparkSchedule, now: number): string | undefined => {
@@ -1053,7 +1054,6 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
 type ConnectedAppId = SparkConnectedAppId;
 
 interface ConnectedAppDefinition {
-  capabilities: readonly string[];
   description: string;
   handle?: string;
   icon: string;
@@ -1092,7 +1092,6 @@ const GOOGLE_CONNECTED_APPS: readonly ConnectedAppDefinition[] = [
     icon: GOOGLE_PRODUCT_ICONS.youtubeMusic,
     description: 'Play, search, and discover your favorite songs, artists, playlists and more',
     prompt: 'Play songs where Beyonc\u00e9 and Jay-Z feature together.',
-    capabilities: ['Search for songs', 'Discover music you\'d love', 'Play a radio for any mood'],
   },
 ] as const;
 
@@ -1103,7 +1102,6 @@ const OTHER_CONNECTED_APPS: readonly ConnectedAppDefinition[] = [
     icon: GOOGLE_PRODUCT_ICONS.contacts,
     description:
       'Get personalized insights and responses based on your contacts. Add or find people in your contacts, and more.',
-    capabilities: ['Add new contacts', 'Find contact details', 'Update existing contacts'],
   },
   {
     id: 'opentable',
@@ -1112,7 +1110,6 @@ const OTHER_CONNECTED_APPS: readonly ConnectedAppDefinition[] = [
     icon: GOOGLE_PRODUCT_ICONS.openTable,
     description: 'Discover and book a reservation at the best restaurants for every occasion.',
     prompt: 'Reserve a table for 2 at La Pecora Bianca SoHo on Friday at 7:30 PM.',
-    capabilities: ['Find available table times', 'Book restaurant reservations', 'Cancel a reservation'],
   },
 ] as const;
 
@@ -1134,47 +1131,38 @@ const ConnectedAppCard: React.FC<ConnectedAppCardProps> = ({ app, checked, onPro
       />
     </div>
 
-    <h3>{app.name}</h3>
-    {app.handle && <p className="spark-connected-app-card__handle">{app.handle}</p>}
-    <p className="spark-connected-app-card__description">{app.description}</p>
-    <a
-      className="spark-connected-app-card__learn-more"
-      href="https://support.google.com/gemini?p=lm_gpi_apps"
-      target="_blank"
-      rel="noreferrer"
-    >
-      Learn more
-    </a>
+    <div>
+      <h3>{app.name}</h3>
+      {app.handle && <p className="spark-connected-app-card__handle">{app.handle}</p>}
+    </div>
 
-    {app.prompt && (
-      <button
-        type="button"
-        className="spark-connected-app-card__prompt"
-        disabled={!checked}
-        title={checked ? undefined : `Connect ${app.name} to use this prompt`}
-        onClick={() => onPromptSelect(app.prompt!, app.id)}
+    {/* The name and handle sit above this block so only the copy competes for the
+        leftover height, which is what lets the prompt tile below pin itself to the
+        card's floor and line up across the row. */}
+    <div className="spark-connected-app-card__body">
+      <p className="spark-connected-app-card__description">{app.description}</p>
+      <a
+        className="spark-connected-app-card__learn-more"
+        href="https://support.google.com/gemini?p=lm_gpi_apps"
+        target="_blank"
+        rel="noreferrer"
       >
-        {app.prompt}
-      </button>
-    )}
+        Learn more
+      </a>
 
-    <div className="spark-connected-app-card__capabilities">
-      <p>With a supported {app.name} integration, Spark can:</p>
-      <ul>
-        {app.capabilities.map((capability) => (
-          <li key={capability}>
-            <MaterialSymbol
-              family="luminous"
-              name="check"
-              size={20}
-              weight={350}
-              roundness={100}
-              opticalSize={20}
-            />
-            <span>{capability}</span>
-          </li>
-        ))}
-      </ul>
+      {app.prompt && (
+        <div className="spark-connected-app-card__prompt-slot">
+          <button
+            type="button"
+            className="spark-connected-app-card__prompt"
+            disabled={!checked}
+            title={checked ? undefined : `Connect ${app.name} to use this prompt`}
+            onClick={() => onPromptSelect(app.prompt!, app.id)}
+          >
+            <span>{app.prompt}</span>
+          </button>
+        </div>
+      )}
     </div>
   </article>
 );
@@ -1270,6 +1258,7 @@ export const ConnectedAppsPage: React.FC<ConnectedAppsPageProps> = ({
             ['spark-apps-from-google', 'From Google'],
             ['spark-apps-other', 'Other'],
             ['spark-apps-custom', 'Custom apps'],
+            ['spark-apps-mcp', 'MCP servers'],
           ] as const).map(([category, label]) => (
             <a
               key={category}
@@ -1439,6 +1428,18 @@ export const ConnectedAppsPage: React.FC<ConnectedAppsPageProps> = ({
               )}
             </form>
         </section>
+
+        {/*
+          * MCP servers.
+          *
+          * Its own component because it carries a form, a status list and a
+          * callout, and this file is already five pages long. It reads
+          * `@willow/ai/mcp/mcp-store` directly rather than taking props:
+          * MCP servers are app-level state shared with the Code tab's Agent,
+          * not Spark task state, so threading them through this page's
+          * task-shaped props would make Spark their owner.
+          */}
+        <SparkMcpSection />
 
         <aside className="spark-premium-content" aria-labelledby="spark-premium-content-heading">
           <MaterialSymbol

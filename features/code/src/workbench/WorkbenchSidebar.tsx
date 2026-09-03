@@ -60,6 +60,7 @@ import { TextShimmer } from '@willow/ui/text-shimmer';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 // Chat mode's renderer, used verbatim so the two tabs format identically:
 // headings, bold/italic/strike, tables, lists, blockquotes, links, inline and
@@ -119,6 +120,8 @@ import {
   type SlashCommand,
 } from '../agent/slash-commands';
 import { EFFORT_LABEL } from '../agent/harness/overlay/effort';
+import { enabledSkills } from '@willow/core/skill-library';
+import { boundMcpTools, connectEnabledMcpServers } from '@willow/ai/mcp/mcp-store';
 // Every rule in here is scoped under `.cb-root`, which only the harness's own
 // components render — so importing it unconditionally changes nothing when the
 // Agent tool is off.
@@ -183,6 +186,21 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
    * authoritative on the very first render here.
    */
   const isAgent = useStore(agentEngaged);
+
+  /*
+   * Bring up MCP servers the user has enabled.
+   *
+   * Config survives a reload but connections do not, so without this a user who
+   * switched a server on yesterday would send a message today and silently get
+   * none of its tools. Fired once on mount and only for servers that are idle,
+   * so it neither re-connects a live server nor keeps retrying a failed one —
+   * a failure is shown in Settings → Connectors → MCP servers, which is also
+   * where it can be retried.
+   */
+  useEffect(() => {
+    void connectEnabledMcpServers();
+  }, []);
+
   const [sidebarView, setSidebarViewRaw] = useState<'chat' | 'visual-edit'>('chat');
   const hasUnsaved = useStore(hasUnsavedChanges);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -2154,6 +2172,28 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           : undefined,
       onGoal: setThreadGoal,
       requestUserInput: requestUserInputSink,
+      /*
+       * The shared skill library — the skills the user added in Spark → Skills.
+       *
+       * Read at send time rather than through `useStore`: this is not rendered,
+       * and subscribing would re-render the whole sidebar every time Spark
+       * touched its state. The harness wants a snapshot for the turn anyway.
+       *
+       * The scope is passed because the library loads itself on first read.
+       * Spark's own state is only hydrated by `SparkWorkspace`, so without this
+       * the Agent would silently get no skills in any session where the user
+       * had not opened the Spark tab — and would start working later for no
+       * visible reason.
+       */
+      skills: enabledSkills(chatScopeId || 'guest'),
+      /*
+       * Tools from MCP servers the user has connected and enabled.
+       *
+       * Read at send time, like the skills above: this is not rendered, and a
+       * subscription would re-render the sidebar on every connection status
+       * change. A turn wants a snapshot anyway.
+       */
+      mcpTools: boundMcpTools(),
       signal: abortController.signal,
       onText: (chunk) => {
         if (abortController.signal.aborted || !isCurrentRun()) return;
@@ -2299,7 +2339,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       console.log(`Starting AI generation with ${provider} (${modelId})`);
 
-      const apiKey = apiKeys[provider]?.[0];
+      /* Endpoint, wire format and tool policy come from the live profile, never
+         from the saved model — see `resolveProviderBinding`. */
+      const binding = resolveProviderBinding(modelConfig, provider, selected);
+      const bucketKeys = apiKeysForBinding(binding, provider, apiKeys);
+      const apiKey = bucketKeys[0];
       if (!apiKey) {
         console.error(`Missing API key for provider ${provider}. Available keys:`, apiKeys);
         throw new Error(`API Key for ${provider} is missing. Please add it in settings.`);
@@ -2390,10 +2434,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           apiKey,
           thinkingLevel: selected?.thinkingLevel || 0,
           signal: abortController.signal,
-          baseUrl: selected?.baseUrl || (modelConfig as any)?.[provider]?.baseUrl,
-          apiFormat: selected?.apiFormat,
-          toolPolicy: selected?.toolPolicy,
-          profileId: selected?.profileId,
+          apiKeyFallbacks: bucketKeys.slice(1),
+          ...binding,
         },
         (token) => {
           if (abortController.signal.aborted || !isCurrentRun()) return;
@@ -2585,7 +2627,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         modelId = (modelConfig.gemini?.model) || 'gemini-2.5-pro';
       }
 
-      const apiKey = apiKeys[provider]?.[0];
+      /* Endpoint, wire format and tool policy come from the live profile, never
+         from the saved model — see `resolveProviderBinding`. */
+      const binding = resolveProviderBinding(modelConfig, provider, selected);
+      const bucketKeys = apiKeysForBinding(binding, provider, apiKeys);
+      const apiKey = bucketKeys[0];
       if (!apiKey) {
         throw new Error(`API Key for ${provider} is missing. Please add it in settings.`);
       }
@@ -2600,10 +2646,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           apiKey: apiKey,
           thinkingLevel: selected?.thinkingLevel || 1,
           signal: abortController.signal,
-          baseUrl: selected?.baseUrl || (modelConfig as any)?.[provider]?.baseUrl,
-          apiFormat: selected?.apiFormat,
-          toolPolicy: selected?.toolPolicy,
-          profileId: selected?.profileId,
+          apiKeyFallbacks: bucketKeys.slice(1),
+          ...binding,
         },
         (token) => {
           if (abortController.signal.aborted || !isCurrentRun()) return;

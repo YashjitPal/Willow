@@ -29,6 +29,8 @@ import { resolveBinding, type ProviderKeys } from './model-binding';
 import { clearRequestLog, dumpRequestLog, requestLog } from './harness/runtime/request-log';
 import type { CodexEffort } from './harness/overlay/effort';
 import type { ModeKind } from './harness/overlay/collaboration-mode';
+import type { LibrarySkill } from '@willow/core/skill-library';
+import type { McpBoundTool } from '@willow/ai/mcp/mcp-store';
 import { GoalRuntime, type ThreadGoal } from './harness/runtime/goal';
 import type { RequestUserInputSink } from './harness/runtime/request-user-input';
 import {
@@ -422,6 +424,24 @@ export interface CodexTurnOptions {
   onGoal?: (goal: ThreadGoal | null) => void;
   /** How `request_user_input` reaches the user. Plan mode needs this. */
   requestUserInput?: RequestUserInputSink;
+  /**
+   * The skill library for this turn.
+   *
+   * Passed in rather than read here so the harness stays independent of where
+   * skills live — the same reason `extraTools` is a parameter. The caller hands
+   * over the enabled ones; the harness renders the catalog, offers
+   * `skills.list` / `skills.read`, and resolves `$mentions` against them.
+   */
+  skills?: LibrarySkill[];
+  /**
+   * Tools from connected MCP servers.
+   *
+   * Passed in for the same reason as `skills` and `extraTools`: the harness has
+   * no business knowing how a server was reached. `boundMcpTools()` in
+   * `boundMcpTools()` in `@willow/ai/mcp/mcp-store` is what the caller uses to
+   * produce these.
+   */
+  mcpTools?: McpBoundTool[];
   signal?: AbortSignal;
   /** Prose, as it streams. The sidebar owns the message body. */
   onText: (chunk: string) => void;
@@ -556,6 +576,8 @@ export async function runCodexTurn(options: CodexTurnOptions): Promise<void> {
     mode: options.mode ?? 'default',
     goal: goalRuntime,
     requestUserInput: options.requestUserInput,
+    skills: options.skills,
+    mcpTools: options.mcpTools,
     extraTools: [runCommandTool(options.workbench), computerUseTool(options.apiKeys)],
     onEvent: (event: HarnessEvent) => {
       if (event.type === 'text') {

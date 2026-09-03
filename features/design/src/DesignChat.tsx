@@ -3,6 +3,8 @@ import { flushSync } from 'react-dom';
 import { ArrowUp, AudioLines, Lightbulb, Copy, X } from 'lucide-react';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '@willow/ai/chat';
+import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
+import type { ProviderId } from '@willow/ai/providers/endpoints';
 import { addDesignNode, designNodesStore, selectedDesignNodeIds } from './design-store';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
@@ -136,7 +138,11 @@ export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ model
         modelId = (modelConfig.gemini?.model) || 'gemini-2.5-pro';
       }
 
-      const apiKey = apiKeys?.[provider]?.[0];
+      /* Endpoint, wire format and tool policy come from the live profile, never
+         from the saved model — see `resolveProviderBinding`. */
+      const binding = resolveProviderBinding(modelConfig, provider as ProviderId, selected);
+      const bucketKeys = apiKeysForBinding(binding, provider as ProviderId, apiKeys);
+      const apiKey = bucketKeys[0];
 
       if (!apiKey) {
          setMessages(prev => [...prev, {
@@ -156,10 +162,8 @@ export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ model
           model: modelId,
           apiKey: apiKey,
           thinkingLevel: selected?.thinkingLevel || 1,
-          baseUrl: selected?.baseUrl || modelConfig?.[provider]?.baseUrl,
-          apiFormat: selected?.apiFormat,
-          toolPolicy: selected?.toolPolicy,
-          profileId: selected?.profileId,
+          apiKeyFallbacks: bucketKeys.slice(1),
+          ...binding,
         },
         (token) => {
           fullResponse += token;

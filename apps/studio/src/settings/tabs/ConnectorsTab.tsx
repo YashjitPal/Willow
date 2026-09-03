@@ -1,5 +1,8 @@
 import React from 'react';
-import { ChevronDown, Cloud, FlaskConical, Search, FolderOpen, HardDrive, Check, AlertCircle, Shield } from 'lucide-react';
+import { ChevronDown, Cloud, FlaskConical, Search, FolderOpen, HardDrive, Check, AlertCircle, Shield, Plug } from 'lucide-react';
+// Its own file: this one is already six connectors long, and MCP brings a form,
+// a status list and per-server error reporting with it.
+import { McpConnector } from './connectors/McpConnector';
 
 type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github';
 
@@ -153,6 +156,23 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
               <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
             </div>
 
+            {/* MCP servers */}
+            <div
+              onClick={() => setActiveConnector('mcp')}
+              className="bg-[#272729] hover:bg-[#323235] border border-white/5 rounded-xl p-4 flex items-center justify-between cursor-pointer group transition-colors"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 flex items-center justify-center">
+                  <Plug size={20} className="text-white" />
+                </div>
+                <div>
+                  <div className="text-[14px] font-bold text-white mb-0.5">MCP servers</div>
+                  <div className="text-[13px] text-zinc-400">Give the Agent tools from an MCP server</div>
+                </div>
+              </div>
+              <ChevronDown className="rotate-[-90deg] text-zinc-600 group-hover:text-white transition-colors" size={16} />
+            </div>
+
             {/* Local Folder Sync (if not connected) */}
             {!isLocalFolderConnected && (
               <div 
@@ -175,6 +195,10 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
         </div>
       </div>
     );
+  }
+
+  if (activeConnector === 'mcp') {
+    return <McpConnector onBack={() => setActiveConnector(null)} />;
   }
 
   if (activeConnector === 'willow-ai') {

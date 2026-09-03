@@ -12,7 +12,8 @@ import type {
   SparkPlanStep,
   SparkSubAgent,
 } from './spark-store';
-import { getActiveSparkStorageScope } from './spark-store';
+import { getActiveSparkStorageScope, sparkPendingQuestions } from './spark-store';
+import { useStore } from '@nanostores/react';
 import {
   createSparkTaskAttachments,
   deleteSparkAttachmentPayloads,
@@ -20,11 +21,11 @@ import {
 } from './attachment-storage';
 import { GeminiThinkingVisualizer } from '@willow/chat/GeminiThinkingVisualizer';
 import { useAuth } from '@willow/auth/AuthContext';
-import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { sparkAccentVars } from './spark-accent';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
+import { SparkQuestionPanel } from './SparkQuestionPanel';
 import { formatSparkRelativeTime } from './spark-types';
 import type { SparkSubAgentCall } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
@@ -209,6 +210,8 @@ export interface SparkTaskDetailProps {
     attachments?: SparkTaskAttachment[],
     tools?: string[],
   ) => boolean;
+  /** Aborts the task's in-flight run. Drives the composer's stop button. */
+  onStopTask: (taskId: string) => void;
   onRespondToApproval?: (taskId: string, allowed: boolean) => void;
   onResponseReactionChange: (
     taskId: string,
@@ -423,7 +426,21 @@ const taskStatus = (task: SparkTask) => task.status;
 
 const isTaskComplete = (task: SparkTask) => taskStatus(task) === 'complete';
 
-const needsApproval = (task: SparkTask) => taskStatus(task) === 'needs-input';
+/**
+ * Whether the task is waiting on the browser-permission decision.
+ *
+ * The `approval` object is required, not just the status. `needs-input` used to
+ * be enough, and once `request_user_input` started using the same status to say
+ * "waiting on the user", asking a question raised the "Let Gemini browse for
+ * you" card — a card about an entirely different decision, for a capability
+ * Willow has not built yet.
+ *
+ * Two things share one status because both genuinely are "waiting on you"; what
+ * distinguishes them is *what* is being asked, and only the browser flow
+ * attaches an `approval`.
+ */
+const needsApproval = (task: SparkTask) =>
+  taskStatus(task) === 'needs-input' && Boolean(task.approval);
 
 const getStatusLabel = (task: SparkTask) => {
   switch (taskStatus(task)) {
@@ -940,7 +957,10 @@ const groupSparkSubagentTimeline = (
     } else {
       const tool = callsById.get(entry.callId)?.kind;
       const previousTool = previous?.kind === 'tool' ? callsById.get(previous.entry.callId)?.kind : undefined;
-      if (tool && previousTool && isFileTimelineTool(tool) && isFileTimelineTool(previousTool)) return;
+      // Same-label collapse as the task timeline; see the note in
+      // `groupSparkActivity`. A subagent searching three times in a row is one
+      // row, and a work-log line between two searches still splits them.
+      if (tool && previousTool && getTimelineToolLabel(tool) === getTimelineToolLabel(previousTool)) return;
       groups.push({ id: entry.id, kind: 'tool', entry });
     }
   });
@@ -1089,11 +1109,30 @@ const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroup
       groups.push({ id: entry.id, kind: 'subagents' });
       return;
     }
+    /*
+     * Two adjacent tool rows that would print the same label say nothing the
+     * first one did not. Models routinely fire several `google_search` calls
+     * back to back while assembling one answer, and the timeline drew a "Google
+     * Search" row for each of them.
+     *
+     * Adjacency is the entire test, and it is already the right one: narration
+     * entries are the model's own work-log lines, and both they and tool calls
+     * are appended to `activityLog` in stream order. So a search that follows a
+     * line the model wrote is not adjacent to the previous search and keeps its
+     * own row — only an uninterrupted run of calls collapses.
+     *
+     * This generalises the rule it replaces, which collapsed consecutive *file*
+     * tools. Every file tool renders as "Files", so that was already a
+     * same-label case; comparing the rendered label covers it and search both.
+     * The entry kept is the first, exactly as before.
+     *
+     * Collapsing is presentational only. `activityLog` still holds every call,
+     * so nothing is lost for the full timeline panel.
+     */
     if (
       entry.kind === 'tool'
       && last?.kind === 'tool'
-      && isFileTimelineTool(last.entry.tool)
-      && isFileTimelineTool(entry.tool)
+      && getTimelineToolLabel(last.entry.tool) === getTimelineToolLabel(entry.tool)
     ) return;
     groups.push({ id: entry.id, kind: 'tool', entry });
   });
@@ -1339,8 +1378,36 @@ const isFileTimelineTool = (tool: string): boolean => {
   return normalized === 'files' || normalized === 'create';
 };
 
+/**
+ * The `request_user_input` timeline record, in upstream's own words.
+ *
+ * The Codex app has two strings for this and they are not the same shape:
+ * `userInputRequest.inProgress` is "Asking {question|questions}" with no
+ * count, and `userInputRequest.completed` is "Asked {# question|# questions}"
+ * with one. Reproduced as-is, including that asymmetry.
+ *
+ * The state and count ride in the tool name because Spark's activity log
+ * stores a tool as a bare string (`{ kind: 'tool', tool: string }`), and one
+ * encoded name is a smaller change than a new entry variant threaded through
+ * the grouping, overflow and sub-agent renderers. It is decoded in exactly one
+ * place, here.
+ */
+const QUESTION_TOOL_PREFIX = 'request_user_input:';
+
+export const questionTimelineTool = (answered: boolean, count: number): string =>
+  `${QUESTION_TOOL_PREFIX}${answered ? 'asked' : 'asking'}:${count}`;
+
+const questionTimelineLabel = (tool: string): string | null => {
+  if (!tool.startsWith(QUESTION_TOOL_PREFIX)) return null;
+  const [state, rawCount] = tool.slice(QUESTION_TOOL_PREFIX.length).split(':');
+  const count = Number(rawCount) || 1;
+  if (state === 'asked') return `Asked ${count} ${count === 1 ? 'question' : 'questions'}`;
+  return `Asking ${count === 1 ? 'question' : 'questions'}`;
+};
+
 const getTimelineToolLabel = (tool: string): string => (
-  isFileTimelineTool(tool) ? 'Files' : getToolCapabilityLabel(normalizeCapabilityTool(tool)).label
+  questionTimelineLabel(tool)
+  ?? (isFileTimelineTool(tool) ? 'Files' : getToolCapabilityLabel(normalizeCapabilityTool(tool)).label)
 );
 
 const SparkActivityClock: React.FC = () => (
@@ -1696,6 +1763,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   onTogglePin,
   onEditMessage,
   onSubmitFollowUp,
+  onStopTask,
   onRespondToApproval,
   onResponseReactionChange,
   onRetryTask,
@@ -1706,10 +1774,33 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   setSelectedModelId,
 }) => {
   const { userProfile } = useAuth();
-  const taskDetailGlowAccent = getWorkspaceTheme(userProfile?.workspaceColor || 'blue').glowAccent;
   const currentTask = task;
+  /**
+   * The live `request_user_input` round for this task, if any.
+   *
+   * Read from its own store rather than off the task, because it carries the
+   * tool's promise resolver and `sparkState` is persisted — see
+   * `SparkPendingQuestion`.
+   */
+  const pendingQuestion = useStore(sparkPendingQuestions)[currentTask.id];
   const followUpBlocked = isTaskActive(currentTask)
     || needsApproval(currentTask)
+    || Boolean(currentTask.approval && currentTask.approvalDecision !== 'allowed');
+
+  /*
+   * The subset of `followUpBlocked` that has to lock the box outright.
+   *
+   * A task that is merely still working no longer does: the box stays live so a
+   * reply can be drafted while Spark finishes, and the send slot becomes stop —
+   * the same split Chat draws between `disabled` and `isGenerating`. Sending is
+   * still refused until the run ends, in `SparkComposer.submit`, in `InputBar`'s
+   * submit path and in `submitFollowUp` below, because the store rejects a turn
+   * appended to a running task.
+   *
+   * Waiting on an approval is different and keeps the hard lock: there is no run
+   * to stop, and the thing to do is answer the prompt above the composer.
+   */
+  const followUpLocked = needsApproval(currentTask)
     || Boolean(currentTask.approval && currentTask.approvalDecision !== 'allowed');
   const recentTasks = tasks;
   const [followUpDraft, setFollowUpDraft] = useState('');
@@ -2241,11 +2332,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   }, [anchoredTurnId]);
 
 
+  /* Keyed to the hard lock, not to `followUpBlocked`: a working task leaves the
+   * box usable, so there is no reason to cut dictation off mid-sentence. */
   useEffect(() => {
-    if (!followUpBlocked) return;
+    if (!followUpLocked) return;
     followUpDictation.stopDictation();
     setFollowUpPlusOpen(false);
-  }, [followUpBlocked, followUpDictation.stopDictation]);
+  }, [followUpLocked, followUpDictation.stopDictation]);
 
   const handleTaskMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -2426,7 +2519,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const followUpPlaceholder = needsApproval(currentTask)
     ? 'Respond above to continue'
     : isTaskActive(currentTask)
-      ? 'Wait for Spark to finish'
+      // The box takes a draft while Spark works, so this no longer says "wait".
+      ? 'Draft your next message'
       : currentTask.approval && currentTask.approvalDecision !== 'allowed'
         ? 'Browser access is required to continue'
         : 'What can we do next?';
@@ -2497,10 +2591,9 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   return (
     <div
       className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${computerUse ? ' has-computer-use' : ''}`}
-      style={{
-        ...sparkAccentVars(userProfile?.workspaceColor),
-        '--spark-task-detail-accent': taskDetailGlowAccent,
-      } as React.CSSProperties}
+      /* `--spark-task-detail-accent` comes from `sparkAccentVars` now, so the All
+       * Tasks route can light its matching wash from the same one place. */
+      style={sparkAccentVars(userProfile?.workspaceColor)}
     >
       <aside
         className="spark-task-detail__library"
@@ -3157,23 +3250,43 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
 
           <div ref={followUpZoneRef} className="spark-task-detail__followup-zone">
             <div className="spark-task-detail__followup-composer">
-              <SparkComposer
-                onSubmitFiles={submitFollowUp}
-                // Gemini will not take a follow-up while the task is still working, so the
-                // whole box locks rather than the send button alone.
-                disabled={isFollowUpSubmitting || followUpBlocked}
-                placeholder={followUpPlaceholder}
-                modelConfig={modelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-              />
+              {/*
+                * A pending `request_user_input` takes the composer's place.
+                *
+                * This is upstream's arrangement, not an invention: the Codex
+                * app's composer row is rendered with `composerInput: null`
+                * while a request is pending, and the question panel goes in as
+                * a sibling inside the same composer body. Swapping here rather
+                * than layering above it also means the existing follow-up lock
+                * needs no change — the box was already disabled during a run.
+                */}
+              {pendingQuestion ? (
+                <SparkQuestionPanel taskId={currentTask.id} />
+              ) : (
+                <SparkComposer
+                  onSubmitFiles={submitFollowUp}
+                  /*
+                   * Only the states with nothing to stop lock the box. A working
+                   * task keeps it live and turns send into stop, which is a
+                   * deliberate deviation from Gemini — it locks the whole box —
+                   * and matches what Chat does, as asked for by name.
+                   */
+                  disabled={isFollowUpSubmitting || followUpLocked}
+                  isGenerating={isTaskActive(currentTask)}
+                  onStopGenerating={() => onStopTask(currentTask.id)}
+                  placeholder={followUpPlaceholder}
+                  modelConfig={modelConfig}
+                  selectedModelId={selectedModelId}
+                  setSelectedModelId={setSelectedModelId}
+                />
+              )}
               {followUpAttachmentError && (
                 <p id={followUpErrorId} className="spark-task-detail__composer-error" role="alert">
                   {followUpAttachmentError}
                 </p>
               )}
             </div>
-            <p className="spark-task-detail__disclaimer">Gemini is AI and can make mistakes.</p>
+            <p className="spark-task-detail__disclaimer">Willow is AI and can make mistakes.</p>
           </div>
 
           {thinkingPanelTarget && (

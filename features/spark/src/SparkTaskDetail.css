@@ -46,22 +46,20 @@
   content: "";
   filter: blur(200px);
   pointer-events: none;
-  opacity: 0.7;
-  transform: translateX(-50%);
-  animation: spark-task-detail-background-grow 0.6s cubic-bezier(0.2, 0, 0, 1) both;
-  transition: opacity 3s ease;
-}
-
-@keyframes spark-task-detail-background-grow {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -45%) scale(0);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translate(-50%, -45%) scale(1);
-  }
+  /*
+   * No entrance animation, and these are the values its `both` fill used to hold:
+   * the authored `opacity: 0.7` and `translateX(-50%)` were both overridden by the
+   * grow keyframes' 100% frame, so stating them plainly is what keeps the wash put.
+   * The -45% in particular is load-bearing — drop it and the wash sits 45% of its
+   * own height lower.
+   *
+   * It animated in because it belonged to this route alone. Now that All Tasks
+   * carries the same wash, a fade-in here would dip a layer that was *already*
+   * on screen every time you opened a task, which is the flicker rather than a
+   * fix for it. It also replayed whenever this pane remounted.
+   */
+  opacity: 1;
+  transform: translate(-50%, -45%);
 }
 
 @supports (background: color-mix(in srgb, black, white)) {
@@ -1238,12 +1236,18 @@
   }
 }
 
-@starting-style {
-  .spark-task-detail__status-pill-wrapper {
-    opacity: 0;
-    scale: 0.9;
-  }
-}
+/*
+ * The fade-and-shrink lives on `.is-hidden` rather than in `@starting-style`.
+ *
+ * Both spellings animate the progress panel showing and hiding the pill, but
+ * `@starting-style` applies whenever the element has no previous computed style —
+ * which means *insertion* as well. So the pill also played a 300ms fade and scale
+ * every time it was mounted, and it read as the "Complete" chip flickering on
+ * arrival. Nothing needs the starting style: coming back from `.is-hidden` has a
+ * real previous style (`opacity: 0`) to transition out of, which is all a
+ * transition requires, and `allow-discrete` above already handles the `display`
+ * half. Stating the values here keeps the panel animation and drops the other.
+ */
 
 .spark-task-detail__status-pill-wrapper.is-hidden {
   display: none;

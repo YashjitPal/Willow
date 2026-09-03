@@ -35,6 +35,40 @@ into nanostores. Feasible, but not trivial.
 **`platform/ai` must never import from `features/` or `apps/`.** It can import
 sibling platform packages (`@willow/core`, `@models`) and that is all.
 
+## One binding, resolved live
+
+A turn's endpoint, wire format, tool policy and key bucket come from
+`resolveProviderBinding` in `src/providers/profiles.ts`. **Every surface must go
+through it** — Chat, the Workbench's two generation paths, Spark, Design and
+visual editing all do.
+
+Do not read `apiFormat` / `toolPolicy` / `baseUrl` off a saved model. That is where
+they used to come from and it was wrong in two directions at once: a catalogue
+model never carried them, so it silently fell back to the provider's default format
+however Settings was set, and a custom model carried a copy frozen when it was
+added, so editing the dropdown afterwards changed the screen and not the request.
+Only Chat resolved the profile, so one setting meant different things in different
+parts of the app. `savedModel.profileId` still selects *which* profile; it no
+longer supplies the values.
+
+`apiKeysForBinding` returns the whole bucket, in order. `streamChat` rotates
+through it on an auth rejection — see `namesAuthRejection`, which deliberately
+excludes quota and rate limits, since the next key is throttled too.
+
+### Tool policy means the same thing on every provider
+
+- `provider-native` — the endpoint's own built-ins, plus Willow's declarations.
+- `function-calling` — declarations only. This is the relay setting: the caller is
+  expected to supply `webSearchTools` so the turn still has a search tool.
+- `disabled` — nothing, on all three adapters. The Gemini path had to be gated
+  explicitly for this; it used to withhold only the built-ins, which made the one
+  dropdown mean "no tools" on OpenAI and Anthropic and "no search" here.
+
+**Exactly one search mechanism per turn.** `web_search` is also the name of
+Anthropic's and OpenAI's built-ins, so a caller declares Willow's client tool only
+when no server-side one is going out. `ChatView` computes that from
+`nativeToolFormatForProvider`, the same predicate `chat.ts` gates on.
+
 ## Gemini Streaming Boundaries
 
 `src/chat.ts` exposes several distinct callback channels. Keep them distinct when

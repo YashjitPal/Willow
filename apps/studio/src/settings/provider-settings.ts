@@ -135,17 +135,34 @@ const readCachedProviderState = (scope: string): ProviderParams | null => {
   }
 };
 
+/**
+ * One field, many keys.
+ *
+ * The field has always told the user to separate keys with commas, and this is
+ * the half that was missing: the whole string used to be stored as a
+ * single-element array, so `["sk-aaa, sk-bbb"]` was handed to an SDK verbatim as
+ * one credential and authenticated as neither. Newlines count too, because a
+ * paste out of a password manager brings them.
+ *
+ * `mapProviderState` in `@willow/auth/use-user-data` splits the same way. Both
+ * exist because either store can be the one a reader reaches first.
+ */
+export const splitApiKeys = (value: string): string[] => value
+  .split(/[\r\n,]+/)
+  .map((key) => key.trim())
+  .filter(Boolean);
+
 const cacheProviderState = (scope: string, state: ProviderParams) => {
   try {
     const keys = getProviderStorageKeys(scope);
     localStorage.setItem(keys.providerState, JSON.stringify(state));
     localStorage.setItem(keys.apiKeys, JSON.stringify({
-      gemini: state.gemini.apiKey ? [state.gemini.apiKey] : [],
-      openai: state.openai.apiKey ? [state.openai.apiKey] : [],
-      anthropic: state.anthropic.apiKey ? [state.anthropic.apiKey] : [],
-      moonshot: state.moonshot.apiKey ? [state.moonshot.apiKey] : [],
-      spacexai: state.spacexai.apiKey ? [state.spacexai.apiKey] : [],
-      zhipuai: state.zhipuai.apiKey ? [state.zhipuai.apiKey] : [],
+      gemini: splitApiKeys(state.gemini.apiKey),
+      openai: splitApiKeys(state.openai.apiKey),
+      anthropic: splitApiKeys(state.anthropic.apiKey),
+      moonshot: splitApiKeys(state.moonshot.apiKey),
+      spacexai: splitApiKeys(state.spacexai.apiKey),
+      zhipuai: splitApiKeys(state.zhipuai.apiKey),
     }));
   } catch (error) {
     console.warn('[Settings] Unable to cache provider configuration:', error);

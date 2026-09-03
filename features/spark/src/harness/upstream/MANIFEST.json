@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "ref": "rust-v0.147.0",
   "commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "fetchedAt": "2026-08-16T20:26:32.964Z",
+  "fetchedAt": "2026-09-03T10:03:56.146Z",
   "files": [
     {
       "upstream": "codex-rs/core/prompt_with_apply_patch_instructions.md",
@@ -26,6 +26,41 @@
       "role": "Lark grammar for the freeform apply_patch tool.",
       "bytes": 578,
       "sha256": "d6367f4826ed608c424b0a308f3d6163527df63c22513d089b91863552f8bfeb"
+    },
+    {
+      "upstream": "codex-rs/collaboration-mode-templates/templates/plan.md",
+      "local": "collaboration_mode_plan.md",
+      "role": "Plan mode developer instructions, injected in <collaboration_mode> tags.",
+      "bytes": 9184,
+      "sha256": "d6d46c2d460a9d91ada2167605a8dfc56efde6b2ab61e101444c736c6fd6960a"
+    },
+    {
+      "upstream": "codex-rs/collaboration-mode-templates/templates/default.md",
+      "local": "collaboration_mode_default.md",
+      "role": "Default mode developer instructions, injected in <collaboration_mode> tags.",
+      "bytes": 929,
+      "sha256": "94a6a72b8aaf0d597eac1aa59926c58a156dbca7573c1bf48f3d5ae8b80558d7"
+    },
+    {
+      "upstream": "codex-rs/ext/goal/templates/goals/continuation.md",
+      "local": "goal_continuation.md",
+      "role": "Steering message that drives each automatic goal continuation turn.",
+      "bytes": 5261,
+      "sha256": "bcb77b27cac86d4973c34b075a1b32ed4c16e825771a16b7a86117b00c05e817"
+    },
+    {
+      "upstream": "codex-rs/ext/goal/templates/goals/budget_limit.md",
+      "local": "goal_budget_limit.md",
+      "role": "Steering message sent once a goal exhausts its token budget.",
+      "bytes": 640,
+      "sha256": "ee40c96b4d75b53eb8d43f93018f200c21a8eef93d0a8adb7bc74ebbf406dcd2"
+    },
+    {
+      "upstream": "codex-rs/ext/goal/templates/goals/objective_updated.md",
+      "local": "goal_objective_updated.md",
+      "role": "Steering message sent when the user edits an active goal's objective.",
+      "bytes": 652,
+      "sha256": "6a0c09da9c848920b75164a681e83a6ef6fde7269f339845817639623167928b"
     },
     {
       "upstream": "LICENSE",

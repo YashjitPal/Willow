@@ -19,6 +19,7 @@
  */
 .spark-all-tasks {
   container-type: inline-size;
+  position: relative;
   display: flex;
   width: 100%;
   height: 100%;
@@ -33,6 +34,52 @@
   color: #e3e3e3;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
   letter-spacing: 0;
+}
+
+/*
+ * The wide background wash, matching `.spark-task-detail::before`.
+ *
+ * That one is a pseudo-element of the task-detail root, so it existed only while a
+ * task was open — closing a task dropped it and left this route lit by the tight
+ * composer pill alone, which read as the glow dimming and staying dim until a task
+ * was opened again. Both routes now carry both layers.
+ *
+ * Three deliberate differences from the task-detail copy:
+ *
+ * - `left: 50%`, not 15%. There the composer sits in the left 41.5% library pane;
+ *   here it is centred in the content column.
+ * - `z-index: -1`, not 0, which is what the composer glow on this route already
+ *   uses — see the isolation note at the top of this file. It keeps the wash above
+ *   this element's own opaque fill but behind the task rows, so their translucent
+ *   fill darkens it exactly as it darkens the pill.
+ * - No entrance animation. This is where you land when you close a task, and
+ *   replaying a fade-in on arrival is the flicker we are trying to remove.
+ *
+ * `opacity: 1` is the task-detail wash's *effective* value, not its authored one:
+ * its `0.7` is overridden by its grow animation's `both` fill, which ends at 1.
+ */
+.spark-all-tasks::before {
+  position: absolute;
+  top: 100px;
+  left: 50%;
+  z-index: -1;
+  width: 100%;
+  max-width: 792px;
+  height: 50%;
+  max-height: 300px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    ellipse 2140% 120% at center 14%,
+    var(--spark-task-detail-accent, #14204f) 0,
+    var(--studio-surface, #0f0f0f) 50%
+  );
+  content: "";
+  filter: blur(200px);
+  pointer-events: none;
+  opacity: 1;
+  /* Matching the task-detail wash's settled offset, including the -45% — the two
+   * have to sit at the same height or crossing routes shifts the glow. */
+  transform: translate(-50%, -45%);
 }
 
 .spark-all-tasks button,

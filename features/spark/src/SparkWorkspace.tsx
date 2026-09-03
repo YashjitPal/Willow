@@ -12,6 +12,8 @@ import {
   type ChatMessage as AiChatMessage,
 } from '@willow/ai/chat';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
+import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
+import type { ProviderId } from '@willow/ai/providers/endpoints';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import {
   createSparkTaskAttachments,
@@ -59,6 +61,7 @@ import {
   toggleSparkTaskPinned,
   updateSparkSchedule,
   updateSparkSkill,
+  createSparkQuestionSink,
   updateSparkTask,
   updateSparkTaskResponseTransient,
   updateSparkTaskActivityTransient,
@@ -84,6 +87,7 @@ import { levelToEffort, resolveEffort } from './harness/overlay/effort';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
 import { SparkComposer } from './SparkComposer';
+import { questionTimelineTool } from './SparkTaskDetail';
 import { SparkHome } from './SparkHome';
 import {
   SPARK_SCHEDULE_WEEKDAYS,
@@ -211,6 +215,28 @@ const appendSparkNarration = (entries: SparkActivityEntry[], text: string): Spar
     });
   return next;
 };
+
+/**
+ * A stored skill, as the harness needs it.
+ *
+ * `description` is the field that matters and it used to be dropped here: both
+ * call sites passed `{ name, instructions }`, so the prompt's skill catalog
+ * listed bare names and the model had no basis for picking one. `SparkSkill`
+ * has carried a description all along — the skill importer even parses it out
+ * of `SKILL.md` frontmatter — it just never reached the model.
+ *
+ * Declared once rather than inlined twice, because it was the two copies
+ * drifting from the type that hid the omission in the first place.
+ */
+const toHarnessSkill = (skill: SparkSkill): {
+  name: string;
+  description?: string;
+  instructions: string;
+} => ({
+  name: skill.name,
+  description: skill.description,
+  instructions: skill.instructions,
+});
 
 const normalizeRuntimeToolName = (name: string): string => {
   const raw = name.trim();
@@ -371,6 +397,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   const workspaceShellRef = useRef<HTMLDivElement>(null);
   const sharedComposerRef = useRef<ComposerHandle | null>(null);
   const sharedComposerRouteRef = useRef('');
+  /** True once the composer glow has played its reveal, so it plays only the once. */
+  const glowRevealedRef = useRef(false);
   const [sharedComposerHost] = useState<HTMLDivElement | null>(() => {
     if (typeof document === 'undefined') return null;
     const host = document.createElement('div');
@@ -447,7 +475,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       getWorkspaceTheme(userProfile?.workspaceColor || 'blue').glowAccent,
     );
     const anchor = shell.querySelector<HTMLElement>('[data-spark-glow-anchor]');
-    if (anchor && sharedGlowHost.parentElement !== anchor) anchor.appendChild(sharedGlowHost);
+    if (!anchor || sharedGlowHost.parentElement === anchor) return;
+    anchor.appendChild(sharedGlowHost);
+    /*
+     * Moving the node restarts its CSS animations, so every later re-parent has to
+     * settle the reveal instead of replaying it. Anchors are recreated more often
+     * than the route changes — opening a task swaps in a loading branch that has no
+     * anchor, then mounts a new pane — which is what made the glow re-ignite on
+     * each task switch. See `.spark-connected-glow.is-settled`.
+     */
+    if (glowRevealedRef.current) sharedGlowHost.classList.add('is-settled');
+    else glowRevealedRef.current = true;
   }, [sharedGlowHost, userProfile?.workspaceColor]);
 
   useLayoutEffect(() => {
@@ -528,9 +566,15 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     const selected = availableModels.find((model) => model.id === selectedModelId || model.id === selectedBaseId) ?? availableModels[0];
     const provider = selected?.provider ?? 'gemini';
     const model = selected?.modelId ?? modelConfig?.[provider]?.model ?? 'gemini-3.6-flash';
-    const apiKey = (apiKeys as unknown as Record<string, string[] | undefined> | undefined)?.[provider]
-      ?.find((key) => key.trim())
-      ?.trim();
+    /* Endpoint, wire format and tool policy come from the live profile, never from
+       the saved model — see `resolveProviderBinding`. */
+    const binding = resolveProviderBinding(modelConfig, provider as ProviderId, selected);
+    const bucketKeys = apiKeysForBinding(
+      binding,
+      provider as ProviderId,
+      apiKeys as unknown as Record<string, string[] | undefined> | undefined,
+    );
+    const apiKey = bucketKeys[0];
 
     const selectedThinkingLevel = selectedModelId.includes('::effort-')
       ? Number(selectedModelId.split('::effort-')[1])
@@ -548,6 +592,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       provider,
       model,
       apiKey,
+      apiKeyFallbacks: bucketKeys.slice(1),
       thinkingLevel: effort.level,
       reasoningEffort: effort.effective,
       effort,
@@ -557,10 +602,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         model,
         effort.level,
       ),
-      baseUrl: selected?.baseUrl || modelConfig?.[provider]?.baseUrl,
-      apiFormat: selected?.apiFormat,
-      toolPolicy: selected?.toolPolicy,
-      profileId: selected?.profileId,
+      ...binding,
     };
   }, [apiKeys, isUltra, modelConfig, selectedModelId]);
 
@@ -671,6 +713,26 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
       }
     };
+    /**
+     * The `request_user_input` timeline row, appended then rewritten in place.
+     *
+     * Deliberately not routed through `publishUsedTool`: that also records the
+     * name in `usedTools`, which drives the capability chips, and the encoded
+     * question name is a timeline detail rather than a capability the user
+     * picked. It also *replaces* rather than appends on the second call, so the
+     * turn shows one row that changes from "Asking question" to "Asked 1
+     * question" instead of two rows contradicting each other.
+     */
+    const publishQuestionRecord = (count: number, answered: boolean) => {
+      const tool = questionTimelineTool(answered, count);
+      const existing = activityLog.findIndex(
+        (entry) => entry.kind === 'tool' && entry.tool.startsWith('request_user_input:'),
+      );
+      activityLog = existing === -1
+        ? [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }]
+        : activityLog.map((entry, index) => (index === existing ? { ...entry, tool } : entry));
+      if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
+    };
     const publishCapability = (name: string) => {
       const tool = normalizeRuntimeToolName(name);
       if (!tool) return;
@@ -700,10 +762,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onGoalChange: (goal) => {
           if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
         },
+        /*
+         * Plan mode's question tool. Without a sink the harness tells the model
+         * the affordance is unwired and it proceeds on best judgement, which is
+         * honest but means the user is never actually asked.
+         */
+        requestUserInput: createSparkQuestionSink(taskId),
         model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
+          apiKeyFallbacks: execution.apiKeyFallbacks,
           thinkingLevel: execution.thinkingLevel,
           reasoningEffort: execution.reasoningEffort,
           includeThoughts: execution.thinkingLevel > 0,
@@ -717,7 +786,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           effort: execution.effort,
         },
         capabilities: {
-          skills: skills.filter((skill) => skill.enabled !== false).map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          skills: skills.filter((skill) => skill.enabled !== false).map(toHarnessSkill),
           connectedApps: [
             ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
             ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
@@ -765,10 +834,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool(event.call.kind);
               publishPlan(event.call.steps, isInitialPlan);
+            } else if (event.call.kind === 'user-input') {
+              // "Asking question(s)" while the turn waits; the same row is
+              // rewritten to "Asked N questions" once it resolves.
+              publishQuestionRecord(event.call.questions.length, false);
             } else {
               publishUsedTool(event.call.kind);
             }
           } else if (event.type === 'call-progress') {
+            // The question resolved, however it resolved — answered, skipped or
+            // dismissed all end the "Asking…" state.
+            if ('answers' in event.patch && Array.isArray(event.patch.answers)) {
+              publishQuestionRecord(event.patch.answers.length || 1, true);
+            }
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
@@ -822,7 +900,39 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
       if (isAbortError(error) || controller.signal.aborted) {
-        if (isCurrentRun()) updateSparkTask(taskId, { subagents: cancelRunningSubagents(subagents) });
+        /*
+         * Finalise, rather than just marking the sub-agents cancelled and
+         * leaving. An abort used to return with the status still 'running',
+         * which is what the composer reads to decide it cannot take a
+         * follow-up — so a stopped task stayed stopped-but-busy forever.
+         *
+         * `isCurrentRun()` is what makes this safe to do here. A user stop
+         * leaves this run current, so it finalises. A *preempted* run does not:
+         * `beginSparkRun` aborts the previous controller before installing the
+         * new one, so the run being replaced sees `isCurrentRun() === false`
+         * and leaves the status to whichever run took over.
+         *
+         * Whatever text streamed before the stop is kept, as Chat does.
+         */
+        if (isCurrentRun()) {
+          updateSparkTask(taskId, {
+            status: 'cancelled',
+            description: 'Task stopped',
+            progressLabel: 'Stopped',
+            activityPhase: undefined,
+            response: response.trim(),
+            modelLabel: execution.modelLabel,
+            thinkingSteps,
+            activityTitle,
+            plan,
+            activityLog,
+            subagents: cancelRunningSubagents(subagents),
+            usedTools,
+            generatedFiles,
+            approval: undefined,
+          });
+          updateLinkedScheduleRunStatus(taskId, 'Stopped', true);
+        }
         return;
       }
       if (!isCurrentRun()) return;
@@ -1017,6 +1127,26 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
     };
+    /**
+     * The `request_user_input` timeline row, appended then rewritten in place.
+     *
+     * Deliberately not routed through `publishUsedTool`: that also records the
+     * name in `usedTools`, which drives the capability chips, and the encoded
+     * question name is a timeline detail rather than a capability the user
+     * picked. It also *replaces* rather than appends on the second call, so the
+     * turn shows one row that changes from "Asking question" to "Asked 1
+     * question" instead of two rows contradicting each other.
+     */
+    const publishQuestionRecord = (count: number, answered: boolean) => {
+      const tool = questionTimelineTool(answered, count);
+      const existing = activityLog.findIndex(
+        (entry) => entry.kind === 'tool' && entry.tool.startsWith('request_user_input:'),
+      );
+      activityLog = existing === -1
+        ? [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }]
+        : activityLog.map((entry, index) => (index === existing ? { ...entry, tool } : entry));
+      if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
+    };
     const publishCapability = (name: string) => {
       const tool = normalizeRuntimeToolName(name);
       if (!tool) return;
@@ -1054,10 +1184,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onGoalChange: (goal) => {
           if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
         },
+        /*
+         * Plan mode's question tool. Without a sink the harness tells the model
+         * the affordance is unwired and it proceeds on best judgement, which is
+         * honest but means the user is never actually asked.
+         */
+        requestUserInput: createSparkQuestionSink(taskId),
         model: {
           provider: execution.provider,
           model: execution.model,
           apiKey: execution.apiKey,
+          apiKeyFallbacks: execution.apiKeyFallbacks,
           thinkingLevel: execution.thinkingLevel,
           reasoningEffort: execution.reasoningEffort,
           includeThoughts: execution.thinkingLevel > 0,
@@ -1071,7 +1208,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           effort: execution.effort,
         },
         capabilities: {
-          skills: skills.filter((skill) => skill.enabled !== false).map((skill) => ({ name: skill.name, instructions: skill.instructions })),
+          skills: skills.filter((skill) => skill.enabled !== false).map(toHarnessSkill),
           connectedApps: [
             ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
             ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
@@ -1123,10 +1260,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool(event.call.kind);
               publishPlan(event.call.steps, isInitialPlan);
+            } else if (event.call.kind === 'user-input') {
+              // "Asking question(s)" while the turn waits; the same row is
+              // rewritten to "Asked N questions" once it resolves.
+              publishQuestionRecord(event.call.questions.length, false);
             } else {
               publishUsedTool(event.call.kind);
             }
           } else if (event.type === 'call-progress') {
+            // The question resolved, however it resolved — answered, skipped or
+            // dismissed all end the "Asking…" state.
+            if ('answers' in event.patch && Array.isArray(event.patch.answers)) {
+              publishQuestionRecord(event.patch.answers.length || 1, true);
+            }
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
@@ -1178,7 +1324,31 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
       if (isAbortError(error) || controller.signal.aborted) {
-        if (isCurrentRun()) updateSparkTaskTurn(taskId, turnId, { subagents: cancelRunningSubagents(subagents) });
+        // Same reasoning as the root run above, including why `isCurrentRun()`
+        // keeps a preempted turn from writing a status it does not own.
+        if (isCurrentRun()) {
+          updateSparkTaskTurn(taskId, turnId, {
+            response: response.trim(),
+            modelLabel: execution.modelLabel,
+            thinkingSteps,
+            activityTitle,
+            activityLog,
+            subagents: cancelRunningSubagents(subagents),
+            usedTools,
+            generatedFiles,
+            activityPhase: undefined,
+          });
+          updateSparkTask(taskId, {
+            status: 'cancelled',
+            description: 'Follow-up stopped',
+            progressLabel: 'Stopped',
+            // A run that asked for browser access and was then stopped leaves the
+            // request moot. Clearing it matters here: a pending approval is the
+            // other half of `followUpLocked`, so leaving one would re-lock the
+            // box the stop was meant to hand back.
+            approval: undefined,
+          });
+        }
         return;
       }
       if (!isCurrentRun()) return;
@@ -1297,6 +1467,18 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (!prompt) return;
     if (turnId) updateSparkTaskTurn(taskId, turnId, { prompt });
     else updateSparkTask(taskId, { prompt, title: prompt });
+  }, []);
+
+  /*
+   * Stops the in-flight run for a task. The abort is all this does; the run's
+   * own catch block is what settles the task to 'cancelled', so a stop reaches
+   * the same finalisation whether the user asked for it or the tab went away.
+   *
+   * Scope comes from `getActiveSparkStorageScope()` rather than the `scopeId`
+   * above, because that is the key `beginSparkRun` was given.
+   */
+  const stopTask = useCallback((taskId: string) => {
+    sparkRunControllers.get(`${getActiveSparkStorageScope()}:${taskId}`)?.abort();
   }, []);
 
   const deleteTaskWithAttachments = useCallback((taskId: string) => {
@@ -1695,6 +1877,20 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     // Keep that shell and the adjacent Progress card stationary; the full
     // workspace slide is only for entering detail from the task-list route.
     if (location.page === 'task') {
+      /*
+       * Load the body *before* the route changes, for the same one-pass reason
+       * the entering path below gives — this branch used to skip it and get the
+       * "Loading task…" frame anyway.
+       *
+       * Keeping the shell mounted is the whole point of this branch, and the
+       * loading frame defeated it: that tree is not the detail, so React
+       * unmounted `SparkTaskDetail` and rebuilt it a microtask later. Two
+       * entrance animations replay on a rebuild — the split root's own wide
+       * glow (`.spark-task-detail::before`, which fades from nothing and reads
+       * as the glow dimming on every switch) and the shared composer glow,
+       * which gets re-parented into the newly built anchor.
+       */
+      ensureSparkTaskBodyLoaded(taskId);
       goToSparkTask(taskId);
       return;
     }
@@ -1796,6 +1992,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onTogglePin={toggleSparkTaskPinned}
         onEditMessage={editSparkMessage}
         onSubmitFollowUp={submitFollowUp}
+        onStopTask={stopTask}
         onResponseReactionChange={changeResponseReaction}
         onRetryTask={retryTask}
         onRetryTurn={retryTurn}

@@ -1,0 +1,17 @@
+# These files are byte-for-byte openai/codex and are checksummed against
+# MANIFEST.json by `npm run codex:check` and by spark-harness-modes.test.mjs.
+#
+# `-text` disables git's end-of-line conversion entirely. The repo is developed
+# on Windows with `core.autocrlf=true`, which rewrites LF to CRLF on checkout —
+# and a rewritten byte is a changed byte, so every file here would fail its
+# checksum on a fresh clone with no local edit having been made. That is not a
+# hypothetical: it happened the moment these files were round-tripped through
+# `git stash`.
+#
+# Do not narrow this to specific extensions. Anything vendored into this folder
+# is checksummed, so anything vendored here needs the exemption.
+#
+# This folder is written by `tools/scripts/sync-codex-upstream.mjs`, which
+# vendors into every harness from one list. Spark's copy was made by hand once
+# and drifted five files behind Code's; it is no longer maintained separately.
+* -text

@@ -17,7 +17,13 @@ import { AUTO_MODEL, resolveAutoModel } from '@willow/ai/models/auto-select';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
-import { DEFAULT_PROFILE_IDS, defaultApiFormatForProvider, defaultToolPolicyForProvider } from '@willow/ai/providers/profiles';
+import {
+  DEFAULT_PROFILE_IDS,
+  defaultApiFormatForProvider,
+  defaultToolPolicyForProvider,
+  nativeToolFormatForProvider,
+  type ProviderApiFormat,
+} from '@willow/ai/providers/profiles';
 import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
 import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME, isLiveOnlyTranscriptionModel } from '@willow/ai/transcription';
 import { useProviderSettings } from '../../use-provider-settings';
@@ -31,6 +37,7 @@ import {
   getModelPricing,
   providerName,
   providerVendor,
+  toolPolicyHint,
 } from '../../provider-models';
 import { ProviderGlyph } from './ProviderGlyph';
 import './ModelsApiPage.css';
@@ -61,10 +68,11 @@ const API_FORMATS = [
 ];
 
 const TOOL_POLICIES = [
-  { value: 'provider-native', label: 'Provider-native' },
-  { value: 'function-calling', label: 'Function calling' },
-  { value: 'disabled', label: 'Disabled' },
+  { value: 'provider-native', label: 'Provider-native', note: "Send the endpoint's own built-in tools" },
+  { value: 'function-calling', label: 'Function calling', note: 'Plain functions only; Willow supplies search' },
+  { value: 'disabled', label: 'Disabled', note: 'Send no tools at all' },
 ];
+
 
 /*
  * What the model deals in, as one glyph.
@@ -234,7 +242,7 @@ const Dropdown: React.FC<{
 const ChoiceField: React.FC<{
   label: string;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; note?: string }>;
   onChange: (value: string) => void;
 }> = ({ label, value, options, onChange }) => (
   <div className="ma-field">
@@ -245,6 +253,7 @@ const ChoiceField: React.FC<{
       items={options.map((option) => ({
         key: option.value,
         label: option.label,
+        note: option.note,
         selected: option.value === value,
         onSelect: () => onChange(option.value),
       }))}
@@ -547,7 +556,6 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
     const modelId = customModelDraft.modelId.trim();
     if (!name || !modelId) return;
     const profileId = DEFAULT_PROFILE_IDS[managingProvider];
-    const profile = providerProfiles.find((candidate: any) => candidate.id === profileId);
     const reasoningEfforts = Array.from(new Map(customReasoningEfforts
       .map((effort) => ({
         id: `${modelId}-effort-${Number(effort.level)}`,
@@ -580,9 +588,10 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
             effortLabel: defaultEffort?.label,
             reasoningEfforts,
             capabilities,
-            baseUrl: profile?.baseUrl,
-            apiFormat: profile?.apiFormat,
-            toolPolicy: profile?.toolPolicy,
+            /* `profileId` above is the whole binding. Copying the profile's
+               baseUrl/apiFormat/toolPolicy onto the model froze them at the moment
+               it was added, so editing the dropdowns afterwards changed the screen
+               and not the request. The profile is read live now. */
           },
         ],
       },
@@ -935,6 +944,15 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
               onChange={(value) => updateActiveProfile({ toolPolicy: value })}
             />
           </div>
+
+          <p className="ma-field-hint ma-label-s">
+            {toolPolicyHint(
+              provider,
+              activeProfile?.apiFormat || defaultApiFormatForProvider(provider),
+              activeProfile?.toolPolicy || defaultToolPolicyForProvider(provider),
+              Boolean(providerState.gemini.apiKey.trim()),
+            )}
+          </p>
 
           <p className="ma-section-note ma-label-s">
             Keys are stored on this device only. They are never sent to Willow, and they go straight from your browser

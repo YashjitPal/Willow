@@ -143,7 +143,11 @@ test('streamChat turns any provider error into a real AbortError when stopped', 
   // fixes every caller instead of each one special-casing error strings.
   assert.match(aiChat, /const streamChatImpl: any = async \(/);
   assert.match(aiChat, /export const streamChat: any = async \(\.\.\.args: any\[\]\) => \{/);
-  assert.match(aiChat, /const signal: AbortSignal \| undefined = args\[1\]\?\.signal;/);
+  // Read off the options argument once, at the boundary, so the translation is
+  // shared by every provider. The wrapper also rotates API keys, so it forwards a
+  // rebuilt options object per attempt — but the signal is still the caller's.
+  assert.match(aiChat, /const options = args\[1\] \?\? \{\};/);
+  assert.match(aiChat, /const signal: AbortSignal \| undefined = options\.signal;/);
   assert.match(
     aiChat,
     /if \(signal\?\.aborted && !isAbortError\(error\)\) \{[\s\S]{0,200}?new DOMException\('The AI request was cancelled\.', 'AbortError'\)/,

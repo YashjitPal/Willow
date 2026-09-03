@@ -251,3 +251,69 @@ export const profileForModel = (state: (ProviderProfileState & { providerProfile
   }
   return profileForProvider(state, provider);
 };
+
+/** The transport fields one turn needs, in the shape `AiOptions` takes them. */
+export interface ProviderTransportBinding {
+  baseUrl?: string;
+  apiFormat?: ProviderApiFormat;
+  toolPolicy?: ProviderToolPolicy;
+  profileId?: string;
+  /** Which key bucket to draw from. Falls back to the provider's own. */
+  apiKeyId: string;
+}
+
+/**
+ * Resolve a turn's endpoint, wire format and tool policy from the LIVE profile.
+ *
+ * Every surface has to go through here, because the obvious alternative — reading
+ * the fields off the saved model — is wrong in two directions at once. A model
+ * added from the catalogue never carried them, so it silently fell back to the
+ * provider's default format however the dropdown was set; and a custom model
+ * carried a copy snapshotted when it was added, which went stale the moment the
+ * user changed the dropdown afterwards. Chat resolved the profile and the other
+ * four surfaces did not, so the same setting meant different things depending on
+ * which part of the app you were in.
+ *
+ * `savedModel.profileId` still selects WHICH profile — it just no longer supplies
+ * the values.
+ */
+export const resolveProviderBinding = (
+  modelConfig: any,
+  provider: ProviderId,
+  savedModel?: { profileId?: string } | null,
+): ProviderTransportBinding => {
+  const profile = profileForModel(modelConfig, provider, savedModel?.profileId);
+  return {
+    baseUrl: profile?.baseUrl || modelConfig?.[provider]?.baseUrl,
+    apiFormat: profile?.apiFormat,
+    toolPolicy: profile?.toolPolicy,
+    profileId: profile?.id ?? savedModel?.profileId,
+    apiKeyId: profile?.apiKeyId || provider,
+  };
+};
+
+/**
+ * The keys a binding may authenticate with, in the order they should be tried.
+ *
+ * Returns the whole bucket rather than one key, because `streamChat` rotates
+ * through them when one is rejected. Blank entries are dropped here so a trailing
+ * comma in the Settings field cannot produce an empty credential.
+ *
+ * `apiKeys` is `unknown` and narrowed at runtime on purpose: `apiKeyId` is a free
+ * string (a custom profile may name its own bucket), so the set of keys is not
+ * statically known, and the callers' own `ApiKeys` interface has no index
+ * signature to satisfy one with.
+ */
+export const apiKeysForBinding = (
+  binding: Pick<ProviderTransportBinding, 'apiKeyId'>,
+  provider: ProviderId,
+  apiKeys?: unknown,
+): string[] => {
+  const buckets = (apiKeys ?? {}) as Record<string, unknown>;
+  const bucket = buckets[binding.apiKeyId] ?? buckets[provider];
+  if (!Array.isArray(bucket)) return [];
+  return bucket
+    .filter((key): key is string => typeof key === 'string')
+    .map((key) => key.trim())
+    .filter(Boolean);
+};

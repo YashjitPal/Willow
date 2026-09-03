@@ -26,7 +26,7 @@
 
 import type { AiOptions, StreamPhase, TokenUsage } from '@willow/ai/chat';
 import { getHarnessProfile, type HarnessProfile } from '../overlay/profile';
-import { isAllowed, refusalFor } from '../overlay/tool-policy';
+import { ALLOWED_TOOLS, isAllowed, refusalFor, type ToolId } from '../overlay/tool-policy';
 import {
   applyPatch,
   normalizePath,
@@ -46,21 +46,67 @@ import { beginToolLog, instrumentTransport } from './request-log';
 import { compactForHistory } from './history';
 import { nextId, toolRegistry } from './tools';
 import { resolveEffort, type CodexEffort } from '../overlay/effort';
+import {
+  collaborationModeSection,
+  isMutatingTool,
+  planModeMutationRefusal,
+  requestUserInputModes,
+  requestUserInputUnavailableMessage,
+  PLAN_MODE_PATCH_REFUSAL,
+  UPDATE_PLAN_IN_PLAN_MODE_ERROR,
+  type ModeKind,
+} from '../overlay/collaboration-mode';
+import { toolsForTurn } from '../overlay/tool-policy';
+import { multiAgentModeSection, type MultiAgentMode } from '../overlay/multi-agent-mode';
+
+import { ProposedPlanParser } from './proposed-plan';
+import { makeRequestUserInputTool, type RequestUserInputSink } from './request-user-input';
 import type { SparkGoalRuntime } from './goal';
 import type {
   AgentKind,
   EditCall,
   HarnessEvent,
   Message,
+  ProposedPlanCall,
   SubAgent,
   SubAgentTimelineEntry,
   ToolCall,
+  TurnGates,
   WebSearchCall,
   CodeExecutionCall,
   ToolContext,
   ToolHandler,
   ToolResult,
 } from './protocol';
+
+/**
+ * Collaboration mode, off.
+ *
+ * Every field here is the pre-Plan-mode behaviour, so a turn that never names a
+ * mode — which is every Spark turn that does not select Plan — runs exactly as
+ * it did before the mode existed. That includes sub-agents.
+ */
+const DEFAULT_GATES: TurnGates = {
+  mode: 'default',
+  refuseMutation: false,
+  streamProposedPlan: false,
+};
+
+/**
+ * The gates a mode implies.
+ *
+ * `streamProposedPlan` is root-only because the `<proposed_plan>` block is the
+ * *turn's* deliverable, not a per-agent one: upstream emits a single plan item
+ * per turn, and a sub-agent lifting its own block into a card would render a
+ * second plan the user never asked for. A sub-agent still inherits
+ * `refuseMutation`, which is the half that matters — an agent delegated to in
+ * Plan mode must not write either.
+ */
+const gatesFor = (mode: ModeKind, isRootThread = true): TurnGates => ({
+  mode,
+  refuseMutation: mode === 'plan',
+  streamProposedPlan: mode === 'plan' && isRootThread,
+});
 
 const FINAL_RESPONSE_OBSERVATION =
   'The work batch is complete, but the user-facing answer has not been emitted yet. ' +
@@ -82,15 +128,17 @@ export interface ModelBinding {
     /** Numeric Willow request level for the effective wire effort. */
     level: number;
     clamped: boolean;
-    /** Working guidance derived from the requested effort level. */
+    /** What effort selects beyond the API value. See `../overlay/effort.ts`. */
     harness?: {
-      guidance: string;
       /**
-       * Upstream derives this from effort: `ultra` → proactive, everything
-       * else → on request. It is what Ultra actually *is* — the reasoning
-       * parameter is already at the model's ceiling by then.
+       * Upstream's `MultiAgentMode`, derived from effort: `ultra` → proactive,
+       * everything else → explicit-request-only. It is what Ultra actually
+       * *is* — the reasoning parameter is already at the model's ceiling by
+       * then, so the mode is the entire product difference.
        */
-      delegation?: 'proactive' | 'on-request';
+      multiAgentMode?: MultiAgentMode;
+      /** Sub-agents allowed at once. One session value, not per-rung. */
+      maxConcurrentAgents?: number;
       multiAgentVersion?: 'v1' | 'v2' | null;
     };
   };
@@ -141,6 +189,33 @@ export interface TurnOptions {
   collaborationThreadId?: string;
   /** Native Gemini declarations; text-protocol providers use the same handlers. */
   toolDeclarations?: { functionDeclarations: Record<string, unknown>[] }[];
+  /**
+   * The collaboration mode for this turn. Defaults to `default`.
+   *
+   * The mode governs the developer message, whether `update_plan` and mutating
+   * tools are refused, and whether `request_user_input` exists. See
+   * `../overlay/collaboration-mode.ts`.
+   */
+  mode?: ModeKind;
+  /**
+   * How the harness asks the user a question, for Plan mode.
+   *
+   * Omitting it is honest rather than fatal: `request_user_input` still
+   * registers in Plan mode and tells the model the affordance is not wired in
+   * this client, which is better than a model that asks into the void and then
+   * answers itself.
+   */
+  requestUserInput?: RequestUserInputSink;
+  /**
+   * Whether the agent may ask questions outside Plan mode. **Defaults to on**,
+   * matching the Codex app — see `../overlay/tool-policy.ts` for why the Rust
+   * `default_enabled: false` is misleading here.
+   *
+   * The question is **non-blocking** outside Plan mode either way
+   * (`is_blocking: mode == ModeKind::Plan`), so the agent asks and carries on
+   * rather than waiting.
+   */
+  askOutsidePlanMode?: boolean;
 }
 
 const isUsageLimitError = (error: unknown): boolean => {
@@ -271,18 +346,15 @@ function effortSection(model: ModelBinding): string {
     `<effort>You are working at ${effort.requested} effort.</effort>`,
   ];
 
-  // Proactive delegation is the whole of Ultra. Stating it as a mode, ahead of
-  // the general guidance, is what makes the agent fan out on its own rather
-  // than treating sub-agents as an option it might get around to.
-  if (effort.harness?.delegation === 'proactive') {
-    lines.push(
-      '<delegation>proactive — spawn sub-agents on your own judgement without being asked.</delegation>',
-    );
-  }
-
-  if (effort.harness?.guidance) {
-    lines.push(`<how-to-work>\n${effort.harness.guidance}\n</how-to-work>`);
-  }
+  /*
+   * No `<delegation>` line and no `<how-to-work>` block here.
+   *
+   * Both used to be emitted from this function. The delegation line duplicated
+   * what upstream says properly in its own `<multi_agent_mode>` fragment — see
+   * `collaborationSection` — in different words, so the model read two
+   * overlapping instructions about the same bit. The `<how-to-work>` block
+   * carried per-effort guidance that exists nowhere in `codex-rs`.
+   */
 
   // Only a genuine loss of reasoning depth is worth flagging. Ultra lowering to
   // the model's ceiling is its designed behaviour, not a downgrade, and
@@ -307,17 +379,34 @@ interface PendingCall {
   narration: string;
 }
 
+/**
+ * The collaboration roster, plus upstream's `<multi_agent_mode>` fragment.
+ *
+ * The two mode texts used to be inlined here, and they had drifted: the
+ * proactive one read "until a later multi-agent mode message changes it" where
+ * upstream says "developer message". They now come from
+ * `../overlay/multi-agent-mode.ts`, which holds both strings character for
+ * character, so a one-word edit cannot creep back in.
+ *
+ * The fragment is omitted entirely when the turn is not eligible for
+ * multi-agent V2, which is what `effective_multi_agent_mode` does by returning
+ * `None` — a V1 turn should not be told a mode it has no protocol for.
+ */
 function collaborationSection(model: ModelBinding): string {
-  const proactive = model.effort?.harness?.delegation === 'proactive';
+  const harness = model.effort?.harness;
+  const mode = harness?.multiAgentVersion === null ? null : harness?.multiAgentMode;
   return [
     '# Multi-agent collaboration',
     '',
     'You are `/root`, the primary agent in a team collaborating to fulfil the user\'s goals.',
     'You can use `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.',
-    proactive
-      ? 'Proactive multi-agent delegation is active. Any earlier instruction requiring an explicit user request before spawning sub-agents no longer applies. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.'
-      : 'Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.',
-  ].join('\n');
+    harness?.maxConcurrentAgents
+      ? `At most ${harness.maxConcurrentAgents} sub-agents may run at once.`
+      : '',
+    mode ? multiAgentModeSection(mode) : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 interface IterationResult {
@@ -359,6 +448,7 @@ async function runIteration(
   options: TurnOptions,
   sink: CallSink,
   registry: Map<string, ToolHandler>,
+  gates: TurnGates = DEFAULT_GATES,
 ): Promise<IterationResult> {
   throwIfAborted(options.signal);
 
@@ -400,10 +490,63 @@ async function runIteration(
   let liveEdits: LiveEdit[] = [];
   const patchObservations: string[] = [];
 
+  /*
+   * The `<proposed_plan>` lift, and why it is gated in both directions.
+   *
+   * Inside Plan mode the block is the turn's deliverable and has to come out of
+   * the prose to be rendered as its own card. Outside Plan mode it has no
+   * meaning at all, and a model merely *discussing* the tag — which happens,
+   * because the mode document names it — would open a card for a plan nobody
+   * proposed. So the parser only exists when the mode does.
+   */
+  const planParser = gates.streamProposedPlan ? new ProposedPlanParser() : null;
+  let planCardId: string | null = null;
+  let planMarkdown = '';
+
+  const acceptText = (chunk: string): void => {
+    text += chunk;
+    if (finalResponseStarted) finalText += chunk;
+  };
+
+  const emitPlanSegments = (chunk: ReturnType<ProposedPlanParser['push']>): void => {
+    for (const segment of chunk.extracted) {
+      if (segment.kind === 'normal') {
+        acceptText(segment.text);
+      } else if (segment.kind === 'start') {
+        planMarkdown = '';
+        const call: ProposedPlanCall = {
+          id: nextId('call'),
+          kind: 'proposed-plan',
+          status: 'running',
+          startedAt: Date.now(),
+          markdown: '',
+        };
+        planCardId = sink.emit(call);
+      } else if (segment.kind === 'delta') {
+        planMarkdown += segment.text;
+        if (planCardId) {
+          sink.patch(planCardId, { markdown: planMarkdown } as Partial<ToolCall>);
+        }
+      } else if (segment.kind === 'end') {
+        if (planCardId) {
+          sink.patch(planCardId, {
+            status: 'success',
+            endedAt: Date.now(),
+            markdown: planMarkdown,
+          } as Partial<ToolCall>);
+        }
+        planCardId = null;
+      }
+    }
+  };
+
   const parser = new ResponseStreamParser({
     onText: (chunk) => {
-      text += chunk;
-      if (finalResponseStarted) finalText += chunk;
+      if (planParser) {
+        emitPlanSegments(planParser.push(chunk));
+        return;
+      }
+      acceptText(chunk);
     },
     onWorkTitle: (title) => {
       workBatchStarted = true;
@@ -421,10 +564,16 @@ async function runIteration(
       sink.workTitle(fallbackWorkTitle());
       flushWorkLog();
       callTextOffset = text.length;
-      sink.activity('Editing files');
+      // Nothing is being edited in Plan mode, so do not claim it is.
+      sink.activity(gates.refuseMutation ? 'Responding' : 'Editing files');
     },
 
     onPatchLine: (line) => {
+      // In Plan mode nothing will be written, so no edit card is opened. A card
+      // that appeared and then failed would read as a broken patch rather than
+      // as the mode declining it.
+      if (gates.refuseMutation) return;
+
       // Surface the target file as soon as its header arrives, so the card
       // appears with a real name rather than "writing…".
       const header = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line.trim());
@@ -459,6 +608,24 @@ async function runIteration(
     },
 
     onPatchClose: (envelope) => {
+      /*
+       * Plan mode's one deliberate departure from upstream.
+       *
+       * Upstream leaves the mutation boundary to the mode document, because its
+       * `apply_patch` is a tool call whose result the model waits for — an
+       * instruction not to call it is enough. Spark applies a patch *the moment
+       * the envelope closes*, mid-stream, so by the time anything could refuse
+       * it the user's files would already be written. Declining here reaches the
+       * same end state upstream gets from its read-only sandbox policy, and the
+       * model is told plainly that nothing was written.
+       */
+      if (gates.refuseMutation) {
+        patchObservations.push(PLAN_MODE_PATCH_REFUSAL);
+        liveEdits = [];
+        sink.activity(null);
+        return;
+      }
+
       const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
       liveEdits = [];
@@ -545,6 +712,7 @@ async function runIteration(
         registry,
         options,
         sink,
+        gates,
       );
       return observation.startsWith('ERROR ')
         ? { status: 'error', error: observation }
@@ -562,6 +730,14 @@ async function runIteration(
   );
 
   parser.end();
+  /*
+   * Resolve a half-buffered final line and close an unterminated block.
+   *
+   * Upstream's `finish` emits `end` unconditionally when a block is still open,
+   * so a stream that dies mid-plan still produces a complete, renderable plan
+   * rather than a card that spins forever.
+   */
+  if (planParser) emitPlanSegments(planParser.finish());
   throwIfAborted(options.signal);
 
   const observations = [...patchObservations];
@@ -570,7 +746,7 @@ async function runIteration(
     const narration = call.narration.trim();
     sink.workTitle(fallbackWorkTitle());
     if (narration) sink.workLog(narration);
-    observations.push(await runCall(call, registry, options, sink));
+    observations.push(await runCall(call, registry, options, sink, gates));
   }
 
   /*
@@ -778,13 +954,42 @@ async function runCall(
   registry: Map<string, ToolHandler>,
   options: TurnOptions,
   sink: CallSink,
+  gates: TurnGates = DEFAULT_GATES,
 ): Promise<string> {
   const name = call.name.trim();
 
   const refusal = refusalFor(name);
   if (refusal) return `ERROR ${name}: ${refusal}`;
 
+  /*
+   * Plan mode's tool half.
+   *
+   * `update_plan` gets its own message because upstream gives it one and the
+   * mode document promises the model that exact error — it is the sentence that
+   * teaches the model Plan mode and the checklist tool are unrelated features.
+   */
+  if (gates.refuseMutation) {
+    if (name === 'update_plan') return `ERROR ${UPDATE_PLAN_IN_PLAN_MODE_ERROR}`;
+    if (isMutatingTool(name)) return `ERROR ${planModeMutationRefusal(name)}`;
+  }
+
   if (!isAllowed(name) || !registry.has(name)) {
+    /*
+     * A tool that exists but is not available this turn.
+     *
+     * `request_user_input` is the case that matters: outside Plan mode it is
+     * deliberately unregistered, and "unknown tool" would tell the model the
+     * capability does not exist at all. Upstream's message says it is
+     * unavailable *in this mode*, which is what lets the model carry on
+     * without it instead of concluding it was never built.
+     */
+    if (isAllowed(name)) {
+      const unavailable = requestUserInputUnavailableMessage(
+        gates.mode,
+        requestUserInputModes(options.askOutsidePlanMode !== false),
+      );
+      if (name === 'request_user_input' && unavailable) return `ERROR ${unavailable}`;
+    }
     return (
       `ERROR Unknown tool ${JSON.stringify(name)}. Available tools: ` +
       `${[...registry.keys()].join(', ')}.`
@@ -1259,6 +1464,15 @@ class CollaborationRuntime {
           },
           sink,
           registry,
+          /*
+           * A sub-agent inherits its parent's mode, as upstream's do — an agent
+           * delegated to in Plan mode must not write either. `false` marks it
+           * non-root, so only the root lifts a `<proposed_plan>` card.
+           *
+           * In Default mode both flags are false, so this is a no-op for every
+           * sub-agent turn that ran before Plan mode existed.
+           */
+          gatesFor(this.options.mode ?? 'default', false),
         );
         report = iteration.text.trim() || report;
         conversation.push({ role: 'assistant', content: compactForHistory(iteration.raw) });
@@ -1434,10 +1648,20 @@ export async function runTurn(options: TurnOptions): Promise<void> {
    * belongs in the system prompt beside upstream's own — which already says to
    * answer a greeting conversationally — not stapled to whatever was typed.
    */
+  const mode: ModeKind = options.mode ?? 'default';
+  const gates = gatesFor(mode);
+
+  /*
+   * Order is upstream's and is not arbitrary. The mode document asserts that
+   * the agent's mode "changes only when new developer instructions with a
+   * different `<collaboration_mode>` change it", so the mode block has to be
+   * the last thing describing how to work before the turn's own context.
+   */
   const systemPrompt = [
     profile.systemPrompt,
     collaborationSection(options.model),
     effortSection(options.model),
+    collaborationModeSection(mode),
     options.goalRuntime?.contextSection(),
   ]
     .filter(Boolean)
@@ -1467,11 +1691,30 @@ export async function runTurn(options: TurnOptions): Promise<void> {
       collaboration.declarations(),
     ],
   };
+  /*
+   * Only the tools this turn is entitled to.
+   *
+   * `toolsForTurn` is the gate, and it currently removes exactly one thing:
+   * `request_user_input` outside Plan mode. Everything Spark already exposed —
+   * including every collaboration tool — is unconditional, so a Default-mode
+   * turn registers precisely what it did before this mode existed.
+   */
+  const askOutsidePlanMode = options.askOutsidePlanMode !== false;
+  const questionModes = requestUserInputModes(askOutsidePlanMode);
+  const allowedThisTurn = new Set<string>(toolsForTurn({ mode, askOutsidePlanMode }));
   const registry = toolRegistry([
     ...collaboration.tools('/root', conversation),
     ...goalTools,
     ...(options.extraTools ?? []),
+    makeRequestUserInputTool(mode, options.requestUserInput, true, questionModes),
   ]);
+  for (const key of [...registry.keys()]) {
+    // Collaboration and MCP tools are not in `ALLOWED_TOOLS` by name, so only
+    // prune the ones the policy actually knows about.
+    if (ALLOWED_TOOLS.includes(key as ToolId) && !allowedThisTurn.has(key)) {
+      registry.delete(key);
+    }
+  }
 
   /** Whether the "you announced but did not act" nudge has been spent. */
   let nudged = false;
@@ -1489,6 +1732,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
         runtimeOptions,
         sink,
         registry,
+        gates,
       );
       mutationCompleted ||= result.didMutate;
 

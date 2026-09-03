@@ -10,6 +10,7 @@
  */
 
 import { type ProviderId } from '@willow/ai/providers/endpoints';
+import { nativeToolFormatForProvider, type ProviderApiFormat } from '@willow/ai/providers/profiles';
 
 export interface ProviderReasoningEffortOption {
   id: string;
@@ -51,6 +52,38 @@ export const providerName = (provider: ProviderId): string =>
 
 export const providerVendor = (provider: ProviderId): string =>
   PROVIDERS.find((candidate) => candidate.id === provider)?.vendor || provider;
+
+/**
+ * What the API format and Tool translation pair actually does, in a sentence.
+ *
+ * Shared by both Models & API surfaces, like the roster above and for the same
+ * reason. Together those two dropdowns decide whether a turn is sent the
+ * provider's own server-side tools or Willow's client-side substitute, and that is
+ * not guessable from three words in a menu — the distinction only bites once
+ * someone points a provider at a gateway, which is exactly when they most need to
+ * know. `nativeToolFormatForProvider` is the same predicate the request layer
+ * gates on, so the sentence cannot drift from the behaviour.
+ */
+export const toolPolicyHint = (
+  provider: ProviderId,
+  format: ProviderApiFormat,
+  policy: string,
+  hasSearchBackend: boolean,
+): string => {
+  if (policy === 'disabled') {
+    return 'No tools are sent. This model cannot search the web, use Canvas, or reach your connected apps.';
+  }
+  const backend = hasSearchBackend
+    ? 'Willow runs the search itself, through your Gemini key.'
+    : 'Add a Gemini key to give it a search tool Willow can answer.';
+  if (policy === 'function-calling') {
+    return `Built-in tools are withheld and only plain function calls are sent — the right choice for a gateway that proxies the wire format but not the provider's own tools. ${backend}`;
+  }
+  if (!nativeToolFormatForProvider(provider, format)) {
+    return `This format has no verified built-in search for ${providerName(provider)}, so none is sent. ${backend}`;
+  }
+  return `${providerName(provider)}'s own built-in tools are sent with each request. If this endpoint is a gateway that does not implement them, switch to Function calling.`;
+};
 
 export const STANDARD_THINKING_LABELS: Record<number, string> = {
   1: 'Low',
