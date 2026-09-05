@@ -30,8 +30,10 @@ const SettingsSidebarItem: React.FC<{
   customIconColor?: string;
   customIconInitial?: string;
 }> = ({ icon: Icon, label, active, hasSubItems, onClick, customIconColor, customIconInitial }) => (
-  <button 
-    className={`w-full flex items-center gap-3 px-3 py-[9px] text-[13px] font-medium rounded-lg transition-colors
+  <button
+    type="button"
+    aria-current={active ? 'page' : undefined}
+    className={`settings-keyboard-control w-full flex items-center gap-3 px-3 py-[9px] text-[13px] font-medium rounded-lg transition-colors
       ${active 
         ? 'bg-[#1f1f1f] text-white' 
         : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'
@@ -114,6 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   } = useLocalFS();
   const isAgentsEnabled = useStore(experimentsStore)['agents-surface'];
   const [profileName, setProfileName] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isClosing, setIsClosing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<SectionType>(initialTab || 'workspace');
@@ -447,6 +450,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     }
   }, [modelConfig.gemini.model]);
 
+  // Keep focus modal throughout the exit animation, then return it to the opener.
+  React.useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!shouldRender || !dialog) return;
+    const previousFocus = document.activeElement;
+    const focusableElements = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]',
+    )).filter((element) => (
+      element.tabIndex >= 0 && !element.matches(':disabled') &&
+      !element.closest('[inert]') && element.getClientRects().length > 0 &&
+      getComputedStyle(element).visibility !== 'hidden'
+    ));
+    const focusFirst = () => (focusableElements()[0] ?? dialog).focus({ preventScroll: true });
+    const containFocus = (event: FocusEvent) => {
+      if (!dialog.contains(event.target as Node)) focusFirst();
+    };
+    const trapTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const elements = focusableElements();
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (!first || !elements.includes(document.activeElement as HTMLElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last ?? dialog : first ?? dialog).focus({ preventScroll: true });
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    };
+    focusFirst();
+    document.addEventListener('focusin', containFocus);
+    document.addEventListener('keydown', trapTab);
+    return () => {
+      document.removeEventListener('focusin', containFocus);
+      document.removeEventListener('keydown', trapTab);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, [shouldRender]);
+
   // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -468,12 +515,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         onClick={onClose}
       />
       
-      <div className={`relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Settings" className={`relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
         
         {/* Close Button */}
         <button 
             onClick={onClose}
-            className="absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
+            type="button"
+            aria-label="Close settings"
+            className="settings-keyboard-control absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
         >
             <X size={20} />
         </button>
@@ -497,15 +546,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
              <SettingsSectionTitle title="Account" />
              <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
-              <div 
+              <button
+                type="button"
+                aria-current={activeTab === 'labs' ? 'page' : undefined}
                 onClick={() => setActiveTab('labs')}
-                className={`px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'}`}
+                className={`settings-keyboard-control px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'}`}
               >
                 <div className="w-5 h-5 flex items-center justify-center">
                     <FlaskConical size={18} />
                 </div>
                 <span>Labs</span>
-              </div>
+              </button>
 
              <SettingsSectionTitle title="Connectors" />
              <SettingsSidebarItem icon={Link} label="Connectors" active={activeTab === 'connectors'} onClick={() => setActiveTab('connectors')} />

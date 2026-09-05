@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { embedGeminiText, embedGeminiTexts } from '@willow/ai/embeddings';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
@@ -7,6 +7,7 @@ import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
+import { createChatBodyLoader, hashText, normalize, runChatSearch, type SearchResult } from './chat-search';
 import './SearchChats.css';
 
 type SearchChatsProps = {
@@ -16,13 +17,6 @@ type SearchChatsProps = {
   onClose?: () => void;
   modelConfig: any;
 };
-
-type SearchResult = {
-  chatId: string;
-  updatedAt: number;
-};
-
-const normalize = (value: unknown): string => String(value ?? '').toLocaleLowerCase();
 
 const formatChatDate = (timestamp: number): string => {
   if (!timestamp) return '';
@@ -53,44 +47,9 @@ const formatChatDate = (timestamp: number): string => {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
 };
 
-const flattenMessages = (messages: unknown): string => {
-  if (!Array.isArray(messages)) return '';
-  return messages.map((message: any) => {
-    if (typeof message === 'string') return message;
-    return [message?.content, message?.thinkingText]
-      .filter((part): part is string => typeof part === 'string')
-      .join(' ');
-  }).join(' ');
-};
-
 const MAX_EMBEDDING_DOCUMENT_CHARS = 24_000;
 const CHAT_EMBEDDING_BATCH_SIZE = 20;
 const CHAT_EMBEDDING_INDEX_TIMEOUT_MS = 60_000;
-const CHAT_SEARCH_TIMEOUT_MS = 20_000;
-const MIN_SEMANTIC_SCORE = 0.42;
-
-const hashText = (value: string): string => {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${value.length}:${(hash >>> 0).toString(16)}`;
-};
-
-const cosineSimilarity = (left: number[], right: number[]): number => {
-  if (left.length === 0 || left.length !== right.length) return Number.NEGATIVE_INFINITY;
-  let dot = 0;
-  let leftMagnitude = 0;
-  let rightMagnitude = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    dot += left[index] * right[index];
-    leftMagnitude += left[index] * left[index];
-    rightMagnitude += right[index] * right[index];
-  }
-  if (leftMagnitude === 0 || rightMagnitude === 0) return Number.NEGATIVE_INFINITY;
-  return dot / Math.sqrt(leftMagnitude * rightMagnitude);
-};
 
 const isEmbeddingModel = (model: any): boolean => (
   model?.capabilities?.includes('embedding') ||
@@ -219,24 +178,15 @@ const ensureChatEmbeddingIndex = async (
 export const ChatEmbeddingIndexer: React.FC<{ modelConfig: any }> = ({ modelConfig }) => {
   const { localChats, loadLocalFSChat, getChatTimestamp, chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
-  const bodyCacheRef = useRef(new Map<string, { updatedAt: number; body: string }>());
   const orderedChats = useMemo(
     () => localChats.map((chatId) => ({ chatId, updatedAt: getChatTimestamp(chatId) })),
     [getChatTimestamp, localChats],
   );
 
-  const loadBody = useCallback(async (candidate: SearchResult): Promise<string> => {
-    const cached = bodyCacheRef.current.get(candidate.chatId);
-    if (cached?.updatedAt === candidate.updatedAt) return cached.body;
-    let body = '';
-    try {
-      body = flattenMessages(await loadLocalFSChat(candidate.chatId));
-    } catch {
-      body = '';
-    }
-    bodyCacheRef.current.set(candidate.chatId, { updatedAt: candidate.updatedAt, body });
-    return body;
-  }, [loadLocalFSChat]);
+  const loadBody = useMemo(
+    () => createChatBodyLoader(loadLocalFSChat),
+    [chatScopeId, loadLocalFSChat],
+  );
 
   useEffect(() => {
     const embeddingModel = resolveSearchEmbeddingModel(modelConfig, apiKeys);
@@ -255,139 +205,68 @@ export const useChatSearch = (query: string, modelConfig: any): {
 } => {
   const { localChats, loadLocalFSChat, getChatTimestamp, chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const bodyCacheRef = useRef(new Map<string, { updatedAt: number; body: string }>());
+  const searchId = useId();
   const searchGenerationRef = useRef(0);
   const queryKey = normalize(query).trim();
-
   const orderedChats = useMemo(
     () => localChats.map((chatId) => ({ chatId, updatedAt: getChatTimestamp(chatId) })),
     [getChatTimestamp, localChats],
   );
-
-  const results = queryKey ? searchResults : orderedChats;
-
-  const loadSearchableBody = useCallback(async (candidate: SearchResult): Promise<string> => {
-    const cached = bodyCacheRef.current.get(candidate.chatId);
-    if (cached?.updatedAt === candidate.updatedAt) return cached.body;
-    let body = '';
-    try {
-      body = flattenMessages(await loadLocalFSChat(candidate.chatId));
-    } catch {
-      body = '';
-    }
-    bodyCacheRef.current.set(candidate.chatId, { updatedAt: candidate.updatedAt, body });
-    return body;
-  }, [loadLocalFSChat]);
+  const loadSearchableBody = useMemo(
+    () => createChatBodyLoader(loadLocalFSChat),
+    [chatScopeId, loadLocalFSChat],
+  );
+  // Identity changes during render, so old results cannot flash before effect cleanup.
+  const request = useMemo(() => ({ queryKey, chatScopeId }),
+    [query, queryKey, chatScopeId, apiKeys, modelConfig, orderedChats, loadSearchableBody]);
+  const [search, setSearch] = useState<{ request: typeof request; results: SearchResult[]; pending: boolean } | null>(null);
 
   useEffect(() => {
-    if (!queryKey) {
-      setIsSearching(false);
-      setSearchResults([]);
-      return;
-    }
-
-    let cancelled = false;
+    if (!queryKey) return;
     const controller = new AbortController();
-    const searchGeneration = ++searchGenerationRef.current;
-    const loadingReason = `chat-search:${searchGeneration}`;
-
-    const runLexicalSearch = async (): Promise<SearchResult[]> => {
-      const matches: SearchResult[] = [];
-      for (const candidate of orderedChats) {
-        if (cancelled) return matches;
-        const searchable = await loadSearchableBody(candidate);
-        if (normalize(candidate.chatId).includes(queryKey) || normalize(searchable).includes(queryKey)) {
-          matches.push(candidate);
-          if (!cancelled) setSearchResults([...matches]);
-        }
-      }
-      return matches;
-    };
-
-    setIsSearching(true);
+    const loadingReason = `chat-search:${searchId}:${++searchGenerationRef.current}`;
+    setSearch({ request, results: [], pending: true });
     const timer = window.setTimeout(() => {
-      void (async () => {
-        startTopLoadingReason(loadingReason);
-        const timeout = window.setTimeout(() => controller.abort(), CHAT_SEARCH_TIMEOUT_MS);
-        try {
-          const embeddingModel = resolveSearchEmbeddingModel(modelConfig, apiKeys);
-          if (!embeddingModel) {
-            const matches = await runLexicalSearch();
-            if (!cancelled) setSearchResults(matches);
-            return;
-          }
-
-          void ensureChatEmbeddingIndex(chatScopeId, embeddingModel, orderedChats, loadSearchableBody).catch(() => {
-            // The query can still rank any vectors already cached below.
-          });
-          const queryVector = await embedGeminiText({
-            ...embeddingModel,
-            text: query.trim(),
-            taskType: 'RETRIEVAL_QUERY',
-            signal: controller.signal,
-          });
-          const ranked: Array<SearchResult & { score: number; lexicalMatch: boolean }> = [];
-
-          for (const candidate of orderedChats) {
-            if (cancelled) return;
-            const body = await loadSearchableBody(candidate);
+      startTopLoadingReason(loadingReason);
+      const embeddingModel = resolveSearchEmbeddingModel(modelConfig, apiKeys);
+      void runChatSearch({
+        query: queryKey,
+        chats: orderedChats,
+        loadBody: loadSearchableBody,
+        signal: controller.signal,
+        onResults: (results) => setSearch({ request, results, pending: true }),
+        semantic: embeddingModel ? {
+          embedQuery: (signal) => {
+            void ensureChatEmbeddingIndex(chatScopeId, embeddingModel, orderedChats, loadSearchableBody).catch(() => {
+              // Search can use cached vectors and text matches while indexing retries.
+            });
+            return embedGeminiText({ ...embeddingModel, text: query.trim(), taskType: 'RETRIEVAL_QUERY', signal });
+          },
+          loadVector: async (candidate, body) => {
             const documentText = `${candidate.chatId}\n\n${body}`.slice(0, MAX_EMBEDDING_DOCUMENT_CHARS);
-            const contentHash = hashText(documentText);
-            const cached = await loadChatEmbedding(
-              chatScopeId,
-              embeddingModel.provider,
-              embeddingModel.modelId,
-              candidate.chatId,
-            );
-            const vector = cached?.contentHash === contentHash && cached.updatedAt === candidate.updatedAt
-              ? cached.vector
-              : null;
-            if (vector) {
-              ranked.push({
-                ...candidate,
-                score: cosineSimilarity(queryVector, vector),
-                lexicalMatch: normalize(candidate.chatId).includes(queryKey) || normalize(body).includes(queryKey),
-              });
-            }
-          }
-
-          if (!cancelled) {
-            setSearchResults(
-              ranked
-                .filter((candidate) => (
-                  Number.isFinite(candidate.score) &&
-                  (candidate.lexicalMatch || candidate.score >= MIN_SEMANTIC_SCORE)
-                ))
-                .sort((left, right) => right.score - left.score)
-                .slice(0, 30)
-                .map(({ score: _score, lexicalMatch: _lexicalMatch, ...candidate }) => candidate),
-            );
-          }
-        } catch (error) {
-          if (!cancelled && (error as Error)?.name !== 'AbortError') {
-            const matches = await runLexicalSearch();
-            if (!cancelled) setSearchResults(matches);
-          }
-        } finally {
-          window.clearTimeout(timeout);
-          finishTopLoadingReason(loadingReason);
-          if (!cancelled && searchGenerationRef.current === searchGeneration) setIsSearching(false);
+            const cached = await loadChatEmbedding(chatScopeId, embeddingModel.provider, embeddingModel.modelId, candidate.chatId);
+            return cached?.contentHash === hashText(documentText) && cached.updatedAt === candidate.updatedAt
+              ? cached.vector : null;
+          },
+        } : undefined,
+      }).finally(() => {
+        finishTopLoadingReason(loadingReason);
+        if (!controller.signal.aborted) {
+          setSearch((current) => current?.request === request ? { ...current, pending: false } : current);
         }
-      })();
+      });
     }, 120);
-
     return () => {
-      cancelled = true;
       controller.abort();
-      finishTopLoadingReason(loadingReason);
       window.clearTimeout(timer);
-      if (searchGenerationRef.current === searchGeneration) setIsSearching(false);
+      finishTopLoadingReason(loadingReason);
     };
-  }, [apiKeys, chatScopeId, loadSearchableBody, modelConfig, orderedChats, query, queryKey]);
+  }, [request]);
 
-  return { results, isSearching };
+  return {
+    results: !queryKey ? orderedChats : search?.request === request ? search.results : [],
+    isSearching: Boolean(queryKey) && (search?.request !== request || search.pending),
+  };
 };
 
 const SearchBar: React.FC<{
