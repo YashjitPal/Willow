@@ -5,8 +5,7 @@ export type SearchResult = {
 
 export const normalize = (value: unknown): string => String(value ?? '').toLocaleLowerCase();
 
-const flattenMessages = (messages: unknown): string => {
-  if (!Array.isArray(messages)) return '';
+const flattenMessages = (messages: unknown[]): string => {
   return messages.map((message: any) => {
     if (typeof message === 'string') return message;
     return [message?.content, message?.thinkingText]
@@ -46,7 +45,10 @@ export const createChatBodyLoader = (loadMessages: (chatId: string) => Promise<u
     if (cached?.updatedAt === candidate.updatedAt) return cached.body;
     let body = '';
     try {
-      body = flattenMessages(await loadMessages(candidate.chatId));
+      const messages = await loadMessages(candidate.chatId);
+      // Unavailable bodies must be retried; only message arrays are cacheable.
+      if (!Array.isArray(messages)) return '';
+      body = flattenMessages(messages);
     } catch {
       return body;
     }

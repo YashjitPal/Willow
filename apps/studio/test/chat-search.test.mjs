@@ -143,3 +143,36 @@ test('failed body reads are retried instead of cached as empty', async () => {
   assert.equal(await load(chat('one')), '');
   assert.equal(await load(chat('one')), 'message content thought');
 });
+
+test('search retries unavailable bodies and finds recovered messages at the same timestamp', async () => {
+  let reads = 0;
+  const loadBody = createChatBodyLoader(async () => {
+    if (++reads === 1) return null;
+    return [{ content: 'needle' }];
+  });
+  const { options, updates } = setup({ chats: [chat('one')], loadBody });
+
+  await runChatSearch(options);
+  assert.deepEqual(updates.at(-1), []);
+  assert.equal(reads, 1);
+
+  await runChatSearch(options);
+  assert.deepEqual(updates.at(-1), ['one']);
+  assert.equal(reads, 2);
+
+  await runChatSearch(options);
+  assert.deepEqual(updates.at(-1), ['one']);
+  assert.equal(reads, 2);
+});
+
+test('empty message arrays remain cached until the timestamp changes', async () => {
+  let reads = 0;
+  const load = createChatBodyLoader(async () => { reads++; return []; });
+
+  assert.equal(await load(chat('one')), '');
+  assert.equal(await load(chat('one')), '');
+  assert.equal(reads, 1);
+
+  assert.equal(await load(chat('one', 2)), '');
+  assert.equal(reads, 2);
+});
