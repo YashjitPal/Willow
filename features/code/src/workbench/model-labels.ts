@@ -24,6 +24,7 @@ export const collectSavedModels = (modelConfig: any): any[] => {
     .map((model) => ({ ...model, provider: providerLabels[model.providerId] }));
 };
 
+
 /**
  * Shortens a model name to fit the composer button.
  *
@@ -35,6 +36,8 @@ export const getShortName = (name: string): string => {
   if (name.includes("2.5 Flash Lite")) return "2.5 Lite";
   return name
     .replace(/Gemini\s+/gi, '')
+    .replace(/Claude\s+/gi, '')
+    .replace(/GPT\s+/gi, '')
     .replace(/\s+Extended$/gi, '')
     .trim();
 };

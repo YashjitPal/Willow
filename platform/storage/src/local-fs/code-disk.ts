@@ -29,7 +29,7 @@ export interface FileContent {
  * Save project files locally
  */
 export const saveProjectFilesToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   files: FileContent[],
 ): Promise<boolean> => {
@@ -40,16 +40,14 @@ export const saveProjectFilesToDisk = async (
     // Redirect through any in-flight rename — a save captured the name
     // before the rename landed and would otherwise resurrect the old folder.
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceName = getSanitizedWorkspaceName();
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
+    const codeDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
     const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
 
     // Persist the stable project id alongside the code so re-discovery keeps it.
     await ensureProjectManifest(projectDir, targetName);
 
     // Create the Code-owned subfolders. Design projects live separately under
-    // the workspace's top-level Design/ folder.
+    // the folder's top-level Design/ folder.
     const codebaseDir = await projectDir.getDirectoryHandle('Codebase', { create: true });
     await projectDir.getDirectoryHandle('Chat sessions', { create: true });
     await projectDir.getDirectoryHandle('Agents', { create: true });
@@ -131,7 +129,7 @@ export const saveProjectFilesToDisk = async (
  * Save codebase/design chat sessions of respective project locally
  */
 export const saveProjectChatToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   chatId: string,
   messages: any[],
@@ -143,9 +141,7 @@ export const saveProjectChatToDisk = async (
   try {
     // Redirect through any in-flight rename (see saveLocalFSProject).
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceName = getSanitizedWorkspaceName();
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
+    const codeDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('code'), { create: true });
     const projectDir = await codeDir.getDirectoryHandle(targetName, { create: true });
     const chatSessionsDir = await projectDir.getDirectoryHandle('Chat sessions', { create: true });
     

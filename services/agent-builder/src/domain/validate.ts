@@ -884,15 +884,15 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
         if (agentConfig.verbosity !== undefined && !['low', 'medium', 'high'].includes(agentConfig.verbosity)) {
           errors.push({ nodeId: node.id, message: `Agent '${node.name}' has invalid verbosity` });
         }
-        if (agentConfig.verbosity !== undefined && typeof model === 'string' && !model.toLowerCase().startsWith('gpt-5')) {
-          warnings.push({ nodeId: node.id, message: `Agent '${node.name}' verbosity is only applied to GPT-5 models` });
+        if (agentConfig.verbosity !== undefined && typeof model === 'string' && !model.toLowerCase().startsWith('gpt-5') && !model.toLowerCase().startsWith('gpt-6')) {
+          warnings.push({ nodeId: node.id, message: `Agent '${node.name}' verbosity is only applied to GPT-5 and GPT-6 models` });
         }
         if (agentConfig.reasoningEffort !== undefined && typeof model === 'string') {
           const normalizedModel = model.toLowerCase().replace(/^models\//, '');
-          const supportsReasoning = /^(gpt-5|o1|o3|o4)/.test(normalizedModel) || /^gemini-(2\.5|[3-9])/.test(normalizedModel);
+          const supportsReasoning = /^(gpt-[5-9]|o1|o3|o4)/.test(normalizedModel) || /^gemini-(2\.5|[3-9])/.test(normalizedModel);
           if (!supportsReasoning) warnings.push({ nodeId: node.id, message: `Agent '${node.name}' reasoning effort is not supported by model '${model}'` });
         }
-        if (typeof model === 'string' && /^(gpt-5|o1|o3|o4)/.test(model.toLowerCase()) && params && typeof params === 'object' && !Array.isArray(params)) {
+        if (typeof model === 'string' && /^(gpt-[5-9]|o1|o3|o4)/.test(model.toLowerCase()) && params && typeof params === 'object' && !Array.isArray(params)) {
           if ((params as JsonObject).temperature !== undefined || (params as JsonObject).topP !== undefined) {
             warnings.push({ nodeId: node.id, message: `Agent '${node.name}' temperature and topP are ignored by reasoning models` });
           }

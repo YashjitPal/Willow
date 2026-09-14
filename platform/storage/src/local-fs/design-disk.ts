@@ -10,7 +10,7 @@ const normalize = (path: string): string =>
   path.replace(/\\/g, '/').replace(/^\//, '').split('/').filter((part) => part !== '.' && part !== '..').join('/');
 
 export const saveDesignProjectToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   files: FileContent[],
 ): Promise<boolean> => {
@@ -19,7 +19,7 @@ export const saveDesignProjectToDisk = async (
 
   try {
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
+    const workspaceDir = rootHandle;
     const designDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('design'), { create: true });
     const projectDir = await designDir.getDirectoryHandle(targetName, { create: true });
     await ensureProjectManifest(projectDir, targetName);

@@ -6,7 +6,7 @@
  * so it belongs in the folder they chose rather than in browser storage that a
  * cleared site datum wipes.
  *
- *   <chosen folder>/<workspace>/Personal/profile.json
+ *   <chosen folder>/Personal/profile.json
  *
  * This one has a stronger claim to being legible than Saved Info does. Saved
  * Info is what the user typed; the profile is what a model inferred about them,
@@ -14,17 +14,14 @@
  * every claim with the evidence beside it. That is why the payload keeps
  * `source` and `evidence` per bullet, and why it is written indented.
  *
- * Same two rules as `saved-info-disk.ts`, for the same reasons:
- * 1. The read path never passes `{ create: true }`.
- * 2. Only a real edit or a completed build writes, because the workspace name
- *    falls back to "My Willow" until the profile loads and folders created under
- *    the fallback are junk folders the app then syncs.
+ * Same rule as `saved-info-disk.ts`, for the same reason: the read path never
+ * passes `{ create: true }`.
  */
 
 import type { DiskDeps } from './disk-deps';
 import { PERSONAL_DIR } from './saved-info-disk';
 
-export type ProfileDiskDeps = Pick<DiskDeps, 'getActiveHandle' | 'getSanitizedWorkspaceName'>;
+export type ProfileDiskDeps = Pick<DiskDeps, 'getActiveHandle'>;
 
 export const PROFILE_FILE = 'profile.json';
 export const PROFILE_DISK_VERSION = 1;
@@ -49,14 +46,13 @@ export type ProfileDiskPayload = {
  * that drops a field the other kept.
  */
 export const readProfileFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: ProfileDiskDeps,
+  { getActiveHandle }: ProfileDiskDeps,
 ): Promise<Partial<ProfileDiskPayload> | null> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return null;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR);
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR);
     const fileHandle = await personalDir.getFileHandle(PROFILE_FILE);
     const text = await (await fileHandle.getFile()).text();
     if (!text.trim()) return null;
@@ -70,15 +66,14 @@ export const readProfileFromDisk = async (
 };
 
 export const writeProfileToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: ProfileDiskDeps,
+  { getActiveHandle }: ProfileDiskDeps,
   payload: Omit<ProfileDiskPayload, 'version' | 'updatedAt'> & { updatedAt?: string },
 ): Promise<boolean> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR, { create: true });
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR, { create: true });
     const fileHandle = await personalDir.getFileHandle(PROFILE_FILE, { create: true });
 
     const body: ProfileDiskPayload = {
@@ -107,14 +102,13 @@ export const writeProfileToDisk = async (
  * not want it written down.
  */
 export const deleteProfileFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: ProfileDiskDeps,
+  { getActiveHandle }: ProfileDiskDeps,
 ): Promise<boolean> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR);
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR);
     await personalDir.removeEntry(PROFILE_FILE);
     return true;
   } catch {

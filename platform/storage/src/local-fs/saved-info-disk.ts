@@ -7,21 +7,16 @@
  * inside browser storage where a cleared site datum loses them and a reinstall
  * cannot find them.
  *
- * `Personal/saved-info.json` rather than a bare file at the workspace root: the
+ * `Personal/saved-info.json` rather than a bare file at the folder root: the
  * long-term memory work lands in the same folder later, and a second top-level
  * folder for one file each would read as clutter in a directory the user opens
  * in their file manager.
  *
- *   <chosen folder>/<workspace>/Personal/saved-info.json
+ *   <chosen folder>/Personal/saved-info.json
  *
- * Two rules this file exists to hold, both learned the hard way elsewhere in
- * this layer:
- *
- * 1. The read path never passes `{ create: true }`. Fabricating an empty
- *    workspace folder on a read made every cached chat look externally deleted.
- * 2. Only a real user edit reaches `writeSavedInfoToDisk`. `getSanitizedWorkspaceName()`
- *    falls back to "My Willow" until the profile loads, and creating folders
- *    before then minted junk folders under the fallback name.
+ * One rule this file exists to hold, learned the hard way elsewhere in this
+ * layer: the read path never passes `{ create: true }`. Fabricating an empty
+ * folder on a read made every cached chat look externally deleted.
  *
  * Every function swallows its errors and reports failure through its return
  * value: losing the disk copy must not break the settings page, which still has
@@ -30,8 +25,8 @@
 
 import type { DiskDeps } from './disk-deps';
 
-/** Only the workspace-scoped halves of DiskDeps; Saved Info is not project-addressed. */
-export type SavedInfoDiskDeps = Pick<DiskDeps, 'getActiveHandle' | 'getSanitizedWorkspaceName'>;
+/** Only the folder half of DiskDeps; Saved Info is not project-addressed. */
+export type SavedInfoDiskDeps = Pick<DiskDeps, 'getActiveHandle'>;
 
 export const PERSONAL_DIR = 'Personal';
 export const SAVED_INFO_FILE = 'saved-info.json';
@@ -57,7 +52,7 @@ export const SAVED_INFO_DISK_VERSION = 1;
  * keeps whatever it already had — it is never an instruction to clear.
  */
 export const readSavedInfoFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: SavedInfoDiskDeps,
+  { getActiveHandle }: SavedInfoDiskDeps,
 ): Promise<SavedInfoDiskPayload | null> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return null;
@@ -65,8 +60,7 @@ export const readSavedInfoFromDisk = async (
   try {
     // No `{ create: true }` anywhere on this path. A missing folder is the
     // normal state before the user's first instruction.
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR);
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR);
     const fileHandle = await personalDir.getFileHandle(SAVED_INFO_FILE);
     const text = await (await fileHandle.getFile()).text();
     if (!text.trim()) return null;
@@ -91,20 +85,17 @@ export const readSavedInfoFromDisk = async (
 /**
  * Write the saved-info file, creating `Personal/` on the way if it is not there.
  *
- * Call this only in response to a user edit. See rule 2 in the file comment: the
- * workspace name is a fallback until the profile loads, and a folder created
- * under the fallback is a junk folder the app then syncs into.
+ * Call this only in response to a user edit — see rule 1 in the file comment.
  */
 export const writeSavedInfoToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: SavedInfoDiskDeps,
+  { getActiveHandle }: SavedInfoDiskDeps,
   payload: Omit<SavedInfoDiskPayload, 'version' | 'updatedAt'> & { updatedAt?: string },
 ): Promise<boolean> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR, { create: true });
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR, { create: true });
     const fileHandle = await personalDir.getFileHandle(SAVED_INFO_FILE, { create: true });
 
     const body: SavedInfoDiskPayload = {
@@ -132,14 +123,13 @@ export const writeSavedInfoToDisk = async (
  * a directory the user may have put their own files in is not this module's call.
  */
 export const deleteSavedInfoFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: SavedInfoDiskDeps,
+  { getActiveHandle }: SavedInfoDiskDeps,
 ): Promise<boolean> => {
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const personalDir = await workspaceDir.getDirectoryHandle(PERSONAL_DIR);
+    const personalDir = await rootHandle.getDirectoryHandle(PERSONAL_DIR);
     await personalDir.removeEntry(SAVED_INFO_FILE);
     return true;
   } catch {

@@ -92,8 +92,9 @@ export function resolveBinding(
   effort?: CodexEffort,
 ): ModelBinding {
   const models = listModels(modelConfig);
+  const baseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
   const selected =
-    models.find((model) => model.id === selectedModelId) ??
+    models.find((model) => model.id === selectedModelId || model.id === baseId) ??
     models.find((model) => model.providerId === 'gemini') ??
     models[0];
 
@@ -111,8 +112,11 @@ export function resolveBinding(
   // Effort travels on Codex's ladder, then clamps to what the model actually
   // accepts. Sending a level the provider silently lowers would leave the UI
   // claiming an effort that never took effect.
-  const requested = effort ?? levelToEffort(selected.thinkingLevel);
-  const resolved = resolveEffort(requested, selected);
+  const effortLevel = selectedModelId?.includes('::effort-')
+    ? Number(selectedModelId.split('::effort-')[1])
+    : selected.thinkingLevel;
+  const requested = effort ?? levelToEffort(effortLevel);
+  const resolved = resolveEffort(requested, { ...selected, thinkingLevel: effortLevel });
 
   return {
     label: selected.name,

@@ -73,13 +73,31 @@ never leave your machine, signed in or out. See
 
 Willow needs Node 20 or newer.
 
-```bash
-npm install
-```
+### Option 1: Run instantly with `npx` (No install or cloning needed)
 
 ```bash
+npx willow-studio
+```
+
+### Option 2: Install globally as a command
+
+```bash
+npm install -g willow-studio
+willow
+```
+
+*(Once installed, simply type `willow` in your terminal to spin up the server and open the app in your browser!)*
+
+### Option 3: Run from source
+
+```bash
+npm install
 npm run dev
 ```
+
+> Running `npm install` from source automatically provisions dependencies across the entire project, including Studio and the standalone backend services (`services/agent-builder`, `services/local-companion`). You can also run `npm run willow` to preview the built production app locally.
+
+<br />
 
 Open **http://localhost:3000**, then open **Settings → Models** and paste in a
 key for whichever provider you want to use. Pick a folder when prompted and
@@ -300,12 +318,24 @@ nanostores for cross-surface state.
 
 | Command | What it does |
 | :-- | :-- |
-| `npm run dev` | Dev server on port 3000 |
+| `willow` | Start the local server and open the Studio in your default browser |
+| `npm run willow` | Run the local `willow` launcher script from the repository |
+| `npm install` | Install all dependencies across Studio and all services |
+| `npm run dev` | Dev server on port 3000 (with Agent Builder API mounted) |
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-check the whole workspace |
 | `npm run test` | The browser-side test suite |
 | `npm run agent-builder:test` | The workflow-engine backend's suite |
+| `npm run companion:test` | The local companion backend smoke test |
 | `npm run lint` | ESLint |
+
+### CLI Options
+
+When running `willow` or `npx willow-studio`:
+- `-p, --port <number>`: Port to run the server on (default: 3000, automatically falls back to an available port if occupied).
+- `-h, --host <address>`: Host address to bind to (default: localhost).
+- `--no-open`: Start the server without automatically opening the browser.
+- `--help`: Show CLI help and options.
 
 <br />
 

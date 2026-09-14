@@ -25,6 +25,7 @@ import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContex
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
 import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
+import { requestCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import {
   STUDIO_SIDEBAR_COLLAPSED_WIDTH,
   STUDIO_SIDEBAR_EXPANDED_WIDTH,
@@ -1315,6 +1316,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // whole list — which is the entire point of extracting RecentChatRow.
   const handleSelectChat = useEventCallback((chatId: string) => {
     onViewChange('home');
+    /*
+     * A chat that was started in Code reopens in Code.
+     *
+     * This used to fall through to chat mode like any other row, which is not
+     * merely the wrong surface — the two UIs share nothing. It also degraded the
+     * chat on disk: ChatView's load allow-list keeps none of the workbench's
+     * fields, and its autosave then rewrites the file from React state, so the
+     * first message erased `willowMode: 'code'` and even the badge on this row
+     * went with it.
+     *
+     * `selectLocalFSInboxChat` is skipped on this path on purpose. It would make
+     * the code chat the active chat, so the next switch to Chat mode would open
+     * it there and reproduce exactly what this branch exists to prevent.
+     *
+     * The mode switch is App's, not this row's: the Search dialog opens chats too
+     * and is rendered from StudioLayout with no access to those setters, so all
+     * three doors publish the request and App routes it.
+     */
+    if (codeChats[chatId] === true) {
+      requestCodeChatOpen(chatId);
+      return;
+    }
     onModeChange?.('chat');
     selectLocalFSInboxChat(chatId);
   });

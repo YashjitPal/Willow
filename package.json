@@ -1,15 +1,29 @@
 {
-  "name": "willow",
+  "name": "willow-studio",
   "version": "0.1.0",
-  "private": true,
   "license": "MIT",
   "description": "Willow — an open-source, all-in-one AI studio & canvas workspace: Chat, Code, Media, Spark.",
   "type": "module",
+  "bin": {
+    "willow": "./bin/willow.js",
+    "willow-studio": "./bin/willow.js"
+  },
+  "files": [
+    "bin",
+    "apps/studio/dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
   "comment": "One npm project for the whole browser side: apps/ + features/ + platform/ all share this dependency set and the single node_modules at the repo root. The Node backends under services/ are separate packages with their own deps, because they ship independently.",
   "scripts": {
+    "willow": "node bin/willow.js",
+    "prepublishOnly": "npm run build",
+    "setup": "npm install",
+    "install:services": "npm --prefix services/agent-builder install && npm --prefix services/local-companion install",
+    "postinstall": "npm run install:services",
     "dev": "npm --prefix apps/studio run dev",
     "build": "npm --prefix apps/studio run build",
     "build:no-env": "npm --prefix apps/studio run build:no-env",

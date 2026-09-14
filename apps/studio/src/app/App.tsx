@@ -17,6 +17,7 @@ import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
 import { ChatEmbeddingIndexer, SearchChatsPage } from '../shell/SearchChats';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
 import { LocalFSProvider, useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
+import { pendingCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import { migrateProjectKinds, rebuildMediaIndex } from '@willow/storage/media-storage';
 import { useDrive } from '@willow/storage/adapters/use-drive';
 import { mergeDriveProjectsIntoRegistry } from '@willow/storage/adapters/drive-discovery';
@@ -259,6 +260,22 @@ const WorkbenchRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return <>{children}</>;
+};
+
+const MediaRouteHost: React.FC<{ onOpenSettings: () => void }> = ({ onOpenSettings }) => {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId');
+
+  if (!projectId) {
+    try {
+      const projects = readProjectRegistry() as any[];
+      if (projects.length > 0) {
+        return <Navigate to={`/media?projectId=${encodeURIComponent(projects[0].id)}`} replace />;
+      }
+    } catch {}
+  }
+
+  return <MediaView key={projectId || 'empty'} onOpenSettings={onOpenSettings} />;
 };
 
 /** Make projects created on another device visible in the normal registry. */
@@ -791,11 +808,34 @@ const App: React.FC = () => {
   }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, navigate, searchParams, startTopLoading, location.pathname]);
 
   /*
+   * Reopening a Code chat, from anywhere.
+   *
+   * The Recents row, the Search page and the Search dialog all publish the same
+   * request (see `code-chat-open-store`) and none of them switches the mode
+   * themselves — the dialog is rendered from StudioLayout and has no route to
+   * these setters at all. Routing lives here so there is one owner of the
+   * decision, and `CodeHome` takes the chat id from the same request.
+   *
+   * The request is deliberately left in place for `CodeHome` to consume: it is
+   * lazy, so on this path it is still being fetched when this runs.
+   */
+  const codeChatOpenRequest = useStore(pendingCodeChatOpen);
+  const routedCodeChatEpochRef = React.useRef(0);
+  React.useEffect(() => {
+    if (!codeChatOpenRequest || codeChatOpenRequest.epoch === routedCodeChatEpochRef.current) return;
+    routedCodeChatEpochRef.current = codeChatOpenRequest.epoch;
+    setStudioExperience('chat');
+    setStudioMode('develop');
+    void handleViewChange('home');
+  }, [codeChatOpenRequest, handleViewChange]);
+
+  /*
    * Bounce off a Labs-gated URL. The sync effects below simply decline to enter
    * the view, which would leave the shell rendering Home while the address bar
    * still read `/design` — and would leave the view stuck if a user turned the
    * flag off while sitting on the surface.
    */
+
   React.useEffect(() => {
     if (location.pathname === '/design' && !isDesignEnabled) {
       navigate('/', { replace: true });
@@ -1628,9 +1668,9 @@ const App: React.FC = () => {
 
         <Route path="/media/*" element={
           <WorkbenchRouteGuard>
-            <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
-              <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
-                <MediaView onOpenSettings={() => {
+            <div className="h-screen w-screen overflow-hidden bg-[#000000]">
+              <Suspense fallback={<div className="h-screen w-screen bg-[#000000]" />}>
+                <MediaRouteHost onOpenSettings={() => {
                   setSettingsInitialTab(undefined);
                   setSettingsInitialConnector(undefined);
                   setIsSettingsOpen(true);

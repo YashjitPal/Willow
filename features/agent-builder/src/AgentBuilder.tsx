@@ -289,9 +289,9 @@ const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
   );
   const selectedInputModalities = selectedModel?.inputModalities ?? [];
   const normalizedSelectedModel = selectedModel?.name.toLowerCase().replace(/^models\//, '') ?? '';
-  const isOpenAiReasoningModel = /^(gpt-5|o1|o3|o4)/.test(normalizedSelectedModel);
+  const isOpenAiReasoningModel = /^(gpt-[5-9]|o1|o3|o4)/.test(normalizedSelectedModel);
   const supportsReasoningControl = isOpenAiReasoningModel || /^gemini-(2\.5|[3-9])/.test(normalizedSelectedModel);
-  const supportsVerbosityControl = normalizedSelectedModel.startsWith('gpt-5');
+  const supportsVerbosityControl = /^(gpt-[5-9])/.test(normalizedSelectedModel);
   const selectedContextLimit = selectedModel?.contextWindowTokens;
   const selectedOutputLimit = selectedModel?.maxOutputTokens;
   const configuredInputLimit = maxInputTokensPerCall === '' ? undefined : Number(maxInputTokensPerCall);

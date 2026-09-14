@@ -4,7 +4,7 @@
  * A notebook's sources and chats belong in the folder the user picked for their
  * own data, in a shape they can open in a file manager and understand:
  *
- *   <chosen folder>/<workspace>/Notebooks/<Notebook's name>/
+ *   <chosen folder>/Notebooks/<Notebook's name>/
  *     .willow.json     the notebook's stable id
  *     Sources/         one real file per source
  *     Chats/           this notebook's chats, moved out of the global Chats/
@@ -25,7 +25,7 @@
  * Two rules carried over from the rest of this layer, both learned the hard way:
  *
  * 1. Read and delete paths never pass `{ create: true }`. Fabricating an empty
- *    workspace folder on a read made every cached chat look externally deleted.
+ *    folder on a read made every cached chat look externally deleted.
  * 2. A folder holding chats is never removed. Deleting a notebook must not delete
  *    conversations, so `deleteNotebookFolder` refuses while `Chats/` has files in
  *    it and the caller has to unfile them first.
@@ -40,8 +40,8 @@ import {
 import { readProjectManifest, writeProjectManifest } from '../adapters/local-disk';
 import type { DiskDeps } from './disk-deps';
 
-/** Only the workspace-scoped halves of DiskDeps; a notebook is not project-addressed. */
-export type NotebookDiskDeps = Pick<DiskDeps, 'getActiveHandle' | 'getSanitizedWorkspaceName'>;
+/** Only the folder half of DiskDeps; a notebook is not project-addressed. */
+export type NotebookDiskDeps = Pick<DiskDeps, 'getActiveHandle'>;
 
 /** Long enough for a real document name, short enough to survive a deep path. */
 const MAX_SOURCE_NAME_LENGTH = 120;
@@ -158,33 +158,33 @@ const sourceTextBody = (payload: NotebookSourcePayload): string => {
   return content.endsWith('\n') || !content ? content : `${content}\n`;
 };
 
-/** Resolve `<workspace>/Notebooks`, optionally creating it. */
+/** Resolve `<root>/Notebooks`, optionally creating it. */
 const openNotebooksRoot = async (
-  workspaceDir: FileSystemDirectoryHandle,
+  rootDir: FileSystemDirectoryHandle,
   create = false,
 ): Promise<FileSystemDirectoryHandle | null> => {
   try {
-    return await workspaceDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME, { create });
+    return await rootDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME, { create });
   } catch {
     return null;
   }
 };
 
 /**
- * Resolve one notebook's `Chats/` folder from an already-open workspace handle.
+ * Resolve one notebook's `Chats/` folder from an already-open root handle.
  *
  * The chat reconciler and every chat write go through this, so the path shape is
  * spelled once. Returns null when the folder is not there and `create` is false —
  * an unfiled-looking chat is a decision for the caller, never a fabricated folder.
  */
 export const openNotebookChatsDir = async (
-  workspaceDir: FileSystemDirectoryHandle,
+  rootDir: FileSystemDirectoryHandle,
   folderName: string,
   { create = false }: { create?: boolean } = {},
 ): Promise<FileSystemDirectoryHandle | null> => {
   if (!folderName) return null;
   try {
-    const notebooksRoot = await openNotebooksRoot(workspaceDir, create);
+    const notebooksRoot = await openNotebooksRoot(rootDir, create);
     if (!notebooksRoot) return null;
     const notebookDir = await notebooksRoot.getDirectoryHandle(folderName, { create });
     return await notebookDir.getDirectoryHandle(NOTEBOOK_CHATS_DIR_NAME, { create });
@@ -195,7 +195,7 @@ export const openNotebookChatsDir = async (
 
 /**
  * Create `Notebooks/<folderName>/` with its manifest and both sub-folders, and
- * return the notebook's own directory — from an already-open workspace handle.
+ * return the notebook's own directory — from an already-open root handle.
  *
  * The manifest is written only when there is none, and a folder already claiming
  * a **different** id is refused rather than written into. The id in it is what
@@ -205,13 +205,13 @@ export const openNotebookChatsDir = async (
  * sources and chats alongside the ones already inside.
  */
 export const ensureNotebookDirIn = async (
-  workspaceDir: FileSystemDirectoryHandle,
+  rootDir: FileSystemDirectoryHandle,
   folderName: string,
   notebookId: string,
 ): Promise<FileSystemDirectoryHandle | null> => {
   if (!folderName) return null;
   try {
-    const notebooksRoot = await workspaceDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME, { create: true });
+    const notebooksRoot = await rootDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME, { create: true });
     const notebookDir = await notebooksRoot.getDirectoryHandle(folderName, { create: true });
 
     if (notebookId) {
@@ -230,9 +230,9 @@ export const ensureNotebookDirIn = async (
   }
 };
 
-/** `ensureNotebookDirIn` for callers that hold deps rather than a workspace handle. */
+/** `ensureNotebookDirIn` for callers that hold deps rather than a root handle. */
 export const ensureNotebookDir = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: NotebookDiskDeps,
+  { getActiveHandle }: NotebookDiskDeps,
   folderName: string,
   notebookId: string,
 ): Promise<FileSystemDirectoryHandle | null> => {
@@ -240,8 +240,7 @@ export const ensureNotebookDir = async (
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return null;
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
-    return await ensureNotebookDirIn(workspaceDir, folderName, notebookId);
+    return await ensureNotebookDirIn(rootHandle, folderName, notebookId);
   } catch {
     return null;
   }
@@ -306,7 +305,7 @@ export const saveNotebookSourceToDisk = async (
  * deleted something.
  */
 export const deleteNotebookSourceFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: NotebookDiskDeps,
+  { getActiveHandle }: NotebookDiskDeps,
   folderName: string,
   fsName: string,
 ): Promise<boolean> => {
@@ -314,8 +313,7 @@ export const deleteNotebookSourceFromDisk = async (
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const notebooksRoot = await workspaceDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
+    const notebooksRoot = await rootHandle.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
     const notebookDir = await notebooksRoot.getDirectoryHandle(folderName);
     const sourcesDir = await notebookDir.getDirectoryHandle(NOTEBOOK_SOURCES_DIR_NAME);
     await sourcesDir.removeEntry(fsName);
@@ -359,7 +357,7 @@ const copyDir = async (src: any, dst: any): Promise<void> => {
  * delete and persists that loss.
  */
 export const renameNotebookFolder = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: NotebookDiskDeps,
+  { getActiveHandle }: NotebookDiskDeps,
   oldName: string,
   newName: string,
 ): Promise<boolean> => {
@@ -368,8 +366,7 @@ export const renameNotebookFolder = async (
   if (!rootHandle) return false;
 
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const notebooksRoot = await workspaceDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
+    const notebooksRoot = await rootHandle.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
 
     let oldHandle: FileSystemDirectoryHandle;
     try {
@@ -429,15 +426,14 @@ export const renameNotebookFolder = async (
  * anything when a chat file is still inside.
  */
 export const deleteNotebookFolder = async (
-  { getActiveHandle, getSanitizedWorkspaceName }: NotebookDiskDeps,
+  { getActiveHandle }: NotebookDiskDeps,
   folderName: string,
 ): Promise<boolean> => {
   if (!folderName) return false;
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
   try {
-    const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-    const notebooksRoot = await workspaceDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
+    const notebooksRoot = await rootHandle.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
     const notebookDir = await notebooksRoot.getDirectoryHandle(folderName);
 
     try {

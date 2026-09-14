@@ -753,6 +753,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 citations: sanitizeSavedCitations(m.citations),
                 codeExecutions: sanitizeSavedCodeExecutions(m.codeExecutions, (m.content || '').length),
                 canvasRefs: sanitizeSavedCanvasRefs(m.canvasRefs, (m.content || '').length),
+                // Not rendered here — carried so it survives the round trip. This
+                // is a Code chat's only proof on disk that it belongs to the
+                // workbench, and it is what the sidebar's legacy backfill scan
+                // reads. Dropping it meant that opening such a chat in this UI and
+                // sending one message rewrote the file without it, permanently
+                // demoting a Code chat to an ordinary one.
+                willowMode: m.willowMode === 'code' ? 'code' as const : undefined,
               })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             // Attachment hydration awaits one IndexedDB read per attachment, so

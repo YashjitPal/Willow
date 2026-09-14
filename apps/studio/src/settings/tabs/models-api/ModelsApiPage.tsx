@@ -280,6 +280,24 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
 
   const [managingProvider, setManagingProvider] = React.useState<ProviderId | null>(null);
   const [wasManaging, setWasManaging] = React.useState(false);
+  const [isEnteringProvider, setIsEnteringProvider] = React.useState(Boolean(managingProvider));
+  const prevManagingRef = React.useRef(managingProvider);
+
+  React.useEffect(() => {
+    if (managingProvider && prevManagingRef.current !== managingProvider) {
+      setIsEnteringProvider(true);
+      const timer = window.setTimeout(() => setIsEnteringProvider(false), 200);
+      return () => window.clearTimeout(timer);
+    }
+    prevManagingRef.current = managingProvider;
+  }, [managingProvider]);
+
+  React.useEffect(() => {
+    if (isEnteringProvider) {
+      const timer = window.setTimeout(() => setIsEnteringProvider(false), 200);
+      return () => window.clearTimeout(timer);
+    }
+  }, []);
   const [customModelExpanded, setCustomModelExpanded] = React.useState(false);
   const [draggedModelKey, setDraggedModelKey] = React.useState<string | null>(null);
   const [dragOverModelKey, setDragOverModelKey] = React.useState<string | null>(null);
@@ -896,7 +914,7 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
     const selectedOption = managedModelOptions.find((option) => option.id === managedSelectedId);
 
     return (
-      <div className="ma-fade-in">
+      <div className={isEnteringProvider ? 'ma-fade-in' : undefined}>
         <div className="ma-section">
           <div className="ma-section-heading">
             <h2 className="ma-title-l">API configuration</h2>

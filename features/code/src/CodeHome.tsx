@@ -7,6 +7,7 @@ import { ArrowUp, Plus, AudioLines, ChevronDown, Paperclip, Globe, X, Wrench, Me
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
+import { clearCodeChatOpen, pendingCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { useAutoSave } from './use-auto-save';
 import { workbenchStore } from './runtime/sandpack/index';
@@ -320,6 +321,16 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   const [initialPrompt, setInitialPrompt] = useState('');
   const [initialAttachments, setInitialAttachments] = useState<any[] | undefined>(undefined);
 
+  // A Code chat being reopened from the sidebar's Recents, instead of started
+  // from the prompt box. Mutually exclusive with `initialPrompt`: one restores a
+  // conversation, the other begins one.
+  const [resumeChatId, setResumeChatId] = useState<string | null>(null);
+  // Remounts WorkbenchSidebar per resume. Its chat-file ids are `useState`
+  // initialisers seeded from `resumeChatId`, so resuming while it is already
+  // mounted would restore the messages but keep the previous session's ids —
+  // and every save would then land in the wrong file.
+  const [workbenchInstanceKey, setWorkbenchInstanceKey] = useState('fresh');
+
   // ── Idle-phase prompt box state ──────────────────────────────────────────
   const [promptText, setPromptText] = useState('');
   const [attachments, setAttachments] = useState<any[]>([]);
@@ -466,11 +477,18 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     .filter(Boolean)
     .join(' ');
 
+  // Sync selection with available models if uninitialized or stale
+  useEffect(() => {
+    if (ALL_MODELS.length > 0) {
+      const baseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+      if (!selectedModelId || !ALL_MODELS.some(m => m.id === selectedModelId || m.id === baseId)) {
+        setSelectedModelId(ALL_MODELS[0].id);
+      }
+    }
+  }, [ALL_MODELS, selectedModelId, setSelectedModelId]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (modelsMenuRef.current && !modelsMenuRef.current.contains(event.target as Node)) {
-        setIsModelsMenuOpen(false);
-      }
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
       }
@@ -530,12 +548,43 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setAttachments([]);
       setIsChatMode(true);
       setProjectName('');
+      setResumeChatId(null);
       nameGeneratedRef.current = false;
       projectRegisteredRef.current = false;
       workbenchStore.reset();
       workbenchStore.resetToTemplate();
     }
   }, [chatResetKey]);
+
+  // ── Reopening a Code chat from the sidebar's Recents ──────────────────────
+  // The request is a buffer rather than an event (see `code-chat-open-store`):
+  // this surface is lazy and unmounted while the user is in chat mode, so the row
+  // publishes before anything here is listening. Keyed off the epoch rather than
+  // the id, so opening the same chat twice arrives twice.
+  const codeChatOpenRequest = useStore(pendingCodeChatOpen);
+  const handledOpenEpochRef = useRef(0);
+  useEffect(() => {
+    if (!codeChatOpenRequest || codeChatOpenRequest.epoch === handledOpenEpochRef.current) return;
+    handledOpenEpochRef.current = codeChatOpenRequest.epoch;
+    clearCodeChatOpen();
+    const { chatId, epoch } = codeChatOpenRequest;
+    startTransition(() => {
+      // A chat still in Recents is by definition un-promoted — promotion moves it
+      // into the project folder and deletes the standalone copy — so it has no
+      // generated code, and it reopens in the centred chat layout rather than the
+      // workspace. `initialPrompt` stays empty: that prop *sends* its text, and a
+      // resumed conversation must not re-ask its first question.
+      setInitialPrompt('');
+      setInitialAttachments(undefined);
+      setProjectName('');
+      nameGeneratedRef.current = false;
+      projectRegisteredRef.current = false;
+      setResumeChatId(chatId);
+      setWorkbenchInstanceKey(`resume-${epoch}`);
+      setIsChatMode(true);
+      setPhase('active');
+    });
+  }, [codeChatOpenRequest]);
 
   // ── Project name generation (from WorkbenchView) ───────────────────────────
   useEffect(() => {
@@ -721,6 +770,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     workbenchStore.reset();
     nameGeneratedRef.current = false;
     setProjectName('');
+    setResumeChatId(null);
   }, []);
 
   // ── Idle prompt box: auto-expand textarea ────────────────────────────────
@@ -744,6 +794,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setInitialAttachments(attachments.length > 0 ? attachments : undefined);
       setPromptText('');
       setAttachments([]);
+      setResumeChatId(null);
       setIsChatMode(true);
       setPhase('active');
     });
@@ -1334,7 +1385,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="relative flex items-center shrink-0" ref={modelsMenuRef}>
+                      <div className="relative flex items-center shrink-0">
                         <button
                           ref={modelsMenuRef as any}
                           onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
@@ -1391,16 +1442,20 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                               // the user asked for something else.
                               setUltraEngaged(false);
                               setSelectedModelId(id);
-                              const sel = ALL_MODELS.find(m => m.id === id);
+                              const baseId = id ? id.split('::effort-')[0] : '';
+                              const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
                               if (sel) {
                                 const providerKey = sel.provider === 'Google' ? 'gemini'
                                   : sel.provider === 'OpenAI' ? 'openai'
                                   : sel.provider === 'Anthropic' ? 'anthropic'
                                   : sel.provider === 'Moonshot AI' ? 'moonshot'
                                   : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
+                                const effortLevel = id.includes('::effort-')
+                                  ? Number(id.split('::effort-')[1])
+                                  : sel.thinkingLevel;
                                 setModelConfig((prev: any) => ({
                                   ...prev,
-                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: sel.thinkingLevel }
+                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
                                 }));
                               }
                             }}
@@ -1520,11 +1575,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                 }}
               >
                 <WorkbenchSidebar
+                  key={workbenchInstanceKey}
                   width={isChatMode ? 800 : sidebarWidth}
                   isCollapsed={isWorkbenchSidebarCollapsed}
                   onToggle={toggleSidebar}
                   prompt={initialPrompt}
                   initialAttachments={initialAttachments}
+                  resumeChatId={resumeChatId}
                   activeTab={activeTab}
                   onTabChange={setActiveTab}
                   isChatMode={isChatMode}

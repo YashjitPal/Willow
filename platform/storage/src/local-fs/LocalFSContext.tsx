@@ -187,7 +187,7 @@ interface LocalFSContextType {
 const LocalFSContext = createContext<LocalFSContextType | null>(null);
 
 /**
- * The workspace folder holding every *unfiled* chat.
+ * The top-level folder holding every *unfiled* chat.
  *
  * A chat filed into a notebook lives in `Notebooks/<name>/Chats/` instead, so
  * this is one of several directories a chat file can be in — see
@@ -206,11 +206,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const [isLocalFolderConnected, setIsLocalFolderConnected] = useState(false);
   const [isLocalFolderAuthorized, setIsLocalFolderAuthorized] = useState(false);
   const [localFolderName, setLocalFolderName] = useState<string | null>(null);
-  // The correct storage scope depends on the authenticated user, selected root,
-  // and workspace. Keep the first paint empty while that scope is restored so
+  // The correct storage scope depends on the authenticated user and the selected
+  // root folder. Keep the first paint empty while that scope is restored so
   // a legacy/global list can never flash and then visibly reorder.
   const [localChats, setLocalChats] = useState<string[]>([]);
-  const [chatScopeId, setChatScopeId] = useState('signed-out::browser::My Willow');
+  const [chatScopeId, setChatScopeId] = useState('signed-out::browser');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
 
   // The personal runtime reads keys through this rather than through a captured
@@ -236,11 +236,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // Keep the handle in a ref to avoid re-renders and closure issues
   const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const rootIdRef = useRef('browser');
-  const chatScopeIdRef = useRef('signed-out::browser::My Willow');
+  const chatScopeIdRef = useRef('signed-out::browser');
   const chatStorageScopeRef = useRef<ChatStorageScope>({
     userId: 'signed-out',
     rootId: 'browser',
-    workspaceId: 'My Willow',
   });
   const chatMetadataKeysRef = useRef<ChatMetadataKeys>(chatMetadataKeysForScope(chatScopeIdRef.current));
   const chatTimestampsRef = useRef<Record<string, number>>({});
@@ -254,7 +253,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const isSwitchingChatScopeRef = useRef(false);
   const projectSaveQueuesRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const chatReconcilePromiseRef = useRef<Promise<void> | null>(null);
-  const pendingWorkspaceDirRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const pendingRootDirRef = useRef<FileSystemDirectoryHandle | null>(null);
   // oldName -> { newName, ts } for recently renamed project folders. Save paths
   // resolve project folders by NAME, often seconds after capturing it (fetches,
   // debounces) — a write addressed to a just-renamed-away folder would recreate
@@ -304,11 +303,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // this session (so we don't re-read cover.* on every poll).
   const coverHydratedRef = useRef<Set<string>>(new Set());
 
-  const getSanitizedWorkspaceName = useCallback(() => {
-    const name = userProfile?.workspaceName || (userProfile?.displayName ? `${userProfile.displayName.split(' ')[0]}'s Willow` : "My Willow");
-    return name.replace(/[\/:*?"<>|]/g, '').trim() || 'My Willow';
-  }, [userProfile]);
-
   const persistChatMetadata = useCallback((broadcast = true): void => {
     const keys = chatMetadataKeysRef.current;
     // Merge the freshest storage snapshot first. This does not make
@@ -355,10 +349,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * The single definition of a chat scope id. Anything that needs to know
    * whether a scope is about to change must build the candidate id through
    * this, or the two spellings drift and the comparison silently stops working.
+   *
+   * Two segments, deliberately: the account and the folder. There used to be a
+   * third for the workspace name, read from `userProfile` — which is null for a
+   * moment on every load, so the id flipped to a fallback name and a reconcile
+   * pass could compare one scope's chat registry against the other workspace's
+   * folder and tombstone everything that did not appear in it. Removing the
+   * level made that class of mistake unrepresentable; do not add it back.
    */
   const buildChatScopeId = useCallback((rootId: string): string =>
-    `${user?.uid || 'signed-out'}::${rootId}::${getSanitizedWorkspaceName()}`,
-  [getSanitizedWorkspaceName, user?.uid]);
+    `${user?.uid || 'signed-out'}::${rootId}`,
+  [user?.uid]);
 
   const activateChatScope = useCallback(async (rootId: string): Promise<void> => {
     isSwitchingChatScopeRef.current = true;
@@ -380,16 +381,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } finally {
       isSwitchingChatScopeRef.current = false;
     }
-    const workspaceId = getSanitizedWorkspaceName();
     const userId = user?.uid || 'signed-out';
     const scopeId = buildChatScopeId(rootId);
     const keys = chatMetadataKeysForScope(scopeId);
     if (chatScopeIdRef.current !== scopeId) {
       // These caches are keyed by project name/id and must never leak across
-      // account, root, or workspace changes.
+      // account or folder changes.
       manifestIdCacheRef.current.clear();
       coverHydratedRef.current.clear();
-      pendingWorkspaceDirRef.current = null;
+      pendingRootDirRef.current = null;
       providerGenerationRef.current += 1;
     }
     const hasScopedMetadata = localStorage.getItem(keys.chats) !== null || localStorage.getItem(keys.sync) !== null;
@@ -400,7 +400,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     // Legacy chat metadata was global. Adopt it exactly once, only after a real
     // authenticated scope is known, so switching accounts/folders can never
-    // copy the same legacy registry into multiple workspaces.
+    // copy the same legacy registry into multiple scopes.
     if (!hasScopedMetadata && user?.uid && !localStorage.getItem(LEGACY_CHAT_MIGRATION_KEY)) {
       chats = validateChatList(readJSON(LEGACY_CHAT_KEYS.chats, []));
       timestamps = validateTimestampMap(readJSON(LEGACY_CHAT_KEYS.timestamps, {}));
@@ -418,20 +418,20 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     setCodeSessionStorageScope(scopeId);
     /*
      * Notebooks join the same scope so they follow a user across sign-in and
-     * workspace switches exactly as their chats and projects do. Unlike those,
+     * folder switches exactly as their chats and projects do. Unlike those,
      * the notebook registry is plain scoped localStorage and stays readable with
      * no folder connected — see the header note in `notebooks-backend.ts`.
      */
     setNotebookStorageScope(scopeId);
     await migrateProjectKinds();
-    chatStorageScopeRef.current = { userId, rootId, workspaceId };
+    chatStorageScopeRef.current = { userId, rootId };
     chatMetadataKeysRef.current = keys;
     chatTimestampsRef.current = timestamps;
     chatSyncRecordsRef.current = records;
     localChatsRef.current = sortChatsNewestToOldest(chats.filter((id) => !records[id]?.tombstone), timestamps);
     setChatScopeId(scopeId);
     persistChatMetadata(false);
-  }, [buildChatScopeId, getSanitizedWorkspaceName, persistChatMetadata, user?.uid]);
+  }, [buildChatScopeId, persistChatMetadata, user?.uid]);
 
   const updateScopedChatTimestamp = useCallback((chatId: string, timestamp = Date.now()): void => {
     chatTimestampsRef.current[chatId] = timestamp;
@@ -478,22 +478,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // not yet saved to a folder) are NEVER auto-deleted. A failed/blocked scan is
   // treated as "unknown" and performs no deletions, so a transient permission or
   // IO hiccup can never wipe the registry.
-  const syncProjectsFromDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+  const syncProjectsFromDisk = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
     type Reg = { id: string; name: string; hasCover?: boolean; isStarred?: boolean; kind?: LocalProjectKind; onDisk?: boolean };
     const scopeIdAtStart = chatScopeIdRef.current;
     const generationAtStart = providerGenerationRef.current;
     const scopeIsCurrent = () => chatScopeIdRef.current === scopeIdAtStart && providerGenerationRef.current === generationAtStart;
 
     // Scan a parent folder WITHOUT creating it (a reconcile is a read — creating
-    // here used to mint junk Code//Media/ scaffolding under whatever workspace
-    // name was current, including the pre-profile fallback). `ok` is false ONLY
+    // here used to mint junk Code/ and Media/ scaffolding). `ok` is false ONLY
     // when the folder couldn't be read (permission/IO error) — a missing folder
     // is a real, readable "no projects of this kind" state and returns ok:true
     // with an empty map, so reconciliation still runs.
     const collectDirs = async (parentName: string): Promise<{ ok: boolean; map: Map<string, FileSystemDirectoryHandle> }> => {
       const map = new Map<string, FileSystemDirectoryHandle>();
       try {
-        const parent = await workspaceDir.getDirectoryHandle(parentName);
+        const parent = await rootDir.getDirectoryHandle(parentName);
         for await (const entry of (parent as any).values()) {
           if (entry.kind === 'directory') {
             map.set(entry.name, entry as FileSystemDirectoryHandle);
@@ -841,25 +840,25 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * because a chat moved into it looks like one the create screen made.
    */
   const resolveChatDir = useCallback(async (
-    workspaceDir: FileSystemDirectoryHandle,
+    rootDir: FileSystemDirectoryHandle,
     notebookId: string,
     { create = false }: { create?: boolean } = {},
   ): Promise<FileSystemDirectoryHandle | null> => {
     if (!notebookId) {
       try {
-        return await workspaceDir.getDirectoryHandle(CHATS_DIR_NAME, { create });
+        return await rootDir.getDirectoryHandle(CHATS_DIR_NAME, { create });
       } catch {
         return null;
       }
     }
     if (!create) {
       const assigned = readNotebookChatIndex().folderByNotebookId[notebookId] || '';
-      return assigned ? openNotebookChatsDir(workspaceDir, assigned, { create: false }) : null;
+      return assigned ? openNotebookChatsDir(rootDir, assigned, { create: false }) : null;
     }
     const folderName = ensureNotebookFolderName(notebookId);
     if (!folderName) return null;
-    if (!(await ensureNotebookDirIn(workspaceDir, folderName, notebookId))) return null;
-    return openNotebookChatsDir(workspaceDir, folderName, { create: true });
+    if (!(await ensureNotebookDirIn(rootDir, folderName, notebookId))) return null;
+    return openNotebookChatsDir(rootDir, folderName, { create: true });
   }, []);
 
   /**
@@ -876,7 +875,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     notebookId: string;
   }
 
-  const reconcileChatsWithDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+  const reconcileChatsWithDisk = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
     /*
      * Read once for the whole pass. A chat filed while this runs is picked up by
      * the next one, and `chatNotebookId` prefers the sync record anyway — which a
@@ -893,7 +892,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
      */
     let globalChatsDir: FileSystemDirectoryHandle;
     try {
-      globalChatsDir = await workspaceDir.getDirectoryHandle(CHATS_DIR_NAME, { create: true });
+      globalChatsDir = await rootDir.getDirectoryHandle(CHATS_DIR_NAME, { create: true });
     } catch {
       return;
     }
@@ -940,7 +939,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       return;
     }
     for (const { notebookId, folderName } of notebookIndex.folders) {
-      const dir = await openNotebookChatsDir(workspaceDir, folderName, { create: false });
+      const dir = await openNotebookChatsDir(rootDir, folderName, { create: false });
       if (!dir) {
         unreadableNotebooks.add(notebookId);
         continue;
@@ -1018,7 +1017,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const wantedNotebookId = record ? record.notebookId : (notebookIndex.chatOwner[chatId] || '');
         if (disk.notebookId !== wantedNotebookId) {
           if (record?.locationDirty) {
-            const targetDir = await resolveChatDir(workspaceDir, wantedNotebookId, { create: true });
+            const targetDir = await resolveChatDir(rootDir, wantedNotebookId, { create: true });
             const moved = !!targetDir && await moveFileBetweenDirs(disk.dir, targetDir, `${chatId}.json`);
             if (moved && targetDir) {
               activeDir = targetDir;
@@ -1293,7 +1292,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           // Flushed to where the record says it belongs, creating the notebook's
           // folder if the move never landed. A folder we cannot resolve leaves
           // the record dirty for the next tick rather than dropping the write.
-          const targetDir = await resolveChatDir(workspaceDir, wanted, { create: true });
+          const targetDir = await resolveChatDir(rootDir, wanted, { create: true });
           if (!targetDir) return;
           try {
             await writeFileRecursively(targetDir, `${chatId}.json`, JSON.stringify(body, null, 2));
@@ -1350,13 +1349,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // The handle is the **workspace** directory, not `Chats/`: a chat file can be
   // in the global folder or in any notebook's, and only `reconcileChatsWithDisk`
   // gets to decide which (see `resolveChatDir`).
-  const syncChatsWithDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
-    pendingWorkspaceDirRef.current = workspaceDir;
+  const syncChatsWithDisk = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
+    pendingRootDirRef.current = rootDir;
     if (chatReconcilePromiseRef.current) return chatReconcilePromiseRef.current;
     const run = (async () => {
-      while (pendingWorkspaceDirRef.current) {
-        const nextDir = pendingWorkspaceDirRef.current;
-        pendingWorkspaceDirRef.current = null;
+      while (pendingRootDirRef.current) {
+        const nextDir = pendingRootDirRef.current;
+        pendingRootDirRef.current = null;
         await reconcileChatsWithDisk(nextDir);
       }
     })();
@@ -1378,8 +1377,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     /*
      * Wait for auth before touching the chat registry.
      *
-     * The scope id is `${uid}::${rootId}::${workspaceName}`, and BOTH of those
-     * first two come from auth. Running while `loading` is still true meant
+     * The scope id is `${uid}::${rootId}`, and the first of those comes from
+     * auth. Running while `loading` is still true meant
      * hydrating under `signed-out::…` — which for a signed-in user with a saved
      * folder is a real, populated scope — and then re-running once Firebase
      * reported the uid, where `buildChatScopeId(...) !== chatScopeIdRef.current`
@@ -1407,18 +1406,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
       // Only drop the visible chat registry when this restore is actually
       // moving to a different scope. This effect re-runs whenever
-      // `getSanitizedWorkspaceName`/`activateChatScope` change identity — which
-      // happens on ANY userProfile change, including one that leaves the
-      // workspace name untouched. Wiping unconditionally nulled `activeChatId`
+      // `activateChatScope` changes identity, which happens on any change to the
+      // signed-in user. Wiping unconditionally nulled `activeChatId`
       // mid-conversation, and ChatView reads a sustained null as a deselect and
       // clears the live thread (see its clear-effect), dumping the user back on
       // the home screen with the chat gone.
       //
-      // Skipping the wipe leaks nothing: an identical scopeId means same
-      // account, same root, and same workspace, so the registry on screen
-      // already belongs to this scope. When the scope DOES differ we still
-      // clear first, so another account's chats can never be shown, and
-      // activateChatScope repopulates from that scope's own metadata.
+      // Skipping the wipe leaks nothing: an identical scopeId means the same
+      // account and the same folder, so the registry on screen already belongs
+      // to this scope. When the scope DOES differ we still clear first, so
+      // another account's chats can never be shown, and activateChatScope
+      // repopulates from that scope's own metadata.
       if (buildChatScopeId(nextRootId) !== chatScopeIdRef.current) {
         setLocalChats([]);
         localChatsRef.current = [];
@@ -1432,7 +1430,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // was edited outside the app. Release the sidebar here rather than at the
       // end of the restore.
       if (!cancelled) setIsChatListHydrated(true);
-      // activateChatScope advances the generation when account/root/workspace
+      // activateChatScope advances the generation when the account or folder
       // changes; adopt that new generation for the work this restore started.
       if (cancelled) return;
       generation = providerGenerationRef.current;
@@ -1458,24 +1456,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
               setIsLocalFolderAuthorized(true);
               setIsInitializingLocalFS(false);
             }
-            const workspaceName = getSanitizedWorkspaceName();
-            // Do NOT create the workspace folder here. On early mount the user
-            // profile (and thus the real workspace name) may not have loaded
-            // yet — creating eagerly minted junk folders named after the
-            // fallback ("My Willow") and then synced chats/projects into them.
-            // If the folder isn't on disk yet, skip the initial sync: this
-            // effect re-runs when the profile loads (getSanitizedWorkspaceName
-            // identity changes), and every save path still creates on demand.
-            let workspaceDir: FileSystemDirectoryHandle | null = null;
-            try {
-              workspaceDir = await handle.getDirectoryHandle(workspaceName);
-            } catch {}
-            if (workspaceDir) {
-              await syncChatsWithDisk(workspaceDir);
+            // The area folders (`Chats/`, `Media/`, `Code/`, …) sit directly in
+            // the folder the user picked, and every save path creates the one it
+            // needs on demand — so there is nothing to resolve here and nothing
+            // to skip when a folder has not been used yet.
+            await syncChatsWithDisk(handle);
 
-              // Recover & re-tag projects from disk (self-healing registry).
-              await syncProjectsFromDisk(workspaceDir);
-            }
+            // Recover & re-tag projects from disk (self-healing registry).
+            await syncProjectsFromDisk(handle);
           } else {
             setIsLocalFolderAuthorized(false);
           }
@@ -1499,9 +1487,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     return () => {
       cancelled = true;
       providerGenerationRef.current += 1;
-      pendingWorkspaceDirRef.current = null;
+      pendingRootDirRef.current = null;
     };
-  }, [isSupported, isAuthLoading, buildChatScopeId, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
+  }, [isSupported, isAuthLoading, buildChatScopeId, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope, user?.uid]);
 
   // Cross-tab sync bridge. Another tab's writes to the shared localStorage
   // registry/indexes fire only the DOM `storage` event in this tab — nothing
@@ -1590,20 +1578,18 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       setIsLocalFolderConnected(true);
 
       // Refresh chats list and sync cached chats to disk. Connect is an explicit
-      // user gesture on a chosen folder, so creating the workspace scaffold here
+      // user gesture on a chosen folder, so creating the area scaffold here
       // is intended (unlike the passive restore path above).
       try {
-        const workspaceName = getSanitizedWorkspaceName();
-        const workspaceDir = await handle.getDirectoryHandle(workspaceName, { create: true });
         // Explicitly connecting is the one place where registered areas may
-        // create their workspace folders. Read-only reconciliation never does.
+        // create their folders. Read-only reconciliation never does.
         for (const area of getProjectAreas()) {
-          if (area.ensureOnConnect) await workspaceDir.getDirectoryHandle(area.folder, { create: true });
+          if (area.ensureOnConnect) await handle.getDirectoryHandle(area.folder, { create: true });
         }
-        await syncChatsWithDisk(workspaceDir);
+        await syncChatsWithDisk(handle);
 
         // Recover & re-tag projects from disk (self-healing registry).
-        await syncProjectsFromDisk(workspaceDir);
+        await syncProjectsFromDisk(handle);
       } catch (err) {
         console.error('Error syncing chats to connected folder', err);
       }
@@ -1615,7 +1601,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       setIsInitializingLocalFS(false);
       return false;
     }
-  }, [isSupported, getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope]);
+  }, [isSupported, syncProjectsFromDisk, syncChatsWithDisk, activateChatScope]);
 
   /**
    * Disconnect local folder and clean up IndexedDB
@@ -1626,7 +1612,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // handle. The catalog in IndexedDB is intentionally retained so a later
       // re-selection can recover the same stable root ID.
       providerGenerationRef.current += 1;
-      pendingWorkspaceDirRef.current = null;
+      pendingRootDirRef.current = null;
       await removeStoredDirectoryHandle();
       directoryHandleRef.current = null;
       setLocalFolderName(null);
@@ -1652,22 +1638,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       setIsLocalFolderAuthorized(false);
       const hasAccess = await verifyPermission(handle, true, true);
       if (hasAccess) {
-        // Refresh chats list and sync cached chats to disk. Like the restore
-        // path, never CREATE the workspace folder here — if it's absent (e.g.
-        // the profile's workspace name hasn't loaded yet), skip the sync; the
-        // realtime watcher and save paths pick it up once it exists.
+        // Refresh chats list and sync cached chats to disk.
         try {
-          const workspaceName = getSanitizedWorkspaceName();
-          let workspaceDir: FileSystemDirectoryHandle | null = null;
-          try {
-            workspaceDir = await handle.getDirectoryHandle(workspaceName);
-          } catch {}
-          if (workspaceDir) {
-            await syncChatsWithDisk(workspaceDir);
+          await syncChatsWithDisk(handle);
 
-            // Recover & re-tag projects from disk (self-healing registry).
-            await syncProjectsFromDisk(workspaceDir);
-          }
+          // Recover & re-tag projects from disk (self-healing registry).
+          await syncProjectsFromDisk(handle);
         } catch (err) {
           console.error('Error syncing chats during authorization', err);
         }
@@ -1678,7 +1654,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } catch {}
     setIsInitializingLocalFS(false);
     return false;
-  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, syncChatsWithDisk]);
+  }, [syncProjectsFromDisk, syncChatsWithDisk]);
 
   /**
    * Internal helper to retrieve handle and verify permission on action
@@ -1705,13 +1681,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * `@willow/core`, below this package — so the two disk operations are handed
    * to it and it writes through on every edit.
    *
-   * Waiting for the profile is the whole reason this is its own effect rather
-   * than a line in the restore above. Attaching runs a one-time migration write
-   * for anyone whose instructions are still only in localStorage, and
-   * `getSanitizedWorkspaceName()` answers "My Willow" until the profile lands —
-   * writing before then creates a folder under the fallback name, which is the
-   * junk-folder bug the restore path documents. A signed-out user has no profile
-   * to wait for and "My Willow" is their real workspace name.
+   * This used to wait for `userProfile` as well, because the path went through a
+   * workspace folder named after it and attaching runs a one-time migration
+   * write: before the profile landed that name fell back to "My Willow" and the
+   * write minted a junk folder. `Personal/` now sits directly in the chosen
+   * folder, so there is no name to wait for — only auth, so the attach does not
+   * churn while Firebase is still deciding.
    *
    * Placed after `getActiveHandle` deliberately: it is in the dependency array,
    * which is evaluated during render, so an effect written above the callback
@@ -1719,13 +1694,12 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    */
   useEffect(() => {
     if (isAuthLoading) return;
-    if (user && !userProfile) return;
     if (!isLocalFolderConnected || !isLocalFolderAuthorized) {
       // No folder to write to: the store keeps its localStorage mirror.
       void attachSavedInfoDisk(null);
       return;
     }
-    const deps = { getActiveHandle, getSanitizedWorkspaceName };
+    const deps = { getActiveHandle };
     void attachSavedInfoDisk({
       load: () => readSavedInfoFromDisk(deps),
       save: (state) => writeSavedInfoToDisk(deps, state),
@@ -1733,19 +1707,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     });
   }, [
     isAuthLoading,
-    user,
-    userProfile,
     isLocalFolderConnected,
     isLocalFolderAuthorized,
     getActiveHandle,
-    getSanitizedWorkspaceName,
   ]);
 
   // Disk write lives in ./code-disk; this wrapper keeps the context value
   // identity and dependency array exactly as they were.
   const saveLocalFSProjectInner = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => (
-    saveProjectFilesToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, files)
-  ), [ensureProjectManifest, getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+    saveProjectFilesToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, files)
+  ), [ensureProjectManifest, getActiveHandle, resolveCurrentProjectName]);
 
   const saveLocalFSProject = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => {
     const queueKey = resolveCurrentProjectName(projectName);
@@ -1781,7 +1752,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     const run = previous.catch(() => undefined).then(() => {
       if (chatScopeIdRef.current !== scopeId || isProjectSaveBlocked(projectName, scopeId)) return false;
       return saveDesignProjectToDisk(
-        { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName },
+        { getActiveHandle, resolveCurrentProjectName },
         projectName,
         snapshot,
       );
@@ -1792,7 +1763,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (projectSaveQueuesRef.current.get(queueKey) === settled) projectSaveQueuesRef.current.delete(queueKey);
     });
     return run;
-  }, [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+  }, [getActiveHandle, resolveCurrentProjectName]);
 
   /**
    * Load an existing code project from disk. `null` means the folder is missing
@@ -1810,8 +1781,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const rootHandle = await getActiveHandle();
       if (!rootHandle || chatScopeIdRef.current !== scopeId) return null;
       try {
-        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-        const codeDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('code'));
+        const codeDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('code'));
         const projectDir = await codeDir.getDirectoryHandle(queueKey);
         const codebaseDir = await projectDir.getDirectoryHandle('Codebase');
         const files = await readFilesRecursively(codebaseDir);
@@ -1836,7 +1806,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (projectSaveQueuesRef.current.get(queueKey) === settled) projectSaveQueuesRef.current.delete(queueKey);
     });
     return run;
-  }, [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+  }, [getActiveHandle, resolveCurrentProjectName]);
 
   /**
    * Save general chat history locally
@@ -1865,14 +1835,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       let previousDir: FileSystemDirectoryHandle | null = null;
       if (rootHandle) {
         try {
-          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
-          targetDir = await resolveChatDir(workspaceDir, notebookId, { create: true });
+          targetDir = await resolveChatDir(rootHandle, notebookId, { create: true });
           // The old name's file is wherever it was written, which is a different
           // folder only if the chat was filed while the rename was in flight.
           const previousNotebookId = previousRecord ? previousRecord.notebookId : notebookId;
           previousDir = previousNotebookId === notebookId
             ? targetDir
-            : await resolveChatDir(workspaceDir, previousNotebookId, { create: false });
+            : await resolveChatDir(rootHandle, previousNotebookId, { create: false });
           if (isFirstRename && targetDir) {
             try {
               await targetDir.getFileHandle(`${chatId}.json`);
@@ -1985,18 +1954,18 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp, chatNotebookId, resolveChatDir]);
 
   // Disk write lives in ./code-disk (see saveLocalFSProjectInner).
   const saveLocalFSProjectChat = useCallback((projectName: string, chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => (
-    saveProjectChatToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, chatId, messages, oldChatId)
-  ), [getActiveHandle, getSanitizedWorkspaceName]);
+    saveProjectChatToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, chatId, messages, oldChatId)
+  ), [getActiveHandle]);
 
   // Disk write lives in ./media-disk; this wrapper keeps the context value
   // identity and dependency array exactly as they were.
   const saveLocalFSMediaInner = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => (
-    saveMediaFileToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, fileName, blob)
-  ), [getActiveHandle, getSanitizedWorkspaceName]);
+    saveMediaFileToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fileName, blob)
+  ), [getActiveHandle]);
 
   /**
    * Read a single media file from a project's Images/ or Videos/ folder on disk
@@ -2013,13 +1982,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     try {
       const hasAccess = await verifyPermission(handle, false, false);
       if (!hasAccess) return null;
-      const workspaceName = getSanitizedWorkspaceName();
       // Pure read: don't create folders while resolving a file for display.
       // Redirect through any in-flight rename so hydration keeps working the
       // instant a project is renamed.
       const targetName = resolveCurrentProjectName(projectName);
-      const workspaceDir = await handle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
+      const mediaDir = await handle.getDirectoryHandle(getProjectAreaFolder('media'));
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
       const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
       const fileHandle = await subDir.getFileHandle(fsName);
@@ -2028,15 +1995,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     } catch {
       return null;
     }
-  }, [getSanitizedWorkspaceName]);
+  }, [resolveCurrentProjectName]);
 
   const deleteLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<boolean> => (
-    deleteMediaFileFromDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, fsName)
-  ), [getActiveHandle, getSanitizedWorkspaceName]);
+    deleteMediaFileFromDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fsName)
+  ), [getActiveHandle]);
 
   const renameLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string): Promise<string | null> => (
-    renameMediaFileOnDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName)
-  ), [getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName]);
+    renameMediaFileOnDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName)
+  ), [getActiveHandle, resolveCurrentProjectName]);
 
   /*
    * ── Notebooks on disk ────────────────────────────────────────────────────────
@@ -2076,9 +2043,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const ensureLocalFSNotebookDir = useCallback(async (notebookId: string): Promise<boolean> => {
     const folderName = await notebookFolderNameFor(notebookId);
     if (!folderName) return false;
-    const dir = await ensureNotebookDir({ getActiveHandle, getSanitizedWorkspaceName }, folderName, notebookId);
+    const dir = await ensureNotebookDir({ getActiveHandle }, folderName, notebookId);
     return !!dir;
-  }, [getActiveHandle, getSanitizedWorkspaceName, notebookFolderNameFor]);
+  }, [getActiveHandle, notebookFolderNameFor]);
 
   /**
    * Write one source into the notebook's `Sources/` folder and return the file
@@ -2088,14 +2055,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const saveLocalFSNotebookSource = useCallback(async (notebookId: string, payload: NotebookSourcePayload): Promise<string | null> => {
     const folderName = await notebookFolderNameFor(notebookId);
     if (!folderName) return null;
-    return saveNotebookSourceToDisk({ getActiveHandle, getSanitizedWorkspaceName }, folderName, notebookId, payload);
-  }, [getActiveHandle, getSanitizedWorkspaceName, notebookFolderNameFor]);
+    return saveNotebookSourceToDisk({ getActiveHandle }, folderName, notebookId, payload);
+  }, [getActiveHandle, notebookFolderNameFor]);
 
   const deleteLocalFSNotebookSource = useCallback(async (notebookId: string, fsName: string): Promise<boolean> => {
     const folderName = existingNotebookFolderName(notebookId);
     if (!folderName || !fsName) return false;
-    return deleteNotebookSourceFromDisk({ getActiveHandle, getSanitizedWorkspaceName }, folderName, fsName);
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+    return deleteNotebookSourceFromDisk({ getActiveHandle }, folderName, fsName);
+  }, [getActiveHandle]);
 
   /**
    * Move the notebook's folder to match its (already renamed) title, and return
@@ -2122,7 +2089,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     notebookRenameOpsRef.current++;
     try {
-      const moved = await renameNotebookFolder({ getActiveHandle, getSanitizedWorkspaceName }, oldName, newName);
+      const moved = await renameNotebookFolder({ getActiveHandle }, oldName, newName);
       if (!moved) return null;
       // Recorded only once the move has landed: this name is what every later
       // lookup resolves through, so writing it early points every read — and the
@@ -2135,7 +2102,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // event cannot land on a reconcile. Same 800ms the project rename uses.
       notebookRenameSettleUntilRef.current = Date.now() + 800;
     }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  }, [getActiveHandle]);
 
   /**
    * Remove a deleted notebook's folder. Refuses while its `Chats/` still holds
@@ -2145,22 +2112,22 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const deleteLocalFSNotebookFolder = useCallback(async (notebookId: string): Promise<boolean> => {
     const folderName = existingNotebookFolderName(notebookId);
     if (!folderName) return false;
-    return deleteNotebookFolder({ getActiveHandle, getSanitizedWorkspaceName }, folderName);
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+    return deleteNotebookFolder({ getActiveHandle }, folderName);
+  }, [getActiveHandle]);
 
   /**
-   * Bring a workspace that predates this mirror up to the shape on disk, one poll
+   * Bring a folder that predates this mirror up to the shape on disk, one poll
    * at a time.
    *
-   * Every notebook in a workspace created before `Notebooks/` existed has no
-   * folder, its sources exist only in localStorage, and its chats' files are all
-   * still in the global `Chats/`. None of those are errors and none of them are
-   * repaired by the live write paths, because those only run when the user touches
-   * something. So the poll walks the registry and closes each gap once.
+   * Every notebook created before `Notebooks/` existed has no folder, its sources
+   * exist only in localStorage, and its chats' files are all still in the global
+   * `Chats/`. None of those are errors and none of them are repaired by the live
+   * write paths, because those only run when the user touches something. So the
+   * poll walks the registry and closes each gap once.
    *
    * **Change-only (invariant 7).** Each of the three halves is guarded by the
    * absence of the thing it writes — no `fsFolder`, no `fsName`, a record that
-   * disagrees — so a workspace already in the target shape performs zero writes,
+   * disagrees — so a folder already in the target shape performs zero writes,
    * fires no events and re-renders nothing. That matters more here than anywhere
    * else in this file: this runs every 3 seconds.
    *
@@ -2173,7 +2140,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * this runs after it and re-reads the index rather than reusing a snapshot taken
    * before it.
    */
-  const backfillNotebooksToDisk = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+  const backfillNotebooksToDisk = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
     /*
      * A rename is a folder copy followed by a folder delete, so for its duration
      * `fsFolder` names a directory that is half-there or already gone. A source
@@ -2193,7 +2160,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (notebook.fsFolder) continue;
       const folderName = ensureNotebookFolderName(notebook.id);
       if (!folderName) continue;
-      await ensureNotebookDirIn(workspaceDir, folderName, notebook.id);
+      await ensureNotebookDirIn(rootDir, folderName, notebook.id);
     }
 
     // ── 2. Sources ─────────────────────────────────────────────────────────────
@@ -2312,11 +2279,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       let moved = false;
       let movedMtime = 0;
       try {
-        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName(), { create: true });
         // Source resolved without `create`: if the old folder is not there the
         // file is not either, and fabricating it would leave an empty stray.
-        const fromDir = await resolveChatDir(workspaceDir, from, { create: false });
-        const toDir = await resolveChatDir(workspaceDir, wanted, { create: true });
+        const fromDir = await resolveChatDir(rootHandle, from, { create: false });
+        const toDir = await resolveChatDir(rootHandle, wanted, { create: true });
         if (fromDir && toDir) {
           moved = await moveFileBetweenDirs(fromDir, toDir, `${chatId}.json`);
           if (moved) {
@@ -2345,7 +2311,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     }) ?? false;
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   /**
    * Rename a project folder on disk so it stays in lock-step with a UI rename
@@ -2436,19 +2402,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     projectRenameOpsRef.current++;
     try {
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName).catch((error: any) => {
-        if (error?.name === 'NotFoundError') return null;
-        throw error;
-      });
-      // Nothing has ever been written under this root, so no project has a
-      // folder here to keep in lock-step. Same reasoning as the empty
-      // `sourceParents` case below.
-      if (!workspaceDir) return true;
       const sourceParents: FileSystemDirectoryHandle[] = [];
       for (const parentName of getProjectAreas().map((area) => area.folder)) {
         try {
-          const parent = await workspaceDir.getDirectoryHandle(parentName);
+          const parent = await rootHandle.getDirectoryHandle(parentName);
           const source = await parent.getDirectoryHandle(oldName);
           sourceParents.push(parent);
           try {
@@ -2509,7 +2466,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       projectRenameOpsRef.current--;
       projectRenameSettleUntilRef.current = Date.now() + 800;
     }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  }, [getActiveHandle]);
 
   const saveLocalFSMedia = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
     const scopeId = chatScopeIdRef.current;
@@ -2562,8 +2519,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   }, [renameLocalFSProjectInner, resolveCurrentProjectName]);
 
   const saveLocalFSCover = useCallback((projectName: string, url: string): Promise<boolean> => (
-    saveProjectCoverToDisk({ getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }, projectName, url)
-  ), [getActiveHandle, getSanitizedWorkspaceName, ensureProjectManifest]);
+    saveProjectCoverToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, url)
+  ), [getActiveHandle, ensureProjectManifest]);
 
   /**
    * Generate a chat title using the user's default chat naming model.
@@ -2607,11 +2564,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const rootHandle = await getActiveHandle();
       if (!rootHandle) return cached;
       try {
-        const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
         // No `create` on a read path: fabricating a folder here once made every
         // cached chat look externally deleted. A filed chat whose notebook folder
         // is missing simply reads as "not on disk" and the cached body stands.
-        const chatsDir = await resolveChatDir(workspaceDir, chatNotebookId(chatId), { create: false });
+        const chatsDir = await resolveChatDir(rootHandle, chatNotebookId(chatId), { create: false });
         if (!chatsDir) return cached;
         const file = await (await chatsDir.getFileHandle(`${chatId}.json`)).getFile();
         if (cached && record?.diskMtime === file.lastModified) return cached;
@@ -2639,7 +2595,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         return cached;
       }
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   /*
    * Point the personal profile at the same folder, and start the builder.
@@ -2653,13 +2609,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * `loadLocalFSChat`, which is declared above — an effect written earlier would
    * reference it before its initializer runs.
    *
-   * The same wait applies and for the same reason: `getSanitizedWorkspaceName()`
-   * answers "My Willow" until the profile lands, and a write before then creates
-   * a junk folder.
+   * The same wait applies and for the same reason: only auth, so neither the
+   * attach nor the scheduled build churns while Firebase is still deciding.
+   * `userProfile` used to gate this too, because the path ran through a folder
+   * named after it; `Personal/` now sits directly in the chosen folder.
    */
   useEffect(() => {
     if (isAuthLoading) return;
-    if (user && !userProfile) return;
     if (!isLocalFolderConnected || !isLocalFolderAuthorized) {
       // No folder: the profile keeps its localStorage mirror, and nothing builds.
       // A build reads chats off disk, and there is no disk to read.
@@ -2668,7 +2624,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       return;
     }
 
-    const deps = { getActiveHandle, getSanitizedWorkspaceName };
+    const deps = { getActiveHandle };
     void attachProfileDisk({
       load: () => readProfileFromDisk(deps) as Promise<Partial<ProfileState> | null>,
       save: (state) => writeProfileToDisk(deps, state),
@@ -2724,12 +2680,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     };
   }, [
     isAuthLoading,
-    user,
-    userProfile,
     isLocalFolderConnected,
     isLocalFolderAuthorized,
     getActiveHandle,
-    getSanitizedWorkspaceName,
     loadLocalFSChat,
   ]);
 
@@ -2769,21 +2722,15 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const hasAccess = await verifyPermission(rootHandle, false, false);
       if (!hasAccess) return;
 
-      const workspaceName = getSanitizedWorkspaceName();
-      // Never CREATE the workspace on a read/reconcile path. If it's missing
-      // (not created yet, externally moved, or the profile's real name hasn't
-      // loaded), abort as a no-op — fabricating an empty workspace here made
-      // every cached chat look externally-deleted and reaped their bodies.
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      await syncChatsWithDisk(workspaceDir);
+      // The chosen folder IS the scope's folder — `Chats/` sits directly in it.
+      // There used to be a workspace level here, resolved from a name that fell
+      // back while the profile loaded, and reading the wrong one made every
+      // cached chat look externally deleted and reaped their bodies.
+      await syncChatsWithDisk(rootHandle);
     } catch (err: any) {
-      // A missing workspace folder is the expected no-op case (see above), not
-      // an error worth spamming every poll tick.
-      if (err?.name !== 'NotFoundError') {
-        console.error('Error refreshing local chats', err);
-      }
+      console.error('Error refreshing local chats', err);
     }
-  }, [getSanitizedWorkspaceName, syncChatsWithDisk]);
+  }, [syncChatsWithDisk]);
 
   /**
    * Scan Media folder and sync with IndexedDB
@@ -2843,16 +2790,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         return await loadBaseline();
       }
 
-      const workspaceName = getSanitizedWorkspaceName();
-      // Read-only reconcile: never create workspace/Media/project folders here.
+      // Read-only reconcile: never create the Media/ or project folders here.
       // A missing folder means "nothing on disk for this project" — fall through
       // to the catch and serve IndexedDB metadata as-is. Redirect through any
       // in-flight rename so a reconcile right after a rename reads the moved
       // folder instead of finding nothing.
       const targetName = resolveCurrentProjectName(projectName);
       if (projectSaveQueuesRef.current.has(targetName)) return await loadBaseline();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-      const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
+      const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'));
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
       if (!scopeIsCurrent()) return [];
 
@@ -2951,14 +2896,14 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (!scopeIsCurrent()) return [];
       return merged;
     } catch (err: any) {
-      // Missing workspace/Media/<project> folder = nothing on disk yet for this
-      // project (browser-only) — expected, not an error. Serve IndexedDB as-is.
+      // Missing Media/<project> folder = nothing on disk yet for this project
+      // (browser-only) — expected, not an error. Serve IndexedDB as-is.
       if (err?.name !== 'NotFoundError') {
         console.error('Error refreshing local media', err);
       }
       return await loadBaseline();
     }
-  }, [getSanitizedWorkspaceName]);
+  }, []);
 
   /**
    * Reconcile every folder a feature registered via `registerSyncedFolder`.
@@ -2971,13 +2916,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    *
    * One folder failing must not stop the others, so each is isolated.
    */
-  const syncRegisteredFolders = useCallback(async (workspaceDir: FileSystemDirectoryHandle): Promise<void> => {
+  const syncRegisteredFolders = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
     const folders = getSyncedFolders();
     if (folders.length === 0) return;
     const scopeId = chatScopeIdRef.current;
     for (const descriptor of folders) {
       try {
-        await syncRegisteredFolder(workspaceDir, descriptor, scopeId);
+        await syncRegisteredFolder(rootDir, descriptor, scopeId);
       } catch (error) {
         console.error(`[storage] synced folder "${descriptor.folder}" failed to reconcile`, error);
       }
@@ -2985,8 +2930,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   }, []);
 
   /**
-   * Poll the workspace once: reconcile projects + chats against disk. Used by the
-   * real-time watcher below and on focus/visibility changes. Re-entrancy guarded.
+   * Poll the connected folder once: reconcile projects + chats against disk. Used
+   * by the real-time watcher below and on focus/visibility changes. Re-entrancy
+   * guarded.
    */
   const pollDiskNow = useCallback(async (): Promise<void> => {
     if (isPollingRef.current) {
@@ -3001,28 +2947,26 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         if (!handle) break;
         const hasAccess = await verifyPermission(handle, false, false);
         if (!hasAccess) break;
-        const workspaceName = getSanitizedWorkspaceName();
-        const workspaceDir = await handle.getDirectoryHandle(workspaceName);
-        await syncProjectsFromDisk(workspaceDir);
+        await syncProjectsFromDisk(handle);
         await refreshLocalChats();
         // After the reconcile, deliberately: the backfill files chats the
         // registry says are filed, and the reconcile adopts chats the *disk*
         // says are filed. Running it second means an adoption just made is
         // already visible here, so the two never fight over one chat.
-        await backfillNotebooksToDisk(workspaceDir);
-        await syncRegisteredFolders(workspaceDir);
+        await backfillNotebooksToDisk(handle);
+        await syncRegisteredFolders(handle);
       } while (pollPendingRef.current);
     } catch {
       // transient — next tick will retry
     } finally {
       isPollingRef.current = false;
     }
-  }, [getSanitizedWorkspaceName, syncProjectsFromDisk, refreshLocalChats, backfillNotebooksToDisk, syncRegisteredFolders]);
+  }, [syncProjectsFromDisk, refreshLocalChats, backfillNotebooksToDisk, syncRegisteredFolders]);
 
   // Real-time disk watcher.
   // PRIMARY: FileSystemObserver (recent Chromium) gives true change events — when
-  // anything under the workspace changes on disk we reconcile (debounced) and
-  // broadcast `willow_disk_changed` so the media gallery can refresh too.
+  // anything under the connected folder changes on disk we reconcile (debounced)
+  // and broadcast `willow_disk_changed` so the media gallery can refresh too.
   // FALLBACK / BACKSTOP: a timer poll (rare when the observer is active, normal
   // cadence when it isn't) plus an immediate reconcile on focus/visibility — so it
   // works everywhere and can't miss a change.
@@ -3061,14 +3005,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         try {
           const hasAccess = await verifyPermission(handle, false, false);
           if (hasAccess && !disposed) {
-            const workspaceName = getSanitizedWorkspaceName();
-            // Observe-only: if the workspace folder doesn't exist yet, don't
-            // create it — fall through to the polling backstop, which no-ops
-            // until the folder appears (and this effect re-runs when the
-            // profile's workspace name loads).
-            const workspaceDir = await handle.getDirectoryHandle(workspaceName);
             observer = new (window as any).FileSystemObserver(() => debouncedReconcile());
-            await observer.observe(workspaceDir, { recursive: true });
+            await observer.observe(handle, { recursive: true });
             observing = true;
           }
         } catch {
@@ -3096,7 +3034,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onFocus);
     };
-  }, [isSupported, isLocalFolderConnected, isLocalFolderAuthorized, pollDiskNow, getSanitizedWorkspaceName, chatScopeId]);
+  }, [isSupported, isLocalFolderConnected, isLocalFolderAuthorized, pollDiskNow, chatScopeId]);
 
   /**
    * Delete a local chat file
@@ -3138,8 +3076,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const rootHandle = await getActiveHandle();
       if (rootHandle) {
         try {
-          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-          const chatsDir = await resolveChatDir(workspaceDir, notebookId, { create: false });
+          const chatsDir = await resolveChatDir(rootHandle, notebookId, { create: false });
           if (chatsDir) await chatsDir.removeEntry(`${chatId}.json`);
         } catch {
           // Tombstone remains and the reconciler retries — from whichever folder
@@ -3148,7 +3085,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   const deleteLocalFSProjectInner = useCallback(async (_projectId: string, projectName: string): Promise<boolean> => {
     // Try deleting project folder from filesystem
@@ -3156,9 +3093,6 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     if (!rootHandle) return true; // No filesystem connected, just browser storage delete
 
     try {
-      const workspaceName = getSanitizedWorkspaceName();
-      const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-
       // Try deleting project folder from BOTH Media/ and Code/. A project can
       // live in both (media + code share the same folder name), so we must remove
       // it from every parent — returning after the first success left the other
@@ -3168,7 +3102,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       let deleteFailed = false;
       for (const folderName of getProjectAreas().map((area) => area.folder)) {
         try {
-          const folderDir = await workspaceDir.getDirectoryHandle(folderName, { create: false });
+          const folderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
           await folderDir.removeEntry(projectName, { recursive: true });
           console.log(`Deleted project folder: ${folderName}/${projectName}`);
           deletedAny = true;
@@ -3189,7 +3123,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       console.error('Failed to delete project from filesystem:', err);
       return false;
     }
-  }, [getActiveHandle, getSanitizedWorkspaceName]);
+  }, [getActiveHandle]);
 
   const deleteLocalFSProject = useCallback((projectId: string, projectName: string): Promise<boolean> => {
     const scopeId = chatScopeIdRef.current;
@@ -3240,8 +3174,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       let chatsDir: FileSystemDirectoryHandle | null = null;
       if (rootHandle) {
         try {
-          const workspaceDir = await rootHandle.getDirectoryHandle(getSanitizedWorkspaceName());
-          chatsDir = await resolveChatDir(workspaceDir, notebookId, { create: false });
+          chatsDir = await resolveChatDir(rootHandle, notebookId, { create: false });
           if (chatsDir) {
             try {
               await chatsDir.getFileHandle(`${newChatId}.json`);
@@ -3329,7 +3262,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, getSanitizedWorkspaceName, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
 
   return (
     <LocalFSContext.Provider

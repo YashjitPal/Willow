@@ -88,6 +88,8 @@ import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';
 import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
+import { isTempChatId } from '@willow/storage/local-fs/chat-metadata';
+import { latestResumedSnapshot, sanitizeResumedCodeMessages } from './resume-code-chat';
 
 // ── The Agent tool ───────────────────────────────────────────────────────
 // An optional second generation path: the vendored Codex harness, reached by
@@ -143,6 +145,12 @@ interface SidebarProps {
   onToggle: () => void;
   prompt?: string;
   initialAttachments?: any[];
+  /**
+   * A Code chat being reopened from the sidebar's Recents, rather than started
+   * fresh. Read once, at mount, to seed the chat-file ids — the parent remounts
+   * this component per resume so that stays true.
+   */
+  resumeChatId?: string | null;
   activeTab: string;
   onTabChange: (id: string) => void;
   isChatMode?: boolean;
@@ -169,7 +177,7 @@ interface SidebarProps {
 const EMPTY_SLASH_MATCHES: SlashCommand[] = [];
 
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, resumeChatId, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated }) => {
   const navigate = useNavigate();
   const location = useLocation();
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
@@ -620,7 +628,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [designStreamingResponse, setDesignStreamingResponse] = useState('');
 
   // Session IDs for local file system auto-saving
+  //
+  // A chat's id IS its filename, and the pair below is how this component
+  // addresses it: `codeChatTitle || codeChatSessionId` is the file every save
+  // writes to. Reopening a chat therefore has to seed BOTH from the id on disk,
+  // or the first save would mint a second Recents row beside the one the user
+  // clicked. Which slot the id lands in is what the naming effect below reads:
+  //
+  //  - a named chat seeds the title too, so naming does not re-fire on a chat
+  //    that already has a name;
+  //  - a chat still on its generated id (naming needs two messages and this one
+  //    was left after one) seeds only the session id, so naming finishes the job
+  //    it never got to — renaming both the file and the sidebar's marker.
   const [codeChatSessionId] = useState(() => {
+    if (resumeChatId) return resumeChatId;
     const dateStr = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-');
     return `${dateStr}_${Math.random().toString(36).slice(2, 8)}`;
   });
@@ -661,11 +682,31 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-  const [codeChatTitle, setCodeChatTitle] = useState<string | null>(null);
+  const [codeChatTitle, setCodeChatTitle] = useState<string | null>(
+    () => (resumeChatId && !isTempChatId(resumeChatId) ? resumeChatId : null),
+  );
   const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
   const inboxSaveRef = useRef<Promise<unknown>>(Promise.resolve());
+  const resumeStartedRef = useRef(false);
+  /**
+   * Set once a reopened chat's restore has finished, which is what the session
+   * bucket load waits on. It cannot wait on `resumeStartedRef`: that is set
+   * synchronously to stop a second load, and effects run in declaration order, so
+   * the bucket effect would already see it set on the same mount and would race
+   * the restore for `messages`.
+   */
+  const resumeSettledRef = useRef(false);
+  /**
+   * The exact array a resume restored, so the inbox save below can skip it.
+   *
+   * Same contract as ChatView's `initialLoadRef`: reopening a chat must not
+   * rewrite its file. Otherwise opening one would reorder Recents to "just now"
+   * with no user action, and would commit whatever the sanitiser dropped —
+   * turning a display decision into permanent data loss.
+   */
+  const resumedMessagesRef = useRef<ChatMessage[] | null>(null);
 
-  const { chatScopeId, isLocalFolderConnected, loadLocalFSProject, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, loadLocalFSProject, loadLocalFSChat, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
   const { loadLatestProject } = useDrive();
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Code Chat)
@@ -702,6 +743,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   useEffect(() => {
     if (messages.length === 0) return;
     const activeId = codeChatTitle || codeChatSessionId;
+    // A just-reopened chat is already exactly this on disk, so writing it back
+    // would only bump its timestamp. Two conditions, both needed: identity rather
+    // than contents, because the next real turn replaces the array and saving must
+    // resume from there; and only while the id is unchanged, because a chat
+    // reopened before it was ever named IS renamed here — skipping that write
+    // would move the marker to the new id and leave the file on the old one.
+    if (resumedMessagesRef.current === messages && activeId === resumeChatId) return;
 
     if (!isProjectPromoted) {
       markCodeChat(chatScopeId, activeId);
@@ -721,7 +769,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       unmarkCodeChat(chatScopeId, activeId);
       await deleteLocalFSChat(activeId);
     })();
-  }, [messages, codeChatTitle, codeChatSessionId, isProjectPromoted, projectName, isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, chatScopeId]);
+  }, [messages, codeChatTitle, codeChatSessionId, resumeChatId, isProjectPromoted, projectName, isLocalFolderConnected, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, chatScopeId]);
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Design Chat)
   useEffect(() => {
@@ -921,8 +969,61 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     void saveCodeSessions(key, sessionsToSave);
   }, [chatScopeId]);
 
+  // ── Reopening a Code chat from the sidebar's Recents ──────────────────────
+  // Restored from the chat file rather than from a session bucket, deliberately:
+  // an un-promoted chat's bucket is ambiguous (`willow_chat_sessions_default`
+  // until AI project naming lands, `willow_chat_sessions_<name>` after it), while
+  // the file the clicked row points at is exactly the conversation the user
+  // asked for. The bucket load below stands down until this lands, so the two
+  // cannot race to own `messages`.
+  //
+  // No cancellation flag on purpose: under StrictMode the effect is invoked
+  // twice, and a cleanup that abandoned the in-flight load would leave the
+  // second pass short-circuited by `resumeStartedRef` and the chat empty.
+  useEffect(() => {
+    if (!resumeChatId || resumeStartedRef.current) return;
+
+    resumeStartedRef.current = true;
+    void (async () => {
+      let saved: any[] | null = null;
+      try {
+        saved = await loadLocalFSChat(resumeChatId);
+      } catch {
+        saved = null;
+      }
+      const restored = sanitizeResumedCodeMessages(saved) as ChatMessage[];
+      if (restored.length) {
+        const snapshot = latestResumedSnapshot(restored);
+        resumedMessagesRef.current = restored;
+        setMessages(restored);
+        if (snapshot) workbenchStore.restoreFromSnapshot('resumed_chat', snapshot);
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        setSessions([{
+          id: sessionId,
+          // An already-named chat names its session too, so the history popover
+          // reads the same title as the sidebar. One still on its generated id
+          // gets the placeholder the session-naming effect below looks for.
+          name: isTempChatId(resumeChatId) ? 'Initial Chat' : resumeChatId,
+          messages: restored,
+          filesSnapshot: snapshot || {},
+          activeSnapshotId: null,
+          createdAt: restored[0]?.timestamp || Date.now(),
+          updatedAt: Date.now(),
+        }]);
+        setCurrentSessionId(sessionId);
+      }
+      resumeSettledRef.current = true;
+      onProjectHydrated?.();
+    })();
+  }, [resumeChatId, loadLocalFSChat, onProjectHydrated]);
+
   // Load sessions from localStorage whenever projectName changes
   useEffect(() => {
+    // A reopened chat owns `messages` (see the resume effect above). Stand down
+    // until it has landed; this re-runs when `projectName` resolves, which is
+    // when the bucket becomes the right source again.
+    if (resumeChatId && !resumeSettledRef.current) return;
+
     // If a prompt is present in the URL and we are on initial mount (projectName is empty),
     // we are starting a brand new project. We must skip loading any saved sessions (like willow_chat_sessions_default)
     // so that we start with a clean slate (empty messages, reset stores, etc.).
@@ -2327,7 +2428,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
       ];
 
-      const selected = allSavedModels.find(m => m.id === selectedModelId);
+      const baseModelId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+      const selected = allSavedModels.find(m => m.id === selectedModelId || m.id === baseModelId);
+      const selectedThinkingLevel = selectedModelId?.includes('::effort-')
+        ? Number(selectedModelId.split('::effort-')[1])
+        : (selected?.thinkingLevel || 0);
       if (selected) {
         provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
         modelId = selected.modelId;
@@ -2341,7 +2446,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       /* Endpoint, wire format and tool policy come from the live profile, never
          from the saved model — see `resolveProviderBinding`. */
-      const binding = resolveProviderBinding(modelConfig, provider, selected);
+      const selectedWithEffort = selected ? { ...selected, thinkingLevel: selectedThinkingLevel } : undefined;
+      const binding = resolveProviderBinding(modelConfig, provider, selectedWithEffort);
       const bucketKeys = apiKeysForBinding(binding, provider, apiKeys);
       const apiKey = bucketKeys[0];
       if (!apiKey) {
@@ -2432,7 +2538,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           provider,
           model: modelId,
           apiKey,
-          thinkingLevel: selected?.thinkingLevel || 0,
+          thinkingLevel: selectedThinkingLevel,
           signal: abortController.signal,
           apiKeyFallbacks: bucketKeys.slice(1),
           ...binding,
@@ -2618,7 +2724,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
       ];
 
-      const selected = allSavedModels.find((m: any) => m.id === selectedModelId);
+      const baseModelId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+      const selected = allSavedModels.find((m: any) => m.id === selectedModelId || m.id === baseModelId);
+      const selectedThinkingLevel = selectedModelId?.includes('::effort-')
+        ? Number(selectedModelId.split('::effort-')[1])
+        : (selected?.thinkingLevel || 1);
       if (selected) {
         provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
         modelId = selected.modelId;
@@ -2629,7 +2739,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       /* Endpoint, wire format and tool policy come from the live profile, never
          from the saved model — see `resolveProviderBinding`. */
-      const binding = resolveProviderBinding(modelConfig, provider, selected);
+      const selectedWithEffort = selected ? { ...selected, thinkingLevel: selectedThinkingLevel } : undefined;
+      const binding = resolveProviderBinding(modelConfig, provider, selectedWithEffort);
       const bucketKeys = apiKeysForBinding(binding, provider, apiKeys);
       const apiKey = bucketKeys[0];
       if (!apiKey) {
@@ -2644,7 +2755,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           provider: provider as any,
           model: modelId,
           apiKey: apiKey,
-          thinkingLevel: selected?.thinkingLevel || 1,
+          thinkingLevel: selectedThinkingLevel,
           signal: abortController.signal,
           apiKeyFallbacks: bucketKeys.slice(1),
           ...binding,
@@ -3201,7 +3312,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const ALL_MODELS = collectSavedModels(modelConfig);
 
-  const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId);
+  const selectedBaseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+  const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId || m.id === selectedBaseId);
+
+  let currentThinkingLevel = activeModel?.thinkingLevel ?? 0;
+  if (selectedModelId?.includes('::effort-')) {
+    currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
+  }
 
   /*
    * Agent tool: reasoning effort on Codex's own ladder.
@@ -3218,16 +3335,19 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
    * whatever it always showed.
    */
   const isUltra = useStore(ultraEngaged) && isAgent;
-  const codexEffort = effectiveEffort(isUltra, activeModel?.thinkingLevel);
+  const codexEffort = effectiveEffort(isUltra, currentThinkingLevel);
 
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
   // Ultra is not a level on `activeModel`, so it is named here instead; without
   // this the pill would keep showing whichever level Ultra was chosen over.
+  const activeEffortRecord = activeModel
+    ? { ...activeModel, thinkingLevel: currentThinkingLevel }
+    : undefined;
   const activeEffortDisplayLabel = isUltra
     ? EFFORT_LABEL.ultra
-    : activeModel && !isNonThinkingEffort(activeModel)
-      ? getThinkingEffortLabel(activeModel)
+    : activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+      ? getThinkingEffortLabel(activeEffortRecord)
       : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
@@ -3258,7 +3378,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         ...(modelConfig.zhipuai?.savedModels || [])
     ];
     
-    if (allSavedModels.length > 0 && !selectedModelId) {
+    const baseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
+    if (allSavedModels.length > 0 && (!selectedModelId || !allSavedModels.some(m => m.id === selectedModelId || m.id === baseId))) {
       setSelectedModelId(allSavedModels[0].id);
     }
   }, [modelConfig, selectedModelId, setSelectedModelId]);
@@ -3334,18 +3455,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isToolsMenuOpen]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modelsMenuRef.current && !modelsMenuRef.current.contains(event.target as Node)) {
-        setIsModelsMenuOpen(false);
-      }
-    };
-    if (isModelsMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isModelsMenuOpen]);
 
   // Display tool for the context header - strictly keeps the last non-preview tool to prevent "Preview" text during close animation
   const headerTool = React.useMemo(() => {
@@ -4800,16 +4909,20 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                               // the user asked for something else.
                               setUltraEngaged(false);
                               setSelectedModelId(id);
-                              const sel = ALL_MODELS.find(m => m.id === id);
+                              const baseId = id ? id.split('::effort-')[0] : '';
+                              const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
                               if (sel) {
                                 const providerKey = sel.provider === 'Google' ? 'gemini'
                                   : sel.provider === 'OpenAI' ? 'openai'
                                   : sel.provider === 'Anthropic' ? 'anthropic'
                                   : sel.provider === 'Moonshot AI' ? 'moonshot'
                                   : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
+                                const effortLevel = id.includes('::effort-')
+                                  ? Number(id.split('::effort-')[1])
+                                  : sel.thinkingLevel;
                                 setModelConfig((prev: any) => ({
                                   ...prev,
-                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: sel.thinkingLevel }
+                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
                                 }));
                               }
                             }}

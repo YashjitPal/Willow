@@ -1,0 +1,105 @@
+/*
+ * Flow's Loading page animation.
+ * Measured and extracted from Google Flow (flow-loading-page component).
+ *
+ * Full-screen loading page with staggered letter pulsing:
+ * "L o a d i n g ..."
+ * Each letter pulses opacity from 1 down to 0.2 and back over 1.6s ease-in-out,
+ * staggered by 100ms per character.
+ * Disclaimer text sits fixed at bottom-left:
+ * "Willow can make mistakes, so double check it"
+ */
+
+.flow-loading-host {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  z-index: 999;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.flow-loading-host.loading-page-fade-in {
+  animation: willow-flow-fade-in var(--loading-page-transition-duration, 0.5s) ease-in-out;
+}
+
+.flow-loading-host.loading-page-fade-out {
+  animation: willow-flow-fade-out var(--loading-page-transition-duration, 0.5s) ease-in-out forwards;
+}
+
+@keyframes willow-flow-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes willow-flow-fade-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.flow-loading-text-container {
+  isolation: isolate;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1 1 0%;
+  opacity: 0.25;
+  font-family: 'Google Sans', 'Google Sans Text', system-ui, -apple-system, sans-serif;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 400;
+  color: #fff;
+  letter-spacing: normal;
+}
+
+.flow-loading-letter {
+  display: inline-block;
+  animation-name: willow-flow-letter-fade;
+  animation-delay: var(--animation-delay, 0ms);
+  animation-duration: 1.6s;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+
+@keyframes willow-flow-letter-fade {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.flow-loading-footer {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  pointer-events: none;
+}
+
+.flow-loading-disclaimer-text {
+  margin: 0;
+  color: rgba(218, 220, 224, 0.75);
+  font-family: 'Google Sans Text', 'Google Sans', system-ui, -apple-system, sans-serif;
+  font-size: 0.688rem;
+  line-height: 1rem;
+  font-weight: 500;
+  white-space: nowrap;
+}

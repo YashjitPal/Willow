@@ -52,6 +52,17 @@ export interface ChatMsg {
    *  offset where its card renders. The version history IS this, folded over the
    *  thread — see `canvas/canvas-store.ts`. */
   canvasRefs?: CanvasRef[];
+  /**
+   * Written by the Code workbench, never by this UI, and never rendered here.
+   *
+   * A Code chat's file is the workbench's, and this marker is its only proof of
+   * that on disk — the sidebar's legacy backfill scan detects a Code chat by
+   * finding it in the body. Such a chat should now reopen in the workbench
+   * (`code-chat-open-store`), but the field is declared here so that on any path
+   * that still lands it in this UI, the load/save round trip carries it through
+   * rather than quietly demoting the chat.
+   */
+  willowMode?: 'code';
 }
 
 /**

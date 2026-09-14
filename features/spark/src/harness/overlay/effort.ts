@@ -157,7 +157,7 @@ export function supportedEfforts(model: {
 
   const isFrontierOpenAI =
     (provider.includes('openai') || identity.includes('gpt')) &&
-    /gpt-5|codex|o[34]/.test(identity);
+    /gpt-[5-9]|codex|o[34]/.test(identity);
 
   if (isFrontierOpenAI) {
     return ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];

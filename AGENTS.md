@@ -211,6 +211,9 @@ keep `@willow/project-browser` above `@willow/projects`.
 
 | Command | What it does |
 | --- | --- |
+| `willow` | Starts the production server and opens Studio in the default browser |
+| `npm run willow` | Runs the local `willow` binary launcher |
+| `npm install` | Installs root dependencies and triggers `postinstall` to install all `services/*` deps |
 | `npm run dev` | Studio on :3000, with the Agent Builder API mounted same-origin |
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-checks all browser-side code in one pass |
@@ -219,9 +222,12 @@ keep `@willow/project-browser` above `@willow/projects`.
 | `npm test` | Studio tests |
 | `npm run agent-builder:test` | Backend suite (542 tests) |
 | `npm run agent-builder:typecheck` | Backend types (separate tsconfig, Node target) |
+| `npm run companion:test` | Companion smoke test |
 
 One `package.json` and one `node_modules` at the repo root cover `apps/`,
-`features/`, and `platform/`. Each `services/*` package installs its own.
+`features/`, and `platform/`. Each `services/*` package maintains its own
+dependencies, which are automatically provisioned during `npm install` via
+`npm run install:services`.
 
 ## Conventions
 

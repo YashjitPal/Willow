@@ -22,7 +22,7 @@ registerProjectArea({ id: 'media', folder: 'Media', kind: 'media', priority: 20 
  * Save media creations locally
  */
 export const saveMediaFileToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   kind: 'image' | 'video' | 'audio',
   fileName: string,
@@ -37,9 +37,7 @@ export const saveMediaFileToDisk = async (
     // Media/<oldName>/ as a phantom project (or wrote into the folder
     // mid-move, where the copy-then-delete rename then destroyed the file).
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceName = getSanitizedWorkspaceName();
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
+    const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
     const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });
 
     // Persist the stable project id alongside the media so re-discovery keeps it.
@@ -97,7 +95,7 @@ export const saveMediaFileToDisk = async (
  * (and the real-time poller won't re-ingest it). No-op if no folder/permission.
  */
 export const deleteMediaFileFromDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   kind: 'image' | 'video' | 'audio',
   fsName: string,
@@ -106,12 +104,10 @@ export const deleteMediaFileFromDisk = async (
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return false;
   try {
-    const workspaceName = getSanitizedWorkspaceName();
     // Deletion is a targeted operation — never create folders on the way.
     // Redirect through any in-flight rename so deletes chase the moved folder.
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
+    const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'));
     const projectDir = await mediaDir.getDirectoryHandle(targetName);
     // NOTE: audio artifacts live in Audio/ — this mapped audio to Videos/,
     // so deleting a song left its file behind (and once Audio/ became part of
@@ -138,7 +134,7 @@ export const deleteMediaFileFromDisk = async (
  * rename in that case).
  */
 export const renameMediaFileOnDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   kind: 'image' | 'video' | 'audio',
   oldFsName: string,
@@ -148,12 +144,10 @@ export const renameMediaFileOnDisk = async (
   const rootHandle = await getActiveHandle();
   if (!rootHandle) return null;
   try {
-    const workspaceName = getSanitizedWorkspaceName();
     // Rename is a targeted operation — never create folders on the way.
     // Redirect through any in-flight project rename.
     const targetName = resolveCurrentProjectName(projectName);
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName);
-    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'));
+    const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'));
     const projectDir = await mediaDir.getDirectoryHandle(targetName);
     const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
 
@@ -214,7 +208,7 @@ export const renameMediaFileOnDisk = async (
  * data URL or any fetchable URL; the body is read into a Blob and written.
  */
 export const saveProjectCoverToDisk = async (
-  { getActiveHandle, getSanitizedWorkspaceName, resolveCurrentProjectName }: DiskDeps,
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
   projectName: string,
   url: string,
 ): Promise<boolean> => {
@@ -225,9 +219,7 @@ export const saveProjectCoverToDisk = async (
     const response = await fetch(url);
     const blob = await response.blob();
 
-    const workspaceName = getSanitizedWorkspaceName();
-    const workspaceDir = await rootHandle.getDirectoryHandle(workspaceName, { create: true });
-    const mediaDir = await workspaceDir.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
+    const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
     // Redirect through any in-flight rename (see saveLocalFSMedia).
     const targetName = resolveCurrentProjectName(projectName);
     const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });

@@ -127,6 +127,7 @@ import { CropOverlay } from './CropOverlay';
 import { PenMenu } from './PenMenu';
 import { SelectMenu, CropMenu } from './ToolFlyouts';
 import { collectSavedModelsInCatalogOrder, getModelCategory } from '@willow/core/model-catalog';
+import { FlowLoadingPage } from './FlowLoadingPage';
 import './flow-image-history.css';
 
 const popupItemVariants = {
@@ -163,6 +164,24 @@ function useEventCallback<T extends (...args: any[]) => any>(fn: T): T {
   React.useLayoutEffect(() => { ref.current = fn; });
   return React.useMemo(() => ((...args: any[]) => ref.current(...args)) as T, []);
 }
+
+const preloadImage = (url: string): Promise<void> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = url;
+    if (img.complete) resolve();
+  });
+};
+
+const preloadAllImages = async (urls: string[]): Promise<void> => {
+  if (urls.length === 0) return;
+  await Promise.race([
+    Promise.all(urls.map(preloadImage)),
+    new Promise((resolve) => window.setTimeout(resolve, 2500)),
+  ]);
+};
 
 
 export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
@@ -1727,6 +1746,17 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     }
   }, [activeSidebarTab, mediaItems]);
   const mediaLoadedRef = React.useRef(false);
+  const [isInitialLoading, setIsInitialLoading] = React.useState(true);
+  const [isInitialLoadingFadingOut, setIsInitialLoadingFadingOut] = React.useState(false);
+  const currentProjectIdRef = React.useRef(projectId);
+
+  React.useEffect(() => {
+    if (currentProjectIdRef.current !== projectId) {
+      currentProjectIdRef.current = projectId;
+      setIsInitialLoading(true);
+      setIsInitialLoadingFadingOut(false);
+    }
+  }, [projectId]);
   // Mirror of mediaItems for use inside non-reactive listeners.
   const mediaItemsRef = React.useRef<MediaItem[]>([]);
   React.useEffect(() => { mediaItemsRef.current = mediaItems; }, [mediaItems]);
@@ -1875,8 +1905,34 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   // • No folder → IndexedDB metadata (browser-only items keep their base64 url).
   // `skipIfGenerating` is used by the realtime path so a background refresh never
   // clobbers an in-progress generation.
+  const initialLoadCompletedRef = React.useRef(false);
+
   const loadMedia = React.useCallback(async (skipIfGenerating: boolean) => {
-    if (!projectId) { revokeMediaBlobUrls(); setMediaItems([]); return; }
+    const loadStartTime = Date.now();
+    const finishLoading = () => {
+      if (skipIfGenerating) return;
+      if (initialLoadCompletedRef.current) return;
+      initialLoadCompletedRef.current = true;
+      const elapsed = Date.now() - loadStartTime;
+      const minWait = Math.max(0, 350 - elapsed);
+      window.setTimeout(() => {
+        setIsInitialLoadingFadingOut(true);
+      }, minWait);
+    };
+
+    if (!projectId) {
+      revokeMediaBlobUrls();
+      setMediaItems([]);
+      const projects = readProjectRegistry() as any[];
+      if (projects.length === 0) {
+        finishLoading();
+      }
+      return;
+    }
+    // If a folder is connected, wait for authorization to settle so we don't load empty IndexedDB first
+    if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+      return;
+    }
     // A temp_ project is by definition brand new — never read stored media for
     // it. An abandoned earlier session could have left a record under a
     // colliding random id, and its items would resurrect here as ghost tiles.
@@ -1894,6 +1950,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       }
       lastLoadedProjectIdRef.current = projectId;
       mediaLoadedRef.current = true;
+      finishLoading();
       return;
     }
     if (skipIfGenerating && (
@@ -1993,14 +2050,26 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       if (hydrated.every((m: any) => prevSigs.has(itemSig(m)))) {
         for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
         mediaLoadedRef.current = true;
+        finishLoading();
         return;
       }
     }
     const keptUrls = revokeMediaBlobUrls(reusedUrls); // release previous URLs not reused / not held by attachments
     mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
+
+    const imageUrls = hydrated
+      .filter((item: any) => item && (item.kind === 'image' || item.kind === 'audio' || item.coverUrl))
+      .map((item: any) => item.coverUrl || item.url)
+      .filter((url: any): url is string => typeof url === 'string' && url.length > 0 && !url.startsWith('blob:null'));
+
+    if (imageUrls.length > 0 && !skipIfGenerating) {
+      await preloadAllImages(imageUrls);
+    }
+
     setMediaItems(hydrated);
     lastLoadedProjectIdRef.current = projectId;
     mediaLoadedRef.current = true;
+    finishLoading();
   }, [projectId, projectName, chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
 
   // (Re)load on project / folder change.
@@ -4761,6 +4830,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }
           }}
         />
+        {isInitialLoading && (
+          <FlowLoadingPage
+            isFadingOut={isInitialLoadingFadingOut}
+            onFadedOut={() => {
+              setIsInitialLoading(false);
+              setIsInitialLoadingFadingOut(false);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -4788,6 +4866,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             });
           }}
         />
+        {isInitialLoading && (
+          <FlowLoadingPage
+            isFadingOut={isInitialLoadingFadingOut}
+            onFadedOut={() => {
+              setIsInitialLoading(false);
+              setIsInitialLoadingFadingOut(false);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -4806,6 +4893,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           availableModels={availableMusicModels}
           initialItem={fullscreenMusicItem}
         />
+        {isInitialLoading && (
+          <FlowLoadingPage
+            isFadingOut={isInitialLoadingFadingOut}
+            onFadedOut={() => {
+              setIsInitialLoading(false);
+              setIsInitialLoadingFadingOut(false);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -4857,7 +4953,16 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         }
       }}
     >
-      
+      {isInitialLoading && (
+        <FlowLoadingPage
+          isFadingOut={isInitialLoadingFadingOut}
+          onFadedOut={() => {
+            setIsInitialLoading(false);
+            setIsInitialLoadingFadingOut(false);
+          }}
+        />
+      )}
+
       {/* Fading Backdrop Blur & Dark Gradient Strip */}
       <div 
         className="absolute inset-x-0 top-0 h-32 pointer-events-none z-[70]"
@@ -5390,7 +5495,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       </div>
 
       {/* Centered Flower Empty State */}
-      {displayMediaItems.length === 0 && (
+      {(!isInitialLoading || isInitialLoadingFadingOut) && displayMediaItems.length === 0 && (
         <div 
           className="absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
           style={{

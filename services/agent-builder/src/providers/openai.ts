@@ -39,7 +39,7 @@ function providerHttpError(status: number, raw: string): ProviderError {
 
 function isReasoningModel(model: string): boolean {
   const value = model.toLowerCase();
-  return value.startsWith('o1') || value.startsWith('o3') || value.startsWith('o4') || value.startsWith('gpt-5');
+  return value.startsWith('o1') || value.startsWith('o3') || value.startsWith('o4') || value.startsWith('gpt-5') || value.startsWith('gpt-6');
 }
 
 function parseArgs(raw: string | undefined): JsonObject {
@@ -144,7 +144,7 @@ function prepareOpenAiBody(req: LLMRequest): JsonObject {
     body.tool_choice = typeof req.toolChoice === 'object' ? { type: 'function', name: req.toolChoice.name } : req.toolChoice ?? 'auto';
     body.parallel_tool_calls = req.parallelToolCalls !== false;
   }
-  if (req.verbosity && req.model.toLowerCase().startsWith('gpt-5')) body.text = { verbosity: req.verbosity };
+  if (req.verbosity && (req.model.toLowerCase().startsWith('gpt-5') || req.model.toLowerCase().startsWith('gpt-6'))) body.text = { verbosity: req.verbosity };
   if (req.jsonSchema) body.text = { ...((body.text as JsonObject | undefined) ?? {}), format: { type: 'json_schema', name: req.jsonSchema.name || 'response_schema', schema: req.jsonSchema.schema, strict: true } };
   if (req.onDelta) body.stream = true;
   return body;
