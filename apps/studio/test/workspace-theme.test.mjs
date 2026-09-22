@@ -23,7 +23,7 @@ describe('workspace-theme central engine', () => {
     ]);
   });
 
-  it('computes complete themes with glow, sendButton, chipBg, loadbar, creamy, and logoFilter for every color', () => {
+  it('computes complete themes with glow, sendButton, chipBg, loadbar, creamy, logoFilter, and fileDrop for every color', () => {
     for (const def of WORKSPACE_COLOR_DEFINITIONS) {
       const theme = getWorkspaceTheme(def.id);
       assert.equal(theme.id, def.id);
@@ -37,6 +37,20 @@ describe('workspace-theme central engine', () => {
       assert.match(theme.creamy.hex, /^#[0-9a-f]{6}$/i);
       assert.match(theme.creamy.rgba, /^rgba\(\d+,\s*\d+,\s*\d+,\s*0\.35\)$/);
       assert.match(theme.logoFilter, /^hue-rotate\(-?\d+deg\)$/);
+      assert.ok(theme.fileDrop);
+      assert.ok(theme.fileDrop.border);
+      assert.ok(theme.fileDrop.text);
+      assert.ok(theme.fileDrop.activeBg);
+      assert.equal(theme.fileDrop.inactiveBg, 'rgba(27, 27, 27, 0.6)');
+      assert.ok(theme.notice);
+      assert.match(theme.notice.bg, /^#[0-9a-f]{6}$/i);
+      assert.match(theme.notice.text, /^#[0-9a-f]{6}$/i);
+      assert.ok(theme.toggle);
+      assert.match(theme.toggle.track, /^#[0-9a-f]{6}$/i);
+      assert.match(theme.toggle.thumb, /^#[0-9a-f]{6}$/i);
+      assert.ok(theme.accentButton);
+      assert.ok(theme.accentButton.bg);
+      assert.ok(theme.accentButton.hover);
     }
   });
 
@@ -45,11 +59,21 @@ describe('workspace-theme central engine', () => {
     assert.equal(greenTheme.glowAccent, 'rgb(6, 78, 59)');
     assert.equal(greenTheme.sendButton.bg, '#127352');
     assert.equal(greenTheme.sendButton.hover, '#0d5c41');
+    assert.equal(greenTheme.accentButton.bg, '#127352');
+    assert.equal(greenTheme.accentButton.hover, '#0d5c41');
     assert.equal(greenTheme.chipBg, '#127352');
     assert.equal(greenTheme.loadbar.hex, '#4a7c59');
     assert.equal(greenTheme.creamy.hex, '#9ce4b3');
     assert.equal(greenTheme.creamy.rgba, 'rgba(156, 228, 179, 0.35)');
     assert.equal(greenTheme.logoFilter, 'hue-rotate(30deg)');
+    assert.equal(greenTheme.fileDrop.border, '#0f4625');
+    assert.equal(greenTheme.fileDrop.text, '#57ad74');
+    assert.equal(greenTheme.fileDrop.activeBg, 'rgba(32, 49, 37, 0.6)');
+    assert.equal(greenTheme.fileDrop.inactiveBg, 'rgba(27, 27, 27, 0.6)');
+    assert.equal(greenTheme.notice.bg, '#293a2d');
+    assert.equal(greenTheme.notice.text, '#d5e2d8');
+    assert.equal(greenTheme.toggle.track, '#b3d0ba');
+    assert.equal(greenTheme.toggle.thumb, '#0c311a');
   });
 
   it('preserves measured blue baseline', () => {
@@ -57,11 +81,21 @@ describe('workspace-theme central engine', () => {
     assert.equal(blueTheme.glowAccent, 'rgb(20, 32, 79)');
     assert.equal(blueTheme.sendButton.bg, '#1b3f95');
     assert.equal(blueTheme.sendButton.hover, '#153277');
+    assert.equal(blueTheme.accentButton.bg, 'rgb(31, 59, 155)');
+    assert.equal(blueTheme.accentButton.hover, 'rgb(42, 75, 190)');
     assert.equal(blueTheme.chipBg, '#192967');
     assert.equal(blueTheme.loadbar.hex, '#a8c7fa');
     assert.equal(blueTheme.creamy.hex, '#a8c7fa');
     assert.equal(blueTheme.creamy.rgba, 'rgba(168, 199, 250, 0.35)');
     assert.equal(blueTheme.logoFilter, 'hue-rotate(160deg)');
+    assert.equal(blueTheme.fileDrop.border, 'rgb(31, 59, 155)');
+    assert.equal(blueTheme.fileDrop.text, 'rgb(49, 134, 255)');
+    assert.equal(blueTheme.fileDrop.activeBg, 'rgba(31, 55, 96, 0.6)');
+    assert.equal(blueTheme.fileDrop.inactiveBg, 'rgba(27, 27, 27, 0.6)');
+    assert.equal(blueTheme.notice.bg, '#1f3760');
+    assert.equal(blueTheme.notice.text, '#d3e3fd');
+    assert.equal(blueTheme.toggle.track, '#a8c7fa');
+    assert.equal(blueTheme.toggle.thumb, '#062e6f');
   });
 
   it('automatically computes full theme for an arbitrary newly registered color definition', () => {
@@ -75,10 +109,20 @@ describe('workspace-theme central engine', () => {
     assert.equal(customTheme.swatchHex, '#f59e0b');
     assert.ok(customTheme.glowAccent.startsWith('rgb('));
     assert.ok(customTheme.sendButton.bg.startsWith('#'));
+    assert.ok(customTheme.accentButton.bg.startsWith('#'));
+    assert.ok(customTheme.accentButton.hover.startsWith('#'));
     assert.ok(customTheme.chipBg.startsWith('#'));
     assert.ok(customTheme.loadbar.hex.startsWith('#'));
     assert.ok(customTheme.creamy.hex.startsWith('#'));
     assert.ok(customTheme.logoFilter.startsWith('hue-rotate('));
+    assert.ok(customTheme.fileDrop.border.startsWith('#') || customTheme.fileDrop.border.startsWith('rgb('));
+    assert.ok(customTheme.fileDrop.text.startsWith('#') || customTheme.fileDrop.text.startsWith('rgb('));
+    assert.ok(customTheme.fileDrop.activeBg.startsWith('rgba('));
+    assert.equal(customTheme.fileDrop.inactiveBg, 'rgba(27, 27, 27, 0.6)');
+    assert.ok(customTheme.notice.bg.startsWith('#'));
+    assert.ok(customTheme.notice.text.startsWith('#'));
+    assert.ok(customTheme.toggle.track.startsWith('#'));
+    assert.ok(customTheme.toggle.thumb.startsWith('#'));
   });
 
   it('safely falls back to green default for missing or undefined color', () => {

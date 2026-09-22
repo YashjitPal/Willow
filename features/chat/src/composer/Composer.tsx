@@ -46,6 +46,7 @@ import { liveModelStore, setLiveModelId } from '../voice-settings/live-model-sto
 import { profileStore, setProfileEnabled } from '@willow/personal';
 import { useAuth } from '@willow/auth/AuthContext';
 import { listVoiceModels } from '../voice-settings/voice-providers';
+import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerModels } from './use-composer-models';
 import { useComposerTextareaAutosize } from './use-composer-textarea-autosize';
@@ -192,10 +193,20 @@ export const InputBar: React.FC<{
 }> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const workspaceTheme = useMemo(() => getWorkspaceTheme(effectiveWorkspaceColor), [effectiveWorkspaceColor]);
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
-  const [promptText, setPromptText] = useState("");
+  const [promptText, setPromptText] = useState(() => {
+    try {
+      const pending = sessionStorage.getItem('pending-chat-draft');
+      if (pending) {
+        sessionStorage.removeItem('pending-chat-draft');
+        return pending;
+      }
+    } catch {}
+    return "";
+  });
   const [isComposerMaximized, setIsComposerMaximized] = useState(false);
   const [canMaximizeComposer, setCanMaximizeComposer] = useState(false);
   const [collapsedChatPaddingRight, setCollapsedChatPaddingRight] = useState(204);
@@ -203,6 +214,18 @@ export const InputBar: React.FC<{
   // are evaluated at the call site, so their declarations must come first.
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const handleSetDraft = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (typeof customEvent.detail === 'string') {
+        setPromptText(customEvent.detail);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener('willow:set-chat-draft', handleSetDraft);
+    return () => window.removeEventListener('willow:set-chat-draft', handleSetDraft);
+  }, []);
 
   // Recording, transcription and caret restoration live in
   // ./use-composer-dictation. The JSX that reads these flags is unchanged.
@@ -254,6 +277,113 @@ export const InputBar: React.FC<{
     const newAttachments = files.map(createComposerAttachment);
     setAttachments(prev => [...prev, ...newAttachments]);
   }, []);
+
+  const [isWindowDraggingFile, setIsWindowDraggingFile] = useState(false);
+  const [isPromptBoxHovered, setIsPromptBoxHovered] = useState(false);
+  const [showDropIndicator, setShowDropIndicator] = useState(false);
+  const [isIndicatorExiting, setIsIndicatorExiting] = useState(false);
+  const chatComposerBoxRef = useRef<HTMLDivElement>(null);
+  const devComposerBoxRef = useRef<HTMLDivElement>(null);
+  const dragCounterRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  isDraggingRef.current = isWindowDraggingFile;
+
+  useEffect(() => {
+    if (isWindowDraggingFile) {
+      setIsIndicatorExiting(false);
+      setShowDropIndicator(true);
+    } else {
+      setIsIndicatorExiting(true);
+      setIsPromptBoxHovered(false);
+      const timer = setTimeout(() => {
+        setShowDropIndicator(false);
+        setIsIndicatorExiting(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isWindowDraggingFile]);
+
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => {
+      if (!e.dataTransfer) return false;
+      const types = e.dataTransfer.types;
+      if (!types) return false;
+      return Array.from(types).includes('Files');
+    };
+
+    const resetDrag = () => {
+      dragCounterRef.current = 0;
+      isDraggingRef.current = false;
+      setIsWindowDraggingFile(false);
+      setIsPromptBoxHovered(false);
+    };
+
+    const handleWindowDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragCounterRef.current += 1;
+      isDraggingRef.current = true;
+      setIsWindowDraggingFile(true);
+    };
+
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+    };
+
+    const handleWindowDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragCounterRef.current -= 1;
+      if (
+        dragCounterRef.current <= 0 ||
+        e.relatedTarget === null ||
+        e.clientX <= 0 ||
+        e.clientY <= 0 ||
+        e.clientX >= window.innerWidth ||
+        e.clientY >= window.innerHeight
+      ) {
+        resetDrag();
+      }
+    };
+
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      const hadFiles = hasFiles(e);
+      const droppedFiles = e.dataTransfer?.files;
+      resetDrag();
+      setShowDropIndicator(false);
+      setIsIndicatorExiting(false);
+      if (hadFiles && droppedFiles && droppedFiles.length > 0) {
+        addFilesAsAttachments(Array.from(droppedFiles));
+      }
+    };
+
+    const handlePointerMove = (e: MouseEvent) => {
+      if (e.buttons === 0 && (dragCounterRef.current > 0 || isDraggingRef.current)) {
+        resetDrag();
+      }
+    };
+
+    window.addEventListener('dragenter', handleWindowDragEnter);
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    window.addEventListener('drop', handleWindowDrop);
+    window.addEventListener('dragend', resetDrag);
+    window.addEventListener('blur', resetDrag);
+    document.addEventListener('mouseleave', resetDrag);
+    window.addEventListener('mousemove', handlePointerMove);
+
+    return () => {
+      window.removeEventListener('dragenter', handleWindowDragEnter);
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+      window.removeEventListener('drop', handleWindowDrop);
+      window.removeEventListener('dragend', resetDrag);
+      window.removeEventListener('blur', resetDrag);
+      document.removeEventListener('mouseleave', resetDrag);
+      window.removeEventListener('mousemove', handlePointerMove);
+      resetDrag();
+    };
+  }, [addFilesAsAttachments]);
 
   /*
    * Publish the host handle. An effect rather than a render-time assignment so the ref is
@@ -334,14 +464,26 @@ export const InputBar: React.FC<{
   const voiceModels = useMemo(() => listVoiceModels(), []);
   const liveModelId = useStore(liveModelStore);
   const showVoiceModels = chatVariant && liveActive && voiceModels.length > 0;
-  const liveModel = voiceModels.find((m) => m.id === liveModelId) || voiceModels[0];
+  const liveBaseModelId = liveModelId ? liveModelId.split('::effort-')[0] : '';
+  const liveModel = voiceModels.find((m) => m.id === liveBaseModelId || m.id === liveModelId) || voiceModels[0];
   // Shortened the same way as a text model, so "Gemini 3.1 Flash Live" reads
   // "3.1 Flash Live" and the pill keeps one naming convention.
   const pillModelLabel = showVoiceModels
     ? getShortName(liveModel?.name || '')
     : activeModelDisplayLabel;
-  // No effort segment while live: a live model has no thinking levels.
-  const pillEffortLabel = showVoiceModels ? '' : activeEffortDisplayLabel;
+
+  let liveThinkingLevel = liveModel?.thinkingLevel ?? 0;
+  if (liveModelId?.includes('::effort-')) {
+    liveThinkingLevel = Number(liveModelId.split('::effort-')[1]);
+  }
+  const liveEffortRecord = liveModel
+    ? { ...liveModel, thinkingLevel: liveThinkingLevel }
+    : undefined;
+  const liveEffortDisplayLabel = liveEffortRecord && !isNonThinkingEffort(liveEffortRecord)
+    ? getThinkingEffortLabel(liveEffortRecord, true)
+    : '';
+
+  const pillEffortLabel = showVoiceModels ? liveEffortDisplayLabel : activeEffortDisplayLabel;
   const displayedPillEffortLabel = effortDisplayOverride ?? pillEffortLabel;
   const pillModelAndEffortLabel = [pillModelLabel, displayedPillEffortLabel].filter(Boolean).join(' ');
 
@@ -668,6 +810,13 @@ export const InputBar: React.FC<{
     showDisclaimer,
   });
 
+  const hasDropHeight = isWindowDraggingFile || showDropIndicator;
+  const dropHeightClass = isIndicatorExiting
+    ? 'file-drop-collapsing'
+    : hasDropHeight
+      ? 'file-drop-indicator-height'
+      : '';
+
   if (chatVariant || effectiveBackground === 'solid') {
     return (
       <div
@@ -678,7 +827,10 @@ export const InputBar: React.FC<{
         } as React.CSSProperties}
       >
         {githubImportDialog}
-        <div className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : 'justify-center'}` : 'transition-all duration-200 justify-center'} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}>
+        <div
+          ref={chatComposerBoxRef}
+          className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}
+        >
           
           {/*
             * Attachment strip.
@@ -1054,7 +1206,7 @@ export const InputBar: React.FC<{
                 aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
                 style={
                   chatVariant && !responseControlActive && !liveActive && !isTranscribingDictation
-                    ? { backgroundColor: getWorkspaceTheme(effectiveWorkspaceColor).sendButton.bg }
+                    ? { backgroundColor: workspaceTheme.sendButton.bg }
                     : undefined
                 }
                 className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
@@ -1102,8 +1254,76 @@ export const InputBar: React.FC<{
               )}
             </div>
           </div>
-          
         </div>
+        {showDropIndicator && (
+          <div
+            className={`willow-file-drop-indicator ${isIndicatorExiting ? 'is-exiting' : ''}`}
+            style={{
+              '--file-drop-border': workspaceTheme.fileDrop.border,
+              '--file-drop-text': workspaceTheme.fileDrop.text,
+              '--file-drop-active-bg': workspaceTheme.fileDrop.activeBg,
+              '--file-drop-inactive-bg': workspaceTheme.fileDrop.inactiveBg,
+            } as React.CSSProperties}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              if (!isIndicatorExiting) {
+                setIsPromptBoxHovered(true);
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              if (!isIndicatorExiting && !isPromptBoxHovered) {
+                setIsPromptBoxHovered(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              const related = e.relatedTarget as Node | null;
+              if (!e.currentTarget.contains(related)) {
+                setIsPromptBoxHovered(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounterRef.current = 0;
+              isDraggingRef.current = false;
+              setIsWindowDraggingFile(false);
+              setIsPromptBoxHovered(false);
+              setShowDropIndicator(false);
+              setIsIndicatorExiting(false);
+              const box = chatComposerBoxRef.current;
+              if (box) {
+                box.style.transition = '';
+                box.style.height = '';
+                box.style.overflow = '';
+              }
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                addFilesAsAttachments(Array.from(e.dataTransfer.files));
+              }
+            }}
+          >
+            <div
+              className={`willow-file-drop-overlay ${isPromptBoxHovered && !isIndicatorExiting ? 'is-dragged-over isDraggedOver' : ''}`}
+              data-filedrop-id="chat-window-input-container"
+            >
+              <div className="willow-file-drop-icon">
+                <MaterialSymbol
+                  family="luminous"
+                  name="attach_file"
+                  size={24}
+                  weight={400}
+                  roundness={100}
+                  opticalSize={24}
+                />
+              </div>
+              <div className="willow-file-drop-message-text">
+                <span className="willow-file-drop-text">Drop files here</span>
+              </div>
+            </div>
+          </div>
+        )}
         {chatVariant && showDisclaimer && (
           <p
             className="pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] text-[#c4c7c5] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
@@ -1119,7 +1339,10 @@ export const InputBar: React.FC<{
   return (
     <div className="w-full max-w-2xl mx-auto relative z-20">
       {githubImportDialog}
-      <div className={`${promptBoxBg} backdrop-blur-2xl border border-white/5 rounded-[1.75rem] p-2 shadow-2xl flex flex-col gap-1 ring-1 ring-white/5`}>
+      <div
+        ref={devComposerBoxRef}
+        className={`${promptBoxBg} ${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : ''} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} relative backdrop-blur-2xl border border-white/5 rounded-[1.75rem] p-2 shadow-2xl flex flex-col gap-1 ring-1 ring-white/5`}
+      >
         {/* Attachments Area. Same construction as the chat variant above; this shell pads
             with `p-2`, so that is what the negative margin cancels before the 12px inset. */}
         {attachments.length > 0 && (
@@ -1387,6 +1610,75 @@ export const InputBar: React.FC<{
             </button>
           </div>
         </div>
+        {showDropIndicator && (
+          <div
+            className={`willow-file-drop-indicator ${isIndicatorExiting ? 'is-exiting' : ''}`}
+            style={{
+              '--file-drop-border': workspaceTheme.fileDrop.border,
+              '--file-drop-text': workspaceTheme.fileDrop.text,
+              '--file-drop-active-bg': workspaceTheme.fileDrop.activeBg,
+              '--file-drop-inactive-bg': workspaceTheme.fileDrop.inactiveBg,
+            } as React.CSSProperties}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              if (!isIndicatorExiting) {
+                setIsPromptBoxHovered(true);
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              if (!isIndicatorExiting && !isPromptBoxHovered) {
+                setIsPromptBoxHovered(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              const related = e.relatedTarget as Node | null;
+              if (!e.currentTarget.contains(related)) {
+                setIsPromptBoxHovered(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounterRef.current = 0;
+              isDraggingRef.current = false;
+              setIsWindowDraggingFile(false);
+              setIsPromptBoxHovered(false);
+              setShowDropIndicator(false);
+              setIsIndicatorExiting(false);
+              const box = devComposerBoxRef.current;
+              if (box) {
+                box.style.transition = '';
+                box.style.height = '';
+                box.style.overflow = '';
+              }
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                addFilesAsAttachments(Array.from(e.dataTransfer.files));
+              }
+            }}
+          >
+            <div
+              className={`willow-file-drop-overlay ${isPromptBoxHovered && !isIndicatorExiting ? 'is-dragged-over isDraggedOver' : ''}`}
+              data-filedrop-id="chat-window-input-container"
+            >
+              <div className="willow-file-drop-icon">
+                <MaterialSymbol
+                  family="luminous"
+                  name="attach_file"
+                  size={24}
+                  weight={400}
+                  roundness={100}
+                  opticalSize={24}
+                />
+              </div>
+              <div className="willow-file-drop-message-text">
+                <span className="willow-file-drop-text">Drop files here</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

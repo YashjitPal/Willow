@@ -209,6 +209,14 @@ export const GEMINI_MODELS: ProviderModelOption[] = [
   { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   { id: 'veo-3.1', name: 'Veo 3.1', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+  { id: 'gemini-3.8-live', name: 'Gemini 3.8 Live', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+  {
+    id: 'gemini-3.8-live-extended-thinking',
+    name: 'Gemini 3.8 Live Extended Thinking',
+    maxLevels: 3,
+    hasNone: false,
+    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
+  },
   { id: 'gemini-3.1-flash-live-preview', name: 'Gemini 3.1 Flash Live', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   {
     id: 'gemini-3.5-transcribe',
@@ -338,6 +346,8 @@ const MODEL_PRICES: Record<string, string> = {
   'veo-3.1-fast': '$0.10/video',
   'veo-3.1-lite': '$0.05/video',
   // Text rate. Audio, the mode this model exists for, is $3.00/$12.00.
+  'gemini-3.8-live': '$0.75/$4.50',
+  'gemini-3.8-live-extended-thinking': '$0.75/$4.50',
   'gemini-3.1-flash-live-preview': '$0.75/$4.50',
   'gemini-3.5-transcribe': '$2.50/$12.00',
   'gemini-3.5-transcribe-live': '$3.50/$21.00',

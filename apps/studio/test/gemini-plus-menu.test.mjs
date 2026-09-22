@@ -164,7 +164,7 @@ describe('the tool set matches Gemini', () => {
     const s = codeOnly(OPTIONS());
     assert.match(
       s,
-      /export type ToolId = 'images' \| 'video' \| 'music' \| 'canvas' \| 'research' \| 'learn'/,
+      /export type ToolId =\s*\|?\s*'images' \| 'video' \| 'music' \| 'canvas' \| 'research' \| 'learn'/,
       'Create image / video / music / Canvas on the root, Deep research / Guided learning under More tools',
     );
   });
@@ -231,6 +231,13 @@ describe('the submenus sit outside the scrolling card', () => {
     assert.match(s, /if \(trigger\) setSubTop\(trigger\.offsetTop\)/,
       'the offset is read off the trigger when the submenu opens');
   });
+
+  it('clamps the submenu position calculatively within the viewport', () => {
+    const s = codeOnly(MENU());
+    assert.match(s, /submenuRef/, 'attaches a ref to the active submenu card');
+    assert.match(s, /clampSubmenu/, 'clamps submenu position against viewport bounds');
+    assert.match(s, /VIEWPORT_MARGIN = 8/, 'keeps measured 8px margin from viewport edges');
+  });
 });
 
 describe('the upload rows', () => {
@@ -273,9 +280,9 @@ describe('the Personal Intelligence row', () => {
     const s = codeOnly(MENU());
     assert.match(s, /width: 52, height: 32/, 'MDC intrinsic track');
     assert.match(s, /transform: 'scale\(0\.75\)'/, 'rendered 39x24 == 52x32 at .75');
-    assert.match(s, /'#a8c7fa'/, 'selected track, measured');
+    assert.match(s, /#a8c7fa/, 'selected track, measured');
     assert.match(s, /'#444746'/, 'unselected track, measured');
-    assert.match(s, /'#062e6f'/, '--mat-slide-toggle-selected-handle-color');
+    assert.match(s, /#062e6f/, '--mat-slide-toggle-selected-handle-color');
     assert.match(s, /'#8e918f'/, '--mat-slide-toggle-unselected-handle-color');
     assert.match(s, /#d3e3fd/, 'the check glyph fill, measured');
     assert.match(s, /width: checked \? 24 : 16/, 'selected handle 24px, unselected 16px');

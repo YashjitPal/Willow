@@ -297,7 +297,7 @@ export interface ResolvedEffort {
 
 export function resolveEffort(
   requested: CodexEffort,
-  model: { providerId?: string; modelId?: string; name?: string },
+  model: { providerId?: string; modelId?: string; name?: string; [key: string]: unknown },
 ): ResolvedEffort {
   const supported = supportedEfforts(model);
 

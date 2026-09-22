@@ -11,6 +11,6 @@
  */
 export interface DiskDeps {
   getActiveHandle: () => Promise<FileSystemDirectoryHandle | null>;
-  getSanitizedWorkspaceName: () => string;
+  getSanitizedWorkspaceName?: () => string;
   resolveCurrentProjectName: (name: string) => string;
 }

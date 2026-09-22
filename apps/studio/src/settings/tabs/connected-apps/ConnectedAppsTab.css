@@ -26,8 +26,8 @@
   --ca-on-surface-variant: #c4c7c5;
   --ca-outline: #8e918f;
   --ca-divider: #444746;
-  --ca-primary: #a8c7fa;
-  --ca-prompt-text: #d3e3fd;
+  --ca-primary: var(--studio-toggle-track, #a8c7fa);
+  --ca-prompt-text: var(--studio-notice-text, #d3e3fd);
   /* Material's dark-scheme error tone. Used once, on a rejected access token — the
      only failure on this page the user can have caused by mistyping something. */
   --ca-error: #f2b8b5;
@@ -718,7 +718,7 @@
   width: 24px;
   height: 24px;
   margin-left: 24px;
-  background: #062e6f;
+  background: var(--studio-toggle-thumb, #062e6f);
 }
 
 /* 40px state layer, same as --mat-slide-toggle-state-layer-size. */

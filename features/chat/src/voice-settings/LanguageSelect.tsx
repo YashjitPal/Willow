@@ -140,9 +140,22 @@ export const LanguageSelect: React.FC<LanguageSelectProps> = ({
     measure();
   }, [measure, open]);
 
+  const initialScrollDoneRef = useRef(false);
+
   useEffect(() => {
     if (!open) return;
-    const onScrollOrResize = () => measure();
+    const onScrollOrResize = (event: Event) => {
+      // Ignore scroll events originating from within the dropdown list itself
+      if (
+        event.type === 'scroll' &&
+        event.target &&
+        listRef.current &&
+        (event.target === listRef.current || listRef.current.contains(event.target as Node))
+      ) {
+        return;
+      }
+      measure();
+    };
     window.addEventListener('resize', onScrollOrResize);
     window.addEventListener('scroll', onScrollOrResize, true);
     return () => {
@@ -151,16 +164,19 @@ export const LanguageSelect: React.FC<LanguageSelectProps> = ({
     };
   }, [measure, open]);
 
-  // Scroll the selected row into view when the list is taller than its clamp —
-  // with 98 languages it always is, and without this the list opens at the top
-  // rather than on the current value.
+  // Scroll the selected row into view once when the list opens if taller than clamp
   useEffect(() => {
-    if (!open || !placement) return;
+    if (!open) {
+      initialScrollDoneRef.current = false;
+      return;
+    }
+    if (initialScrollDoneRef.current || !placement) return;
     const list = listRef.current;
     if (!list) return;
     const rowTop = LISTBOX_PADDING_Y + selectedIndex * OPTION_HEIGHT;
     const target = rowTop - (placement.maxHeight - OPTION_HEIGHT) / 2;
     list.scrollTop = Math.max(target, 0);
+    initialScrollDoneRef.current = true;
   }, [open, placement, selectedIndex]);
 
   useEffect(() => {
@@ -303,15 +319,17 @@ export const LanguageSelect: React.FC<LanguageSelectProps> = ({
               aria-labelledby={labelId}
               tabIndex={-1}
               autoFocus
-              className="relative outline-none"
+              className="relative outline-none gemini-chat-scrollbar"
               style={{
                 flex: '1 1 0%',
                 overflowX: 'hidden',
                 overflowY: 'auto',
+                overscrollBehavior: 'contain',
                 paddingTop: LISTBOX_PADDING_Y,
                 paddingBottom: LISTBOX_PADDING_Y,
               }}
               onKeyDown={onListKeyDown}
+              onWheel={(e) => e.stopPropagation()}
             >
               {options.map((option, index) => {
                 const isSelected = index === selectedIndex;

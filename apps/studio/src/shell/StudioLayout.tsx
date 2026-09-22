@@ -63,6 +63,7 @@ export const StudioLayout: React.FC<{
   /** The open notebook, forwarded so its sidebar row renders active. */
   activeNotebookId?: string | null;
   onOpenNotebook?: (notebookId: string) => void;
+  onSignInClick?: () => void;
 }> = ({
   isSearchOpen,
   setIsSearchOpen,
@@ -84,6 +85,7 @@ export const StudioLayout: React.FC<{
   modelConfig,
   activeNotebookId = null,
   onOpenNotebook,
+  onSignInClick,
 }) => {
   const { background } = useBackground();
   const { 
@@ -97,7 +99,8 @@ export const StudioLayout: React.FC<{
   } = useLocalFS();
 
   const { userProfile } = useAuth();
-  const selectionBg = getWorkspaceTheme(userProfile?.workspaceColor).creamy.rgba;
+  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const selectionBg = theme.creamy.rgba;
 
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
@@ -111,6 +114,16 @@ export const StudioLayout: React.FC<{
       style={{
         '--studio-surface': studioSurface,
         '--studio-selection-bg': selectionBg,
+        '--studio-notice-bg': theme.notice.bg,
+        '--studio-notice-text': theme.notice.text,
+        '--studio-toggle-track': theme.toggle.track,
+        '--studio-toggle-thumb': theme.toggle.thumb,
+        '--studio-accent-btn-bg': theme.accentButton.bg,
+        '--studio-accent-btn-hover': theme.accentButton.hover,
+        '--spark-notice-bg': theme.notice.bg,
+        '--spark-notice-text': theme.notice.text,
+        '--spark-toggle-track': theme.toggle.track,
+        '--spark-toggle-thumb': theme.toggle.thumb,
       } as React.CSSProperties}
     >
       {/* Background rendered at root level ONLY for waves (to cover sidebar) */}
@@ -167,6 +180,7 @@ export const StudioLayout: React.FC<{
         isHidden={isSidebarHidden}
         activeNotebookId={activeNotebookId}
         onOpenNotebook={onOpenNotebook}
+        onSignInClick={onSignInClick}
       />
       {studioExperience === 'spark' && !isSidebarCollapsed && (
         <button

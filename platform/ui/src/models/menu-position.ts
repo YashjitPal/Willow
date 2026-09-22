@@ -28,7 +28,7 @@ export const chooseMenuSide = ({
 export const getViewportConstrainedOffset = ({
   bottom,
   viewportHeight,
-  margin = 16,
+  margin = 8,
 }: {
   bottom: number;
   viewportHeight: number;

@@ -166,6 +166,10 @@
   transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.willow-gdlg-pill--text {
+  background: transparent;
+}
+
 /* Measured `color(srgb 0.901961 0.901961 0.901961 / 0.12)` and `/ 0.38)`, which
    is rgb(230, 230, 230) at those two alphas. Rename opens in this state because
    the field starts at the unchanged title. */

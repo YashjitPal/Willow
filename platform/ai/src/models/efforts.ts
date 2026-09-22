@@ -9,8 +9,13 @@ export interface ModelEffortRecord {
   [key: string]: unknown;
 }
 
-export const getModelGroupKey = (model: ModelEffortRecord) =>
-  `${model.provider || 'AI'}::${model.modelId || model.name}::${String(model.profileId || '')}`;
+export const getModelGroupKey = (model: ModelEffortRecord) => {
+  const modelId = String(model.modelId || model.id || model.name || '').toLowerCase();
+  const canonicalId = (modelId.includes('gemini-3.8-live') || modelId.includes('3.8-live'))
+    ? 'gemini-3.8-live'
+    : (model.modelId || model.name);
+  return `${model.provider || 'AI'}::${canonicalId}::${String(model.profileId || '')}`;
+};
 
 /**
  * Identity text for capability matching: `modelId` plus `name`.
@@ -143,7 +148,7 @@ const GENERIC_EFFORT_LABELS: Record<number, string> = {
 export const getThinkingEffortLabel = (model: ModelEffortRecord, shorten = false) => {
   const level = Number(model.thinkingLevel || 0);
   const provider = String(model.provider || '').toLowerCase();
-  const modelId = String(model.modelId || model.name || '').toLowerCase();
+  const modelId = String(model.modelId || model.id || model.name || '').toLowerCase();
   const customEffort = Array.isArray(model.reasoningEfforts)
     ? (model.reasoningEfforts as Array<{ level?: number; label?: string }>).find((effort) => Number(effort.level) === level)
     : undefined;
@@ -155,7 +160,7 @@ export const getThinkingEffortLabel = (model: ModelEffortRecord, shorten = false
   // renaming an existing level rather than describing it. Scoped to Gemini so a
   // non-Gemini model with "flash" in its id (glm-4-flash) keeps the generic
   // "None", which is what its own mapping sends.
-  if (level === 0 && isGeminiFlashFamily(model)) return 'Minimal';
+  if (level === 0 && (isGeminiFlashFamily(model) || modelId.includes('3.8-live') || modelId.includes('gemini-3.8-live'))) return 'Minimal';
 
   // These fallbacks cover saved presets created before exact labels were persisted.
   // Level 0 never reaches here — the flash-family check above claims it first.

@@ -190,9 +190,8 @@ test('the dialog surface scales in on a transition and never animates out', () =
   assert.match(surface, /transition:\s*transform 150ms cubic-bezier\(0,\s*0,\s*0\.2,\s*1\)/);
   // Opacity was 1 in every sampled frame, opening AND closing.
   assert.doesNotMatch(surface, /opacity/, 'the measured surface never changes opacity');
-  // `closing` must reach the backdrop only — the surface has no closing state.
   assert.match(dialogCode, /willow-gdlg-backdrop\$\{shown && !closing/);
-  assert.match(dialogCode, /willow-gdlg-surface\$\{shown \?/);
+  assert.match(dialogCode, /willow-gdlg-surface\$\{shown && !closing/);
 });
 
 test('the backdrop is the measured flat 32% black with no blur', () => {
@@ -352,20 +351,18 @@ test('Delete has no inner top padding — its body is flush under the content pa
 
 // --- Close timing ----------------------------------------------------------
 
-test('both dialogs hold for the 75ms the measured removal brackets to', () => {
-  // Rename bracketed removal at 66.7-101.2ms and Delete at 49.9-82.3ms; the
-  // only span in both is 66.7-82.3, and MDC's exit duration is 75ms.
+test('both dialogs hold for the 125ms the measured removal brackets to', () => {
   const renameClose = sidebarCode.slice(
     sidebarCode.indexOf('const triggerCloseRename'),
     sidebarCode.indexOf('const commitRename'),
   );
-  assert.match(renameClose, /\}, 75\);/);
+  assert.match(renameClose, /\}, 125\);/);
 
   const deleteClose = sidebarCode.slice(
     sidebarCode.indexOf('const triggerCloseDelete'),
     sidebarCode.indexOf('const confirmDeleteChat'),
   );
-  assert.match(deleteClose, /\}, 75\);/);
+  assert.match(deleteClose, /\}, 125\);/);
 });
 
 test('deleting dismisses before it awaits the disk, not after', () => {

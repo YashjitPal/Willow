@@ -880,6 +880,13 @@ export const resolveChatModel = ({
       model = `${rawModel}-pro`;
     }
   }
+  if (provider === 'gemini' && (rawModel.includes('3.8-live') || rawModel.includes('gemini-3.8-live'))) {
+    if (thinkingLevel === 0) {
+      model = 'gemini-3.8-live';
+    } else if (thinkingLevel > 0) {
+      model = 'gemini-3.8-live-extended-thinking';
+    }
+  }
 
   const keyMap = apiKeys as Record<string, string[] | undefined> | undefined;
   const bucketKeys = apiKeysForBinding(binding, provider, keyMap);

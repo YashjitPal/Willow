@@ -87,6 +87,7 @@ import { levelToEffort, resolveEffort } from './harness/overlay/effort';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
 import { SparkComposer } from './SparkComposer';
+import { sparkAccentVars } from './spark-accent';
 import { questionTimelineTool } from './SparkTaskDetail';
 import { SparkHome } from './SparkHome';
 import {
@@ -472,7 +473,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (!shell || !sharedGlowHost) return;
     sharedGlowHost.style.setProperty(
       '--spark-task-detail-accent',
-      getWorkspaceTheme(userProfile?.workspaceColor || 'blue').glowAccent,
+      getWorkspaceTheme(userProfile?.workspaceColor).glowAccent,
     );
     const anchor = shell.querySelector<HTMLElement>('[data-spark-glow-anchor]');
     if (!anchor || sharedGlowHost.parentElement === anchor) return;
@@ -1949,7 +1950,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   };
 
   const wrapConnectedPage = (content: React.ReactNode) => (
-    <div ref={workspaceShellRef} className="spark-connected-surface">
+    <div
+      ref={workspaceShellRef}
+      className="spark-connected-surface"
+      style={sparkAccentVars(userProfile?.workspaceColor)}
+    >
       {content}
       {sharedGlowHost && createPortal(null, sharedGlowHost)}
       {sharedComposerHost && createPortal(
@@ -1961,6 +1966,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             modelConfig={modelConfig}
             selectedModelId={selectedModelId}
             setSelectedModelId={setSelectedModelId}
+            workspaceColor={userProfile?.workspaceColor}
           />
           {sharedComposerError && (
             <p className="spark-composer-host__error" role="alert">{sharedComposerError}</p>
@@ -2262,6 +2268,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       onTogglePinTask={toggleSparkTaskPinned}
       onDeleteTask={deleteSparkTask}
       onRenameTask={renameSparkTask}
+      workspaceColor={userProfile?.workspaceColor}
     />
   );
 };

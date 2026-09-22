@@ -134,7 +134,7 @@ type GeminiSettingsItem = {
 const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'activity', label: 'Activity', icon: 'history', iconFamily: 'luminous', action: 'settings' },
   { id: 'intelligence', label: 'Personal Intelligence', icon: 'personal_recommendations', iconFamily: 'luminous', action: 'settings' },
-  { id: 'memory', label: 'Import memory to Willow', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
+  { id: 'memory', label: 'Import memory to Gemini', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'labs', label: 'Labs', icon: 'experiment', iconFamily: 'material-rounded', action: 'settings' },
   { id: 'limits', label: 'Usage limits', icon: 'donut_large', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'scheduled', label: 'Scheduled actions', icon: 'schedule', iconFamily: 'luminous', action: 'settings' },
@@ -254,14 +254,25 @@ const GEMINI_THEME_OPTIONS: { id: GeminiThemeChoice; label: string }[] = [
  */
 const GEMINI_MAT_MENU_EXIT_MS = 125;
 
+const GEMINI_THEME_ACCENT_COLORS = [
+  { id: 'green', label: 'Willow Green', hex: '#4a7c59' },
+  { id: 'blue', label: 'Blue', hex: '#3b82f6' },
+  { id: 'purple', label: 'Purple', hex: '#8b5cf6' },
+  { id: 'lilac', label: 'Lilac', hex: '#c084fc' },
+  { id: 'pink', label: 'Pink', hex: '#ec4899' },
+  { id: 'teal', label: 'Teal', hex: '#14b8a6' },
+] as const;
+
 const GeminiThemeSubmenu: React.FC<{
   phase: 'open' | 'closing';
   top: number;
   value: GeminiThemeChoice;
+  activeColor: string;
   onSelect: (value: GeminiThemeChoice) => void;
+  onSelectColor: (colorId: string) => void;
   onKeepOpen: () => void;
   onLeave: () => void;
-}> = ({ phase, top, value, onSelect, onKeepOpen, onLeave }) => (
+}> = ({ phase, top, value, activeColor, onSelect, onSelectColor, onKeepOpen, onLeave }) => (
   <div
     role="menu"
     aria-label="Theme"
@@ -319,6 +330,30 @@ const GeminiThemeSubmenu: React.FC<{
         )}
       </button>
     ))}
+    <div className="mt-1 mb-1 flex h-6 w-full items-center justify-between px-2">
+      {GEMINI_THEME_ACCENT_COLORS.map((option) => {
+        const isSelected = activeColor === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={option.label}
+            title={option.label}
+            onClick={() => onSelectColor(option.id)}
+            style={{ backgroundColor: option.hex }}
+            className={`relative flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 active:scale-95 ${
+              isSelected ? 'scale-105' : ''
+            }`}
+          >
+            {isSelected && (
+              <span className="h-2.5 w-2.5 rounded-full bg-[#1f1f1f]" />
+            )}
+          </button>
+        );
+      })}
+    </div>
   </div>
 );
 
@@ -340,7 +375,10 @@ const SidebarGlyph: React.FC<{ name: string; className?: string }> = ({ name, cl
 );
 
 const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const themeRowRef = useRef<HTMLElement | null>(null);
+  const { userProfile, updateUserProfile } = useAuth();
   const experiments = useStore(experimentsStore);
   const { location, status: locationStatus, error: locationError } = useStore(locationStore);
   /*
@@ -399,6 +437,23 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
     return stored === 'system' || stored === 'light' || stored === 'dark' ? stored : 'dark';
   });
 
+  const [activeColor, setActiveColor] = useState<string>(() => {
+    return userProfile?.workspaceColor || 'green';
+  });
+
+  useEffect(() => {
+    if (userProfile?.workspaceColor) {
+      setActiveColor(userProfile.workspaceColor);
+    }
+  }, [userProfile?.workspaceColor]);
+
+  const handleColorSelect = (colorId: string) => {
+    setActiveColor(colorId);
+    void updateUserProfile({ workspaceColor: colorId as any }).catch(() => {
+      /* offline / guest */
+    });
+  };
+
   const cancelThemeClose = () => {
     if (themeCloseTimer.current !== null) {
       window.clearTimeout(themeCloseTimer.current);
@@ -414,6 +469,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
    */
   const openThemeSubmenu = (row: HTMLElement) => {
     cancelThemeClose();
+    themeRowRef.current = row;
     const pane = menuRef.current;
     /*
      * `offsetTop` rather than a client rect: the row's offsetParent is the wrapper (the pane
@@ -472,7 +528,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   useEffect(() => {
     if (!isOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) onClose();
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -513,6 +569,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
      * wrapper is `w-[300px]` too.
      */
     <div
+      ref={containerRef}
       className="pointer-events-none absolute z-[100] w-[300px]"
       style={{
         left: isCollapsed ? '52px' : 'calc(100% - 44px)',
@@ -523,7 +580,12 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
         ref={menuRef}
         role="menu"
         aria-label="Settings"
-        className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto absolute bottom-0 left-0 w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+        onScroll={(e) => {
+          if (themePhase === 'open' && themeRowRef.current) {
+            setThemeTop(themeRowRef.current.offsetTop - e.currentTarget.scrollTop - 8);
+          }
+        }}
+        className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto relative w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
         style={{
           // Measured `0px <height>` on Gemini's pane: bottom-left, matching its upward growth.
           transformOrigin: '0 100%',
@@ -539,7 +601,17 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           aria-label={item.label}
           aria-haspopup={item.submenu ? 'menu' : undefined}
           aria-expanded={item.submenu ? themePhase === 'open' : undefined}
-          onClick={() => handleItemClick(item)}
+          onClick={(event) => {
+            if (item.submenu === 'theme') {
+              if (themePhase === 'open') {
+                closeThemeSubmenu();
+              } else {
+                openThemeSubmenu(event.currentTarget);
+              }
+              return;
+            }
+            handleItemClick(item);
+          }}
           /*
            * Hover, not click: Gemini's row is a `mat-mdc-menu-item-submenu-trigger`, which
            * opens on hover. Every OTHER row closes it, which is what makes moving down the
@@ -634,7 +706,9 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           phase={themePhase}
           top={themeTop}
           value={theme}
+          activeColor={activeColor}
           onSelect={handleThemeSelect}
+          onSelectColor={handleColorSelect}
           onKeepOpen={keepThemeOpen}
           onLeave={closeThemeSubmenu}
         />
@@ -643,7 +717,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'customize' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'usage' | 'gemini-spark';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -727,6 +801,7 @@ interface SidebarProps {
   /** The open notebook, so its sidebar row renders active. */
   activeNotebookId?: string | null;
   onOpenNotebook?: (notebookId: string) => void;
+  onSignInClick?: () => void;
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -750,6 +825,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isHidden = false,
   activeNotebookId = null,
   onOpenNotebook,
+  onSignInClick,
 }) => {
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading } = useAuth();
@@ -2014,6 +2090,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => onViewChange('projects')}
               />
             )}
+            <SidebarItem
+              flushRight
+              symbol="settings_alt"
+              label="Customize"
+              isCollapsed={isCollapsed}
+              active={currentView === 'customize'}
+              onClick={() => onViewChange('customize')}
+            />
           </div>
 
           {(user || isLocalFolderConnected) && (
@@ -2301,7 +2385,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={onSignInClick ? onSignInClick : () => navigate('/login')}
               className="flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left text-white/80"
               title="Sign In"
             >

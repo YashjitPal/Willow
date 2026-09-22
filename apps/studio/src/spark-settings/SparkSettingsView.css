@@ -1,0 +1,309 @@
+.spark-settings-root {
+  min-height: 100vh;
+  width: 100%;
+  background: rgb(31, 31, 31);
+  color: rgb(227, 227, 227);
+  overflow-y: auto;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+
+.spark-settings-container {
+  max-width: 924px;
+  width: 924px;
+  margin: 0 auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  box-sizing: border-box;
+}
+
+.spark-settings-header {
+  height: 38px;
+  width: 880px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.spark-settings-title {
+  margin: 0;
+  padding: 0;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 32px;
+  font-weight: 360;
+  font-variation-settings: "RNDS" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  line-height: 38px;
+  color: rgb(227, 227, 227);
+}
+
+/* ── Options Stack ── */
+
+.spark-settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 880px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.spark-settings-card {
+  width: 880px;
+  background: rgb(23, 23, 23);
+  border-radius: 28px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+.spark-card-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(227, 227, 227);
+  margin: 0;
+  padding: 0;
+}
+
+.spark-card-title {
+  margin: 0;
+  padding: 0;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 20px;
+  font-weight: 470;
+  font-variation-settings: "RNDS" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+.spark-card-description {
+  margin: 0;
+  padding: 0;
+  width: 840px;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  font-variation-settings: "RNDS" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+.spark-card-link {
+  color: rgb(230, 230, 230);
+  text-decoration: underline 1.36px dotted;
+  text-underline-offset: 3px;
+  outline: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.spark-card-link:hover {
+  color: #ffffff;
+}
+
+.spark-card-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  width: 840px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Turn off Button */
+.spark-action-button {
+  width: 110px;
+  height: 44px;
+  padding: 12px 24px;
+  background: rgb(31, 31, 31);
+  border-radius: 9999px;
+  border: none;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "RNDS" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  color: rgb(230, 230, 230);
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease;
+}
+
+.spark-action-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Delete Button */
+.spark-delete-button {
+  height: 48px;
+  padding: 12px 24px 12px 16px;
+  background: rgb(31, 31, 31);
+  border-radius: 9999px;
+  border: none;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "RNDS" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  color: rgb(230, 230, 230);
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease;
+}
+
+.spark-delete-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-delete-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(230, 230, 230);
+}
+
+.spark-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  transition: opacity 0.15s ease;
+}
+
+.spark-dialog-backdrop-exit {
+  opacity: 0;
+}
+
+.spark-dialog-surface {
+  background: rgb(30, 31, 32);
+  border-radius: 28px;
+  padding: 0;
+  max-width: 512px;
+  width: 512px;
+  box-sizing: border-box;
+  box-shadow: rgba(0, 0, 0, 0.35) 0px 8px 32px 0px;
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+  transform: none;
+  transition: transform 0.15s cubic-bezier(0, 0, 0.2, 1), opacity 0.15s ease;
+}
+
+.spark-dialog-surface-exit {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.spark-dialog-content-wrapper {
+  padding: 24px 24px 0px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+.spark-dialog-title {
+  margin: 0;
+  padding: 0;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 20px;
+  font-weight: 470;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  line-height: 24px;
+  color: rgb(227, 227, 227);
+}
+
+.spark-dialog-body-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spark-dialog-body {
+  margin: 0;
+  padding: 0;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  color: rgb(230, 230, 230);
+}
+
+.spark-dialog-actions {
+  height: 68px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.spark-dialog-cancel-button {
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+  height: 36px;
+  padding: 0 12px;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(230, 230, 230);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.spark-dialog-cancel-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spark-dialog-confirm-button {
+  background: rgb(31, 59, 155);
+  border: none;
+  border-radius: 9999px;
+  height: 36px;
+  padding: 0 12px;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(230, 230, 230);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.spark-dialog-confirm-button:hover {
+  background: rgb(40, 70, 180);
+}

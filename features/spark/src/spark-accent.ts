@@ -36,6 +36,12 @@ export const sparkAccentVars = (workspaceColor?: string | null): React.CSSProper
     '--spark-accent-hover': theme.sendButton.hover,
     '--spark-accent-bright': theme.creamy.hex,
     '--spark-task-detail-accent': theme.glowAccent,
+    '--spark-notice-bg': theme.notice.bg,
+    '--spark-notice-text': theme.notice.text,
+    '--spark-toggle-track': theme.toggle.track,
+    '--spark-toggle-thumb': theme.toggle.thumb,
+    '--spark-accent-btn-bg': theme.accentButton.bg,
+    '--spark-accent-btn-hover': theme.accentButton.hover,
   } as React.CSSProperties;
 };
 

@@ -1,0 +1,521 @@
+/* ==========================================================================
+   Import memory to Gemini View CSS (100% Pixel-Perfect Clone)
+   Matches https://gemini.google.com/import exactly down to fractional pixels.
+   ========================================================================== */
+
+.import-hub-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: rgb(15, 15, 15);
+  box-sizing: border-box;
+}
+
+.import-hub-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 800px;
+  max-width: 1200px;
+  padding: 35.8px 77.575px;
+  margin: 11.925px auto;
+  box-sizing: content-box;
+}
+
+.import-hub-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 800px;
+  max-width: 800px;
+  box-sizing: content-box;
+}
+
+/* ── Page Header ── */
+
+.import-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 800px;
+  margin: 0;
+  padding: 0;
+  box-sizing: content-box;
+}
+
+.import-page-title {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 360;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  color: rgb(227, 227, 227);
+  margin: 0;
+  padding: 0;
+  letter-spacing: normal;
+  width: 800px;
+  height: 38px;
+  box-sizing: content-box;
+}
+
+/* ── Memory Import Section ── */
+
+.import-memory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 800px;
+  margin: 0;
+  padding: 0;
+  box-sizing: content-box;
+}
+
+.import-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 800px;
+  margin: 0;
+  padding: 0;
+  box-sizing: content-box;
+}
+
+.import-step-indicator {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: 800px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  box-sizing: content-box;
+}
+
+.import-step-number {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: rgb(30, 31, 32);
+  color: rgb(227, 227, 227);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  flex-shrink: 0;
+  box-sizing: content-box;
+}
+
+.import-section-title {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(227, 227, 227);
+  margin: 0;
+  padding: 0;
+  letter-spacing: normal;
+  height: 20px;
+  box-sizing: content-box;
+}
+
+/* ── Step 1: Prompt Card ── */
+
+.import-prompt-card {
+  position: relative;
+  width: 766.4px;
+  height: 108.375px;
+  box-sizing: content-box;
+  border-radius: 12px;
+  border: 0.8px solid rgb(68, 71, 70);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+  background-color: rgb(30, 31, 32);
+  cursor: pointer;
+}
+
+.import-prompt-text {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(227, 227, 227);
+  width: 766.4px;
+  height: 57.375px;
+  max-height: 57.375px;
+  overflow-y: auto;
+  white-space: pre-line;
+  padding: 0px 0px 51px;
+  mask-image: linear-gradient(rgb(0, 0, 0) calc(100% - 51px), transparent);
+  -webkit-mask-image: linear-gradient(rgb(0, 0, 0) calc(100% - 51px), transparent);
+  box-sizing: content-box;
+  user-select: text;
+}
+
+.import-prompt-actions {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  box-sizing: content-box;
+}
+
+.import-copy-button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  width: 101.3625px;
+  padding: 0px 16px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background-color: rgb(19, 19, 20);
+  border: 0.8px solid rgb(68, 71, 70);
+  color: rgb(196, 199, 197);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  font-weight: 500;
+  font-variation-settings: normal;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.import-copy-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgb(227, 227, 227);
+}
+
+.import-copy-button.copied {
+  color: rgb(168, 199, 250);
+  border-color: rgb(168, 199, 250);
+}
+
+.import-btn-icon-24 {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── Step 2: Paste Card ── */
+
+.import-paste-card {
+  width: 766.4px;
+  height: 104.375px;
+  box-sizing: content-box;
+  border-radius: 12px;
+  border: 0.8px solid rgb(68, 71, 70);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: transparent;
+  transition: border-color 0.15s ease;
+}
+
+.import-paste-card.has-content,
+.import-paste-card:focus-within {
+  border: 1.6px solid rgb(168, 199, 250);
+  width: 764.8px;
+  padding: 12px 16px;
+}
+
+.import-paste-textarea {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(227, 227, 227);
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  width: 762.4px;
+  height: 40.375px;
+  min-height: 40.375px;
+  max-height: 240px;
+  box-sizing: content-box;
+  padding: 2px;
+}
+
+.import-paste-textarea::placeholder {
+  color: rgb(196, 199, 197);
+  opacity: 1;
+}
+
+.import-paste-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  width: 766.4px;
+  height: 48px;
+  box-sizing: content-box;
+}
+
+.import-send-button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  width: 152.65px;
+  padding: 0px 16px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  font-weight: 500;
+  border: none;
+  outline: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.import-send-button:disabled {
+  background-color: color(srgb 0.890196 0.890196 0.890196 / 0.12);
+  color: color(srgb 0.890196 0.890196 0.890196 / 0.38);
+  cursor: default;
+}
+
+.import-send-button:not(:disabled) {
+  background-color: rgb(168, 199, 250);
+  color: rgb(6, 46, 111);
+  cursor: pointer;
+}
+
+.import-send-button:not(:disabled):hover {
+  background-color: #90b7f8;
+}
+
+/* ── Section 2: Import Chats ── */
+
+.import-chats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 800px;
+  margin: 0;
+  padding: 0;
+  box-sizing: content-box;
+}
+
+.import-chats-title {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 380;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+  color: rgb(227, 227, 227);
+  margin: 0;
+  padding: 0;
+  height: 28px;
+  box-sizing: content-box;
+}
+
+.import-chats-subtitle {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(196, 199, 197);
+  margin: 0;
+  padding: 0;
+  height: 20px;
+  box-sizing: content-box;
+}
+
+.import-link {
+  color: rgb(168, 199, 250);
+  text-decoration: underline 1.2px dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.import-link:hover {
+  color: #c2d7fc;
+}
+
+.import-chats-add-button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: normal;
+  height: 40px;
+  width: 82.0125px;
+  padding: 0px 16px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background-color: rgb(168, 199, 250);
+  color: rgb(6, 46, 111);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  font-weight: 500;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.import-chats-add-button:hover {
+  background-color: #90b7f8;
+}
+
+.import-chats-add-icon {
+  width: 20px;
+  height: 20px;
+  margin: 0px 8px 0px -4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Import Record List ── */
+
+.import-record-list {
+  list-style: none;
+  padding: 0px;
+  margin: 0px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 800px;
+}
+
+.import-record-item {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 4px;
+  background-color: rgb(30, 31, 32);
+  color: rgb(196, 199, 197);
+  box-sizing: border-box;
+  border: 1px solid transparent;
+}
+
+.import-record-item:first-child {
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+}
+
+.import-record-item:last-child {
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
+}
+
+.import-record-label-container {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.import-record-name {
+  color: rgb(227, 227, 227);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.import-record-meta {
+  color: rgb(196, 199, 197);
+  font-size: 12px;
+}
+
+.import-record-delete-button {
+  background: transparent;
+  border: none;
+  color: rgb(196, 199, 197);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.import-record-delete-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgb(227, 227, 227);
+}
+
+/* ── Disclaimer ── */
+
+.import-disclaimer {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: rgb(227, 227, 227);
+  margin-top: 16px;
+  width: 800px;
+  height: 34px;
+  box-sizing: content-box;
+  text-wrap: pretty;
+}
+
+.import-disclaimer .import-link {
+  text-decoration: underline 1.04px dotted;
+}
+
+/* ── Toast Feedback ── */
+
+.import-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgb(40, 42, 44);
+  color: rgb(227, 227, 227);
+  font-family: "Google Sans Flex", "Google Sans Text", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: importToastFade 0.2s ease-out;
+}
+
+@keyframes importToastFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}

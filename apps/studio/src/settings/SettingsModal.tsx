@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
-import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen, Link, Github, Brain } from 'lucide-react';
+import { X, Search, HelpCircle, User, Users, CreditCard, Cloud, Lock, Home, ChevronDown, MoreHorizontal, FlaskConical, ArrowUpRight, Cpu, Check, Loader2, Zap, AlertCircle, LayoutGrid, Globe, FileText, Shield, Crown, PenLine, Lightbulb, HardDrive, FolderOpen, Link, Github, Brain, Palette } from 'lucide-react';
 import './SettingsModal.css'; // Assuming we can import a CSS file or add a style tag
 import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { experimentsStore } from '@willow/core/experiments-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { WorkspaceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab, PersonalIntelligenceTab } from './tabs/index';
+import { AppearanceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab, PersonalIntelligenceTab } from './tabs/index';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
 import { GEMINI_MODELS } from './provider-models';
 import { useProviderSettings } from './use-provider-settings';
@@ -19,7 +19,7 @@ interface SettingsModalProps {
   initialConnector?: string | null;
 }
 
-type SectionType = 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'governance' | 'account' | 'labs' | 'connectors' | 'github';
+type SectionType = 'appearance' | 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'governance' | 'account' | 'labs' | 'connectors' | 'github';
 
 const SettingsSidebarItem: React.FC<{ 
   icon?: React.ElementType; 
@@ -116,7 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const [profileName, setProfileName] = useState('');
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isClosing, setIsClosing] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<SectionType>(initialTab || 'workspace');
+  const [activeTab, setActiveTab] = React.useState<SectionType>(initialTab || 'appearance');
   const [defaultVisibility, setDefaultVisibility] = useState('workspace');
   const [showVisibilityMenu, setShowVisibilityMenu] = useState(false);
   const [websiteAccess, setWebsiteAccess] = useState('anyone');
@@ -124,26 +124,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   const [publishAccess, setPublishAccess] = useState('editors');
   const [showPublishMenu, setShowPublishMenu] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [showWorkspaceColorPicker, setShowWorkspaceColorPicker] = useState(false);
-  const [colorPickerClosing, setColorPickerClosing] = useState(false);
-  const colorPickerRef = React.useRef<HTMLDivElement>(null);
-  
-  // Generate dynamic workspace name fallback
-  const getDefaultWorkspaceName = () => {
-    if (userProfile?.workspaceName) return userProfile.workspaceName;
-    if (userProfile?.displayName) {
-      const firstName = userProfile.displayName.split(' ')[0];
-      return `${firstName}'s Willow`;
-    }
-    return "My Willow";
-  };
-  
-  // ===== WORKSPACE SETTINGS LOCAL STATE =====
-  const [localWorkspaceName, setLocalWorkspaceName] = useState(getDefaultWorkspaceName());
-  const [localWorkspaceDescription, setLocalWorkspaceDescription] = useState(userProfile?.workspaceDescription || '');
-  const [localWorkspaceColor, setLocalWorkspaceColor] = useState(userProfile?.workspaceColor || 'green');
-  const [workspaceSettingsChanged, setWorkspaceSettingsChanged] = useState(false);
-  
   // ===== ACCOUNT SETTINGS LOCAL STATE =====
   const [localDisplayName, setLocalDisplayName] = useState(userProfile?.displayName || '');
   const [localUsername, setLocalUsername] = useState(userProfile?.username || '');
@@ -154,11 +134,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   
   // Sync local state when userProfile changes (initial load or external changes)
   React.useEffect(() => {
-    if (!workspaceSettingsChanged) {
-      setLocalWorkspaceName(getDefaultWorkspaceName());
-      setLocalWorkspaceColor(userProfile?.workspaceColor || 'green');
-      setLocalWorkspaceDescription(userProfile?.workspaceDescription || '');
-    }
     if (!accountSettingsChanged) {
       setLocalDisplayName(userProfile?.displayName || '');
       setLocalUsername(userProfile?.username || '');
@@ -167,24 +142,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       setLocalDescription(userProfile?.description || '');
     }
   }, [userProfile]);
-  
-  // Handle workspace settings update
-  const handleWorkspaceUpdate = async () => {
-    await updateUserProfile({
-      workspaceName: localWorkspaceName,
-      workspaceColor: localWorkspaceColor as any,
-      workspaceDescription: localWorkspaceDescription,
-    });
-    setWorkspaceSettingsChanged(false);
-  };
-  
-  // Handle workspace settings cancel
-  const handleWorkspaceCancel = () => {
-    setLocalWorkspaceName(getDefaultWorkspaceName());
-    setLocalWorkspaceColor(userProfile?.workspaceColor || 'green');
-    setLocalWorkspaceDescription(userProfile?.workspaceDescription || '');
-    setWorkspaceSettingsChanged(false);
-  };
   
   // Handle account settings update
   const handleAccountUpdate = async () => {
@@ -211,12 +168,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   // Reset all local state when modal is closed (discard unsaved changes)
   React.useEffect(() => {
     if (!isOpen) {
-      // Reset workspace settings
-      setLocalWorkspaceName(getDefaultWorkspaceName());
-      setLocalWorkspaceColor(userProfile?.workspaceColor || 'green');
-      setLocalWorkspaceDescription(userProfile?.workspaceDescription || '');
-      setWorkspaceSettingsChanged(false);
-      
       // Reset account settings
       setLocalDisplayName(userProfile?.displayName || '');
       setLocalUsername(userProfile?.username || '');
@@ -226,46 +177,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       setAccountSettingsChanged(false);
     }
   }, [isOpen]);
-  
-  // Close color picker when clicking outside
-  React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(event.target as Node)) {
-        closeColorPicker();
-      }
-    };
-    if (showWorkspaceColorPicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showWorkspaceColorPicker]);
-  
-  // Close color picker with animation
-  const closeColorPicker = () => {
-    setColorPickerClosing(true);
-    setTimeout(() => {
-      setShowWorkspaceColorPicker(false);
-      setColorPickerClosing(false);
-    }, 150);
-  };
-  
-  // Workspace color class helper (uses local state for live preview)
-  const getWorkspaceColorClass = () => {
-    switch (localWorkspaceColor) {
-      case 'blue': return 'bg-[#3b82f6]';
-      case 'pink': return 'bg-[#ec4899]';
-      case 'yellow': return 'bg-[#eab308]';
-      case 'orange': return 'bg-[#f97316]';
-      case 'purple': return 'bg-[#8b5cf6]';
-      case 'lilac': return 'bg-[#c084fc]';
-      case 'coral': return 'bg-[#f43f5e]';
-      case 'teal': return 'bg-[#14b8a6]';
-      case 'green':
-      default: return 'bg-[#4a7c59]';
-    }
-  };
-  
-  const workspaceInitial = userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'W';
   
   // Separate UI state for managing keys view (resets on modal close)
   const [managingProvider, setManagingProvider] = useState<ProviderId | null>(null);
@@ -481,13 +392,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         {/* Sidebar */}
         <div className="w-[250px] bg-[#1c1c1c] border-r border-white/5 flex flex-col py-2 px-3 shrink-0">
              
-             <SettingsSectionTitle title="Workspace" />
+             <SettingsSectionTitle title="Appearance" />
              <SettingsSidebarItem 
-                label="Workspace" 
-                active={activeTab === 'workspace'} 
-                onClick={() => setActiveTab('workspace')} 
-                customIconColor={getWorkspaceColorClass()}
-                customIconInitial={workspaceInitial}
+                icon={Palette}
+                label="Appearance" 
+                active={activeTab === 'appearance' || activeTab === 'workspace'} 
+                onClick={() => setActiveTab('appearance')} 
              />
              <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
              {/* Agents ships opt-in, so its governance tab hides with it. */}
@@ -515,26 +425,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
 
         {/* Content */}
         <div className="flex-1 bg-[#1c1c1c] w-full overflow-hidden relative">
-            {activeTab === 'workspace' && (
-                <WorkspaceTab
-                  localWorkspaceName={localWorkspaceName}
-                  setLocalWorkspaceName={setLocalWorkspaceName}
-                  localWorkspaceDescription={localWorkspaceDescription}
-                  setLocalWorkspaceDescription={setLocalWorkspaceDescription}
-                  localWorkspaceColor={localWorkspaceColor}
-                  setLocalWorkspaceColor={setLocalWorkspaceColor}
-                  workspaceSettingsChanged={workspaceSettingsChanged}
-                  setWorkspaceSettingsChanged={setWorkspaceSettingsChanged}
-                  showWorkspaceColorPicker={showWorkspaceColorPicker}
-                  setShowWorkspaceColorPicker={setShowWorkspaceColorPicker}
-                  colorPickerClosing={colorPickerClosing}
-                  closeColorPicker={closeColorPicker}
-                  colorPickerRef={colorPickerRef}
-                  getWorkspaceColorClass={getWorkspaceColorClass}
-                  workspaceInitial={workspaceInitial}
-                  handleWorkspaceUpdate={handleWorkspaceUpdate}
-                  handleWorkspaceCancel={handleWorkspaceCancel}
-                />
+            {(activeTab === 'appearance' || activeTab === 'workspace') && (
+                <AppearanceTab />
             )}
 
             {activeTab === 'models' && (
@@ -649,7 +541,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 />
             )}
 
-            {activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'governance' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && activeTab !== 'models' && (
+            {activeTab !== 'appearance' && activeTab !== 'workspace' && activeTab !== 'people' && activeTab !== 'privacy' && activeTab !== 'governance' && activeTab !== 'labs' && activeTab !== 'account' && activeTab !== 'connectors' && activeTab !== 'models' && (
                 <div className="w-full h-full flex items-center justify-center text-zinc-500 italic">
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings coming soon...
                 </div>

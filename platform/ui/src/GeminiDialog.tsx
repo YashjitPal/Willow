@@ -105,8 +105,14 @@ export const GeminiDialogPill: React.FC<{
   children: React.ReactNode;
   disabled?: boolean;
   onClick?: () => void;
-}> = ({ children, disabled, onClick }) => (
-  <button type="button" className="willow-gdlg-pill" disabled={disabled} onClick={onClick}>
+  className?: string;
+}> = ({ children, disabled, onClick, className = '' }) => (
+  <button
+    type="button"
+    className={`willow-gdlg-pill ${className}`.trim()}
+    disabled={disabled}
+    onClick={onClick}
+  >
     <span className="willow-gdlg-pill__label">{children}</span>
   </button>
 );

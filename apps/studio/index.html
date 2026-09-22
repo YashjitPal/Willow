@@ -137,7 +137,7 @@
          * its own icons as inline SVG for exactly this reason.
          */
         font-display: block;
-        src: url("https://fonts.gstatic.com/l/font?kit=daaDSSYgOGmYaRLpq55MPuzv2kUK2zvmTflyWwG1oySatCZuAYA-8NIsLW680OBb5BBuQa5Dapuzovt2J0psqvrJKUiguriqj38pHhH1_FWVNba9XW1Z0j1SYPtVC_039jdnbiSlMoNYz-sc0l6o2XJnFRZd3LtfgXCEn5sBwOYz9JY-vfCcEZCekq8BFb41oUHJ21PTFnZb2RMMwYCzB7F1mdUaFrYUswpxtQdEmjoEM8p6oWeeN_ktEB1SdkIa-kcux3UrQOn_dQjRWbZcMVX1_RESDzbwHtbyk5rWjbipp7mDJwP4NckVMay3Le8j78DOKTOoejXKXxhX1w78YI4BFD7bbtw99OVHnoVj&skey=bef131c18897d264&v=v38") format("woff2");
+        src: url("https://fonts.gstatic.com/l/font?kit=daaOSSYgOGmYaRLpq55MPuzv2kUKwTXcoFHm2zCWlB3F1WQIV8RopohwcDXo4e5J9gZ4U7xddIimtf_IVhIHUUZE2MAXvEMvroe_2ApV2xaXBT7_w4L0SiM4QAb2SyCCIIR2Vd32BxhHrLxVQhjz0lNhWG-AzoQxyiw_4BQArjOuLkAHWWzgSSXkQq311CLLTp-lxr_gUH7GySbVwVnWfH9H-VV9cB1tnzcw4zuAw4CuzQxOTdUu_1t9cDgSsJ5m_Z1NqTB3TSX1A8vda9bZpIPP2IESJ2Qwf9_vn6yH6ZH91CAOdMWdC2ATmPB2QW-mJafEJ4mudD9qX7wGAl5VYNuUtD6NCNCeDu20WI-AvieR9QKMTraNsI6SsKnCmWc8mm3LKA&skey=bef131c18897d264&v=v56") format("woff2");
       }
 
       /*
@@ -161,7 +161,7 @@
         font-style: normal;
         font-weight: 100 700;
         font-display: block;
-        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1pSPywlmmzc_ohQP9PrWumSDfXZxlcLqnGuwPZJBWrKZK2S-fE6UUzh2RWzVEAcGuQIMHU6OgQWFMwv6w1TNW0QbUB0XTpF8EwYoE4BAqaRWApyCGPE3YKcBsghyt8NVLh4dETuz1qCQpZUlrHmYwelSK7HxjVZM7gJvdXN6P1qwWdwmvsdAKeLJkkXV8Q88WNQ70E_ETQqKkZZebpfaO-iLok9YWXQQFAEd3yGVWEErz4mQT6HwMKUW2MemcalMryuSxZzZmJ2aR3oAY7XYhBQXtZjIqkQSlc-WMHg8kV8HsfXP4-&skey=f8ec4d50247dc1c1&v=v454") format("woff2");
+        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1pSPywlmmzc_ohQP9PrWumSDfXZxlcLqnGuwPZJBWrKZK2S-fE6UUzh2RWzVEBcGuQIMHU6OgQWFMwv6w1TNW0QbUB0XTpF8EwIoE4BAqaRWApyCGPE3YKcBsghyt8NVLh4dETuz1qCQpZUlrHmYweyrJ0RoJQOpvj4PO9A_IGAKCmcsPspGMNIPrda1WarfXrhRcNn0iPX5OAbF1w04kLutwmONmXFDFKHUjdIC8UtNoyYqc5TSQtUWpGdOY4Z1YVuNIHBgyG4Q3nOuVLbuJNHXFfGRP-EnAwX8k7sqTZZih2VcckPA&skey=f8ec4d50247dc1c1&v=v459") format("woff2");
       }
 
       .material-symbols-rounded,
@@ -206,10 +206,12 @@
         because every call site sets its own colour, and this has to win until the
         script below says otherwise.
       */
-      html:not(.willow-icons-ready) .material-symbols-rounded {
+      html:not(.willow-icons-ready) .material-symbols-rounded,
+      html:not(.willow-icons-ready) .google-symbols {
         color: transparent !important;
       }
-      .material-symbols-rounded {
+      .material-symbols-rounded,
+      .google-symbols {
         transition: color 120ms linear;
       }
 
@@ -349,11 +351,13 @@
         var root = document.documentElement;
         var open = function () { root.classList.add('willow-icons-ready'); };
         if (!document.fonts || !document.fonts.forEach) { open(); return; }
-        var FAMILY = 'Material Symbols Rounded';
+        var FAMILIES = ['Material Symbols Rounded', 'Google Symbols'];
         var deadline = Date.now() + 10000;
         var tick = function () {
           var faces = [];
-          document.fonts.forEach(function (face) { if (face.family === FAMILY) faces.push(face); });
+          document.fonts.forEach(function (face) {
+            if (FAMILIES.indexOf(face.family) !== -1) faces.push(face);
+          });
           if (faces.length) {
             Promise.all(faces.map(function (face) {
               return face.status === 'loaded' ? null : face.load().catch(function () {});

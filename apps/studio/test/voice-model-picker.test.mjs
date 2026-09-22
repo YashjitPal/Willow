@@ -43,7 +43,7 @@ describe('voice model registry', () => {
     assert.ok(listed.length > 0, 'roster is empty');
 
     const expected = registry.VOICE_PROVIDERS.flatMap((p) =>
-      p.models.map((m) => ({ id: m.id, name: m.name, providerId: p.id, providerLabel: p.label })),
+      p.models.map((m) => ({ ...m, providerId: p.id, providerLabel: p.label })),
     );
     assert.deepEqual(listed, expected);
     // Provider order is registry order, so the picker is stable across renders.
@@ -63,6 +63,18 @@ describe('voice model registry', () => {
     );
   });
 
+  it('lists Gemini 3.8 Live and Extended Thinking in the voice roster', () => {
+    const listed = registry.listVoiceModels();
+    assert.ok(
+      listed.some((m) => m.id === 'gemini-3.8-live'),
+      'gemini-3.8-live is missing from the voice picker roster',
+    );
+    assert.ok(
+      listed.some((m) => m.id === 'gemini-3.8-live-extended-thinking'),
+      'gemini-3.8-live-extended-thinking is missing from the voice picker roster',
+    );
+  });
+
   it('every listed model is claimed by the provider that lists it', () => {
     for (const model of registry.listVoiceModels()) {
       const provider = registry.findVoiceProvider(model.id);
@@ -78,6 +90,32 @@ describe('voice model registry', () => {
     assert.equal(registry.resolveVoiceModelId(undefined), first);
     assert.equal(registry.resolveVoiceModelId('models/left-over-from-an-old-build'), first);
     assert.equal(registry.resolveVoiceModelId(first), first);
+  });
+
+  it('preserves effort level in resolveVoiceModelId', () => {
+    assert.equal(
+      registry.resolveVoiceModelId('gemini-3.8-live-extended-thinking::effort-2'),
+      'gemini-3.8-live-extended-thinking::effort-2',
+    );
+  });
+
+  it('routes minimal effort to base 3.8-live and non-zero efforts to extended-thinking', () => {
+    assert.equal(
+      registry.resolveVoiceModelId('gemini-3.8-live-extended-thinking::effort-0'),
+      'gemini-3.8-live',
+    );
+    assert.equal(
+      registry.resolveVoiceModelId('gemini-3.8-live::effort-0'),
+      'gemini-3.8-live',
+    );
+    assert.equal(
+      registry.resolveVoiceModelId('gemini-3.8-live::effort-1'),
+      'gemini-3.8-live-extended-thinking::effort-1',
+    );
+    assert.equal(
+      registry.resolveVoiceModelId('gemini-3.8-live::effort-3'),
+      'gemini-3.8-live-extended-thinking::effort-3',
+    );
   });
 });
 
@@ -103,7 +141,7 @@ describe('composer pill in live mode', () => {
   it('guards a stored id that no longer exists', () => {
     assert.match(
       composer,
-      /voiceModels\.find\(\(m\) => m\.id === liveModelId\) \|\| voiceModels\[0\]/,
+      /voiceModels\.find\(\(m\) => m\.id === liveBaseModelId \|\| m\.id === liveModelId\) \|\| voiceModels\[0\]/,
     );
   });
 
@@ -111,18 +149,49 @@ describe('composer pill in live mode', () => {
     assert.match(composer, /getShortName\(liveModel\?\.name \|\| ''\)/);
   });
 
-  it('drops the effort segment, which a live model has no levels for', () => {
-    assert.match(composer, /const pillEffortLabel = showVoiceModels \? '' : activeEffortDisplayLabel;/);
+  it('displays the effort segment when a live model has thinking levels', () => {
+    assert.match(composer, /const pillEffortLabel = showVoiceModels \? liveEffortDisplayLabel : activeEffortDisplayLabel;/);
   });
 });
 
 describe('models menu with a voice roster', () => {
+  let effortsModule;
+
+  before(async () => {
+    effortsModule = await importTs(
+      path.resolve(
+        import.meta.dirname,
+        '../../../platform/ai/src/models/efforts.ts',
+      ),
+    );
+  });
+
   it('takes the roster as an optional prop, so text mode is unchanged', () => {
     assert.match(menu, /voiceModels\?:/);
     assert.match(menu, /const isVoiceRoster = /);
   });
 
-  it('hides the effort rows for voice models', () => {
-    assert.match(menu, /selectedEfforts = isVoiceRoster \? \[\] :/);
+  it('supports effort selection for voice models', () => {
+    assert.match(menu, /const selectedEfforts = getEffortsForGroup\(selectedGroup\);/);
+  });
+
+  it('merges gemini-3.8-live and extended-thinking into the same group', () => {
+    const liveKey = effortsModule.getModelGroupKey({ id: 'gemini-3.8-live' });
+    const extKey = effortsModule.getModelGroupKey({ id: 'gemini-3.8-live-extended-thinking' });
+    assert.equal(liveKey, extKey);
+    assert.ok(liveKey.includes('gemini-3.8-live'));
+  });
+
+  it('labels level 0 effort as Minimal for 3.8-live models', () => {
+    const label = effortsModule.getThinkingEffortLabel({
+      id: 'gemini-3.8-live',
+      thinkingLevel: 0,
+    });
+    assert.equal(label, 'Minimal');
+  });
+
+  it('formats display name as Gemini 3.8 Live in the menu', () => {
+    assert.match(menu, /formatModelDisplayName\(model\)/);
+    assert.match(menu, /return 'Gemini 3\.8 Live';/);
   });
 });

@@ -243,3 +243,18 @@ test('the selection persists rather than resetting on every open', () => {
   assert.match(code, /GEMINI_THEME_STORAGE_KEY = 'willow_theme'/, 'the chosen theme must survive a reload');
   assert.match(code, /localStorage/, 'the key alone is not persistence');
 });
+
+test('six accent colors are rendered directly without separator or header', () => {
+  assert.match(code, /const GEMINI_THEME_ACCENT_COLORS/);
+  assert.match(code, /id: 'green'/);
+  assert.match(code, /id: 'blue'/);
+  assert.match(code, /id: 'purple'/);
+  assert.match(code, /id: 'lilac'/);
+  assert.match(code, /id: 'pink'/);
+  assert.match(code, /id: 'teal'/);
+  assert.match(submenu, /GEMINI_THEME_ACCENT_COLORS\.map/);
+  assert.match(submenu, /h-6 w-6/);
+  assert.match(submenu, /rounded-full bg-\[#1f1f1f\]/);
+  assert.match(submenu, /onSelectColor\(option\.id\)/);
+});
+

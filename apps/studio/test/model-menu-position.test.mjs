@@ -52,7 +52,7 @@ describe('model menu positioning', () => {
     assert.equal(getViewportConstrainedOffset({
       bottom: 825,
       viewportHeight: 720,
-    }), -121);
+    }), -113);
   });
 
   it('keeps the effort submenu on the right when it fits and flips it left near the viewport edge', async () => {

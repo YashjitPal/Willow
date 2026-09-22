@@ -164,16 +164,19 @@ const PersonalIntelligenceTab = React.lazy(() =>
 );
 const ActivityTab = React.lazy(() => import('../settings/tabs/activity/ActivityTab').then((m) => ({ default: m.ActivityTab })));
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
-const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
+const ImportMemoryView = React.lazy(() => import('../import-memory/ImportMemoryView'));
 const ConnectedAppsTab = React.lazy(() =>
   import('../settings/tabs/connected-apps/ConnectedAppsTab').then((m) => ({ default: m.ConnectedAppsTab }))
 );
+const CustomizeView = React.lazy(() => import('../customize/CustomizeView'));
+const UsageLimitsView = React.lazy(() => import('../usage/UsageLimitsView'));
+const SparkSettingsView = React.lazy(() => import('../spark-settings/SparkSettingsView'));
 const ModelsApiPage = React.lazy(() =>
   import('../settings/tabs/models-api/ModelsApiPage').then((m) => ({ default: m.ModelsApiPage }))
 );
 const LabsPage = React.lazy(() => import('../settings/tabs/labs/LabsPage').then((m) => ({ default: m.LabsPage })));
 const ProjectsPage = React.lazy(() => import('@willow/project-browser/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
-const LoginPage = React.lazy(() => import('@willow/account/LoginPage'));
+const AuthModal = React.lazy(() => import('@willow/account/AuthModal').then((m) => ({ default: m.AuthModal })));
 const Onboarding = React.lazy(() => import('@willow/onboarding/Onboarding').then((m) => ({ default: m.Onboarding })));
 // Lazy-load the Code tab so its chunk (sandpack workbench, card images, …)
 // never ships while on Home; resolve only after the default card images are
@@ -316,19 +319,22 @@ const App: React.FC = () => {
   const isProjectsPanelEnabled = experiments['projects-panel'];
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
   const [settingsInitialConnector, setSettingsInitialConnector] = useState<string | null | undefined>(undefined);
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     if (location.pathname === '/search') return 'search';
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
     if (location.pathname === '/activity') return 'activity';
     if (location.pathname === '/saved-info') return 'saved-info';
-    if (location.pathname === '/memory') return 'memory';
+    if (location.pathname === '/memory' || location.pathname === '/import') return 'memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
+    if (location.pathname === '/customize') return 'customize';
     if (location.pathname === '/models-settings') return 'models-api';
     if (location.pathname === '/labs') return 'labs';
     if (location.pathname === '/design' && isExperimentEnabled('design-surface')) return 'design';
     if (location.pathname.startsWith('/gems')) return 'gems';
+    if (location.pathname === '/usage') return 'usage';
+    if (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings') return 'gemini-spark';
     const notebookRoute = matchNotebookRoute(location.pathname);
     if (notebookRoute) return notebookRoute.view;
     return 'home';
@@ -777,12 +783,15 @@ const App: React.FC = () => {
     else if (view === 'saved-info') navigate('/saved-info');
     else if (view === 'memory') navigate('/memory');
     else if (view === 'connected-apps') navigate('/connected-apps');
+    else if (view === 'customize') navigate('/customize');
     else if (view === 'models-api') navigate('/models-settings');
     else if (view === 'labs') navigate('/labs');
     else if (view === 'design') navigate('/design');
     else if (view === 'gems') navigate('/gems');
     else if (view === 'notebooks') navigate('/notebooks/view');
     else if (view === 'notebook-create') navigate('/notebooks/create');
+    else if (view === 'usage') navigate('/usage');
+    else if (view === 'gemini-spark') navigate('/gemini-spark');
     /*
      * 'notebook' is intentionally absent: it needs an id, so it is never reached
      * through `handleViewChange`. `openNotebook` navigates to `/notebook/<id>`
@@ -794,11 +803,16 @@ const App: React.FC = () => {
       location.pathname === '/personalization-settings' ||
       location.pathname === '/saved-info' ||
       location.pathname === '/memory' ||
+      location.pathname === '/import' ||
       location.pathname === '/connected-apps' ||
+      location.pathname === '/customize' ||
       location.pathname === '/models-settings' ||
       location.pathname === '/labs' ||
       location.pathname === '/design' ||
       location.pathname === '/gems' ||
+      location.pathname === '/usage' ||
+      location.pathname === '/gemini-spark' ||
+      location.pathname === '/spark-settings' ||
       matchNotebookRoute(location.pathname) !== null
     ) {
       navigate('/', { replace: true });
@@ -911,12 +925,15 @@ const App: React.FC = () => {
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
         (intent === 'activity' && location.pathname === '/activity') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
-        (intent === 'memory' && location.pathname === '/memory') ||
+        (intent === 'memory' && (location.pathname === '/memory' || location.pathname === '/import')) ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
+        (intent === 'customize' && location.pathname === '/customize') ||
         (intent === 'models-api' && location.pathname === '/models-settings') ||
         (intent === 'labs' && location.pathname === '/labs') ||
         (intent === 'design' && location.pathname === '/design') ||
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
+        (intent === 'usage' && location.pathname === '/usage') ||
+        (intent === 'gemini-spark' && (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings')) ||
         (intent === 'home' && location.pathname === '/');
       if (urlMatchesIntent) {
         viewChangeIntentRef.current = null;
@@ -940,13 +957,17 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         commitView('saved-info');
       }
-    } else if (location.pathname === '/memory') {
+    } else if (location.pathname === '/memory' || location.pathname === '/import') {
       if (currentView !== 'memory') {
         commitView('memory');
       }
     } else if (location.pathname === '/connected-apps') {
       if (currentView !== 'connected-apps') {
         commitView('connected-apps');
+      }
+    } else if (location.pathname === '/customize') {
+      if (currentView !== 'customize') {
+        commitView('customize');
       }
     } else if (location.pathname === '/models-settings') {
       if (currentView !== 'models-api') {
@@ -964,6 +985,14 @@ const App: React.FC = () => {
       if (currentView !== 'gems') {
         commitView('gems');
       }
+    } else if (location.pathname === '/usage') {
+      if (currentView !== 'usage') {
+        commitView('usage');
+      }
+    } else if (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings') {
+      if (currentView !== 'gemini-spark') {
+        commitView('gemini-spark');
+      }
     } else if (matchNotebookRoute(location.pathname)) {
       const next = matchNotebookRoute(location.pathname)!.view;
       if (currentView !== next) {
@@ -976,10 +1005,13 @@ const App: React.FC = () => {
       currentView === 'saved-info' ||
       currentView === 'memory' ||
       currentView === 'connected-apps' ||
+      currentView === 'customize' ||
       currentView === 'models-api' ||
       currentView === 'labs' ||
       currentView === 'design' ||
       currentView === 'gems' ||
+      currentView === 'usage' ||
+      currentView === 'gemini-spark' ||
       currentView === 'notebooks' ||
       currentView === 'notebook-create' ||
       currentView === 'notebook'
@@ -1180,7 +1212,7 @@ const App: React.FC = () => {
 
   const handlePromptSubmit = (prompt: string, mode: string = 'ship', attachments?: any[]) => {
     if (!user) {
-      navigate('/login');
+      setIsAuthModalOpen(true);
       return;
     }
     // Mark that we're navigating to the workbench via React Router (not a page refresh).
@@ -1228,6 +1260,16 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (isSettingsOpen) setHasOpenedSettings(true);
   }, [isSettingsOpen]);
+
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const showAuthModal = isAuthModalOpen || location.pathname === '/login';
+
+  const handleCloseAuthModal = React.useCallback(() => {
+    setIsAuthModalOpen(false);
+    if (location.pathname === '/login') {
+      navigate('/', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   /*
    * NO full-screen spinner while auth resolves.
@@ -1318,6 +1360,12 @@ const App: React.FC = () => {
             handleViewChange('models-api');
           } else if (tabId === 'labs') {
             handleViewChange('labs');
+          } else if (tabId === 'limits') {
+            handleViewChange('usage');
+          } else if (tabId === 'memory') {
+            handleViewChange('memory');
+          } else if (tabId === 'spark-settings') {
+            handleViewChange('gemini-spark');
           } else {
             if (tabId) setSettingsInitialTab(tabId as any);
             setIsSettingsOpen(true);
@@ -1336,6 +1384,7 @@ const App: React.FC = () => {
         isSidebarCollapsed={isSidebarCollapsed}
         setIsSidebarCollapsed={setIsSidebarCollapsed}
         isSidebarHidden={isSidebarHidden}
+        onSignInClick={() => setIsAuthModalOpen(true)}
       >
         {currentView === 'search' ? (
           <SearchChatsPage
@@ -1431,7 +1480,7 @@ const App: React.FC = () => {
                     initialMode="design"
                     onPromptSubmit={(prompt) => {
                       if (!user) {
-                         navigate('/login');
+                         setIsAuthModalOpen(true);
                          return;
                       }
                       sessionStorage.setItem('staging-nav', 'true');
@@ -1439,7 +1488,7 @@ const App: React.FC = () => {
                     }}
                     onProjectSelect={(projectId, tempName) => {
                       if (!user) {
-                         navigate('/login');
+                         setIsAuthModalOpen(true);
                          return;
                       }
                       sessionStorage.setItem('staging-nav', 'true');
@@ -1451,7 +1500,7 @@ const App: React.FC = () => {
                     modelConfig={modelConfig}
                     selectedModelId={selectedModelId}
                     setSelectedModelId={setSelectedModelId}
-                    onAuthRequired={!user ? () => navigate('/login') : undefined}
+                    onAuthRequired={!user ? () => setIsAuthModalOpen(true) : undefined}
                     isAuthenticated={!!user}
                     studioMode="media"
                     isSidebarCollapsed={isSidebarCollapsed}
@@ -1519,7 +1568,7 @@ const App: React.FC = () => {
               <div className="h-full w-full" />
             </StudioLoadingFallback>
           }>
-            <MemoryTab />
+            <ImportMemoryView />
           </Suspense>
         ) : currentView === 'connected-apps' ? (
           <Suspense fallback={
@@ -1528,6 +1577,30 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <ConnectedAppsTab />
+          </Suspense>
+        ) : currentView === 'customize' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="customize-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <CustomizeView />
+          </Suspense>
+        ) : currentView === 'usage' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="usage-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <UsageLimitsView />
+          </Suspense>
+        ) : currentView === 'gemini-spark' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="spark-settings-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <SparkSettingsView />
           </Suspense>
         ) : currentView === 'models-api' ? (
           <Suspense fallback={
@@ -1616,6 +1689,15 @@ const App: React.FC = () => {
         <LocalFSProvider modelConfig={modelConfig}>
           <DriveProjectDiscovery />
           <ChatEmbeddingIndexer modelConfig={modelConfig} />
+          {showAuthModal && (
+            <Suspense fallback={null}>
+              <AuthModal
+                isOpen={showAuthModal}
+                onClose={handleCloseAuthModal}
+                initialMode={searchParams.get('mode') === 'signup' ? 'signup' : 'login'}
+              />
+            </Suspense>
+          )}
           <Routes>
            <Route path="/" element={mainAppShell} />
            <Route path="/search" element={mainAppShell} />
@@ -1623,12 +1705,17 @@ const App: React.FC = () => {
            <Route path="/activity" element={mainAppShell} />
            <Route path="/saved-info" element={mainAppShell} />
            <Route path="/memory" element={mainAppShell} />
+           <Route path="/import" element={mainAppShell} />
            <Route path="/connected-apps" element={mainAppShell} />
+           <Route path="/customize" element={mainAppShell} />
            <Route path="/models-settings" element={mainAppShell} />
            <Route path="/labs" element={mainAppShell} />
            <Route path="/design" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />
+           <Route path="/usage" element={mainAppShell} />
+           <Route path="/gemini-spark" element={mainAppShell} />
+           <Route path="/spark-settings" element={mainAppShell} />
            {/* Gemini's own notebook paths, matched rather than renamed. */}
            <Route path="/notebooks" element={mainAppShell} />
            <Route path="/notebooks/view" element={mainAppShell} />
@@ -1680,11 +1767,7 @@ const App: React.FC = () => {
           </WorkbenchRouteGuard>
         } />
 
-        <Route path="/login" element={
-          <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f]" aria-hidden="true" />}>
-            <LoginPage />
-          </Suspense>
-        } />
+        <Route path="/login" element={mainAppShell} />
         </Routes>
         </LocalFSProvider>
       </UserDataProvider>

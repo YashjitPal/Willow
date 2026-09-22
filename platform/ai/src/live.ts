@@ -25,7 +25,10 @@
  * Model card:         https://deepmind.google/models/model-cards/gemini-3-1-flash-audio/
  * ══════════════════════════════════════════════════════════════════════════ */
 
-export const LIVE_MODEL_ID = 'gemini-3.1-flash-live-preview';
+export const LIVE_3_8_MODEL_ID = 'gemini-3.8-live';
+export const LIVE_3_8_EXTENDED_MODEL_ID = 'gemini-3.8-live-extended-thinking';
+export const LIVE_3_1_MODEL_ID = 'gemini-3.1-flash-live-preview';
+export const LIVE_MODEL_ID = LIVE_3_8_MODEL_ID;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Live-mode session cues
@@ -173,9 +176,6 @@ export class GeminiLiveSession {
   private static readonly PLAYBACK_LEAD_SECONDS = 0.08;
   private activeSources = new Set<AudioBufferSourceNode>();
   private lastAudioRate: number = OUTPUT_SAMPLE_RATE_DEFAULT;
-  // Hidden <audio> sink — see initAudio() for why playback is routed through
-  // an HTMLMediaElement instead of AudioContext.destination.
-  private playSinkEl: HTMLAudioElement | null = null;
   // ── Audio-synced text release ──
   // outputTranscription arrives over the socket far ahead of real-time
   // playback. We queue each text chunk stamped with the play-clock time at
@@ -184,6 +184,8 @@ export class GeminiLiveSession {
   private textQueue: { text: string; at: number }[] = [];
   private drainTimer: number | null = null;
   private pendingTurnComplete = false;
+  private bargeInActiveUntil = 0;
+  private outputSampleBuf: Float32Array | null = null;
 
   private readonly opts: LiveSessionOptions;
   private ready = false;          // setup ACKed → safe to stream audio
@@ -249,12 +251,37 @@ export class GeminiLiveSession {
       // server close immediately with `1011 Internal error encountered`. The
       // sanctioned workaround is to request AUDIO + `outputAudioTranscription`
       // and read the reply from the transcript stream while discarding the PCM
-      // bytes. Revisit once Google ships the TEXT modality fix.
+      const rawModel = this.opts.model ?? LIVE_MODEL_ID;
+      let baseModel = rawModel.split('::effort-')[0];
+      const effortLevel = rawModel.includes('::effort-')
+        ? Number(rawModel.split('::effort-')[1])
+        : undefined;
+
+      if (baseModel.includes('3.8-live') || baseModel.includes('gemini-3.8-live')) {
+        if (effortLevel === 0) {
+          baseModel = LIVE_3_8_MODEL_ID;
+        } else if (effortLevel !== undefined && effortLevel > 0) {
+          baseModel = LIVE_3_8_EXTENDED_MODEL_ID;
+        }
+      }
+
+      let thinkingConfig: { thinkingLevel: 'low' | 'medium' | 'high' } | undefined = undefined;
+      if (baseModel.includes('extended-thinking') || (effortLevel !== undefined && effortLevel > 0)) {
+        const levelMap: Record<number, 'low' | 'medium' | 'high'> = {
+          1: 'low',
+          2: 'medium',
+          3: 'high',
+        };
+        const level = effortLevel ? levelMap[effortLevel] ?? 'high' : 'high';
+        thinkingConfig = { thinkingLevel: level };
+      }
+
       const setup = {
         setup: {
-          model: `models/${this.opts.model ?? LIVE_MODEL_ID}`,
+          model: `models/${baseModel}`,
           generationConfig: {
             responseModalities: ['AUDIO'],
+            ...(thinkingConfig ? { thinkingConfig } : {}),
             // Voice and language for the spoken output. Left off entirely when
             // neither is set, so a caller that passes nothing gets exactly the
             // request shape this sent before either option existed.
@@ -438,12 +465,15 @@ export class GeminiLiveSession {
       this.flushPlayback();
       this.textQueue = [];
       this.pendingTurnComplete = false;
+      this.bargeInActiveUntil = 0;
       if (this.turnOpen) {
         this.turnOpen = false;
         this.userTranscriptAcc = '';
         this.opts.onTurnComplete?.({ aborted: true });
       }
-      return;
+      if (!sc.inputTranscription?.text) {
+        return;
+      }
     }
 
     // ── inputTranscription: what *you* said ──
@@ -606,7 +636,36 @@ export class GeminiLiveSession {
 
     this.procNode.onaudioprocess = (ev) => {
       if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
       const input = ev.inputBuffer.getChannelData(0);
+
+      // Acoustic echo suppression & user barge-in detection:
+      // WebAudio playback to AudioContext.destination bypasses Chrome's getUserMedia
+      // AEC reference (crbug.com/687574), meaning speaker output bleeds into the mic.
+      // If forwarded blindly, the model hears its own echo, causing self-interruption
+      // or ghost turns.
+      //
+      // However, when the user speaks to interrupt the model (barge-in), direct human
+      // speech at the microphone has significantly higher acoustic energy than speaker
+      // bleed. We measure the instantaneous speaker output RMS (outRms) and gate
+      // against Math.max(0.045, outRms * 0.35).
+      //
+      // When mic energy breaks this threshold, the user is speaking over the model:
+      // we transmit the packet and hold a 500ms barge-in window so the full phrase
+      // reaches the Gemini Live server to trigger native server-side interruption.
+      if (this.isModelSpeaking()) {
+        const now = Date.now();
+        const micRms = calculateRMS(input);
+        const outRms = this.getOutputRMS();
+        const bargeInThreshold = Math.max(0.045, outRms * 0.35);
+
+        if (micRms >= bargeInThreshold) {
+          this.bargeInActiveUntil = now + 500;
+        } else if (now >= this.bargeInActiveUntil) {
+          return;
+        }
+      }
+
       const pcm = needResample
         ? float32ToPCM16(downsample(input, actualRate, INPUT_SAMPLE_RATE))
         : float32ToPCM16(input);
@@ -620,7 +679,11 @@ export class GeminiLiveSession {
 
     this.sourceNode.connect(this.procNode);
     // Must be connected to a destination for onaudioprocess to fire in Chrome.
-    this.procNode.connect(this.audioCtx.destination);
+    // Routed through a zero-gain node so microphone audio is never fed into speakers.
+    const procSink = this.audioCtx.createGain();
+    procSink.gain.value = 0;
+    this.procNode.connect(procSink);
+    procSink.connect(this.audioCtx.destination);
 
     // Mic analyser tap for visualisers: a leaf node off the source, so it adds
     // no path to any destination and cannot colour the captured signal.
@@ -654,29 +717,12 @@ export class GeminiLiveSession {
         this.outputAnalyserNode = null;
       }
 
-      // ── Echo-cancellation workaround ──────────────────────────────────────
-      // Chrome's getUserMedia AEC only cancels audio it can "see" on the
-      // render side: HTMLMediaElement / WebRTC output. Audio written straight
-      // to AudioContext.destination is invisible to it (crbug.com/687574), so
-      // the mic re-captures the model's own voice and ships it back as user
-      // speech. Routing the Web-Audio graph through a MediaStreamDestination
-      // and into a hidden <audio> element puts the model's voice on an
-      // AEC-visible path — the mic stream then comes back clean. Falls back to
-      // the direct destination if anything here throws.
-      try {
-        const sink = this.playCtx.createMediaStreamDestination();
-        this.playGain.connect(sink);
-        const el = new Audio();
-        el.srcObject = sink.stream;
-        el.autoplay = true;
-        // Keep the element attached so iOS/Safari don't GC the stream.
-        el.style.display = 'none';
-        document.body.appendChild(el);
-        void el.play().catch(() => {});
-        this.playSinkEl = el;
-      } catch {
-        this.playGain.connect(this.playCtx.destination);
-      }
+      // Direct to destination — matches official Google products (AI Studio,
+      // Gemini app, multimodal-live-api-web-console). Routing through
+      // MediaStreamDestination + HTMLAudioElement forced Chrome's WebRTC NetEq
+      // jitter buffer into the path, which actively time-stretched and
+      // pitch-shifted audio midway through playback.
+      this.playGain.connect(this.playCtx.destination);
     }
     this.playCursor = 0;
   }
@@ -704,10 +750,13 @@ export class GeminiLiveSession {
     src.connect(gain);
 
     const now = ctx.currentTime;
-    // A larger lead absorbs normal WebSocket delivery jitter. Starting chunks
-    // only 20ms ahead made occasional late sources audible as clicks or pitchy
-    // boundary artifacts on a busy browser audio thread.
-    const startAt = Math.max(this.playCursor, now + GeminiLiveSession.PLAYBACK_LEAD_SECONDS);
+    // Gapless queue: if playCursor is still in the future, schedule immediately
+    // after the previous chunk so speech is continuous with zero gaps.
+    // Only if the queue starved (first chunk or pause) do we add lead time to
+    // absorb network jitter. (Matches official Google AudioStreamer).
+    const startAt = this.playCursor > now
+      ? this.playCursor
+      : now + GeminiLiveSession.PLAYBACK_LEAD_SECONDS;
     src.start(startAt);
     this.playCursor = startAt + buf.duration;
 
@@ -720,15 +769,35 @@ export class GeminiLiveSession {
       try { s.stop(); } catch { /* already ended */ }
     }
     this.activeSources.clear();
-    if (this.playCtx) this.playCursor = this.playCtx.currentTime;
+    if (this.playCtx) this.playCursor = 0;
     if (this.drainTimer !== null) {
       clearTimeout(this.drainTimer);
       this.drainTimer = null;
     }
   }
 
+  /**
+   * True while the model is actively playing audio or queued buffers remain in the
+   * audio graph (including a 150ms acoustic room reverberation tail).
+   */
+  private isModelSpeaking(): boolean {
+    if (!this.playCtx) return false;
+    return this.activeSources.size > 0 || (this.playCursor > 0 && this.playCtx.currentTime < this.playCursor + 0.15);
+  }
+
+  private getOutputRMS(): number {
+    if (!this.outputAnalyserNode) return 0;
+    if (!this.outputSampleBuf || this.outputSampleBuf.length !== this.outputAnalyserNode.fftSize) {
+      this.outputSampleBuf = new Float32Array(this.outputAnalyserNode.fftSize);
+    }
+    this.outputAnalyserNode.getFloatTimeDomainData(this.outputSampleBuf);
+    return calculateRMS(this.outputSampleBuf);
+  }
+
   private teardownAudio(): void {
     this.flushPlayback();
+    this.outputSampleBuf = null;
+    this.bargeInActiveUntil = 0;
     try { this.procNode?.disconnect(); } catch { /* noop */ }
     try { this.sourceNode?.disconnect(); } catch { /* noop */ }
     try { this.micAnalyserNode?.disconnect(); } catch { /* noop */ }
@@ -736,13 +805,6 @@ export class GeminiLiveSession {
     try { this.playGain?.disconnect(); } catch { /* noop */ }
     try { this.outputAnalyserNode?.disconnect(); } catch { /* noop */ }
     try { this.playCtx?.close(); } catch { /* noop */ }
-    if (this.playSinkEl) {
-      try {
-        this.playSinkEl.pause();
-        this.playSinkEl.srcObject = null;
-        this.playSinkEl.remove();
-      } catch { /* noop */ }
-    }
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.procNode = null;
     this.sourceNode = null;
@@ -752,7 +814,6 @@ export class GeminiLiveSession {
     this.playCtx = null;
     this.playGain = null;
     this.outputAnalyserNode = null;
-    this.playSinkEl = null;
   }
 }
 
@@ -795,6 +856,14 @@ function describeMicError(e: any): string {
 
 // ── PCM helpers ─────────────────────────────────────────────────────────────
 
+function calculateRMS(buf: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) {
+    sum += buf[i] * buf[i];
+  }
+  return Math.sqrt(sum / buf.length);
+}
+
 function float32ToPCM16(buf: Float32Array): Int16Array {
   const out = new Int16Array(buf.length);
   for (let i = 0; i < buf.length; i++) {
@@ -804,7 +873,7 @@ function float32ToPCM16(buf: Float32Array): Int16Array {
   return out;
 }
 
-/** Naive linear downsampler — fine for speech into a speech model. */
+/** Naive nearest-neighbour downsampler — fine for speech into a speech model. */
 function downsample(buf: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (fromRate === toRate) return buf;
   const ratio = fromRate / toRate;
@@ -815,6 +884,7 @@ function downsample(buf: Float32Array, fromRate: number, toRate: number): Float3
   }
   return out;
 }
+
 
 function parseRate(mime?: string): number | undefined {
   const m = mime?.match(/rate=(\d+)/);

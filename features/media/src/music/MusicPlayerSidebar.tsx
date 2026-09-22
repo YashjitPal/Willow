@@ -18,6 +18,7 @@ interface MusicPlayerSidebarProps {
   onClose: () => void;
   onExpand: () => void;
   isHeaderVisible: boolean;
+  sidebarTransition?: string;
 }
 
 export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
@@ -25,7 +26,8 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
   item,
   onClose,
   onExpand,
-  isHeaderVisible
+  isHeaderVisible,
+  sidebarTransition = '0.38s ease-in-out'
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -156,8 +158,6 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const sidebarTransition = "500ms cubic-bezier(0.16, 1, 0.3, 1)";
-  
   const title = item?.shortenedPrompt || item?.prompt || 'Unknown Title';
   const artist = item?.modelName || 'Unknown Artist';
 
@@ -165,7 +165,7 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
     <div 
       className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden"
       style={{
-        top: isHeaderVisible ? '72px' : '16px',
+        top: isHeaderVisible ? '76px' : '14px',
         bottom: '8px',
         transform: isOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
         transition: `transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top ${sidebarTransition}, visibility 0.5s`,

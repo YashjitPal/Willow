@@ -139,3 +139,138 @@
 @media (prefers-reduced-motion: reduce) {
   .willow-gem-menu-in { animation: none; }
 }
+
+/* ==========================================================================
+   File Drop Indicator & Hover Overlay (100% Pixel-Perfect Gemini Clone)
+   Matches Gemini's file-drop-indicator and .overlay-container.isDraggedOver
+   ========================================================================== */
+
+.willow-gemini-composer.file-drop-indicator-height,
+.file-drop-indicator-height {
+  overflow: hidden !important;
+  height: 200px;
+  flex-wrap: wrap !important;
+  align-content: flex-end !important;
+  justify-content: flex-end !important;
+  padding-bottom: 0px !important;
+}
+
+.willow-gemini-composer.file-drop-collapsing,
+.file-drop-collapsing {
+  overflow: hidden !important;
+  flex-wrap: wrap !important;
+  align-content: flex-end !important;
+  justify-content: flex-end !important;
+  padding-bottom: 0px !important;
+}
+
+/* Underneath content ignores pointer events while file drop overlay is active */
+.willow-gemini-composer.file-drop-indicator-height > :not(.willow-file-drop-indicator),
+.file-drop-indicator-height > :not(.willow-file-drop-indicator),
+.willow-gemini-composer.file-drop-collapsing > :not(.willow-file-drop-indicator),
+.file-drop-collapsing > :not(.willow-file-drop-indicator) {
+  pointer-events: none;
+}
+
+@keyframes willow-file-drop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.willow-file-drop-indicator {
+  position: absolute;
+  bottom: 0px;
+  left: 0px;
+  right: 0px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 200px;
+  pointer-events: auto;
+  animation: willow-file-drop-fade-in 150ms linear;
+}
+
+.willow-file-drop-overlay {
+  align-content: center;
+  width: 100%;
+  height: 200px;
+  max-width: 760px;
+  box-sizing: border-box;
+  border-radius: 24px;
+  text-align: center;
+  cursor: copy;
+
+  /* Inactive Drag State: dragging file in window, but not directly over prompt box */
+  background-color: var(--file-drop-inactive-bg, rgba(27, 27, 27, 0.6));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border: 1px dashed var(--file-drop-border, rgb(31, 59, 155));
+  color: var(--file-drop-text, rgb(49, 134, 255));
+
+  transition: background-color 0.15s ease, backdrop-filter 0.15s ease, -webkit-backdrop-filter 0.15s ease;
+}
+
+/* Active Hover State: hovered directly over the prompt box */
+.willow-file-drop-overlay.is-dragged-over,
+.willow-file-drop-overlay.isDraggedOver {
+  background-color: var(--file-drop-active-bg, rgba(31, 55, 96, 0.6));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px dashed var(--file-drop-border, rgb(31, 59, 155));
+}
+
+.willow-file-drop-icon {
+  display: block;
+  width: 100%;
+  height: 24px;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+.willow-file-drop-icon .material-symbol,
+.willow-file-drop-icon .luminous-symbols {
+  font-size: 24px;
+  width: 24px;
+  height: 24px;
+  margin: 0 auto;
+}
+
+.willow-file-drop-message-text {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.willow-file-drop-text {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  color: inherit;
+  user-select: none;
+}
+
+.willow-file-drop-indicator.is-exiting {
+  animation: willow-file-drop-fade-out 150ms linear forwards;
+  pointer-events: none;
+}
+
+@keyframes willow-file-drop-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+

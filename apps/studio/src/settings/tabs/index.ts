@@ -1,4 +1,5 @@
-export { WorkspaceTab } from './WorkspaceTab';
+export { AppearanceTab } from './AppearanceTab';
+export { AppearanceTab as WorkspaceTab } from './AppearanceTab';
 export { PeopleTab } from './PeopleTab';
 export { PrivacyTab } from './PrivacyTab';
 export { LabsTab } from './LabsTab';

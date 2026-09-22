@@ -1384,10 +1384,11 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const lastScrollTop = React.useRef(0);
   const maxScrollTop = React.useRef(0);
 
-  // Unified transition timing used by both left sidebar and right agent sidebar
-  const sidebarShowTransition = '0.78s cubic-bezier(0.16, 1, 0.3, 1)';
-  const sidebarHideTransition = '0.92s cubic-bezier(0.25, 1, 0.5, 1) 120ms';
+  // Unified transition timing used by left sidebar, right agent sidebar, and music sidebar (matching Google Flow's slower, smooth glide)
+  const sidebarShowTransition = '0.38s ease-in-out';
+  const sidebarHideTransition = '0.38s ease-in-out';
   const currentSidebarTransitionTiming = isHeaderVisible ? sidebarShowTransition : sidebarHideTransition;
+  const headerFadeTransition = 'opacity 0.5s ease-in-out, visibility 0.5s ease-in-out';
 
   const customScrollbarThumbRef = React.useRef<HTMLDivElement>(null);
   
@@ -1459,7 +1460,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     updateCustomScrollbar(e.currentTarget);
     const scrollTop = e.currentTarget.scrollTop;
-    if (scrollTop <= 10) {
+    if (scrollTop <= 40) {
       setIsHeaderVisible(true);
       setIsAtTop(true);
       maxScrollTop.current = scrollTop;
@@ -1469,8 +1470,8 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         setIsHeaderVisible(false);
         maxScrollTop.current = scrollTop;
       } else if (scrollTop < lastScrollTop.current) {
-        // Reappear only after scrolling up a small distance (45px) from the peak scroll position
-        if (maxScrollTop.current - scrollTop >= 45) {
+        // Reappear only after scrolling up at least 100px from peak scroll position (matching Google Flow)
+        if (maxScrollTop.current - scrollTop >= 100) {
           setIsHeaderVisible(true);
         }
       }
@@ -4972,28 +4973,22 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           WebkitBackdropFilter: 'blur(12px)',
           maskImage: 'linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.9) 35%, rgba(0, 0, 0, 0.3) 70%, transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.9) 35%, rgba(0, 0, 0, 0.3) 70%, transparent 100%)',
-          transform: (isHeaderVisible && !isAtTop) ? 'translateY(0)' : 'translateY(-56px)',
           opacity: (isHeaderVisible && !isAtTop) ? 1 : 0,
-          transition: isHeaderVisible
-            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.78s cubic-bezier(0.16, 1, 0.3, 1)'
-            : 'transform 0.68s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.68s cubic-bezier(0.16, 1, 0.3, 1)'
+          visibility: (isHeaderVisible && !isAtTop) ? 'visible' : 'hidden',
+          transition: headerFadeTransition
         }}
       />
 
       {/* Top Header.
-        * 76px tall with 24px of left inset and 20px of right, which is what puts every control
-        * in the row on Flow's centre line at y=38 and lines the back arrow's glyph up with the
-        * rail's glyphs at x=28. The rail below already assumed this height (`pt-[76px]`). */}
+        * In Google Flow, the top area elements simply fade away in place (opacity/visibility)
+        * without translating up or down, while the left sidebar elements move up/down. */}
       <header 
         ref={headerRef}
-        className="absolute top-0 left-0 right-0 h-[76px] flex items-center justify-between pl-6 pr-5 shrink-0 z-[80] bg-transparent pointer-events-none"
+        className="absolute top-0 left-0 right-0 h-[76px] flex items-center justify-between pl-5 pr-5 shrink-0 z-[80] bg-transparent pointer-events-none"
         style={{
-          transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
           opacity: isHeaderVisible ? 1 : 0,
-          transition: isHeaderVisible
-            // Let the search reach full contrast before the slower backdrop blur finishes revealing.
-            ? 'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease-out'
-            : 'transform 0.68s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.68s cubic-bezier(0.16, 1, 0.3, 1)'
+          visibility: isHeaderVisible ? 'visible' : 'hidden',
+          transition: headerFadeTransition
         }}
       >
         
@@ -5010,32 +5005,41 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         {/* The open field covers this cluster, so it fades out from under it — Flow's does the
           * same, and leaving it lit would show through the field's 10% fill. */}
         <div
-          className={`flex items-center gap-2 shrink-0 transition-opacity duration-200 ${
+          className={`flex items-center shrink-0 transition-opacity duration-200 ${
             isSearchOpen ? 'opacity-0 pointer-events-none' : isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'
           }`}
         >
-          {/* Flow's header controls are all 32x32 with a 16px radius, and every glyph in the
-            * header and rail is Google Symbols at 24px with `"FILL" 0, "wght" 300`. */}
-          <button 
-            onClick={() => navigate('/?mode=media')}
-            className="w-8 h-8 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-2xl transition-colors text-white"
-            title="Go Back"
-          >
-            <MaterialSymbol name="arrow_back" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
-          </button>
-          {/* 16px/24px regular Google Sans Text, 16px in from the flex gap. Flow's name is an
-            * always-live <input> sized by its `size` attribute, so it grows with the title; the
-            * span here is Willow's read mode and carries the hover pill that a plain input would
-            * not need. Its negative margin cancels the pill's padding, so entering and leaving
-            * hover does not shift the three-dot button. */}
-          <div className="flex items-center min-w-0 pl-4" style={{ fontFamily: PROJECT_NAME_FONT }}>
-            {isEditingProjectName ? (
+          {/* Navigation header: Home button + Project title (matching Google Flow's flow-navigation-header) */}
+          <div className="flex items-center gap-2">
+            {/* Flow's header controls are 40x40 with a 12px radius, centered at y=38,
+              * with Google Symbols at 24px with `"FILL" 0, "wght" 300`. */}
+            <button 
+              onClick={() => navigate('/?mode=media')}
+              className="w-10 h-10 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-xl transition-colors text-white"
+              title="Home"
+            >
+              <MaterialSymbol name="home" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
+            </button>
+            {/* 16px/24px regular Google Sans Text with 8px flex gap from Home button (matching Google Flow).
+              * Flow uses an editable-text-input with size={length} giving natural input width (e.g. 104px for 5 chars). */}
+            <div className="flex items-center min-w-0" style={{ fontFamily: PROJECT_NAME_FONT }}>
               <input
                 type="text"
-                size={Math.max(1, editingProjectNameValue.length)}
-                value={editingProjectNameValue}
-                onChange={(e) => setEditingProjectNameValue(e.target.value)}
+                size={Math.max(1, (isEditingProjectName ? editingProjectNameValue : projectName).length)}
+                value={isEditingProjectName ? editingProjectNameValue : projectName}
+                readOnly={!isEditingProjectName}
+                onClick={() => {
+                  if (!isEditingProjectName) {
+                    projectRenameResolvedRef.current = false;
+                    setEditingProjectNameValue(projectName);
+                    setIsEditingProjectName(true);
+                  }
+                }}
+                onChange={(e) => {
+                  if (isEditingProjectName) setEditingProjectNameValue(e.target.value);
+                }}
                 onKeyDown={(e) => {
+                  if (!isEditingProjectName) return;
                   // isComposing: an IME (CJK input) Enter confirms the composition,
                   // not the rename — committing there would rename to half-typed text.
                   if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
@@ -5047,6 +5051,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   }
                 }}
                 onBlur={() => {
+                  if (!isEditingProjectName) return;
                   // Enter/Escape already resolved this edit — the blur fired by
                   // the input unmounting must not commit again (or at all,
                   // after a cancel).
@@ -5056,32 +5061,26 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   }
                   void commitProjectRename(editingProjectNameValue);
                 }}
-                onFocus={(e) => e.currentTarget.select()}
-                className="bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[210px]"
-                autoFocus
+                onFocus={(e) => {
+                  if (isEditingProjectName) {
+                    e.currentTarget.select();
+                  }
+                }}
+                className={`bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[210px] p-[1px_2px] cursor-text truncate transition-colors ${
+                  isEditingProjectName ? 'caret-white' : 'caret-transparent hover:bg-white/10 rounded-lg'
+                }`}
+                title="Rename project"
                 spellCheck={false}
               />
-            ) : (
-              <span
-                className="text-base leading-6 font-normal tracking-normal text-white cursor-text hover:bg-white/10 rounded-lg px-1.5 -mx-1.5 transition-colors truncate max-w-[210px]"
-                title="Rename project"
-                onClick={() => {
-                  projectRenameResolvedRef.current = false;
-                  setEditingProjectNameValue(projectName);
-                  setIsEditingProjectName(true);
-                }}
-              >
-                {projectName}
-              </span>
-            )}
+            </div>
           </div>
-          {/* Flow dims this one to 50% white, unlike the header-right group. */}
+          {/* Flow dims this one to 50% white, unlike the header-right group. Placed directly after flow-navigation-header without gap. */}
           <button
             ref={projectMenuButtonRef}
             onClick={() => setOpenHeaderMenu((m) => (m === 'project' ? null : 'project'))}
-            className="w-8 h-8 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-2xl transition-colors hover:text-white"
+            className="w-10 h-10 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-xl transition-colors hover:text-white"
             style={{ color: 'rgba(255, 255, 255, 0.5)' }}
-            title="More options"
+            title="More options for the project"
           >
             <MaterialSymbol name="more_vert" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
           </button>
@@ -5302,7 +5301,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           <nav 
             className="flex flex-col gap-[4.8px]"
             style={{
-              transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-56px)',
+              transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-62px)',
               transition: `transform ${currentSidebarTransitionTiming}`
             }}
           >
@@ -7664,6 +7663,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           }
         }}
         isHeaderVisible={isHeaderVisible}
+        sidebarTransition={currentSidebarTransitionTiming}
       />
 
       <AssetMenuModal

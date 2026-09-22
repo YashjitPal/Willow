@@ -134,6 +134,61 @@ export const GLOW_TO_CHIP_TRANSFORM = {
   hueShiftDeg: -0.6335269870383513,
 } as const;
 
+export const FILE_DROP_TRANSFORM = {
+  border: {
+    lightnessRatio: 0.6366,
+    minLightness: 0.35,
+    maxLightness: 0.46,
+    chromaRatio: 0.85,
+    minChroma: 0.08,
+    maxChroma: 0.16,
+  },
+  text: {
+    lightnessRatio: 1.05,
+    minLightness: 0.68,
+    maxLightness: 0.78,
+    chromaRatio: 0.95,
+    minChroma: 0.12,
+    maxChroma: 0.20,
+  },
+  activeBg: {
+    lightnessRatio: 0.545,
+    minLightness: 0.28,
+    maxLightness: 0.36,
+    chromaRatio: 0.42,
+    maxChroma: 0.08,
+    alpha: 0.6,
+  },
+  inactiveBg: 'rgba(27, 27, 27, 0.6)',
+} as const;
+
+export const NOTICE_TRANSFORM = {
+  bg: {
+    lightness: 0.33,
+    maxChroma: 0.08,
+    chromaRatio: 0.42,
+  },
+  text: {
+    lightness: 0.90,
+    maxChroma: 0.05,
+    chromaRatio: 0.25,
+  },
+} as const;
+
+export const TOGGLE_TRANSFORM = {
+  track: {
+    lightness: 0.83,
+    maxChroma: 0.10,
+    chromaRatio: 0.55,
+  },
+  thumb: {
+    lightness: 0.28,
+    minChroma: 0.06,
+    maxChroma: 0.13,
+    chromaRatio: 0.75,
+  },
+} as const;
+
 export interface WorkspaceComputedTheme {
   id: string;
   label: string;
@@ -153,6 +208,24 @@ export interface WorkspaceComputedTheme {
     rgba: string;
   };
   logoFilter: string;
+  fileDrop: {
+    border: string;
+    text: string;
+    activeBg: string;
+    inactiveBg: string;
+  };
+  notice: {
+    bg: string;
+    text: string;
+  };
+  toggle: {
+    track: string;
+    thumb: string;
+  };
+  accentButton: {
+    bg: string;
+    hover: string;
+  };
 }
 
 const themeCache = new Map<string, WorkspaceComputedTheme>();
@@ -283,6 +356,103 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     logoFilter = `hue-rotate(${angle > 180 ? angle - 360 : angle}deg)`;
   }
 
+  // 6. File drop indicator palette (dashed border, icon & text, active hover bg, inactive bg)
+  let fileDropBorder: string;
+  let fileDropText: string;
+  let fileDropActiveBg: string;
+  const fileDropInactiveBg = FILE_DROP_TRANSFORM.inactiveBg;
+
+  if (def.id === 'blue') {
+    fileDropBorder = 'rgb(31, 59, 155)';
+    fileDropText = 'rgb(49, 134, 255)';
+    fileDropActiveBg = 'rgba(31, 55, 96, 0.6)';
+  } else {
+    const [L_swatch, C_swatch, h_swatch] = rgbToOklch(hexToRgb(def.hex));
+
+    // Dashed border: deep tone visible against dark UI and active translucent background
+    const L_b = Math.min(
+      FILE_DROP_TRANSFORM.border.maxLightness,
+      Math.max(FILE_DROP_TRANSFORM.border.minLightness, L_swatch * FILE_DROP_TRANSFORM.border.lightnessRatio)
+    );
+    const C_b = Math.min(
+      Math.max(C_swatch * FILE_DROP_TRANSFORM.border.chromaRatio, FILE_DROP_TRANSFORM.border.minChroma),
+      FILE_DROP_TRANSFORM.border.maxChroma
+    );
+    fileDropBorder = rgbToHex(oklchToRgb([L_b, C_b, h_swatch]));
+
+    // Icon & message text: vibrant, high legibility on dark backgrounds
+    const L_t = Math.min(
+      FILE_DROP_TRANSFORM.text.maxLightness,
+      Math.max(FILE_DROP_TRANSFORM.text.minLightness, L_swatch * FILE_DROP_TRANSFORM.text.lightnessRatio)
+    );
+    const C_t = Math.min(
+      Math.max(C_swatch * FILE_DROP_TRANSFORM.text.chromaRatio, FILE_DROP_TRANSFORM.text.minChroma),
+      FILE_DROP_TRANSFORM.text.maxChroma
+    );
+    fileDropText = rgbToHex(oklchToRgb([L_t, C_t, h_swatch]));
+
+    // Active hover background: soft frosted translucent tint
+    const L_bg = Math.min(
+      FILE_DROP_TRANSFORM.activeBg.maxLightness,
+      Math.max(FILE_DROP_TRANSFORM.activeBg.minLightness, L_swatch * FILE_DROP_TRANSFORM.activeBg.lightnessRatio)
+    );
+    const C_bg = Math.min(C_swatch * FILE_DROP_TRANSFORM.activeBg.chromaRatio, FILE_DROP_TRANSFORM.activeBg.maxChroma);
+    const [ar, ag, ab] = oklchToRgb([L_bg, C_bg, h_swatch]).map((c) => Math.round(c * 255));
+    fileDropActiveBg = `rgba(${ar}, ${ag}, ${ab}, ${FILE_DROP_TRANSFORM.activeBg.alpha})`;
+  }
+
+  // 7. Notice / info callout banner (container bg & text/icon)
+  let noticeBg: string;
+  let noticeText: string;
+  if (def.id === 'blue') {
+    noticeBg = '#1f3760';
+    noticeText = '#d3e3fd';
+  } else {
+    const [, C, h] = rgbToOklch(hexToRgb(def.hex));
+    const bgRgb = oklchToRgb([
+      NOTICE_TRANSFORM.bg.lightness,
+      Math.min(C * NOTICE_TRANSFORM.bg.chromaRatio, NOTICE_TRANSFORM.bg.maxChroma),
+      h,
+    ]);
+    const textRgb = oklchToRgb([
+      NOTICE_TRANSFORM.text.lightness,
+      Math.min(C * NOTICE_TRANSFORM.text.chromaRatio, NOTICE_TRANSFORM.text.maxChroma),
+      h,
+    ]);
+    noticeBg = rgbToHex(bgRgb);
+    noticeText = rgbToHex(textRgb);
+  }
+
+  // 8. Slide toggle switch (selected track & thumb)
+  let toggleTrack: string;
+  let toggleThumb: string;
+  if (def.id === 'blue') {
+    toggleTrack = '#a8c7fa';
+    toggleThumb = '#062e6f';
+  } else {
+    const [, C, h] = rgbToOklch(hexToRgb(def.hex));
+    const trackRgb = oklchToRgb([
+      TOGGLE_TRANSFORM.track.lightness,
+      Math.min(C * TOGGLE_TRANSFORM.track.chromaRatio, TOGGLE_TRANSFORM.track.maxChroma),
+      h,
+    ]);
+    const thumbRgb = oklchToRgb([
+      TOGGLE_TRANSFORM.thumb.lightness,
+      Math.min(Math.max(C * TOGGLE_TRANSFORM.thumb.chromaRatio, TOGGLE_TRANSFORM.thumb.minChroma), TOGGLE_TRANSFORM.thumb.maxChroma),
+      h,
+    ]);
+    toggleTrack = rgbToHex(trackRgb);
+    toggleThumb = rgbToHex(thumbRgb);
+  }
+
+  // 9. Accent button (filled CTA like "Use in chat" in Customize)
+  let accentBtnBg = sendBg;
+  let accentBtnHover = sendHover;
+  if (def.id === 'blue') {
+    accentBtnBg = 'rgb(31, 59, 155)';
+    accentBtnHover = 'rgb(42, 75, 190)';
+  }
+
   const computed: WorkspaceComputedTheme = {
     id: def.id,
     label: def.label,
@@ -291,6 +461,10 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     sendButton: {
       bg: sendBg,
       hover: sendHover,
+    },
+    accentButton: {
+      bg: accentBtnBg,
+      hover: accentBtnHover,
     },
     chipBg,
     loadbar: {
@@ -302,6 +476,20 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
       rgba: creamyRgba,
     },
     logoFilter,
+    fileDrop: {
+      border: fileDropBorder,
+      text: fileDropText,
+      activeBg: fileDropActiveBg,
+      inactiveBg: fileDropInactiveBg,
+    },
+    notice: {
+      bg: noticeBg,
+      text: noticeText,
+    },
+    toggle: {
+      track: toggleTrack,
+      thumb: toggleThumb,
+    },
   };
 
   themeCache.set(def.id, computed);

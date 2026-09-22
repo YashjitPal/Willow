@@ -1290,8 +1290,8 @@
   margin: 24px auto 0;
   padding: 16px;
   border-radius: 16px;
-  background: #1f3760;
-  color: #d3e3fd;
+  background: var(--spark-notice-bg, #1f3760);
+  color: var(--spark-notice-text, #d3e3fd);
 }
 
 .spark-photos-notice__copy {
@@ -1304,7 +1304,7 @@
 
 .spark-photos-notice__icon {
   flex: 0 0 24px;
-  color: #d3e3fd;
+  color: var(--spark-notice-text, #d3e3fd);
 }
 
 .spark-photos-notice__copy button {
@@ -1573,7 +1573,7 @@
 }
 
 .spark-app-toggle--checked {
-  background: #a8c7fa;
+  background: var(--spark-toggle-track, #a8c7fa);
   box-shadow: none;
 }
 
@@ -1582,7 +1582,7 @@
   left: 24px;
   width: 24px;
   height: 24px;
-  background: #062e6f;
+  background: var(--spark-toggle-thumb, #062e6f);
 }
 
 /*

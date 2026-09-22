@@ -622,7 +622,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
     <div 
       className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden agent-sidebar-container"
       style={{
-        top: isHeaderVisible ? '72px' : '16px',
+        top: isHeaderVisible ? '76px' : '14px',
         bottom: '8px',
         transform: isOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
         transition: `transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top ${sidebarTransition}, visibility 0.5s`,

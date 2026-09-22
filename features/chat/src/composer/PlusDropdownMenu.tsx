@@ -301,14 +301,99 @@ export const PlusDropdownMenu: React.FC<{
   // note on the wrapper below — so they need the row's position passed to them.
   const [subTop, setSubTop] = useState(0);
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
+  const [isSubPositionReady, setIsSubPositionReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const uploadsRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!isOpen) setOpenSub(null);
+    if (!isOpen) {
+      setOpenSub(null);
+      setIsSubPositionReady(false);
+    }
   }, [isOpen]);
+
+  // Calculatively clamp submenu to viewport bounds so it never overflows off-screen vertically.
+  useLayoutEffect(() => {
+    if (!openSub) {
+      setIsSubPositionReady(false);
+      return;
+    }
+
+    const clampSubmenu = () => {
+      const subEl = submenuRef.current;
+      const trigger = openSub === 'uploads' ? uploadsRef.current : toolsRef.current;
+      if (!subEl || !trigger) return false;
+
+      const subRect = subEl.getBoundingClientRect();
+      const subHeight = subEl.offsetHeight;
+      const VIEWPORT_MARGIN = 8;
+      const subBottomInViewport = subRect.top + subHeight;
+      const spaceBelow = window.innerHeight - subBottomInViewport;
+
+      if (spaceBelow < VIEWPORT_MARGIN) {
+        const overflowBottom = VIEWPORT_MARGIN - spaceBelow;
+        const maxShift = Math.max(0, subRect.top - VIEWPORT_MARGIN);
+        const shift = Math.min(overflowBottom, maxShift);
+        if (shift > 0.5) {
+          setSubTop((prev) => prev - shift);
+          return true;
+        }
+      } else if (subRect.top < VIEWPORT_MARGIN) {
+        const overflowTop = VIEWPORT_MARGIN - subRect.top;
+        const maxShift = Math.max(0, spaceBelow - VIEWPORT_MARGIN);
+        const shift = Math.min(overflowTop, maxShift);
+        if (shift > 0.5) {
+          setSubTop((prev) => prev + shift);
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const checkReady = () => {
+      const shifted = clampSubmenu();
+      if (!shifted) {
+        const isAnimating = menuRef.current?.getAnimations().some((a) => a.playState === 'running');
+        if (!isAnimating) {
+          setIsSubPositionReady(true);
+        }
+      }
+    };
+
+    const handleMenuAnimationEnd = (e: AnimationEvent) => {
+      if (e.target !== menuRef.current) return;
+      clampSubmenu();
+      setIsSubPositionReady(true);
+    };
+
+    menuRef.current?.addEventListener('animationend', handleMenuAnimationEnd);
+    window.addEventListener('resize', clampSubmenu);
+
+    checkReady();
+
+    const frameId = window.requestAnimationFrame(() => {
+      checkReady();
+      setIsSubPositionReady(true);
+    });
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          clampSubmenu();
+          setIsSubPositionReady(true);
+        });
+    if (submenuRef.current) observer?.observe(submenuRef.current);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      menuRef.current?.removeEventListener('animationend', handleMenuAnimationEnd);
+      window.removeEventListener('resize', clampSubmenu);
+      observer?.disconnect();
+    };
+  }, [openSub, subTop]);
 
   // Flip above or below the trigger depending on room. Gemini's own menu opened upward
   // from a bottom-docked composer, which is why the measured transform-origin is
@@ -352,6 +437,9 @@ export const PlusDropdownMenu: React.FC<{
 
   const openWith = (which: 'uploads' | 'tools') => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
+    if (openSub !== which) {
+      setIsSubPositionReady(false);
+    }
     const trigger = which === 'uploads' ? uploadsRef.current : toolsRef.current;
     // offsetParent is the positioning wrapper, so this is already in the coordinate
     // space the submenu is placed in.
@@ -360,7 +448,10 @@ export const PlusDropdownMenu: React.FC<{
   };
   const closeSoon = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpenSub(null), 150);
+    closeTimer.current = setTimeout(() => {
+      setOpenSub(null);
+      setIsSubPositionReady(false);
+    }, 150);
   };
 
   const pickTool = (id: ToolId) => { onToolSelect(id); onClose(); };
@@ -458,7 +549,7 @@ export const PlusDropdownMenu: React.FC<{
       </MenuCard>
 
       {openSub === 'uploads' && (
-        <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
+        <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
           <MenuCard width={220} origin="0 0" label="More upload options">
             {sparkMode ? (
               <>
@@ -478,7 +569,7 @@ export const PlusDropdownMenu: React.FC<{
       )}
 
       {openSub === 'tools' && (
-        <div className="absolute z-[110]" style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
+        <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
           {sparkMode && sparkToolsEnabled ? (
             <MenuCard width={253} origin="0 0" label="More tools">
               <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
@@ -567,7 +658,7 @@ const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => (
       className="absolute inset-0 block"
       style={{
         borderRadius: 9999,
-        backgroundColor: checked ? '#a8c7fa' : '#444746',
+        backgroundColor: checked ? 'var(--studio-toggle-track, #a8c7fa)' : '#444746',
         transition: 'background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     />
@@ -580,7 +671,7 @@ const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => (
         height: checked ? 24 : 16,
         marginLeft: checked ? 24 : 8,
         borderRadius: 9999,
-        backgroundColor: checked ? '#062e6f' : '#8e918f',
+        backgroundColor: checked ? 'var(--studio-toggle-thumb, #062e6f)' : '#8e918f',
         transform: 'translateY(-50%)',
         transition:
           'width 75ms cubic-bezier(0.4, 0, 0.2, 1), height 75ms cubic-bezier(0.4, 0, 0.2, 1), margin-left 75ms cubic-bezier(0.4, 0, 0.2, 1), background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
@@ -592,7 +683,7 @@ const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => (
         width={16}
         height={16}
         style={{
-          fill: '#d3e3fd',
+          fill: 'var(--studio-notice-text, #d3e3fd)',
           opacity: checked ? 1 : 0,
           transition: 'opacity 45ms cubic-bezier(0, 0, 0.2, 1)',
         }}

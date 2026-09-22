@@ -1735,7 +1735,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Shortened the same way a text turn's snapshot label is, so the two read
   // alike in saved history: "Gemini 3.1 Flash Live" → "3.1 Flash Live".
   const liveModelLabel = useMemo(
-    () => getShortModelName(listVoiceModels().find((m) => m.id === liveModelId)?.name || liveModelId),
+    () => {
+      const baseId = liveModelId.split('::effort-')[0];
+      const found = listVoiceModels().find((m) => m.id === liveModelId || m.id === baseId);
+      return getShortModelName(found?.name || liveModelId);
+    },
     [liveModelId],
   );
   const voiceSelection = useMemo(
@@ -3217,8 +3221,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           role: 'assistant',
           isNew: true,
           content:
-            'Live voice mode requires the **Gemini 3.1 Flash Live** model. ' +
-            'Add it from **Settings → Models → Google → Gemini 3.1 Flash Live** to enable live voice chat.',
+            'Live voice mode requires a **Gemini Live** model. ' +
+            'Add it from **Settings → Models → Google → Gemini 3.8 Live** to enable live voice chat.',
           isError: true,
         },
       ]);

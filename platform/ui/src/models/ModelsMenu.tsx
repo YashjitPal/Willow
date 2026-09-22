@@ -53,6 +53,11 @@ export type ModelsMenuVoiceListing = {
   name: string;
   providerId: string;
   providerLabel: string;
+  maxLevels?: number;
+  hasNone?: boolean;
+  noneLabel?: string;
+  thinkingLevel?: number;
+  reasoningEfforts?: Array<{ level: number; label: string }>;
 };
 
 type PickerModel = ModelEffortRecord;
@@ -124,7 +129,18 @@ export const ModelsMenu: React.FC<{
    */
   const voiceRows = (voiceModels || []).map((m) => {
     const saved = savedModels.find((s: any) => s.modelId === m.id);
-    return { id: m.id, modelId: m.id, name: saved?.name || m.name, provider: m.providerLabel };
+    return {
+      id: m.id,
+      modelId: m.id,
+      name: saved?.name || m.name,
+      provider: m.providerLabel,
+      providerId: m.providerId || saved?.providerId,
+      maxLevels: m.maxLevels ?? (saved as any)?.maxLevels,
+      hasNone: m.hasNone ?? (saved as any)?.hasNone,
+      noneLabel: m.noneLabel ?? (saved as any)?.noneLabel,
+      thinkingLevel: m.thinkingLevel ?? (saved as any)?.thinkingLevel,
+      reasoningEfforts: m.reasoningEfforts ?? (saved as any)?.reasoningEfforts,
+    };
   });
 
   const rawModels = isVoiceRoster
@@ -252,6 +268,7 @@ export const ModelsMenu: React.FC<{
       setEffortOffset(getViewportConstrainedOffset({
         bottom: rect.bottom,
         viewportHeight: window.innerHeight,
+        margin: 8,
       }));
     };
 
@@ -334,6 +351,67 @@ export const ModelsMenu: React.FC<{
     const provider = String(base.provider || '').toLowerCase();
     const modelId = String(base.modelId || base.id || base.name || '').toLowerCase();
 
+    const is38LiveFamily = group.variants.some((v) => {
+      const mid = String(v.modelId || v.id || v.name || '').toLowerCase();
+      return mid.includes('3.8-live') || mid.includes('gemini-3.8-live');
+    });
+
+    if (is38LiveFamily) {
+      const liveVariant = group.variants.find((v) => {
+        const mid = String(v.modelId || v.id || '').toLowerCase();
+        return mid.includes('3.8-live') && !mid.includes('extended-thinking') && !mid.includes('thinking');
+      }) || group.variants[0];
+
+      const thinkingVariant = group.variants.find((v) => {
+        const mid = String(v.modelId || v.id || '').toLowerCase();
+        return mid.includes('extended-thinking') || mid.includes('thinking');
+      }) || group.variants.find((v) => v !== liveVariant) || group.variants[0];
+
+      const liveBaseId = liveVariant && !String(liveVariant.modelId || liveVariant.id).includes('extended-thinking')
+        ? liveVariant.id
+        : 'gemini-3.8-live';
+      const thinkingBaseId = thinkingVariant && String(thinkingVariant.modelId || thinkingVariant.id).includes('extended-thinking')
+        ? thinkingVariant.id
+        : 'gemini-3.8-live-extended-thinking';
+
+      const baseRef = liveVariant || thinkingVariant || base;
+
+      return [
+        {
+          ...baseRef,
+          id: liveBaseId,
+          modelId: 'gemini-3.8-live',
+          thinkingLevel: 0,
+          thinkingLabel: 'Minimal',
+          effortLabel: 'Minimal',
+        },
+        {
+          ...baseRef,
+          id: `${thinkingBaseId}::effort-1`,
+          modelId: 'gemini-3.8-live-extended-thinking',
+          thinkingLevel: 1,
+          thinkingLabel: 'Low',
+          effortLabel: 'Low',
+        },
+        {
+          ...baseRef,
+          id: `${thinkingBaseId}::effort-2`,
+          modelId: 'gemini-3.8-live-extended-thinking',
+          thinkingLevel: 2,
+          thinkingLabel: 'Medium',
+          effortLabel: 'Medium',
+        },
+        {
+          ...baseRef,
+          id: `${thinkingBaseId}::effort-3`,
+          modelId: 'gemini-3.8-live-extended-thinking',
+          thinkingLevel: 3,
+          thinkingLabel: 'High',
+          effortLabel: 'High',
+        },
+      ];
+    }
+
     // Custom profiles can declare their own effort roster. Respect it before
     // falling back to Willow's provider defaults so a model with 2 or 7 levels
     // does not get an invented menu with the wrong wire values.
@@ -348,6 +426,19 @@ export const ModelsMenu: React.FC<{
           thinkingLabel: effort.label,
           effortLabel: effort.label,
         }));
+    }
+
+    if ((base as any).maxLevels === 0) {
+      const noneLabel = (base as any).noneLabel || 'None';
+      return [
+        {
+          ...base,
+          id: `${base.id}::effort-0`,
+          thinkingLevel: 0,
+          thinkingLabel: noneLabel,
+          effortLabel: noneLabel,
+        },
+      ];
     }
 
     // A group with several saved variants already carries its own effort levels.
@@ -403,24 +494,46 @@ export const ModelsMenu: React.FC<{
   // Everything that decides a checkmark has to compare against the base, or the
   // tick vanishes as soon as an effort level is picked.
   const selectedBaseId = selectedId ? selectedId.split('::effort-')[0] : '';
-  const matchesSelection = (model: PickerModel) =>
-    model.id === selectedId || model.id === selectedBaseId;
+  const matchesSelection = (model: PickerModel) => {
+    if (model.id === selectedId || model.id === selectedBaseId) return true;
+    const modelMid = String(model.modelId || model.id || '').toLowerCase();
+    const selMid = String(selectedBaseId || selectedId || '').toLowerCase();
+    if (
+      (modelMid.includes('3.8-live') || modelMid.includes('gemini-3.8-live')) &&
+      (selMid.includes('3.8-live') || selMid.includes('gemini-3.8-live'))
+    ) {
+      return true;
+    }
+    return false;
+  };
 
   const selectedGroup = groupedModels.find((group) =>
     group.variants.some(matchesSelection)
   ) || groupedModels[0];
 
-  // A live model has no thinking levels, so the submenu is not merely hidden —
-  // there is nothing to offer. Empty here also makes `selectedEffort` undefined,
-  // which is what removes the separator and the row below the list.
-  const selectedEfforts = isVoiceRoster ? [] : getEffortsForGroup(selectedGroup);
+  const selectedEfforts = getEffortsForGroup(selectedGroup);
+  const currentEffortLevel = selectedId?.includes('::effort-')
+    ? Number(selectedId.split('::effort-')[1])
+    : (selectedGroup?.variants[0] as any)?.thinkingLevel;
+
   // Falling back to level 3 keeps the previous default. `> 0` on the last
   // fallback stops a freshly added level-0 entry from being reported as the
   // default effort for models whose ceiling is below 3.
   const selectedEffort = selectedEfforts.find((model) => model.id === selectedId)
+    || (currentEffortLevel !== undefined
+        ? selectedEfforts.find((m) => m.thinkingLevel === currentEffortLevel)
+        : undefined)
     || selectedEfforts.find((m) => m.thinkingLevel === 3)
     || selectedEfforts.find((m) => Number(m.thinkingLevel || 0) > 0)
     || selectedEfforts[0];
+
+  const formatModelDisplayName = (m: PickerModel) => {
+    const id = String(m.modelId || m.id || m.name || '').toLowerCase();
+    if (id.includes('3.8-live') || id.includes('gemini-3.8-live')) {
+      return 'Gemini 3.8 Live';
+    }
+    return m.name.replace(/\s+Extended$/gi, '');
+  };
 
   const getModelDescription = (model: any) => {
     // Live models get the provider that runs them. The name-matching below is
@@ -475,7 +588,7 @@ export const ModelsMenu: React.FC<{
                   </span>
                   <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
                     <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
-                      {model.name.replace(/\s+Extended$/gi, '')}
+                      {formatModelDisplayName(model)}
                     </span>
                     <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                       {getModelDescription(model)}
@@ -651,7 +764,7 @@ export const ModelsMenu: React.FC<{
                         : "text-zinc-300 hover:bg-white/5 hover:text-white"
                     }`}
                 >
-                  <span>{model.name}</span>
+                  <span>{formatModelDisplayName(model)}</span>
                   <span
                     className={`text-[9px] font-bold uppercase tracking-wider opacity-60 ${
                       isSelected ? "text-white" : "group-hover:text-zinc-400"

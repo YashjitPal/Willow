@@ -13,7 +13,7 @@
  * their published characteristics, 97 BCP-47 codes), not a sample.
  */
 
-import { LIVE_MODEL_ID } from '@willow/ai/live';
+import { LIVE_MODEL_ID, LIVE_3_8_EXTENDED_MODEL_ID, LIVE_3_1_MODEL_ID } from '@willow/ai/live';
 
 /**
  * One live model a provider can run.
@@ -30,6 +30,11 @@ export type VoiceModelOption = {
   id: string;
   /** Shown in the picker when no saved model supplies a name for this id. */
   name: string;
+  maxLevels?: number;
+  hasNone?: boolean;
+  noneLabel?: string;
+  thinkingLevel?: number;
+  reasoningEfforts?: Array<{ level: number; label: string }>;
 };
 
 /** A model plus the provider that runs it, which is the picker's second line. */
@@ -257,9 +262,24 @@ export const GEMINI_VOICE_PROVIDER: VoiceProvider = {
   id: 'gemini-live',
   label: 'Gemini Live',
   matches: (modelId) => modelId.includes('gemini') && modelId.includes('live'),
-  // The one model live mode opens a socket with today. `matches` above stays the
-  // broader test, so a second Gemini live model only has to be added here.
-  models: [{ id: LIVE_MODEL_ID, name: 'Gemini 3.1 Flash Live' }],
+  // The models live mode opens a socket with. `matches` above stays the
+  // broader test, so additional Gemini live models only have to be added here.
+  models: [
+    { id: LIVE_MODEL_ID, name: 'Gemini 3.8 Live', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+    {
+      id: LIVE_3_8_EXTENDED_MODEL_ID,
+      name: 'Gemini 3.8 Live Extended Thinking',
+      maxLevels: 3,
+      hasNone: false,
+      thinkingLevel: 3,
+      reasoningEfforts: [
+        { level: 1, label: 'Low' },
+        { level: 2, label: 'Medium' },
+        { level: 3, label: 'High' },
+      ],
+    },
+    { id: LIVE_3_1_MODEL_ID, name: 'Gemini 3.1 Flash Live', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+  ],
   voices: GEMINI_VOICES,
   languages: GEMINI_LANGUAGES,
   languageMode: 'systemInstruction',
@@ -297,11 +317,29 @@ export function listVoiceModels(): VoiceModelListing[] {
  *
  * Falls back to the first registered model, so a preference left behind by a
  * build that had a model this one does not can never put an unrunnable id on
- * the wire.
+ * the wire. Preserves `::effort-<n>` suffix when present.
  */
 export function resolveVoiceModelId(modelId: string | undefined): string {
+  if (!modelId) return listVoiceModels()[0].id;
+  const baseId = modelId.split('::effort-')[0];
+  const hasEffort = modelId.includes('::effort-');
+  const effort = hasEffort ? Number(modelId.split('::effort-')[1]) : undefined;
+
+  if (baseId.includes('3.8-live') || baseId.includes('gemini-3.8-live')) {
+    if (effort === 0) {
+      return LIVE_MODEL_ID;
+    }
+    if (effort !== undefined && effort > 0) {
+      return `${LIVE_3_8_EXTENDED_MODEL_ID}::effort-${effort}`;
+    }
+  }
+
   const models = listVoiceModels();
-  return models.find((m) => m.id === modelId)?.id ?? models[0].id;
+  const matched = models.find((m) => m.id === baseId || m.id === modelId);
+  if (!matched) return models[0].id;
+  return hasEffort
+    ? `${matched.id}::effort-${modelId.split('::effort-')[1]}`
+    : matched.id;
 }
 
 /** The named voice, falling back to the provider's default then its first. */
