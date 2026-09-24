@@ -107,9 +107,9 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   assert.match(composer, /hidden min-\[961px\]:block mt-\[1px\][\s\S]*?<ToolChip/);
 
   // Expanded prompt box layout: generous top padding and button clearance on tablet/mobile:
-  assert.match(composer, /pt-4 pb-\[62px\] max-\[960px\]:pt-6 max-\[960px\]:pb-\[80px\]/);
-  // Bottom buttons baseline (20px) and lateral offset in expanded form on tablet & mobile:
-  assert.match(composer, /max-\[960px\]:!bottom-\[20px\] max-\[960px\]:!left-\[6px\]/);
+  assert.match(composer, /pt-4 pb-\[62px\] max-\[960px\]:pt-6 max-\[960px\]:pb-\[64px\]/);
+  // Bottom buttons baseline (16px tablet, 20px mobile) and lateral offset in expanded form on tablet & mobile:
+  assert.match(composer, /min-\[769px\]:max-\[960px\]:!bottom-\[16px\] max-\[768px\]:!bottom-\[20px\] max-\[960px\]:!left-\[6px\]/);
   assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\] right-\[0px\]/);
 });
 
@@ -142,8 +142,12 @@ test('Chat top header adapts navigation, actions, model switcher, and user avata
 
   const chatView = read('features/chat/src/ChatView.tsx');
   // Mobile top-bar model switcher:
-  assert.match(chatView, /min-\[961px\]:hidden absolute top-\[14px\] left-\[56px\] z-30 flex items-center/);
-  assert.match(chatView, /aria-label="Select model"/);
+  assert.match(chatView, /min-\[961px\]:hidden absolute top-\[8px\] left-\[56px\] z-30 flex items-center/);
+  assert.match(chatView, /aria-label=\{`Select model/);
+  // Mobile model switcher renders two-tone 20px typography (white primary + off-white secondary):
+  assert.match(chatView, /text-\[20px\] leading-6/);
+  assert.match(chatView, /mobileModelInfo\.primary/);
+  assert.match(chatView, /mobileModelInfo\.secondary/);
   // Mobile model switcher dropdown chevron is dark blue (#062e6f) matching Gemini app:
   assert.match(chatView, /name="expand_more"[\s\S]*?text-\[#062e6f\]/);
 
