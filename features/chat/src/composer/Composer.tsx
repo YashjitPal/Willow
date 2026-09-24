@@ -828,10 +828,13 @@ export const InputBar: React.FC<{
   // Container pb + textarea padding intentionally stay on isSolidExpanded so the
   // RAF sets them next frame and the collapsed→multiline padding transition
   // still plays without disturbing the attachment-row expansion.
+  const isMultilinePrompt = promptText.includes('\n');
   const solidExpanded = isDictationActive
     ? false
-    : isSolidExpanded || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
-  const composerPaddingExpanded = isDictationActive ? false : isSolidExpanded;
+    : isSolidExpanded || isMultilinePrompt || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
+  const composerPaddingExpanded = isDictationActive
+    ? false
+    : isSolidExpanded || isMultilinePrompt || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
   const showComposerMaximizeToggle = chatVariant
     && !isDictationActive
     && !disabled
@@ -960,7 +963,7 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[56px] max-[960px]:pt-3.5 max-[960px]:pb-[56px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px] max-[960px]:pt-6 max-[960px]:pb-[68px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -1034,11 +1037,11 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[8px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[8px] pr-[8px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] min-[769px]:max-[960px]:pl-[58px] max-[768px]:pl-[54px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
-              <div className="absolute left-[46px] min-[769px]:max-[960px]:left-[58px] max-[768px]:left-[54px] right-[86px] top-1/2 -translate-y-1/2">
+              <div className="absolute left-[46px] right-[86px] top-1/2 -translate-y-1/2 min-[769px]:max-[960px]:left-[58px] max-[768px]:left-[54px]">
                 <DictationWaveform stream={dictationStream} />
               </div>
             )}
@@ -1075,7 +1078,7 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[12px] left-[0px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] min-[769px]:max-[960px]:left-[10px] max-[768px]:left-[6px]' : 'left-[0px]'}`} `}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} ${chatVariant ? 'max-[960px]:!bottom-[20px] max-[960px]:!left-[6px]' : ''} `}>
               <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center`}>
                 <button 
                   ref={solidPlusRef}
@@ -1088,14 +1091,14 @@ export const InputBar: React.FC<{
                   {chatVariant
                     ? (
                       /*
-                       * Open turns the plus into a cross by rotating it, which
-                       * is what Gemini does — it is the same glyph, not a swap
-                       * to a `close` symbol. 45deg is exact rather than chosen:
-                       * a plus has 90deg rotational symmetry, so 45deg is the
-                       * unique angle that lands its arms on the diagonals.
-                       * Duration/easing reuse the app's Gemini-derived motion
-                       * token rather than being freshly measured.
-                       */
+                        * Open turns the plus into a cross by rotating it, which
+                        * is what Gemini does — it is the same glyph, not a swap
+                        * to a `close` symbol. 45deg is exact rather than chosen:
+                        * a plus has 90deg rotational symmetry, so 45deg is the
+                        * unique angle that lands its arms on the diagonals.
+                        * Duration/easing reuse the app's Gemini-derived motion
+                        * token rather than being freshly measured.
+                        */
                       <span
                         className="flex items-center justify-center"
                         style={{
@@ -1144,7 +1147,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : ''} ${solidExpanded && chatVariant ? 'bottom-[12px] right-[0px]' : chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : ''} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button
@@ -1198,6 +1201,8 @@ export const InputBar: React.FC<{
                   // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
                   isMicMuteToggle
                     ? 'transition-colors duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]'
+                    : chatVariant
+                    ? 'transition-colors duration-200'
                     : 'transition-all duration-200'
                 } ${
                   // Muted is the only state that recolours the button: ChatGPT's
@@ -1217,7 +1222,7 @@ export const InputBar: React.FC<{
                 {isDictationActive && chatVariant && !isMicMuteToggle ? (
                   <span className={`w-2.5 h-2.5 rounded-[1.5px] ${isLight ? 'bg-[#1f1f1f]' : 'bg-[#e3e3e3]'}`} aria-hidden="true" />
                 ) : chatVariant ? (
-                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
+                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} className="max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px]" />
                 ) : (
                   <Mic size={20} strokeWidth={1.8} />
                 )}
@@ -1228,7 +1233,7 @@ export const InputBar: React.FC<{
                 {isMicMuteToggle && liveMicMuted && (
                   <MicMutedSlash
                     size={chatVariant ? 24 : 20}
-                    className="absolute inset-0 m-auto pointer-events-none"
+                    className="absolute inset-0 m-auto pointer-events-none max-[960px]:w-7 max-[960px]:h-7"
                   />
                 )}
               </button>
@@ -1310,12 +1315,12 @@ export const InputBar: React.FC<{
                   <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? (isLight ? 'text-black' : 'text-white') : 'text-black'} />
                 ) : hasContent ? (
                   chatVariant
-                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={isLight ? 'text-black' : 'text-white'} />
+                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={`max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px] ${isLight ? 'text-black' : 'text-white'}`} />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
                 ) : chatVariant && liveActive ? (
-                  <MaterialSymbol name="stop" size={18} weight={600} fill className={isLight ? 'text-black' : 'text-white'} />
+                  <MaterialSymbol name="stop" size={18} weight={600} fill className={`max-[960px]:!w-6 max-[960px]:!h-6 max-[960px]:!text-[22px] ${isLight ? 'text-black' : 'text-white'}`} />
                 ) : chatVariant ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={isLight ? 'text-black' : 'text-white'}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={`max-[960px]:w-7 max-[960px]:h-7 ${isLight ? 'text-black' : 'text-white'}`}>
                     <path d="M10 3.1a.9.9 0 0 1 .9.9v16a.9.9 0 0 1-1.8 0V4a.9.9 0 0 1 .9-.9M15 5.6a.9.9 0 0 1 .9.9v10a.9.9 0 0 1-1.8 0v-10a.9.9 0 0 1 .9-.9M5 8.6a.9.9 0 0 1 .9.9v5a.9.9 0 0 1-1.8 0v-5a.9.9 0 0 1 .9-.9M20 9.1a.9.9 0 0 1 .9.9v4a.9.9 0 0 1-1.8 0v-4a.9.9 0 0 1 .9-.9"/>
                   </svg>
                 ) : liveActive ? (

@@ -53,7 +53,7 @@ export const MaterialSymbol: React.FC<MaterialSymbolProps> = ({
   return (
     <span
       aria-hidden="true"
-      className={`${familyClass} inline-flex shrink-0 select-none items-center justify-center overflow-hidden align-middle ${className}`}
+      className={`${familyClass} inline-flex shrink-0 select-none items-center justify-center align-middle ${className}`}
       style={{
         width: size,
         height: size,

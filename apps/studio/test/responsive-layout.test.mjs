@@ -105,6 +105,12 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
 
   // Desktop (> 960px): bottom row beside plus button:
   assert.match(composer, /hidden min-\[961px\]:block mt-\[1px\][\s\S]*?<ToolChip/);
+
+  // Expanded prompt box layout: generous top padding and button clearance on tablet/mobile:
+  assert.match(composer, /pt-4 pb-\[62px\] max-\[960px\]:pt-6 max-\[960px\]:pb-\[68px\]/);
+  // Bottom buttons baseline (20px) and lateral offset in expanded form on tablet & mobile:
+  assert.match(composer, /max-\[960px\]:!bottom-\[20px\] max-\[960px\]:!left-\[6px\]/);
+  assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\] right-\[0px\]/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
