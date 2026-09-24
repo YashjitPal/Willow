@@ -4577,7 +4577,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div
           className={isThreadDocked
             ? `w-full flex justify-center px-4 pb-[20px] sm:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
-            : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
+            : 'absolute inset-0 flex max-[960px]:items-end items-center justify-center px-4 max-[960px]:pb-[20px] min-[961px]:pb-0 pointer-events-none'}
         >
           <motion.div
             layout

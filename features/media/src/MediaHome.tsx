@@ -10,6 +10,7 @@ import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { homeGlowAccent, homeGlowAccentLight } from './home-glow';
+import logo from '@willow/assets/brand/logo.png';
 
 /**
  * The gap between the greeting's baseline box and the composer's top edge, in
@@ -118,9 +119,9 @@ export const ChatZeroStateGreeting: React.FC<{
         className={`text-center select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
         style={{
           fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          fontSize: '36px',
+          fontSize: 'clamp(32px, 5vw, 36px)',
           fontWeight: 320,
-          lineHeight: '44px',
+          lineHeight: 'clamp(38px, 6vw, 44px)',
         }}
       >
         {headingText}
@@ -224,7 +225,7 @@ export const PinnedChatGreeting: React.FC<{
 
   return (
     <div
-      className="absolute bottom-full left-0 right-0 flex flex-col items-center drop-shadow-sm select-none"
+      className="absolute bottom-full left-0 right-0 hidden min-[961px]:flex flex-col items-center drop-shadow-sm select-none"
       style={{ marginBottom: `${isIncognito ? INCOGNITO_GREETING_GAP : GREETING_GAP}px` }}
     >
       <ChatZeroStateGreeting
@@ -1066,6 +1067,23 @@ export const HeroSection: React.FC<{
               Omitted entirely when pinned: ChatView then renders the greeting
               inside the composer's own box (`PinnedChatGreeting`) so it rides
               the composer as it wraps, which a wrapper out here cannot do. */}
+          {/* Mobile zero-state greeting with Willow logo for <= 960px viewports when composer is docked at the bottom */}
+          {pinnedComposer && isGreetingReady && (
+            <div className="min-[961px]:hidden flex flex-col items-center justify-center px-4 pb-20 text-center select-none">
+              {!isIncognito && (
+                <img
+                  src={logo}
+                  alt="Willow"
+                  className="w-10 h-10 object-contain drop-shadow-sm mb-3 sm:mb-4 select-none"
+                />
+              )}
+              <ChatZeroStateGreeting
+                headingText={chatGreetingText(firstName, !!isAuthenticated, isIncognito)}
+                isIncognito={isIncognito}
+              />
+            </div>
+          )}
+
           {!pinnedComposer && (
           <div
             className={`relative w-full flex justify-center h-[36px] ${background === 'solid' ? 'mb-8' : 'mb-10'}`}

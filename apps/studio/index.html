@@ -755,6 +755,20 @@
         );
       }
 
+      @media (max-width: 960px) {
+        .willow-gemini-home-glow::before,
+        .willow-gemini-home-glow.willow-gemini-home-glow-gray::before,
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow::before,
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
+          top: auto;
+          bottom: -160px;
+          transform: translateX(-50%);
+          max-width: 800px;
+          height: 60%;
+          max-height: 380px;
+        }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .willow-gemini-home-glow::before,
         .willow-gemini-home-glow-gray::before {

@@ -148,13 +148,17 @@ export const StudioLayout: React.FC<{
           aria-label="Open sidebar"
           onClick={() => setIsSidebarCollapsed(false)}
         >
-          <MaterialSymbol
-            name="side_nav_expand"
-            family="google-symbols"
-            size={24}
-            weight={400}
-            opticalSize={24}
-          />
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+            className="select-none"
+          >
+            <rect x="3" y="7" width="18" height="2" rx="1" />
+            <rect x="3" y="15" width="18" height="2" rx="1" />
+          </svg>
         </button>
       )}
       <Sidebar
