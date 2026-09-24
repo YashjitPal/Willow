@@ -807,7 +807,7 @@ export const PlusDropdownMenu: React.FC<{
   const SUB_LEFT = 249 - 8;
 
   const renderUploadButtonsRow = () => (
-    <div className="flex items-center gap-1 overflow-x-auto px-4 py-1 no-scrollbar">
+    <div className="flex w-full items-center gap-1 overflow-x-auto px-4 py-1 no-scrollbar overscroll-x-contain">
       <SquircleUploadButton
         label="Files"
         icon={<MaterialSymbol family="luminous" name="attach_file" size={28} weight={320} />}
@@ -991,9 +991,11 @@ export const PlusDropdownMenu: React.FC<{
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 pb-6 no-scrollbar">
+            <div className="flex-1 overflow-y-auto pb-6 no-scrollbar">
               {renderUploadButtonsRow()}
-              {renderToolsList()}
+              <div className="px-2">
+                {renderToolsList()}
+              </div>
             </div>
           </div>
         </div>
