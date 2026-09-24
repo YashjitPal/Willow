@@ -314,10 +314,6 @@
  * and 20px line-height 24px prompt text.
  */
 @media (max-width: 960px) {
-  .willow-dictation-textarea {
-    font-size: 20px;
-    line-height: 24px;
-  }
   .willow-dictation-textarea::-webkit-input-placeholder,
   .willow-dictation-textarea::placeholder {
     font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
