@@ -26,7 +26,8 @@ test('Sidebar.css defines universal mobile drawer and scrim rules at 960px break
 
   // Mobile open trigger:
   assert.match(css, /\.studio-sidebar-mobile-open \{\s*position:\s*fixed;\s*top:\s*8px;\s*left:\s*8px;\s*z-index:\s*35;/);
-  assert.match(css, /:is\(\.light-theme, \[data-theme="light"\]\) \.studio-sidebar-mobile-open \{\s*color:\s*#444746;\s*\}/);
+  assert.match(css, /\.studio-sidebar-mobile-open:active \{\s*background:\s*rgba\(227,\s*227,\s*227,\s*0\.18\)\s*!important;\s*border-radius:\s*50%;/);
+  assert.match(css, /:is\(\.light-theme, \[data-theme="light"\]\) \.studio-sidebar-mobile-open \{\s*color:\s*#1f1f1f;\s*\}/);
 });
 
 test('StudioLayout.tsx enables universal mobile sidebar toggle and auto-collapse', () => {
@@ -111,6 +112,8 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Bottom buttons baseline (16px tablet, 20px mobile) and lateral offset in expanded form on tablet & mobile:
   assert.match(composer, /min-\[769px\]:max-\[960px\]:!bottom-\[16px\] max-\[768px\]:!bottom-\[20px\] max-\[960px\]:!left-\[6px\]/);
   assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\] right-\[0px\]/);
+  // Left padding of expanded textarea on tablet/mobile matches Gemini (26px total = 14px box + 12px textarea):
+  assert.match(composer, /max-\[960px\]:!pl-\[12px\]/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
@@ -142,14 +145,19 @@ test('Chat top header adapts navigation, actions, model switcher, and user avata
 
   const chatView = read('features/chat/src/ChatView.tsx');
   // Mobile top-bar model switcher:
-  assert.match(chatView, /min-\[961px\]:hidden absolute top-\[12px\] left-\[56px\] z-30 flex items-center/);
+  assert.match(chatView, /min-\[961px\]:hidden absolute top-\[14px\] left-\[56px\] z-30 flex items-center/);
   assert.match(chatView, /aria-label=\{`Select model/);
-  // Mobile/tablet model switcher renders exact Gemini 18px (tablet/squeezed) & 17px (mobile) two-tone typography:
-  assert.match(chatView, /text-\[17px\] min-\[640px\]:text-\[18px\] leading-6/);
+  // Mobile/tablet model switcher renders exact Gemini 3-tier typography (16px mobile, 17px squeezed, 18px tab):
+  assert.match(chatView, /text-\[16px\] min-\[640px\]:text-\[17px\] min-\[769px\]:text-\[18px\] leading-6/);
+  assert.match(chatView, /"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif/);
   assert.match(chatView, /mobileModelInfo\.primary/);
   assert.match(chatView, /mobileModelInfo\.secondary/);
+  assert.match(chatView, /#e3e3e3/);
+  assert.match(chatView, /#8c8c8c/);
   assert.match(chatView, /"wght" 470/);
   assert.match(chatView, /"wght" 400/);
+  // Press / active state renders exact blue pill background matching Gemini app:
+  assert.match(chatView, /bg-\[#151d29\]/);
   // Mobile model switcher dropdown chevron is dark blue (#062e6f) matching Gemini app:
   assert.match(chatView, /name="expand_more"[\s\S]*?text-\[#062e6f\]/);
 
