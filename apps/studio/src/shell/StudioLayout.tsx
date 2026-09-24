@@ -303,7 +303,7 @@ export const StudioLayout: React.FC<{
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] max-[960px]:top-[8px] right-[12px] max-[960px]:right-[60px] z-30 flex items-center">
+          <div className="absolute top-[14px] right-[12px] max-[960px]:top-[8px] max-[960px]:right-[60px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);

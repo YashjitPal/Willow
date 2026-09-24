@@ -747,17 +747,13 @@ export const InputBar: React.FC<{
   // model added the empty-box slot is the Live toggle and has to stay. It is
   // only with no live model that an empty box leaves the slot with nothing to
   // say — that is the case that used to render a dulled, inert send button, and
-  // the case Gemini renders as nothing.
-  //
-  // `isTranscribingDictation` is excluded deliberately: that state owns the
-  // slot as a progress spinner, and it is reached with the box still empty.
-  const showSubmitControl = !(
-    chatVariant
+  // On desktop (> 960px), Gemini hides the submit control when empty unless Gemini Live is available.
+  // On mobile (<= 960px), Gemini app always shows the Live button in the prompt box when empty.
+  const isSubmitControlHiddenOnDesktop = chatVariant
     && !hasContent
     && !liveAvailable
     && !responseControlActive
-    && !isTranscribingDictation
-  );
+    && !isTranscribingDictation;
 
   // True when this slot is the one that mounts and unmounts with the draft, so
   // the entrance below applies only where Gemini actually plays it. With a live
@@ -904,7 +900,7 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] max-[960px]:py-[28px] min-h-[64px] max-[960px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -972,7 +968,7 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] max-[960px]:pl-[52px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -1013,15 +1009,15 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} `}>
-              <div className={`${chatVariant ? 'w-8' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[960px]:bottom-[20px] ${chatVariant ? 'left-[6px] max-[960px]:left-[4px]' : 'left-[0px]'}`} `}>
+              <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
                   disabled={disabled}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? `w-8 h-8 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
+                  className={`${chatVariant ? `w-8 h-8 max-[960px]:w-10 max-[960px]:h-10 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
                 >
                   {chatVariant
                     ? (
@@ -1082,7 +1078,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 max-[960px]:gap-2' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] max-[960px]:bottom-[20px] right-[0px] max-[960px]:right-[4px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button
@@ -1131,7 +1127,7 @@ export const InputBar: React.FC<{
                 aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
                 aria-pressed={isMicMuteToggle ? liveMicMuted : undefined}
                 title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative outline-none flex items-center justify-center w-8 h-8 rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
+                className={`relative outline-none flex items-center justify-center ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-8 h-8'} rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
                   // ChatGPT transitions only the colour group, over 200ms on
                   // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
                   isMicMuteToggle
@@ -1170,7 +1166,6 @@ export const InputBar: React.FC<{
                   />
                 )}
               </button>
-              {showSubmitControl && (
               <button
                 onClick={() => {
                   if (isDictationActive) return;
@@ -1182,11 +1177,8 @@ export const InputBar: React.FC<{
                   if (isResponseRevealing) return;
                   if (hasContent) return handleSubmit();
                   if (!chatVariant) return;
-                  if (!liveAvailable) return;
                   if (isComposerMaximized) setIsComposerMaximized(false);
-                  // Empty input in chat → the AudioLines button is the Live
-                  // toggle. Same 34×34 circle so footer height is unchanged
-                  // and the Chat spacing math stays valid.
+                  // Empty input in chat → the Live toggle.
                   liveActive ? onStopLive?.() : onStartLive?.();
                 }}
                 disabled={disabled || (isDictationActive && !isGenerating)}
@@ -1226,7 +1218,7 @@ export const InputBar: React.FC<{
                 onMouseLeave={() => setIsSubmitHovered(false)}
                 onMouseOver={() => setIsSubmitHovered(true)}
                 onMouseOut={() => setIsSubmitHovered(false)}
-                className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${isSubmitControlHiddenOnDesktop ? 'hidden max-[960px]:flex' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'max-[960px]:[animation:none] willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? responseControlActive || liveActive
                       ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
@@ -1268,7 +1260,6 @@ export const InputBar: React.FC<{
                           </svg>
                 )}
               </button>
-              )}
             </div>
           </div>
         </div>

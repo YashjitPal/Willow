@@ -59,10 +59,31 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
   const chatView = read('features/chat/src/ChatView.tsx');
   assert.match(chatView, /px-3\.5 sm:px-7 pt-\[56px\] sm:pt-\[72px\]/);
   assert.match(chatView, /w-full sm:w-auto sm:max-w-\[516px\]/);
-  assert.match(chatView, /px-4 max-\[960px\]:pb-\[8px\] min-\[961px\]:pb-\[49px\]/);
+  assert.match(chatView, /px-4 max-\[960px\]:pb-\[12px\] min-\[961px\]:pb-\[49px\]/);
 
   const chrome = read('features/chat/src/ChatResponseChrome.tsx');
   assert.match(chrome, /w-\[400px\] max-w-\[calc\(100%_-_32px\)\]/);
+});
+
+test('Chat prompt box matches Gemini mobile specs at 960px and preserves desktop', () => {
+  const composer = read('features/chat/src/composer/Composer.tsx');
+
+  // Height: 80px on mobile (<= 960px), 64px on desktop (> 960px):
+  assert.match(composer, /py-\[20px\] max-\[960px\]:py-\[28px\] min-h-\[64px\] max-\[960px\]:min-h-\[80px\]/);
+
+  // Corner radius: 40px on mobile:
+  assert.match(composer, /rounded-\[32px\] max-\[960px\]:rounded-\[40px\]/);
+
+  // Buttons sized 40px on mobile:
+  assert.match(composer, /w-8 max-\[960px\]:w-10/);
+  assert.match(composer, /w-8 h-8 max-\[960px\]:w-10 max-\[960px\]:h-10/);
+
+  // Plus button and trailing controls vertically centered:
+  assert.match(composer, /bottom-\[16px\] max-\[960px\]:bottom-\[20px\]/);
+  assert.match(composer, /bottom-\[12px\] max-\[960px\]:bottom-\[20px\]/);
+
+  // Submit / Live button is permanently visible on mobile and hidden when empty on desktop:
+  assert.match(composer, /isSubmitControlHiddenOnDesktop \? 'hidden max-\[960px\]:flex' : 'flex'/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {

@@ -67,6 +67,12 @@
   animation: willow-composer-send-enter 250ms linear both;
 }
 
+@media (max-width: 960px) {
+  .willow-composer-send-enter {
+    animation: none;
+  }
+}
+
 /*
  * Both classes land on the same button while a dictation transcribes, and both
  * set `animation` — equal specificity, so source order alone would decide and
