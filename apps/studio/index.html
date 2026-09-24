@@ -518,15 +518,23 @@
         --input: 0 0% 20%;
         --ring: 262 83% 58%;
         --radius: 0.5rem;
+        --studio-surface: #0f0f0f;
+      }
+      :is(.light-theme, [data-theme="light"]) {
+        --studio-surface: #faf9f9;
       }
       body {
         margin: 0;
         padding: 0;
-        background-color: #030303;
+        background-color: #0f0f0f;
         color: white;
         overflow: hidden;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+      }
+      body:is(.light-theme, [data-theme="light"]) {
+        background-color: #faf9f9;
+        color: #1f1f1f;
       }
 
       /* Exact Gemini typography rule for bold text: 540 weight instead of chunky 700 */
@@ -785,8 +793,13 @@
           --studio-surface: #000000;
         }
 
-        .studio-layout {
-          background-color: var(--studio-surface, #000000);
+        body:not(.light-theme):not([data-theme="light"]) {
+          background-color: #000000;
+        }
+
+        .studio-layout:not(.light-theme) {
+          --studio-surface: #000000 !important;
+          background-color: #000000 !important;
         }
 
         .willow-gemini-home-glow {

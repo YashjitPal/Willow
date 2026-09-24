@@ -116,6 +116,12 @@ export const GLOW_ACCENT_TRANSFORM = {
   hueShiftDeg: 9.038231999938716,
 } as const;
 
+export const GLOW_ACCENT_MOBILE_TRANSFORM = {
+  lightnessRatio: 0.5283457597193529,
+  chromaRatio: 0.7601614769068032,
+  hueShiftDeg: 10.35417389812423,
+} as const;
+
 export const GLOW_ACCENT_LIGHT_TRANSFORM = {
   lightnessRatio: 1.3528572927561568,
   chromaRatio: 0.44604621061150834,
@@ -200,6 +206,7 @@ export interface WorkspaceComputedTheme {
   label: string;
   swatchHex: string;
   glowAccent: string;
+  glowAccentMobile: string;
   glowAccentLight: string;
   sendButton: {
     bg: string;
@@ -259,6 +266,21 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     ]);
     const [r, g, b] = glowRgb.map((c) => Math.round(c * 255));
     glowAccent = `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // 1b. Glow accent mobile (dark theme <= 960px)
+  let glowAccentMobile = 'rgb(19, 67, 44)';
+  if (def.id === 'blue') {
+    glowAccentMobile = 'rgb(31, 59, 155)'; // #1f3b9b, Gemini upstream mobile accent
+  } else if (def.id !== 'green') {
+    const [L, C, h] = rgbToOklch(hexToRgb(def.hex));
+    const mobileRgb = oklchToRgb([
+      L * GLOW_ACCENT_MOBILE_TRANSFORM.lightnessRatio,
+      C * GLOW_ACCENT_MOBILE_TRANSFORM.chromaRatio,
+      (h + GLOW_ACCENT_MOBILE_TRANSFORM.hueShiftDeg + 360) % 360,
+    ]);
+    const [mr, mg, mb] = mobileRgb.map((c) => Math.round(c * 255));
+    glowAccentMobile = `rgb(${mr}, ${mg}, ${mb})`;
   }
 
   let glowAccentLight: string;
@@ -489,6 +511,7 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     label: def.label,
     swatchHex: def.hex,
     glowAccent,
+    glowAccentMobile,
     glowAccentLight,
     sendButton: {
       bg: sendBg,

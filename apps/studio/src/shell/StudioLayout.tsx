@@ -108,13 +108,13 @@ export const StudioLayout: React.FC<{
   const chatPanelOpen = useStore($chatPanelOpen);
   const voiceModeActive = useStore($voiceModeActive);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
-  const studioSurface = isLight ? '#faf9f9' : '#0f0f0f';
+  const studioSurface = isLight ? '#faf9f9' : undefined;
   
   return (
     <div
       className={`studio-layout studio-layout--${studioExperience} ${isLight ? 'light-theme text-[#1f1f1f]' : 'text-white'} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] relative`}
       style={{
-        '--studio-surface': studioSurface,
+        ...(studioSurface ? { '--studio-surface': studioSurface } : {}),
         '--studio-selection-bg': selectionBg,
         '--studio-notice-bg': theme.notice.bg,
         '--studio-notice-text': theme.notice.text,
@@ -303,7 +303,7 @@ export const StudioLayout: React.FC<{
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[12px] max-[960px]:right-[52px] z-30 flex items-center">
+          <div className="absolute top-[14px] max-[960px]:top-[8px] right-[12px] max-[960px]:right-[60px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -320,12 +320,12 @@ export const StudioLayout: React.FC<{
                * to `close`, so a pill on top of that would be saying it twice;
                * hover is the only background this button ever shows.
                */
-              className={`w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors bg-transparent ${
+              className={`w-[36px] h-[36px] max-[960px]:w-[48px] max-[960px]:h-[48px] p-2 rounded-full flex items-center justify-center transition-colors bg-transparent ${
                 isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
               }`}
             >
               <span
-                className={`lumi-symbols text-[24px] leading-none select-none ${
+                className={`lumi-symbols text-[24px] max-[960px]:text-[26px] leading-none select-none ${
                   isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
                 }`}
                 style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
@@ -341,23 +341,25 @@ export const StudioLayout: React.FC<{
             </button>
           </div>
         )}
-        {/* Mobile top-right account avatar button (Exact Gemini mobile specs at x:342, y:12) */}
+        {/* Mobile top-right account avatar button (Exact Gemini mobile specs at right: 12px, top: 8px) */}
         {currentView === 'home' && isChatExperience && (
-          <div className="min-[961px]:hidden absolute top-[12px] right-[12px] z-30 flex items-center">
+          <div className="min-[961px]:hidden absolute top-[8px] right-[12px] z-30 flex items-center">
             <button
               type="button"
               aria-label="Open account menu"
               onClick={() => onSettingsClick()}
-              className="flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-95"
+              className="flex h-12 w-12 items-center justify-center rounded-full transition-transform active:scale-95"
             >
               {userProfile?.photoURL ? (
-                <img
-                  src={userProfile.photoURL}
-                  alt="User"
-                  className="h-8 w-8 rounded-full object-cover border border-white/10"
-                />
+                <div className="h-10 w-10 p-[2px] rounded-full border-2 border-[#8ab4f8]">
+                  <img
+                    src={userProfile.photoURL}
+                    alt="User"
+                    className="h-full w-full rounded-full object-cover"
+                  />
+                </div>
               ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[13px] font-medium text-white">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#8ab4f8] bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[15px] font-medium text-white">
                   {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                 </span>
               )}

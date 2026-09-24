@@ -904,7 +904,7 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] max-[960px]:py-[28px] min-h-[64px] max-[960px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-h-[64px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -1013,7 +1013,7 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[960px]:bottom-[24px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} `}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} `}>
               <div className={`${chatVariant ? 'w-8' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
@@ -1082,7 +1082,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] max-[960px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button

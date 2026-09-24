@@ -9,6 +9,7 @@ import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/regi
 import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { homeGlowAccent, homeGlowAccentLight, homeGlowMobileAccent } from './home-glow';
 import logo from '@willow/assets/brand/logo.png';
 
@@ -1078,7 +1079,8 @@ export const HeroSection: React.FC<{
                 <img
                   src={logo}
                   alt="Willow"
-                  className="w-10 h-10 object-contain drop-shadow-sm mb-3 sm:mb-4 select-none"
+                  className="w-10 h-10 object-contain drop-shadow-sm mb-3 sm:mb-4 select-none transition-[filter] duration-300"
+                  style={{ filter: getWorkspaceTheme(userProfile?.workspaceColor).logoFilter }}
                 />
               )}
               <ChatZeroStateGreeting

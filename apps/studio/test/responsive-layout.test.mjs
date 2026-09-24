@@ -59,7 +59,7 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
   const chatView = read('features/chat/src/ChatView.tsx');
   assert.match(chatView, /px-3\.5 sm:px-7 pt-\[56px\] sm:pt-\[72px\]/);
   assert.match(chatView, /w-full sm:w-auto sm:max-w-\[516px\]/);
-  assert.match(chatView, /px-4 pb-\[20px\] sm:pb-\[49px\]/);
+  assert.match(chatView, /px-4 max-\[960px\]:pb-\[8px\] min-\[961px\]:pb-\[49px\]/);
 
   const chrome = read('features/chat/src/ChatResponseChrome.tsx');
   assert.match(chrome, /w-\[400px\] max-w-\[calc\(100%_-_32px\)\]/);
@@ -68,14 +68,14 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
   const layout = read('apps/studio/src/shell/StudioLayout.tsx');
   // Mobile account avatar in top right:
-  assert.match(layout, /min-\[961px\]:hidden absolute top-\[12px\] right-\[12px\] z-30 flex items-center/);
+  assert.match(layout, /min-\[961px\]:hidden absolute top-\[8px\] right-\[12px\] z-30 flex items-center/);
   assert.match(layout, /aria-label="Open account menu"/);
   // Temporary chat has mobile offset:
-  assert.match(layout, /right-\[12px\] max-\[960px\]:right-\[52px\]/);
+  assert.match(layout, /right-\[12px\] max-\[960px\]:right-\[60px\]/);
 
   const sidebarCss = read('apps/studio/src/shell/sidebar/Sidebar.css');
-  // Actions anchor gets mobile 52px offset inside 960px media query:
-  assert.match(sidebarCss, /\.willow-conv-actions-anchor \{\s*right:\s*52px !important;/);
+  // Actions anchor gets mobile 60px offset inside 960px media query:
+  assert.match(sidebarCss, /\.willow-conv-actions-anchor \{\s*right:\s*60px !important;/);
 
   const chatView = read('features/chat/src/ChatView.tsx');
   // Mobile top-bar model switcher:
