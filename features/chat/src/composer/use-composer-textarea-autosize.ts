@@ -90,6 +90,7 @@ export const useComposerTextareaAutosize = ({
     if (isSolid) {
       textarea.style.transition = 'none';
       textarea.style.overflowY = 'hidden';
+      textarea.scrollTop = 0;
 
       const collapsedPaddingLeftVal = chatVariant ? '46px' : '40px';
       const collapsedPaddingRightVal = chatVariant ? `${collapsedChatPaddingRight}px` : '76px';
@@ -159,6 +160,7 @@ export const useComposerTextareaAutosize = ({
         textarea.style.overflowY = 'hidden';
       }
 
+      textarea.scrollTop = 0;
       textarea.style.paddingLeft = '';
       textarea.style.paddingRight = '';
       void textarea.offsetHeight;
