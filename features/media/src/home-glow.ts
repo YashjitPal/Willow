@@ -121,6 +121,51 @@ export const homeGlowAccent = (color: string | null | undefined): string =>
     ? HOME_GLOW_ACCENT[color as WorkspaceColorName]
     : DEFAULT_GLOW_ACCENT);
 
+/** Gemini's mobile `--bard-color-lm-glow-chat`, dark theme. */
+export const GEMINI_GLOW_ACCENT_MOBILE_HEX = '#1f3b9b';
+
+/** The mobile glow Willow ships when green or default is selected. */
+export const DEFAULT_GLOW_ACCENT_MOBILE = 'rgb(19, 67, 44)';
+
+/**
+ * The measured OKLCh transform from a workspace swatch to its mobile glow accent,
+ * taken from Gemini's mobile pair `#3b82f6` -> `#1f3b9b`.
+ */
+export const GLOW_ACCENT_MOBILE_TRANSFORM = {
+  lightnessRatio: 0.6366112569297969,
+  chromaRatio: 0.8506365170953537,
+  hueShiftDeg: 6.571554159990285,
+} as const;
+
+/** Apply the measured mobile transform to one swatch. Returns `rgb(r, g, b)`. */
+export const deriveGlowMobileAccent = (hex: string): string => {
+  const [L, C, h] = rgbToOklch(hexToRgb(hex));
+  const { lightnessRatio, chromaRatio, hueShiftDeg } = GLOW_ACCENT_MOBILE_TRANSFORM;
+  const rgb = oklchToRgb([
+    L * lightnessRatio,
+    C * chromaRatio,
+    (h + hueShiftDeg + 360) % 360,
+  ]);
+  return `rgb(${rgb.map((c) => Math.round(c * 255)).join(', ')})`;
+};
+
+export const HOME_GLOW_MOBILE_ACCENT = {
+  green: DEFAULT_GLOW_ACCENT_MOBILE,
+  blue: 'rgb(31, 59, 155)',
+  pink: 'rgb(142, 0, 71)',
+  yellow: 'rgb(122, 98, 0)',
+  orange: 'rgb(131, 64, 0)',
+  purple: 'rgb(85, 22, 150)',
+  lilac: 'rgb(115, 56, 147)',
+  coral: 'rgb(143, 0, 26)',
+  teal: 'rgb(0, 98, 93)',
+} as const satisfies Record<WorkspaceColorName, string>;
+
+export const homeGlowMobileAccent = (color: string | null | undefined): string =>
+  (color && color in HOME_GLOW_MOBILE_ACCENT
+    ? HOME_GLOW_MOBILE_ACCENT[color as WorkspaceColorName]
+    : DEFAULT_GLOW_ACCENT_MOBILE);
+
 /** Gemini's `--lumi-sys-color--surface-accent`, light theme. */
 export const GEMINI_GLOW_ACCENT_LIGHT_HEX = '#9dd2ff';
 

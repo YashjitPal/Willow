@@ -9,7 +9,7 @@ import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/regi
 import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { useThemeMode } from '@willow/core/theme-mode';
-import { homeGlowAccent, homeGlowAccentLight } from './home-glow';
+import { homeGlowAccent, homeGlowAccentLight, homeGlowMobileAccent } from './home-glow';
 import logo from '@willow/assets/brand/logo.png';
 
 /**
@@ -655,6 +655,7 @@ export const HeroSection: React.FC<{
   const glowAccent = isLight
     ? homeGlowAccentLight(userProfile?.workspaceColor)
     : glowAccentDark;
+  const glowAccentMobile = homeGlowMobileAccent(userProfile?.workspaceColor);
 
   /*
    * The glow waits for the greeting, and arrives with it.
@@ -683,7 +684,10 @@ export const HeroSection: React.FC<{
   return (
     <div
       className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${glowClass}`}
-      style={{ '--willow-home-glow-accent': glowAccent } as React.CSSProperties}
+      style={{
+        '--willow-home-glow-accent': glowAccent,
+        '--willow-home-glow-mobile-accent': glowAccentMobile,
+      } as React.CSSProperties}
     >
       {studioMode === 'media' ? (
         <>

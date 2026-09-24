@@ -755,10 +755,119 @@
         );
       }
 
+      @keyframes willow-lm-background-mobile-fade {
+        0% {
+          opacity: 0;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
 
+      @keyframes willow-lm-glow-bloom-fade {
+        0% {
+          opacity: 0;
+        }
+        100% {
+          opacity: 0.5;
+        }
+      }
+
+      /*
+       * Gemini responsive mobile glow (<= 960px).
+       * Transcribed directly from Gemini's `@media screen and (max-width: 959.98px)`.
+       * Uses the local SVG mask to create the soft rising bloom behind the bottom
+       * prompt bar on the right, keeping the upper screen dark.
+       * Desktop fullscreen (> 960px) is completely unaffected.
+       */
+      @media (max-width: 960px) {
+        :root:not(.light-theme):not([data-theme="light"]) {
+          --studio-surface: #000000;
+        }
+
+        .studio-layout {
+          background-color: var(--studio-surface, #000000);
+        }
+
+        .willow-gemini-home-glow {
+          overflow-x: clip;
+        }
+
+        .willow-gemini-home-glow::before {
+          position: fixed;
+          top: auto;
+          bottom: -445.7px;
+          left: calc(50% + 45px);
+          width: 1484px;
+          max-width: none;
+          height: auto;
+          max-height: none;
+          aspect-ratio: 1.4338 / 1;
+          transform: translateX(-50%);
+          border-radius: 0;
+          filter: none;
+          -webkit-mask-image: url("/glow-mask.svg");
+          mask-image: url("/glow-mask.svg");
+          -webkit-mask-size: 100% 200%;
+          mask-size: 100% 200%;
+          -webkit-mask-position: 0px 0px;
+          mask-position: 0px 0px;
+          -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+          background: var(--willow-home-glow-mobile-accent, var(--willow-home-glow-accent, rgb(19, 67, 44)));
+          pointer-events: none;
+          z-index: -1;
+          animation: willow-lm-background-mobile-fade 1s cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
+          background: rgb(68, 71, 70);
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow::before {
+          background: var(--willow-home-glow-accent, rgb(158, 174, 153));
+          filter: none;
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
+          background: rgb(196, 199, 197);
+        }
+
+        .willow-gemini-home-glow::after {
+          content: "";
+          position: fixed;
+          top: auto;
+          bottom: -412.3px;
+          left: calc(50% - 26.1px);
+          width: 1484px;
+          max-width: none;
+          height: auto;
+          max-height: none;
+          aspect-ratio: 1.4338 / 1;
+          transform: translateX(-50%) rotate(15.37deg);
+          -webkit-mask-image: url("/glow-mask.svg");
+          mask-image: url("/glow-mask.svg");
+          -webkit-mask-size: 100% 200%;
+          mask-size: 100% 200%;
+          -webkit-mask-position: 0px 100%;
+          mask-position: 0px 100%;
+          -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+          background: #000000;
+          opacity: 0.5;
+          pointer-events: none;
+          z-index: -1;
+          animation: willow-lm-glow-bloom-fade 1s cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow::after {
+          background: #ffffff;
+        }
+      }
 
       @media (prefers-reduced-motion: reduce) {
         .willow-gemini-home-glow::before,
+        .willow-gemini-home-glow::after,
         .willow-gemini-home-glow-gray::before {
           animation: none;
         }

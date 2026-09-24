@@ -52,17 +52,23 @@ const glowModule = path.join(repoRoot, 'features', 'media', 'src', 'home-glow.ts
 const {
   DEFAULT_GLOW_ACCENT,
   DEFAULT_GLOW_ACCENT_LIGHT,
+  DEFAULT_GLOW_ACCENT_MOBILE,
   GEMINI_GLOW_ACCENT_HEX,
   GEMINI_GLOW_ACCENT_LIGHT_HEX,
+  GEMINI_GLOW_ACCENT_MOBILE_HEX,
   GLOW_ACCENT_TRANSFORM,
   GLOW_ACCENT_LIGHT_TRANSFORM,
+  GLOW_ACCENT_MOBILE_TRANSFORM,
   HOME_GLOW_ACCENT,
   HOME_GLOW_ACCENT_LIGHT,
+  HOME_GLOW_MOBILE_ACCENT,
   WORKSPACE_COLOR_HEX,
   deriveGlowAccent,
   deriveGlowAccentLight,
+  deriveGlowMobileAccent,
   homeGlowAccent,
   homeGlowAccentLight,
+  homeGlowMobileAccent,
 } = await importTs(glowModule);
 
 const asRgb = (hex) => {
@@ -131,6 +137,30 @@ it('keeps every derived light accent equal to the derivation', () => {
   }
 });
 
+it('carries Gemini\'s measured mobile accent for blue', () => {
+  assert.equal(GEMINI_GLOW_ACCENT_MOBILE_HEX, '#1f3b9b',
+    'the mobile accent drifted from Gemini\'s measured --bard-color-lm-glow-chat');
+  assert.equal(HOME_GLOW_MOBILE_ACCENT.blue, 'rgb(31, 59, 155)',
+    'the blue mobile glow is no longer Gemini\'s #1f3b9b');
+  assert.equal(HOME_GLOW_MOBILE_ACCENT.blue, asRgb(GEMINI_GLOW_ACCENT_MOBILE_HEX),
+    'the baked blue and the measured mobile hex disagree');
+});
+
+it('anchors the mobile transform on the Gemini pair it was measured from', () => {
+  assert.equal(deriveGlowMobileAccent(WORKSPACE_COLOR_HEX.blue), asRgb(GEMINI_GLOW_ACCENT_MOBILE_HEX),
+    'the mobile transform no longer reproduces #1f3b9b from #3b82f6');
+});
+
+it('keeps every derived mobile accent equal to the derivation', () => {
+  for (const name of Object.keys(HOME_GLOW_MOBILE_ACCENT)) {
+    assert.equal(
+      HOME_GLOW_MOBILE_ACCENT[name],
+      deriveGlowMobileAccent(WORKSPACE_COLOR_HEX[name]),
+      `the baked ${name} mobile accent drifted from deriveGlowMobileAccent(${WORKSPACE_COLOR_HEX[name]})`,
+    );
+  }
+});
+
 // ── Green is the default and must not move ──────────────────────────────────
 
 it('holds green at the colour that ships today', () => {
@@ -142,6 +172,10 @@ it('holds green at the colour that ships today', () => {
     'the default light glow green changed');
   assert.equal(HOME_GLOW_ACCENT_LIGHT.green, DEFAULT_GLOW_ACCENT_LIGHT,
     'green is no longer the default light accent');
+  assert.equal(DEFAULT_GLOW_ACCENT_MOBILE, 'rgb(19, 67, 44)',
+    'the default mobile glow green changed');
+  assert.equal(HOME_GLOW_MOBILE_ACCENT.green, DEFAULT_GLOW_ACCENT_MOBILE,
+    'green is no longer the default mobile accent');
 });
 
 it('falls back to green for a missing or unknown workspace colour', () => {
@@ -150,11 +184,15 @@ it('falls back to green for a missing or unknown workspace colour', () => {
       `homeGlowAccent(${JSON.stringify(value)}) must fall back to the default green`);
     assert.equal(homeGlowAccentLight(value), DEFAULT_GLOW_ACCENT_LIGHT,
       `homeGlowAccentLight(${JSON.stringify(value)}) must fall back to default light green`);
+    assert.equal(homeGlowMobileAccent(value), DEFAULT_GLOW_ACCENT_MOBILE,
+      `homeGlowMobileAccent(${JSON.stringify(value)}) must fall back to default mobile green`);
   }
   assert.equal(homeGlowAccent('blue'), 'rgb(20, 32, 79)');
   assert.equal(homeGlowAccentLight('blue'), 'rgb(157, 210, 255)');
+  assert.equal(homeGlowMobileAccent('blue'), 'rgb(31, 59, 155)');
   assert.equal(homeGlowAccent('green'), 'rgb(6, 78, 59)');
   assert.equal(homeGlowAccentLight('green'), 'rgb(158, 174, 153)');
+  assert.equal(homeGlowMobileAccent('green'), 'rgb(19, 67, 44)');
 });
 
 // ── The CSS and the host ────────────────────────────────────────────────────
