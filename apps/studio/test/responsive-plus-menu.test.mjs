@@ -22,7 +22,7 @@ test('PlusDropdownMenu.tsx defines 3-tier responsive device modes', () => {
   // Hook detection based on pointer type and viewport:
   assert.match(code, /window\.matchMedia\('\(pointer: coarse\)'\)\.matches/);
   assert.match(code, /Android\|webOS\|iPhone\|iPad\|iPod\|BlackBerry\|IEMobile\|Opera Mini/i);
-  assert.match(code, /if \(isTouch && width <= 960\) return 'mobile';/);
+  assert.match(code, /if \(isTouch && width <= 768\) return 'mobile';/);
   assert.match(code, /if \(width <= 960\) return 'compact';/);
   assert.match(code, /return 'desktop';/);
 });

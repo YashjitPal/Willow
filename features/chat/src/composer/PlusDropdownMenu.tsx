@@ -494,7 +494,7 @@ function useDeviceMode(): DeviceMode {
       window.location.search.includes('view=mobile')
     );
     const isTouch = isCoarse || isMobileUA || hasForceMobile;
-    if (isTouch && width <= 960) return 'mobile';
+    if (isTouch && width <= 768) return 'mobile';
     if (width <= 960) return 'compact';
     return 'desktop';
   });
@@ -509,7 +509,7 @@ function useDeviceMode(): DeviceMode {
         window.location.search.includes('view=mobile')
       );
       const isTouch = isCoarse || isMobileUA || hasForceMobile;
-      if (isTouch && width <= 960) {
+      if (isTouch && width <= 768) {
         setDeviceMode('mobile');
       } else if (width <= 960) {
         setDeviceMode('compact');
@@ -615,19 +615,20 @@ export const PlusDropdownMenu: React.FC<{
     const btn = buttonRef.current;
     if (!btn) return;
     const btnRect = btn.getBoundingClientRect();
-    const composerBox = btn.closest('.willow-gemini-composer') || btn.closest('.relative.w-full') || btn.parentElement;
-    const composerLeft = composerBox ? composerBox.getBoundingClientRect().left : btnRect.left;
     const cardWidth = Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375);
 
-    let targetOffset = composerLeft - btnRect.left;
-    const screenRight = btnRect.left + targetOffset + cardWidth;
-    const maxScreenRight = window.innerWidth - 16;
-    if (screenRight > maxScreenRight) {
-      targetOffset -= (screenRight - maxScreenRight);
+    // In Gemini tablet & reduced view, the card aligns with the plus button cluster (-4px offset to match simplified-input-menu-container).
+    // The positioning parent is .willow-composer-leading-actions (where buttonRef is at left: 0).
+    let targetOffset = -4;
+    const cardLeftInViewport = btnRect.left + targetOffset;
+    const cardRightInViewport = cardLeftInViewport + cardWidth;
+    const maxViewportRight = window.innerWidth - 16;
+    if (cardRightInViewport > maxViewportRight) {
+      targetOffset -= (cardRightInViewport - maxViewportRight);
     }
-    const screenLeft = btnRect.left + targetOffset;
-    if (screenLeft < 16) {
-      targetOffset += (16 - screenLeft);
+    const clampedCardLeft = btnRect.left + targetOffset;
+    if (clampedCardLeft < 16) {
+      targetOffset += (16 - clampedCardLeft);
     }
     setCardLeftOffset(targetOffset);
   }, [isOpen, deviceMode, buttonRef]);

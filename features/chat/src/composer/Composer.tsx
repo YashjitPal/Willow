@@ -966,11 +966,11 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 max-[960px]:text-[20px] max-[960px]:leading-6 max-[960px]:pl-[52px] " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 max-[960px]:text-[20px] max-[960px]:leading-6 " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] min-[769px]:max-[960px]:pl-[58px] max-[768px]:pl-[54px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
-              <div className="absolute left-[46px] right-[86px] top-1/2 -translate-y-1/2">
+              <div className="absolute left-[46px] min-[769px]:max-[960px]:left-[58px] max-[768px]:left-[54px] right-[86px] top-1/2 -translate-y-1/2">
                 <DictationWaveform stream={dictationStream} />
               </div>
             )}
@@ -1007,7 +1007,7 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} `}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] min-[769px]:max-[960px]:left-[10px] max-[768px]:left-[6px]' : 'left-[0px]'}`} `}>
               <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
