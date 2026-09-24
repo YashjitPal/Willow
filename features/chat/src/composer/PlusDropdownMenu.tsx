@@ -494,6 +494,7 @@ function useDeviceMode(): DeviceMode {
       window.location.search.includes('view=mobile')
     );
     const isTouch = isCoarse || isMobileUA || hasForceMobile;
+    if (width <= 768) return 'mobile';
     if (isTouch && width <= 768) return 'mobile';
     if (width <= 960) return 'compact';
     return 'desktop';
@@ -509,7 +510,9 @@ function useDeviceMode(): DeviceMode {
         window.location.search.includes('view=mobile')
       );
       const isTouch = isCoarse || isMobileUA || hasForceMobile;
-      if (isTouch && width <= 768) {
+      if (width <= 768) {
+        setDeviceMode('mobile');
+      } else if (isTouch && width <= 768) {
         setDeviceMode('mobile');
       } else if (width <= 960) {
         setDeviceMode('compact');

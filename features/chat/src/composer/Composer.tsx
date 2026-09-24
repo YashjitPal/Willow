@@ -703,6 +703,67 @@ export const InputBar: React.FC<{
     );
   };
 
+  /**
+   * Gemini's mobile & tablet tool chip (gem-attachment-chip / toolbox-drawer-container).
+   * Rendered on tablet & mobile (<= 960px) in a dedicated top container above the textarea.
+   * Measured specs: 48px height (h-12), rounded-full, px-3, 24px icon, 15px Google Sans Flex label,
+   * 20px close button with 16px close icon, always visible.
+   */
+  const MobileToolChip = ({ toolId, onRemove }: { toolId: ToolId; onRemove: () => void }) => {
+    const tool = (sparkMode ? SPARK_TOOLS[toolId as keyof typeof SPARK_TOOLS] : TOOLS[toolId as keyof typeof TOOLS]) ?? TOOLS[toolId as keyof typeof TOOLS];
+    const Icon = tool.icon;
+    const glyph = TOOL_SYMBOLS[toolId];
+    const useSparkIcon = sparkMode && (toolId === 'plan' || toolId === 'goal' || toolId === 'create-pet');
+
+    return (
+      <div
+        className={`flex h-12 shrink-0 select-none items-center rounded-full ${
+          isLight ? 'bg-black/[0.08]' : 'bg-[rgba(255,255,255,0.12)]'
+        } px-3 gap-1`}
+      >
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center">
+          {chatVariant && glyph && !useSparkIcon ? (
+            <MaterialSymbol
+              name={glyph}
+              family={sparkMode ? 'google-symbols' : 'luminous'}
+              size={24}
+              weight={300}
+              roundness={100}
+              opticalSize={24}
+              variationSettings={sparkMode ? '"wght" 330' : '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300'}
+              className={isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}
+            />
+          ) : (
+            <Icon size={20} className={isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'} strokeWidth={2.2} />
+          )}
+        </div>
+        <span
+          className={`whitespace-nowrap text-[15px] font-normal leading-5 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+          style={{ fontFamily: "'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif" }}
+        >
+          {tool.chipLabel}
+        </span>
+        <button
+          type="button"
+          aria-label={`close ${tool.chipLabel}`}
+          onClick={onRemove}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/10 active:bg-black/20 outline-none ml-1 cursor-pointer"
+        >
+          <MaterialSymbol
+            name="close"
+            family="luminous"
+            size={16}
+            weight={330}
+            roundness={100}
+            opticalSize={16}
+            variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330'
+            className={isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}
+          />
+        </button>
+      </div>
+    );
+  };
+
   // Handle Enter key press - Enter submits, Shift+Enter for new line
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -898,7 +959,7 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px] max-[960px]:pt-5 max-[960px]:pb-[72px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -918,6 +979,12 @@ export const InputBar: React.FC<{
                   roundness={0}
                 />
               </button>
+            )}
+            {/* Tablet & Mobile (<= 960px): Gemini renders selected tool chips in a dedicated top container above the textarea */}
+            {chatVariant && selectedTool && (
+              <div className="min-[961px]:hidden flex items-center mb-4 pl-1">
+                <MobileToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
+              </div>
             )}
             {/*
               * Collapsed `pl` tracks the plus button: Gemini's single-line row is a
@@ -1062,7 +1129,7 @@ export const InputBar: React.FC<{
                   against a passing positive control. The Angular ng-trigger-toolboxDrawerEnter
                   attribute is present but declares no animation that runs here. */}
               {selectedTool && (
-                <div className="mt-[1px]">
+                <div className="hidden min-[961px]:block mt-[1px]">
                   <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
                 </div>
               )}

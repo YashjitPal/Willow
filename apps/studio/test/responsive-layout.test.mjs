@@ -91,6 +91,16 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Submit / Send button matches Gemini: 32px (w-8 h-8) and hidden when empty across all viewports:
   assert.match(composer, /isSubmitControlHidden \? 'hidden' : 'flex'/);
   assert.match(composer, /chatVariant \? 'w-8 h-8' : 'w-\[34px\] h-\[34px\]'/);
+
+  // Selected tool chip placement matches Gemini:
+  // Tablet & Mobile (<= 960px): dedicated top row above textarea with 48px pill chip:
+  assert.match(composer, /min-\[961px\]:hidden flex items-center mb-4 pl-1/);
+  assert.match(composer, /<MobileToolChip toolId=\{selectedTool\}/);
+  assert.match(composer, /flex h-12 shrink-0 select-none items-center rounded-full/);
+  assert.match(composer, /max-\[960px\]:pt-5 max-\[960px\]:pb-\[72px\]/);
+
+  // Desktop (> 960px): bottom row beside plus button:
+  assert.match(composer, /hidden min-\[961px\]:block mt-\[1px\][\s\S]*?<ToolChip/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
