@@ -1539,8 +1539,8 @@ export const InputBar: React.FC<{
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Model Selector Button - on mobile (< 768px), rendered in top header */}
-            <div className="relative hidden sm:block">
+            {/* Model Selector Button - on mobile/tablets (<= 960px), rendered in top header */}
+            <div className="relative hidden min-[961px]:block">
               <button
                 ref={modelButtonRef}
                 onClick={() => setIsModelsOpen(!isModelsOpen)}

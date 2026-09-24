@@ -164,7 +164,7 @@ export const StudioLayout: React.FC<{
         }}
         currentView={currentView}
         onViewChange={(view) => {
-          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
             setIsSidebarCollapsed(true);
           }
           setCurrentView(view);
@@ -179,7 +179,7 @@ export const StudioLayout: React.FC<{
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         hasActiveChat={isChatOngoing}
         onNewChat={() => {
-          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
             setIsSidebarCollapsed(true);
           }
           selectLocalFSInboxChat(null);
@@ -190,7 +190,7 @@ export const StudioLayout: React.FC<{
         isHidden={isSidebarHidden}
         activeNotebookId={activeNotebookId}
         onOpenNotebook={(id) => {
-          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
             setIsSidebarCollapsed(true);
           }
           onOpenNotebook?.(id);
@@ -299,7 +299,7 @@ export const StudioLayout: React.FC<{
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[52px] sm:right-[12px] z-30 flex items-center">
+          <div className="absolute top-[14px] right-[12px] max-[960px]:right-[52px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -339,7 +339,7 @@ export const StudioLayout: React.FC<{
         )}
         {/* Mobile top-right account avatar button (Exact Gemini mobile specs at x:342, y:12) */}
         {currentView === 'home' && isChatExperience && (
-          <div className="sm:hidden absolute top-[12px] right-[12px] z-30 flex items-center">
+          <div className="min-[961px]:hidden absolute top-[12px] right-[12px] z-30 flex items-center">
             <button
               type="button"
               aria-label="Open account menu"

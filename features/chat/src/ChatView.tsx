@@ -3604,7 +3604,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }`}
       >
         {/* Mobile top-bar model switcher (Exact Gemini mobile specs at x:56, y:14) */}
-        <div className="sm:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
+        <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
           <button
             ref={mobileModelButtonRef}
             type="button"

@@ -670,7 +670,7 @@ const App: React.FC = () => {
   // Studio top-level mode: Develop (hero → workbench) vs Chat (in-studio ChatGPT-style thread)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.innerWidth < 768;
+      return window.innerWidth <= 960;
     }
     return false;
   });
@@ -678,7 +678,7 @@ const App: React.FC = () => {
 
   React.useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth < 768) {
+      if (window.innerWidth <= 960) {
         setIsSidebarCollapsed(true);
       }
     };

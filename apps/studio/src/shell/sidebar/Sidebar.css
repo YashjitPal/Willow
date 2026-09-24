@@ -132,7 +132,7 @@
   display: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 960px) {
   .studio-sidebar-mobile-scrim {
     position: fixed;
     inset: 0;

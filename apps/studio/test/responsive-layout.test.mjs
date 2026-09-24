@@ -10,11 +10,11 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 
-test('Sidebar.css defines universal mobile drawer and scrim rules at 768px breakpoint', () => {
+test('Sidebar.css defines universal mobile drawer and scrim rules at 960px breakpoint', () => {
   const css = read('apps/studio/src/shell/sidebar/Sidebar.css');
 
   // Universal media query breakpoint:
-  assert.match(css, /@media \(max-width:\s*768px\)/);
+  assert.match(css, /@media \(max-width:\s*960px\)/);
 
   // Mobile scrim:
   assert.match(css, /\.studio-sidebar-mobile-scrim \{\s*position:\s*fixed;\s*inset:\s*0;\s*z-index:\s*45;/);
@@ -41,12 +41,12 @@ test('StudioLayout.tsx enables universal mobile sidebar toggle and auto-collapse
   assert.match(layout, /!isSidebarCollapsed && \(\s*<button\s*type="button"\s*className="studio-sidebar-mobile-scrim"/);
 
   // Auto-collapse on mobile navigation:
-  assert.match(layout, /window\.innerWidth < 768/);
+  assert.match(layout, /window\.innerWidth <= 960/);
 });
 
 test('App.tsx initializes isSidebarCollapsed responsively and listens to resize', () => {
   const app = read('apps/studio/src/app/App.tsx');
-  assert.match(app, /window\.innerWidth < 768/);
+  assert.match(app, /window\.innerWidth <= 960/);
   assert.match(app, /window\.addEventListener\('resize', handleResize\)/);
 });
 
@@ -68,21 +68,21 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
   const layout = read('apps/studio/src/shell/StudioLayout.tsx');
   // Mobile account avatar in top right:
-  assert.match(layout, /sm:hidden absolute top-\[12px\] right-\[12px\] z-30 flex items-center/);
+  assert.match(layout, /min-\[961px\]:hidden absolute top-\[12px\] right-\[12px\] z-30 flex items-center/);
   assert.match(layout, /aria-label="Open account menu"/);
   // Temporary chat has mobile offset:
-  assert.match(layout, /right-\[52px\] sm:right-\[12px\]/);
+  assert.match(layout, /right-\[12px\] max-\[960px\]:right-\[52px\]/);
 
   const sidebarCss = read('apps/studio/src/shell/sidebar/Sidebar.css');
-  // Actions anchor gets mobile 52px offset inside 768px media query:
+  // Actions anchor gets mobile 52px offset inside 960px media query:
   assert.match(sidebarCss, /\.willow-conv-actions-anchor \{\s*right:\s*52px !important;/);
 
   const chatView = read('features/chat/src/ChatView.tsx');
   // Mobile top-bar model switcher:
-  assert.match(chatView, /sm:hidden absolute top-\[14px\] left-\[56px\] z-30 flex items-center/);
+  assert.match(chatView, /min-\[961px\]:hidden absolute top-\[14px\] left-\[56px\] z-30 flex items-center/);
   assert.match(chatView, /aria-label="Select model"/);
 
   const composer = read('features/chat/src/composer/Composer.tsx');
-  // Model button inside composer is hidden on mobile to give full width to input:
-  assert.match(composer, /relative hidden sm:block/);
+  // Model button inside composer is hidden on mobile/tablets to give full width to input:
+  assert.match(composer, /relative hidden min-\[961px\]:block/);
 });
