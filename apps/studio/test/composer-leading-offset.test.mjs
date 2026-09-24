@@ -88,7 +88,7 @@ const textareaClasses = (source) => {
  */
 const collapsedTextPad = (source) => {
   const m = textareaClasses(source)
-    .match(/chatVariant \? 'pl-\[(\d+)px\] pr-\[var\(--chat-collapsed-right-padding\)\]'/);
+    .match(/chatVariant \? 'pl-\[(\d+)px\](?: [^']*?)? pr-\[var\(--chat-collapsed-right-padding\)\]'/);
   assert.ok(m, 'could not read the collapsed chat text padding');
   return Number(m[1]);
 };
@@ -136,7 +136,7 @@ it('leaves the non-chat composer\'s plus where it was', () => {
 
 it('starts collapsed text at Gemini\'s 60px, 8px past the icon', () => {
   const classes = textareaClasses(codeOnly(COMPOSER()));
-  assert.match(classes, /chatVariant \? 'pl-\[46px\] pr-\[var\(--chat-collapsed-right-padding\)\]'/,
+  assert.match(classes, /chatVariant \? 'pl-\[46px\](?: [^']*?)? pr-\[var\(--chat-collapsed-right-padding\)\]'/,
     'the collapsed chat text no longer starts at 14+46 = 60px — the gap to the plus is not Gemini\'s 8px');
   assert.match(classes, /: 'pl-\[40px\] pr-\[76px\]'/,
     'the non-chat variant lost its own 40px text offset');

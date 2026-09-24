@@ -280,3 +280,25 @@
   }
 }
 
+/*
+ * Prompt box typography across tablet & mobile (<= 960px).
+ * Clones Gemini's 20px 375-weight placeholder with opsz 22 and wdth 100,
+ * and 20px line-height 24px prompt text.
+ */
+@media (max-width: 960px) {
+  .willow-dictation-textarea {
+    font-size: 20px;
+    line-height: 24px;
+  }
+  .willow-dictation-textarea::-webkit-input-placeholder,
+  .willow-dictation-textarea::placeholder {
+    font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+    font-size: 20px;
+    font-weight: 375;
+    line-height: 24px;
+    font-optical-sizing: none;
+    font-variation-settings: "ROND" 0, "opsz" 22, "slnt" 0, "wdth" 100;
+  }
+}
+
+

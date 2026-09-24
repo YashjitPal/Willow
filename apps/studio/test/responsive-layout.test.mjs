@@ -75,13 +75,20 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Corner radius: 32px desktop, 36px tablet, 40px mobile:
   assert.match(composer, /rounded-\[32px\] min-\[769px\]:max-\[960px\]:rounded-\[36px\] max-\[768px\]:rounded-\[40px\]/);
 
-  // Buttons sized 32px desktop, 36px tablet, 40px mobile:
-  assert.match(composer, /w-8 min-\[769px\]:max-\[960px\]:w-9 max-\[768px\]:w-10/);
-  assert.match(composer, /w-8 h-8 min-\[769px\]:max-\[960px\]:w-9 min-\[769px\]:max-\[960px\]:h-9 max-\[768px\]:w-10 max-\[768px\]:h-10/);
+  // Plus button: 32px desktop, 40px tablet & mobile (<= 960px):
+  assert.match(composer, /w-8 max-\[960px\]:w-10/);
+  assert.match(composer, /w-8 h-8 max-\[960px\]:w-10 max-\[960px\]:h-10/);
+
+  // Mic and submit buttons: 32px desktop & tablet, 40px mobile:
+  assert.match(composer, /w-8 h-8 max-\[768px\]:w-10 max-\[768px\]:h-10/);
 
   // Plus button and trailing controls vertically centered for each tier:
-  assert.match(composer, /bottom-\[16px\] min-\[769px\]:max-\[960px\]:bottom-\[18px\] max-\[768px\]:bottom-\[20px\]/);
+  assert.match(composer, /bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
   assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
+
+  // Typography: 17px desktop, 20px on tablet & mobile (<= 960px) with 375 weight placeholder:
+  assert.match(composer, /text-\[17px\] leading-6 max-\[960px\]:text-\[20px\] max-\[960px\]:leading-6/);
+  assert.match(composer, /placeholder:text-\[17px\] max-\[960px\]:placeholder:text-\[20px\] max-\[960px\]:placeholder:font-\[375\]/);
 
   // Width: consumes full width on mobile (<= 768px) and max-w-[660px] on tablet/desktop:
   assert.match(composer, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
