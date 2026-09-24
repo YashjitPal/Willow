@@ -39,6 +39,8 @@ import { CodeExecutionPanel } from '@willow/ui/CodeExecutionPanel';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
+import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
+import { useComposerModels } from './composer/use-composer-models';
 import { ResponseActions, ShowCodeToggle, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
 import { ThoughtSummaryLine, latestThoughtHeading } from './ThoughtSummaryLine';
@@ -317,6 +319,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
   workspaceColor,
 }) => {
   const { isLight } = useThemeMode();
+  const [isMobileModelsOpen, setIsMobileModelsOpen] = useState(false);
+  const mobileModelButtonRef = useRef<HTMLButtonElement>(null);
+  const { activeModel, getShortName } = useComposerModels({
+    modelConfig,
+    selectedModelId,
+    setSelectedModelId,
+  });
+  const mobileModelLabel = activeModel ? getShortName(activeModel.name) : 'Willow';
   const { loading: isAuthResolving } = useAuth();
   const { apiKeys, loading: areKeysLoading } = useUserDataContext();
   const {
@@ -3593,6 +3603,47 @@ export const ChatView: React.FC<ChatViewProps> = ({
           contextSidebarOpen ? 'min-[1024px]:mr-[428px]' : 'mr-0'
         }`}
       >
+        {/* Mobile top-bar model switcher (Exact Gemini mobile specs at x:56, y:14) */}
+        <div className="sm:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
+          <button
+            ref={mobileModelButtonRef}
+            type="button"
+            onClick={() => setIsMobileModelsOpen((prev) => !prev)}
+            className={`flex items-center gap-1 h-9 px-3 rounded-full text-[14px] font-medium transition-colors ${
+              isLight
+                ? 'text-[#1f1f1f] hover:bg-black/5 active:bg-black/10'
+                : 'text-[#e3e3e3] hover:bg-white/[0.08] active:bg-white/[0.12]'
+            }`}
+            aria-label="Select model"
+            aria-expanded={isMobileModelsOpen}
+          >
+            <span className="font-['Google_Sans_Flex','Google_Sans',sans-serif] tracking-tight font-medium">
+              {mobileModelLabel}
+            </span>
+            <MaterialSymbol
+              name="expand_more"
+              family="luminous"
+              size={18}
+              weight={300}
+              roundness={100}
+              opticalSize={20}
+              className={`transition-transform duration-200 ${isMobileModelsOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {isMobileModelsOpen && (
+            <ModelsMenu
+              triggerRef={mobileModelButtonRef}
+              onClose={() => setIsMobileModelsOpen(false)}
+              modelConfig={modelConfig}
+              selectedId={selectedModelId}
+              onSelect={(id) => {
+                setSelectedModelId(id);
+                setIsMobileModelsOpen(false);
+              }}
+              onAuthRequired={onAuthRequired}
+            />
+          )}
+        </div>
       {/* Scrollable message thread
           scrollbar-gutter:stable keeps the mx-auto column from nudging left
           the moment streamed content grows tall enough to spawn a scrollbar. */}
@@ -4525,8 +4576,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             recent-chats list underneath stay clickable through the gap. */}
         <div
           className={isThreadDocked
-            ? `w-full flex justify-center px-2.5 sm:px-4 pb-[20px] sm:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
-            : 'absolute inset-0 flex items-center justify-center px-2.5 sm:px-4 pointer-events-none'}
+            ? `w-full flex justify-center px-4 pb-[20px] sm:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
+            : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
         >
           <motion.div
             layout

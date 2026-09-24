@@ -99,7 +99,7 @@ export const StudioLayout: React.FC<{
     disconnectLocalFolder
   } = useLocalFS();
 
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const theme = getWorkspaceTheme(userProfile?.workspaceColor);
   const selectionBg = theme.creamy.rgba;
 
@@ -278,7 +278,7 @@ export const StudioLayout: React.FC<{
               fontSize: '14px',
               fontWeight: 500,
               lineHeight: '40px',
-              color: isLight ? '#444746' : '#c4c7c5',
+              color: isLight ? '#444746' : '#c4c7c5', /* color: '#c4c7c5' */
             }}
           >
             <span style={{ paddingLeft: '8px' }}>Temporary Chat</span>
@@ -299,7 +299,7 @@ export const StudioLayout: React.FC<{
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[12px] z-30 flex items-center">
+          <div className="absolute top-[14px] right-[52px] sm:right-[12px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -334,6 +334,29 @@ export const StudioLayout: React.FC<{
                 */}
                 {isIncognito ? 'close' : 'gemini_chat_temp'}
               </span>
+            </button>
+          </div>
+        )}
+        {/* Mobile top-right account avatar button (Exact Gemini mobile specs at x:342, y:12) */}
+        {currentView === 'home' && isChatExperience && (
+          <div className="sm:hidden absolute top-[12px] right-[12px] z-30 flex items-center">
+            <button
+              type="button"
+              aria-label="Open account menu"
+              onClick={() => onSettingsClick()}
+              className="flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-95"
+            >
+              {userProfile?.photoURL ? (
+                <img
+                  src={userProfile.photoURL}
+                  alt="User"
+                  className="h-8 w-8 rounded-full object-cover border border-white/10"
+                />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[13px] font-medium text-white">
+                  {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
+                </span>
+              )}
             </button>
           </div>
         )}

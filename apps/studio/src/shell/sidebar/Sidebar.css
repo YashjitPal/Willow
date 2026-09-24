@@ -207,6 +207,10 @@
     background: rgba(0, 0, 0, 0.06);
     color: #1f1f1f;
   }
+
+  .willow-conv-actions-anchor {
+    right: 52px !important;
+  }
 }
 
 /* Sidebar Skeleton Loader */

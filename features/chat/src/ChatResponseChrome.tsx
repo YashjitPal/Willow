@@ -468,7 +468,7 @@ const ContextSidebar: React.FC<{
           x: { duration: 0.3, ease: [0.2, 0, 0, 1] },
           opacity: { duration: 0.2, ease: [0.2, 0, 0, 1] },
         }}
-        className={`absolute bottom-2 sm:bottom-4 right-2 sm:right-3 top-2 sm:top-4 z-50 flex w-[400px] max-w-[calc(100%_-_16px)] sm:max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-xl sm:rounded-2xl border ${
+        className={`absolute bottom-2 sm:bottom-4 right-2 sm:right-3 top-2 sm:top-4 z-50 flex w-[400px] max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-xl sm:rounded-2xl border ${
           isLight
             ? 'border-black/10 bg-white text-[#1f1f1f] shadow-2xl'
             : 'border-white/[0.12] bg-[var(--studio-surface)] text-[#e3e3e3]'
