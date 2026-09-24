@@ -52,10 +52,20 @@ test('PlusDropdownMenu.tsx renders compact floating card for tablet & reduced de
   // Compact floating card:
   assert.match(code, /if \(deviceMode === 'compact'\)/);
   assert.match(code, /Math\.min\(375,/);
+  assert.match(code, /maxHeight:\s*360/);
   assert.match(code, /style=\{\{\s*left:\s*cardLeftOffset\s*\}\}/);
   assert.match(code, /willow-gem-menu-in/);
   assert.match(code, /renderUploadButtonsRow/);
   assert.match(code, /renderToolsList/);
+
+  // Squircle upload buttons: 95.6px (~96px), 40px radius, 4px gap, 16px row padding:
+  assert.match(code, /min-w-\[95\.6px\]\s+w-\[95\.6px\]\s+h-\[95\.6px\]/);
+  assert.match(code, /rounded-\[40px\]/);
+  assert.match(code, /gap-1\s+overflow-x-auto\s+px-4/);
+
+  // Compact tool rows: 64px height (h-16), 16px corners (rounded-2xl), 28px icons:
+  assert.match(code, /flex\s+h-16\s+w-full\s+items-center\s+rounded-2xl\s+px-2/);
+  assert.match(code, /text-\[16px\]\s+leading-6/);
 });
 
 test('PlusDropdownMenu.tsx preserves full desktop 249px menu with submenus', () => {

@@ -312,6 +312,15 @@ const LikenessAvatarIcon: React.FC<{ size?: number; className?: string }> = ({ s
 /**
  * Gemini's square squircle upload button used in compact tablet card & mobile bottom sheet.
  */
+/**
+ * Gemini's square squircle upload button used in compact tablet card & mobile bottom sheet.
+ * Measured off live Gemini over CDP:
+ *   width: 95.575px (~96px), height: 95.575px, min-width: 95.575px
+ *   border-radius: 40px
+ *   background-color: rgb(20, 20, 20) in dark theme, #f2f2f2 in light theme
+ *   gap: 4px between buttons, row horizontal padding: 0 16px (px-4)
+ *   label: 14px "Google Sans Flex", multiline wrapping (e.g. "Google Photos" on 2 lines)
+ */
 const SquircleUploadButton: React.FC<{
   label: string;
   icon: React.ReactNode;
@@ -322,23 +331,151 @@ const SquircleUploadButton: React.FC<{
     <button
       type="button"
       onClick={onClick}
-      className={`group flex min-w-[76px] w-[76px] h-[76px] shrink-0 flex-col items-center justify-center gap-1 rounded-[22px] transition-all outline-none ${
+      className={`group flex min-w-[95.6px] w-[95.6px] h-[95.6px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-[40px] transition-all outline-none select-none ${
         isLight
           ? 'bg-[#f2f2f2] hover:bg-[#e8e8e8] text-[#1f1f1f] active:scale-[0.96]'
           : 'bg-[#141414] hover:bg-[#252525] text-[#e6e6e6] active:scale-[0.96]'
       }`}
     >
-      <span className="flex h-7 w-7 items-center justify-center text-current">
+      <span className="flex h-8 w-8 items-center justify-center text-current">
         {icon}
       </span>
       <span
-        className="text-[12px] font-normal leading-[14px] text-center px-1 truncate w-full"
+        className="text-[13px] sm:text-[14px] font-normal leading-[16px] text-center px-1.5 line-clamp-2 max-w-[84px]"
         style={{
           fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+          fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+          color: isLight ? '#1f1f1f' : '#e0e0e0',
+        }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+};
+
+/**
+ * Gemini's compact tool row for reduced-width / tablet card and mobile bottom sheet.
+ * Measured live on Gemini:
+ *   height: 64px, min-height: 48px, padding: 12px 8px
+ *   border-radius: 16px
+ *   font-size: 16px, line-height: 24px, color: #e3e3e3
+ *   icon: 28px in 40x40 container
+ */
+const CompactToolRow: React.FC<{
+  glyph?: string;
+  family?: IconFamily;
+  icon?: React.ReactNode;
+  label: string;
+  tooltip?: string;
+  selected?: boolean;
+  onClick?: () => void;
+}> = ({ glyph, family, icon, label, tooltip, selected, onClick }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      title={tooltip}
+      onClick={onClick}
+      className="group/row relative flex h-16 w-full items-center rounded-2xl px-2 text-left transition-colors outline-none"
+      style={selected ? { backgroundColor: isLight ? '#f2f0f0' : '#171717' } : undefined}
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.06)' : HOVER_LAYER }}
+      />
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+        {icon ?? (
+          glyph ? (
+            <MaterialSymbol
+              name={glyph}
+              family={family ?? 'luminous'}
+              size={28}
+              weight={family === 'google-symbols' ? 330 : 320}
+              variationSettings={
+                family === 'google-symbols'
+                  ? undefined
+                  : '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 320'
+              }
+              className={isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}
+            />
+          ) : null
+        )}
+      </span>
+      <span
+        className={`relative ml-2 text-[16px] leading-6 font-normal ${
+          isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
+        } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+        style={{
           fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
         }}
       >
         {label}
+      </span>
+    </button>
+  );
+};
+
+const CompactPersonalIntelligenceRow: React.FC<{
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}> = ({ checked, onChange }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="group/row relative flex h-16 w-full items-center rounded-2xl px-2 text-left transition-colors outline-none"
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.06)' : HOVER_LAYER }}
+      />
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+        <span
+          aria-hidden="true"
+          className="block h-7 w-7 shrink-0"
+          style={{
+            backgroundColor: isLight ? '#1f1f1f' : '#e0e0e0',
+            maskImage: PERSONAL_RECOMMENDATIONS_MASK,
+            WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
+            maskSize: 'contain',
+            WebkitMaskSize: 'contain',
+            maskRepeat: 'no-repeat',
+            WebkitMaskRepeat: 'no-repeat',
+            maskPosition: 'center',
+            WebkitMaskPosition: 'center',
+          }}
+        />
+      </span>
+      <span className="relative ml-2 flex flex-col">
+        <span
+          className={`text-[16px] leading-tight font-normal ${
+            isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
+          } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+          style={{
+            fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+          }}
+        >
+          Personal Intelligence
+        </span>
+        <span
+          className="text-[13px] leading-tight font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+          style={{
+            fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+            color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)',
+          }}
+        >
+          Labs
+        </span>
+      </span>
+      <span className="relative ml-auto" aria-hidden="true">
+        <GeminiSwitch checked={checked} />
       </span>
     </button>
   );
@@ -352,7 +489,11 @@ function useDeviceMode(): DeviceMode {
     const width = window.innerWidth;
     const isCoarse = window.matchMedia('(pointer: coarse)').matches;
     const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isTouch = isCoarse || isMobileUA;
+    const hasForceMobile = typeof window !== 'undefined' && (
+      window.location.search.includes('mode=mobile') ||
+      window.location.search.includes('view=mobile')
+    );
+    const isTouch = isCoarse || isMobileUA || hasForceMobile;
     if (isTouch && width <= 960) return 'mobile';
     if (width <= 960) return 'compact';
     return 'desktop';
@@ -363,7 +504,11 @@ function useDeviceMode(): DeviceMode {
       const width = window.innerWidth;
       const isCoarse = window.matchMedia('(pointer: coarse)').matches;
       const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const isTouch = isCoarse || isMobileUA;
+      const hasForceMobile = typeof window !== 'undefined' && (
+        window.location.search.includes('mode=mobile') ||
+        window.location.search.includes('view=mobile')
+      );
+      const isTouch = isCoarse || isMobileUA || hasForceMobile;
       if (isTouch && width <= 960) {
         setDeviceMode('mobile');
       } else if (width <= 960) {
@@ -469,15 +614,22 @@ export const PlusDropdownMenu: React.FC<{
     if (!isOpen || deviceMode !== 'compact') return;
     const btn = buttonRef.current;
     if (!btn) return;
-    const rect = btn.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    const composerBox = btn.closest('.willow-gemini-composer') || btn.closest('.relative.w-full') || btn.parentElement;
+    const composerLeft = composerBox ? composerBox.getBoundingClientRect().left : btnRect.left;
     const cardWidth = Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375);
-    const rightEdge = rect.left + cardWidth;
-    const viewportRight = window.innerWidth - 16;
-    if (rightEdge > viewportRight) {
-      setCardLeftOffset(-(rightEdge - viewportRight));
-    } else {
-      setCardLeftOffset(0);
+
+    let targetOffset = composerLeft - btnRect.left;
+    const screenRight = btnRect.left + targetOffset + cardWidth;
+    const maxScreenRight = window.innerWidth - 16;
+    if (screenRight > maxScreenRight) {
+      targetOffset -= (screenRight - maxScreenRight);
     }
+    const screenLeft = btnRect.left + targetOffset;
+    if (screenLeft < 16) {
+      targetOffset += (16 - screenLeft);
+    }
+    setCardLeftOffset(targetOffset);
   }, [isOpen, deviceMode, buttonRef]);
 
   useEffect(() => {
@@ -655,35 +807,35 @@ export const PlusDropdownMenu: React.FC<{
   const SUB_LEFT = 249 - 8;
 
   const renderUploadButtonsRow = () => (
-    <div className="flex items-center gap-2 overflow-x-auto px-1 py-1 no-scrollbar">
+    <div className="flex items-center gap-1 overflow-x-auto px-4 py-1 no-scrollbar">
       <SquircleUploadButton
         label="Files"
-        icon={<MaterialSymbol family="luminous" name="attach_file" size={26} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="attach_file" size={28} weight={320} />}
         onClick={act(onFileSelect)}
       />
       <SquircleUploadButton
         label="Avatar"
-        icon={<LikenessAvatarIcon size={26} />}
+        icon={<LikenessAvatarIcon size={28} />}
         onClick={act(onAddAvatar)}
       />
       <SquircleUploadButton
         label="Drive"
-        icon={<MaterialSymbol family="google-symbols" name="drive" size={26} weight={330} />}
+        icon={<MaterialSymbol family="google-symbols" name="drive" size={28} weight={330} />}
         onClick={act(onAddFromDrive)}
       />
       <SquircleUploadButton
-        label="Photos"
-        icon={<MaterialSymbol family="google-symbols" name="photos" size={26} weight={330} />}
+        label="Google Photos"
+        icon={<MaterialSymbol family="google-symbols" name="photos" size={28} weight={330} />}
         onClick={act(onAddPhotos)}
       />
       <SquircleUploadButton
         label="Notebooks"
-        icon={<MaterialSymbol family="luminous" name="notebook" size={26} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="notebook" size={28} weight={320} />}
         onClick={act(onAddNotebook)}
       />
       <SquircleUploadButton
         label="Code"
-        icon={<MaterialSymbol family="luminous" name="code" size={26} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="code" size={28} weight={320} />}
         onClick={act(onImportCode)}
       />
     </div>
@@ -692,15 +844,46 @@ export const PlusDropdownMenu: React.FC<{
   const renderToolsList = () => {
     if (sparkMode && sparkToolsEnabled) {
       return (
-        <div className="flex flex-col gap-0.5">
-          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPlanIcon size={18} strokeWidth={2} /></span>} label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} />
-          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexGoalIcon size={18} strokeWidth={2} /></span>} label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} />
-          <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} />
-          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexSideChatIcon size={18} strokeWidth={2} /></span>} label="Side chat" labelInset={44} onClick={onClose} />
-          <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
-          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPetIcon size={18} strokeWidth={2} /></span>} label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} />
+        <div className="flex flex-col">
+          <CompactToolRow
+            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexPlanIcon size={24} strokeWidth={2} /></span>}
+            label="Plan"
+            selected={selectedTool === 'plan'}
+            onClick={() => pickTool('plan')}
+          />
+          <CompactToolRow
+            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexGoalIcon size={24} strokeWidth={2} /></span>}
+            label="Goal"
+            selected={selectedTool === 'goal'}
+            onClick={() => pickTool('goal')}
+          />
+          <CompactToolRow
+            glyph={TOOL_SYMBOLS['computer-use']}
+            family="google-symbols"
+            label="Computer Use"
+            selected={selectedTool === 'computer-use'}
+            onClick={() => pickTool('computer-use')}
+          />
+          <CompactToolRow
+            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexSideChatIcon size={24} strokeWidth={2} /></span>}
+            label="Side chat"
+            onClick={onClose}
+          />
+          <CompactToolRow
+            glyph={TOOL_SYMBOLS['create-skill']}
+            family="google-symbols"
+            label="Create skill"
+            selected={selectedTool === 'create-skill'}
+            onClick={() => pickTool('create-skill')}
+          />
+          <CompactToolRow
+            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexPetIcon size={24} strokeWidth={2} /></span>}
+            label="Create pet"
+            selected={selectedTool === 'create-pet'}
+            onClick={() => pickTool('create-pet')}
+          />
           {onTogglePersonalIntelligence && (
-            <PersonalIntelligenceRow
+            <CompactPersonalIntelligenceRow
               checked={personalIntelligence}
               onChange={onTogglePersonalIntelligence}
             />
@@ -710,15 +893,51 @@ export const PlusDropdownMenu: React.FC<{
     }
 
     return (
-      <div className="flex flex-col gap-0.5">
-        <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} />
-        <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} />
-        <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} />
-        <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} />
-        <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
-        <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
+      <div className="flex flex-col">
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.images}
+          label="Create image"
+          tooltip={TOOL_TOOLTIPS.images}
+          selected={selectedTool === 'images'}
+          onClick={() => pickTool('images')}
+        />
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.video}
+          label="Create video"
+          tooltip={TOOL_TOOLTIPS.video}
+          selected={selectedTool === 'video'}
+          onClick={() => pickTool('video')}
+        />
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.music}
+          label="Create music"
+          tooltip={TOOL_TOOLTIPS.music}
+          selected={selectedTool === 'music'}
+          onClick={() => pickTool('music')}
+        />
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.canvas}
+          label="Canvas"
+          tooltip={TOOL_TOOLTIPS.canvas}
+          selected={selectedTool === 'canvas'}
+          onClick={() => pickTool('canvas')}
+        />
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.research}
+          label="Deep research"
+          tooltip={TOOL_TOOLTIPS.research}
+          selected={selectedTool === 'research'}
+          onClick={() => pickTool('research')}
+        />
+        <CompactToolRow
+          glyph={TOOL_SYMBOLS.learn}
+          label="Guided learning"
+          tooltip={TOOL_TOOLTIPS.learn}
+          selected={selectedTool === 'learn'}
+          onClick={() => pickTool('learn')}
+        />
         {onTogglePersonalIntelligence && (
-          <PersonalIntelligenceRow
+          <CompactPersonalIntelligenceRow
             checked={personalIntelligence}
             onChange={onTogglePersonalIntelligence}
           />
@@ -772,10 +991,8 @@ export const PlusDropdownMenu: React.FC<{
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 pb-6">
+            <div className="flex-1 overflow-y-auto px-2 pb-6 no-scrollbar">
               {renderUploadButtonsRow()}
-              {!sparkMode && <Divider />}
-              {sparkMode && sparkToolsEnabled && <Divider />}
               {renderToolsList()}
             </div>
           </div>
@@ -796,9 +1013,10 @@ export const PlusDropdownMenu: React.FC<{
           <div
             role="menu"
             aria-label="Upload and tools"
-            className="willow-gem-menu-in overflow-hidden"
+            className="willow-gem-menu-in overflow-y-auto no-scrollbar"
             style={{
               width: Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375),
+              maxHeight: 360,
               backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
               borderRadius: 20,
               padding: 8,
@@ -807,8 +1025,6 @@ export const PlusDropdownMenu: React.FC<{
             }}
           >
             {renderUploadButtonsRow()}
-            {!sparkMode && <Divider />}
-            {sparkMode && sparkToolsEnabled && <Divider />}
             {renderToolsList()}
           </div>
         </div>
