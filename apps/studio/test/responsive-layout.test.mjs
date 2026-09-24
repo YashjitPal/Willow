@@ -75,12 +75,9 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Corner radius: 32px desktop, 36px tablet, 40px mobile:
   assert.match(composer, /rounded-\[32px\] min-\[769px\]:max-\[960px\]:rounded-\[36px\] max-\[768px\]:rounded-\[40px\]/);
 
-  // Plus button: 32px desktop, 40px tablet & mobile (<= 960px):
+  // Plus, mic, and submit buttons: 32px desktop, 40px tablet & mobile (<= 960px):
   assert.match(composer, /w-8 max-\[960px\]:w-10/);
   assert.match(composer, /w-8 h-8 max-\[960px\]:w-10 max-\[960px\]:h-10/);
-
-  // Mic and submit buttons: 32px desktop & tablet, 40px mobile:
-  assert.match(composer, /w-8 h-8 max-\[768px\]:w-10 max-\[768px\]:h-10/);
 
   // Plus button and trailing controls vertically centered for each tier:
   assert.match(composer, /bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);

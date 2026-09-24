@@ -299,6 +299,15 @@
     font-optical-sizing: none;
     font-variation-settings: "ROND" 0, "opsz" 22, "slnt" 0, "wdth" 100;
   }
+
+  .willow-composer-leading-actions .luminous-symbols,
+  .willow-composer-trailing-actions .luminous-symbols,
+  .willow-composer-trailing-actions .material-symbols-rounded,
+  .willow-composer-trailing-actions svg {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 28px !important;
+  }
 }
 
 
