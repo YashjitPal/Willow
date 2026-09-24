@@ -55,12 +55,22 @@ export const useCollapsedChatPaddingRight = ({
       const modelRect = modelButton.getBoundingClientRect();
       const micRect = micButton.getBoundingClientRect();
 
-      const occupiedWidthFromModelPill = controlsRect.right - modelRect.left;
-      const modelToMicControlGap = Math.max(0, micRect.left - modelRect.right);
-      // Account for the mic glyph's side bearing so this is an optical gap,
-      // matching the visible pill-to-mic distance rather than button boxes.
-      const opticalGap = Math.max(12, modelToMicControlGap + (micRect.width - 24) / 2);
-      const nextPadding = Math.ceil(occupiedWidthFromModelPill + opticalGap);
+      const isModelPillVisible = modelRect.width > 0;
+      let nextPadding: number;
+
+      if (isModelPillVisible) {
+        const occupiedWidthFromModelPill = controlsRect.right - modelRect.left;
+        const modelToMicControlGap = Math.max(0, micRect.left - modelRect.right);
+        // Account for the mic glyph's side bearing so this is an optical gap,
+        // matching the visible pill-to-mic distance rather than button boxes.
+        const opticalGap = Math.max(12, modelToMicControlGap + (micRect.width - 24) / 2);
+        nextPadding = Math.ceil(occupiedWidthFromModelPill + opticalGap);
+      } else {
+        // When model pill is hidden (e.g. mobile/tablet <= 960px):
+        // Reserve width for the trailing controls (mic/live/send button) + gap.
+        const controlsWidth = controlsRect.width;
+        nextPadding = Math.ceil(controlsWidth > 0 ? controlsWidth + 14 : 56);
+      }
 
       setCollapsedChatPaddingRight((current) => current === nextPadding ? current : nextPadding);
     };
