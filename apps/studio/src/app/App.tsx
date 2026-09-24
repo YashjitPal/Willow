@@ -668,8 +668,23 @@ const App: React.FC = () => {
   }, [selectedModelId]);
 
   // Studio top-level mode: Develop (hero → workbench) vs Chat (in-studio ChatGPT-style thread)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsSidebarCollapsed(true);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [studioExperience, setStudioExperience] = useState<StudioExperience>('chat');
   const previousSparkLocationKeyRef = React.useRef<string | null>(null);
   const [studioMode, setStudioMode] = useState<'develop' | 'chat' | 'media'>(() => {

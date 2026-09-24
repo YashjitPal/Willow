@@ -64,9 +64,9 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
 
   return (
     <div
-      className={`relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] ${
+      className={`relative min-w-0 max-w-full sm:max-w-[508px] overflow-visible rounded-[28px] sm:rounded-[40px] ${
         isLight ? 'bg-[#f2f0f0] text-[#1f1f1f]' : 'bg-[#171717] text-[#e3e3e3]'
-      } px-7 py-5 text-[17px] font-normal leading-6 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
+      } px-4 py-3 sm:px-7 sm:py-5 text-[15px] sm:text-[17px] font-normal leading-6 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       <div

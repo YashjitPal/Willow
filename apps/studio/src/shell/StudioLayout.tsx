@@ -140,8 +140,8 @@ export const StudioLayout: React.FC<{
         </div>
       )}
 
-      {/* The sidebar is unconditional — see the note on BackgroundRenderer above. */}
-      {studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && (
+      {/* Mobile sidebar toggle button (universal across all views) */}
+      {isSidebarCollapsed && !isSidebarHidden && (
         <button
           type="button"
           className="studio-sidebar-mobile-open"
@@ -163,7 +163,12 @@ export const StudioLayout: React.FC<{
           setCurrentView('search');
         }}
         currentView={currentView}
-        onViewChange={setCurrentView}
+        onViewChange={(view) => {
+          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            setIsSidebarCollapsed(true);
+          }
+          setCurrentView(view);
+        }}
         studioMode={studioMode}
         onModeChange={onModeChange}
         studioExperience={studioExperience}
@@ -174,6 +179,9 @@ export const StudioLayout: React.FC<{
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         hasActiveChat={isChatOngoing}
         onNewChat={() => {
+          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            setIsSidebarCollapsed(true);
+          }
           selectLocalFSInboxChat(null);
           onNewChat();
         }}
@@ -181,10 +189,15 @@ export const StudioLayout: React.FC<{
         onIncognitoChat={onIncognitoChat}
         isHidden={isSidebarHidden}
         activeNotebookId={activeNotebookId}
-        onOpenNotebook={onOpenNotebook}
+        onOpenNotebook={(id) => {
+          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            setIsSidebarCollapsed(true);
+          }
+          onOpenNotebook?.(id);
+        }}
         onSignInClick={onSignInClick}
       />
-      {studioExperience === 'spark' && !isSidebarCollapsed && (
+      {!isSidebarCollapsed && (
         <button
           type="button"
           className="studio-sidebar-mobile-scrim"

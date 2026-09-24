@@ -1,0 +1,66 @@
+/**
+ * Responsive layout tests verifying mobile drawer navigation, breakpoints, and zero desktop regressions.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const read = (rel) => readFileSync(join(root, rel), 'utf8');
+
+test('Sidebar.css defines universal mobile drawer and scrim rules at 768px breakpoint', () => {
+  const css = read('apps/studio/src/shell/sidebar/Sidebar.css');
+
+  // Universal media query breakpoint:
+  assert.match(css, /@media \(max-width:\s*768px\)/);
+
+  // Mobile scrim:
+  assert.match(css, /\.studio-sidebar-mobile-scrim \{\s*position:\s*fixed;\s*inset:\s*0;\s*z-index:\s*45;/);
+
+  // Mobile sidebar container:
+  assert.match(css, /\.studio-sidebar \{\s*position:\s*fixed !important;\s*inset:\s*0 auto 0 0 !important;\s*z-index:\s*50 !important;/);
+  assert.match(css, /\.studio-sidebar--collapsed \{\s*transform:\s*translateX\(-100%\) !important;/);
+  assert.match(css, /\.studio-sidebar--expanded \{\s*transform:\s*translateX\(0\) !important;/);
+
+  // Mobile open trigger:
+  assert.match(css, /\.studio-sidebar-mobile-open \{\s*position:\s*fixed;\s*top:\s*8px;\s*left:\s*8px;\s*z-index:\s*35;/);
+  assert.match(css, /:is\(\.light-theme, \[data-theme="light"\]\) \.studio-sidebar-mobile-open \{\s*color:\s*#444746;\s*\}/);
+});
+
+test('StudioLayout.tsx enables universal mobile sidebar toggle and auto-collapse', () => {
+  const layout = read('apps/studio/src/shell/StudioLayout.tsx');
+
+  // Mobile open button is no longer restricted to spark:
+  assert.doesNotMatch(layout, /studioExperience === 'spark' && isSidebarCollapsed && !isSidebarHidden && \(\s*<button\s*type="button"\s*className="studio-sidebar-mobile-open"/);
+  assert.match(layout, /isSidebarCollapsed && !isSidebarHidden && \(\s*<button\s*type="button"\s*className="studio-sidebar-mobile-open"/);
+
+  // Scrim button is universal:
+  assert.doesNotMatch(layout, /studioExperience === 'spark' && !isSidebarCollapsed && \(\s*<button\s*type="button"\s*className="studio-sidebar-mobile-scrim"/);
+  assert.match(layout, /!isSidebarCollapsed && \(\s*<button\s*type="button"\s*className="studio-sidebar-mobile-scrim"/);
+
+  // Auto-collapse on mobile navigation:
+  assert.match(layout, /window\.innerWidth < 768/);
+});
+
+test('App.tsx initializes isSidebarCollapsed responsively and listens to resize', () => {
+  const app = read('apps/studio/src/app/App.tsx');
+  assert.match(app, /window\.innerWidth < 768/);
+  assert.match(app, /window\.addEventListener\('resize', handleResize\)/);
+});
+
+test('Chat surface adapts messages, bubbles, and composer docking for mobile viewports', () => {
+  const bubble = read('features/chat/src/UserMessageBubble.tsx');
+  assert.match(bubble, /max-w-full sm:max-w-\[508px\]/);
+  assert.match(bubble, /rounded-\[28px\] sm:rounded-\[40px\]/);
+  assert.match(bubble, /px-4 py-3 sm:px-7 sm:py-5/);
+
+  const chatView = read('features/chat/src/ChatView.tsx');
+  assert.match(chatView, /px-3\.5 sm:px-7 pt-\[56px\] sm:pt-\[72px\]/);
+  assert.match(chatView, /w-full sm:w-auto sm:max-w-\[516px\]/);
+  assert.match(chatView, /px-2\.5 sm:px-4 pb-\[20px\] sm:pb-\[49px\]/);
+
+  const chrome = read('features/chat/src/ChatResponseChrome.tsx');
+  assert.match(chrome, /max-w-\[calc\(100%_-_16px\)\] sm:max-w-\[calc\(100%_-_32px\)\]/);
+});

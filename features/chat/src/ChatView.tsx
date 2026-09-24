@@ -3696,7 +3696,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
            * work either (margin fights `mx-auto`, transform makes this a containing
            * block for any fixed-position descendant).
            */
-          className={`mx-auto flex w-full max-w-[760px] flex-col border-l-transparent pl-7 pr-7 pt-[72px] pb-[20px] ${
+          className={`mx-auto flex w-full max-w-[760px] flex-col border-l-transparent px-3.5 sm:px-7 pt-[56px] sm:pt-[72px] pb-[20px] ${
             immersiveOpen
               ? 'min-[960px]:border-l-[24px]'
               : 'transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
@@ -3800,7 +3800,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </div>
                     </form>
                   ) : (
-                    <div className="flex min-w-0 max-w-[516px] flex-col items-end">
+                    <div className="flex min-w-0 w-full sm:w-auto sm:max-w-[516px] flex-col items-end">
                       {!!msg.attachments?.length && (
                         <div className={`flex w-full max-w-[516px] flex-nowrap justify-end gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${msg.content || msg.isTranscribing ? 'mb-2' : ''}`}>
                           {msg.attachments.map((attachment) => (
@@ -4525,8 +4525,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             recent-chats list underneath stay clickable through the gap. */}
         <div
           className={isThreadDocked
-            ? `w-full flex justify-center px-4 pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
-            : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
+            ? `w-full flex justify-center px-2.5 sm:px-4 pb-[20px] sm:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
+            : 'absolute inset-0 flex items-center justify-center px-2.5 sm:px-4 pointer-events-none'}
         >
           <motion.div
             layout
